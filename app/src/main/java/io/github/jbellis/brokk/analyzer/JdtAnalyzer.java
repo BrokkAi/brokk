@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.util.LombokAnalysisUtils;
+import org.apache.commons.io.FileUtils;
 import org.eclipse.jdt.core.dom.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -20,7 +22,13 @@ import java.util.stream.Stream;
 public class JdtAnalyzer implements IAnalyzer {
 
     private final Logger logger = LoggerFactory.getLogger(JdtAnalyzer.class);
-    private final Map<IMethodBinding, Set<IMethodBinding>> callGraph = new HashMap<>();
+    private final Map<Method, Set<Method>> callGraph = new HashMap<>();
+
+    // Our "unknown" type is Object. This is not necessarily sound, but is friendly for now
+    private static final String UNKNOWN = "java.lang.Object";
+    private static final String VOID = "void";
+    private static final String INIT = "<init>";
+    private static final String UNRESOLVED_NAMESPACE = "<unresolvedNamespace>";
 
     /**
      * Instantiates an Eclipse JDT based analyzer for Java source code.
@@ -32,13 +40,27 @@ public class JdtAnalyzer implements IAnalyzer {
         if (!Files.isDirectory(projectRoot)) {
             throw new IllegalArgumentException("Error: Provided source path is not a valid directory: " + projectRoot);
         } else {
-            final var absProjectRoot = projectRoot.toAbsolutePath();
-            final Set<Path> exclusions = excludedDirectories.stream()
-                    .map(p -> absProjectRoot.resolve(p).toAbsolutePath())
-                    .collect(Collectors.toSet());
+            var absProjectRoot = projectRoot.toAbsolutePath();
+            final Set<Path> exclusions = excludedDirectories.stream().map(Path::of).collect(Collectors.toSet());
 
-            final var sourceFiles = this.parseDirectory(absProjectRoot, exclusions);
-            this.parseFilesAndConstructCallGraph(absProjectRoot, sourceFiles);
+            if (LombokAnalysisUtils.projectUsesLombok(projectRoot)) {
+                try {
+                    final var tempDir = Files.createTempDirectory("brokk-jdt-analyzer-delombok-");
+                    try {
+                        if (LombokAnalysisUtils.runDelombok(projectRoot, tempDir)) {
+                            this.parseFilesAndConstructCallGraph(tempDir, this.parseDirectory(tempDir, exclusions));
+                        } else {
+                            this.parseFilesAndConstructCallGraph(absProjectRoot, this.parseDirectory(absProjectRoot, exclusions));
+                        }
+                    } finally {
+                        FileUtils.deleteDirectory(tempDir.toFile());
+                    }
+                } catch (IOException e) {
+                    logger.error("Unable to create temporary directory to run Delombok on {}", projectRoot, e);
+                }
+            } else {
+                this.parseFilesAndConstructCallGraph(absProjectRoot, this.parseDirectory(absProjectRoot, exclusions));
+            }
         }
     }
 
@@ -129,36 +151,35 @@ public class JdtAnalyzer implements IAnalyzer {
     private class CallGraphVisitor extends ASTVisitor {
 
         @Nullable
-        private IMethodBinding currentMethodBinding = null;
+        private Method currentMethod = null;
 
         // Visit a method declaration to set the current context
         @Override
         public boolean visit(MethodDeclaration node) {
             // Resolve the binding for the current method declaration
-            this.currentMethodBinding = node.resolveBinding();
-            if (this.currentMethodBinding != null) {
-                callGraph.computeIfAbsent(this.currentMethodBinding, k -> new HashSet<>());
-            }
+            this.currentMethod = Optional.ofNullable(node.resolveBinding())
+                    .map(JdtAnalyzer.this::convert)
+                    .orElse(convert(node));
+            logger.debug("Parsed method declaration: {}", this.currentMethod);
+            callGraph.put(this.currentMethod, new HashSet<>());
             return super.visit(node);
         }
 
         // After visiting the method, clear the context
         @Override
         public void endVisit(MethodDeclaration node) {
-            this.currentMethodBinding = null;
+            this.currentMethod = null;
             super.endVisit(node);
         }
 
         // Visit a method invocation to find a call
         @Override
         public boolean visit(MethodInvocation node) {
-            if (currentMethodBinding != null) {
-                IMethodBinding invokedMethodBinding = node.resolveMethodBinding();
-                if (invokedMethodBinding != null) {
-                    // We have a caller (currentMethodBinding) and a callee (invokedMethodBinding)
-                    callGraph.computeIfAbsent(currentMethodBinding, k -> new HashSet<>())
-                            .add(invokedMethodBinding.getMethodDeclaration());
-                }
+            if (currentMethod != null) {
+                logger.debug("Parsing method invocation: {}", node.getName());
+                callGraph.computeIfAbsent(currentMethod, k -> new HashSet<>()).add(convert(node));
+            } else {
+                logger.warn("Parsing method invocation without method declaration in context: {}", node.getName());
             }
             return super.visit(node);
         }
@@ -166,15 +187,174 @@ public class JdtAnalyzer implements IAnalyzer {
         // Also visit constructor invocations
         @Override
         public boolean visit(ClassInstanceCreation node) {
-            if (currentMethodBinding != null) {
-                IMethodBinding constructorBinding = node.resolveConstructorBinding();
-                if (constructorBinding != null) {
-                    callGraph.computeIfAbsent(currentMethodBinding, k -> new HashSet<>())
-                            .add(constructorBinding.getMethodDeclaration());
-                }
+            if (currentMethod != null) {
+                logger.debug("Parsing class instance creation: {}", node.getType());
+                callGraph.computeIfAbsent(currentMethod, k -> new HashSet<>()).add(convert(node));
+            } else {
+                logger.warn("Parsing class instance creation without method declaration in context: {}", node.getType());
             }
             return super.visit(node);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Method convert(@NotNull MethodDeclaration methodDeclaration) {
+        return Optional.ofNullable(methodDeclaration.resolveBinding())
+                .map(this::convert)
+                .orElse(new LibraryMethod(
+                        methodDeclaration.getName().getIdentifier(),
+                        Optional.ofNullable(methodDeclaration.getReturnType2())
+                                .map(this::typeFullName)
+                                .orElse(UNKNOWN),
+                        signature(methodDeclaration.parameters()),
+                        UNRESOLVED_NAMESPACE
+                ));
+    }
+
+    private Method convert(@NotNull IMethodBinding methodBinding) {
+        return new ApplicationMethod(
+                methodBinding.getName(),
+                methodBinding.getReturnType().getQualifiedName(),
+                signature(methodBinding.getParameterTypes()),
+                methodBinding.getDeclaringClass().getQualifiedName(),
+                methodBinding.toString()
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private Method convert(@NotNull ClassInstanceCreation instanceCreation) {
+        return Optional.ofNullable(instanceCreation.resolveConstructorBinding())
+                .map(this::convert)
+                .orElse(new LibraryMethod(
+                        INIT,
+                        typeFullName(instanceCreation.getType()),
+                        signature(instanceCreation.arguments()),
+                        typeFullName(instanceCreation.getType())
+                ));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Method convert(@NotNull MethodInvocation methodInvocation) {
+        return Optional.ofNullable(methodInvocation.resolveMethodBinding())
+                .map(this::convert)
+                .orElse(new LibraryMethod(
+                methodInvocation.getName().getIdentifier(),
+                Optional.ofNullable(methodInvocation.getExpression())
+                        .map(Expression::resolveTypeBinding)
+                        .map(ITypeBinding::getQualifiedName)
+                        .orElse(UNKNOWN),
+                signature(methodInvocation.arguments()),
+                UNRESOLVED_NAMESPACE
+        ));
+    }
+
+    private String signature(ITypeBinding[] parameterTypes) {
+        if (parameterTypes.length == 0) return VOID;
+        else return Arrays.stream(parameterTypes)
+                .map(ITypeBinding::getQualifiedName)
+                .collect(Collectors.joining(","));
+    }
+
+    private String signature(List<? extends ASTNode> arguments) {
+        if (arguments.isEmpty()) {
+            return VOID;
+        } else {
+            return arguments.stream()
+                    .map(node -> {
+                        if (node instanceof Expression expr) {
+                            ITypeBinding binding = expr.resolveTypeBinding();
+                            return (binding != null) ? binding.getQualifiedName() : UNKNOWN;
+                        } else if (node instanceof SingleVariableDeclaration svd) {
+                            return typeFullName(svd.getType());
+                        } else {
+                            logger.warn("Unhandled ASTNode during signature creation: {}", node);
+                            return UNKNOWN;
+                        }
+                    })
+                    .collect(Collectors.joining(","));
+        }
+    }
+
+    private String typeFullName(@NotNull Type type) {
+        return Optional.ofNullable(type.resolveBinding()).map(ITypeBinding::getQualifiedName).orElse(UNKNOWN);
+    }
+
+    interface Method {
+        @NotNull String name();
+
+        @NotNull String declaringClassFullName();
+
+        @NotNull String returnType();
+
+        @NotNull String signature();
+
+        @NotNull
+        default String fullName(boolean withSignature) {
+            if (withSignature) return String.format("%s.%s", declaringClassFullName(), name());
+            else return String.format("%s.%s:%s(%s)", declaringClassFullName(), name(), returnType(), signature());
+        }
+
+        @NotNull
+        default String fullName() {
+            return fullName(false);
+        }
+
+        @NotNull
+        default String code() {
+            return String.format("%s %s(%s) { ... }", returnType(), name(), signature());
+        }
+    }
+
+    record ApplicationMethod(@NotNull String name, @NotNull String returnType, @NotNull String signature,
+                             @NotNull String declaringClassFullName, @NotNull String code) implements Method {
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(name, signature, declaringClassFullName);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj instanceof ApplicationMethod other) {
+                return Objects.equals(name, other.name) &&
+                        Objects.equals(declaringClassFullName, other.declaringClassFullName) &&
+                        Objects.equals(signature, other.signature);
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return String.format("ApplicationMethod(%s)", fullName());
+        }
+
+    }
+
+    record LibraryMethod(@NotNull String name, @NotNull String returnType, @NotNull String signature,
+                         @NotNull String declaringClassFullName) implements Method {
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(name, signature, declaringClassFullName);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (obj instanceof LibraryMethod other) {
+                return Objects.equals(name, other.name) &&
+                        Objects.equals(declaringClassFullName, other.declaringClassFullName) &&
+                        Objects.equals(signature, other.signature);
+            } else {
+                return false;
+            }
+        }
+
+        @Override
+        public String toString() {
+            return String.format("LibraryMethod(%s)", fullName());
+        }
+
     }
 
 }

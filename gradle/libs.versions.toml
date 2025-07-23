@@ -66,6 +66,7 @@ jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
+lombok = "org.projectlombok:lombok:1.18.32"
 
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
