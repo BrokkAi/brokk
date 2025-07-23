@@ -4,10 +4,15 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
-.idea
 *.iws
 *.iml
 *.ipr
+
+### Gradle files
+build/
+build-logic/.gradle/
+.gradle/
+
 
 ### Eclipse ###
 .apt_generated
@@ -48,5 +53,10 @@ project/project/
 !.brokk/style.md
 !.brokk/review.md
 !.brokk/project.properties
+
+### JOERN'S CONFIGURATION ###
+cpg.bin
+/workspace/
+
+### frontend
 /frontend-mop/node_modules/
-/.idea/shelf/Uncommitted_changes_before_Checkout_at_2025-05-13_00_01_[Changes]/shelved.patch

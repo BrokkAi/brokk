@@ -1,0 +1,112 @@
+[versions]
+joern = "4.0.379"
+junit = "5.10.2"
+scalatest = "3.2.18"
+log4j = "2.20.0"
+jackson = "2.18.3"
+jgit = "7.2.1.202505142326-r"
+scala = "3.6.4"
+nullaway = "0.12.7"
+flatlaf = "3.6"
+flexmark = "0.64.8"
+treesitter = "0.25.3"
+picocli = "4.7.7"
+
+[libraries]
+# Scala
+scala-library = { module = "org.scala-lang:scala3-library_3", version.ref = "scala" }
+
+# Joern
+joern-x2cpg = { module = "io.joern:x2cpg_3", version.ref = "joern" }
+joern-c2cpg = { module = "io.joern:c2cpg_3", version.ref = "joern" }
+joern-javasrc2cpg = { module = "io.joern:javasrc2cpg_3", version.ref = "joern" }
+joern-pysrc2cpg = { module = "io.joern:pysrc2cpg_3", version.ref = "joern" }
+joern-cli = { module = "io.joern:joern-cli_3", version.ref = "joern" }
+joern-semanticcpg = { module = "io.joern:semanticcpg_3", version.ref = "joern" }
+
+# Logging
+slf4j-api = "org.slf4j:slf4j-api:2.0.16"
+log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", version.ref = "log4j" }
+
+# Jackson
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+
+# Testing
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
+junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
+junit-platform-engine = "org.junit.platform:junit-platform-engine:1.10.0"
+junit-platform-launcher = "org.junit.platform:junit-platform-launcher:1.10.0"
+junit-platform-commons = "org.junit.platform:junit-platform-commons:1.10.0"
+scalatest-core = { module = "org.scalatest:scalatest_3", version.ref = "scalatest" }
+scalatest-junit4 = { module = "org.scalatestplus:junit-4-13_3", version = "3.2.18.0" }
+scalatest-junit5 = { module = "org.scalatestplus:junit-5-10_3", version = "3.2.18.0" }
+jupiter-interface = "com.github.sbt.junit:jupiter-interface:0.13.3"
+
+# Static Analysis
+nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
+jsr305 = "com.google.code.findbugs:jsr305:3.0.2"
+checker-qual = "org.checkerframework:checker-qual:3.49.3"
+checker-util = "org.checkerframework:checker-util:3.49.3"
+dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
+
+# UI
+flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }
+rsyntaxtextarea = "com.fifesoft:rsyntaxtextarea:3.5.4"
+autocomplete = "com.fifesoft:autocomplete:3.3.2"
+jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
+
+# Utilities
+okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
+jspecify = "org.jspecify:jspecify:1.0.0"
+jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
+snakeyaml = "org.yaml:snakeyaml:2.3"
+jlama-core = "com.github.tjake:jlama-core:0.8.3"
+java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
+jtokkit = "com.knuddels:jtokkit:1.1.0"
+picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
+
+# Markdown
+flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
+flexmark-html2md = { module = "com.vladsch.flexmark:flexmark-html2md-converter", version.ref = "flexmark" }
+mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
+
+# GitHub API
+github-api = "org.kohsuke:github-api:1.327"
+jsoup = "org.jsoup:jsoup:1.19.1"
+
+# Git
+jgit-core = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
+jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
+bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
+
+# TreeSitter
+treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
+treesitter-csharp = "io.github.bonede:tree-sitter-c-sharp:0.23.1"
+treesitter-go = "io.github.bonede:tree-sitter-go:0.23.3"
+treesitter-javascript = "io.github.bonede:tree-sitter-javascript:0.23.1"
+treesitter-php = "io.github.bonede:tree-sitter-php:0.23.11"
+treesitter-python = "io.github.bonede:tree-sitter-python:0.23.4"
+treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
+treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
+
+# Decompiler
+java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
+
+[bundles]
+joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-pysrc2cpg", "joern-cli", "joern-semanticcpg"]
+logging = ["slf4j-api", "log4j-slf4j2-impl"]
+junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
+junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
+scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
+ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
+markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
+git = ["jgit-core", "jgit-ssh", "bouncycastle"]
+treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+
+[plugins]
+errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
+shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }
+buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
+spotless = { id = "com.diffplug.spotless", version = "6.25.0" }
