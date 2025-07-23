@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
 import io.github.jbellis.brokk.gui.util.ScaledIcon;
@@ -15,10 +16,7 @@ import io.github.jbellis.brokk.util.Messages;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
@@ -854,8 +852,7 @@ public class BlitzForgeDialog extends JDialog {
         ppPanel.add(outputPanel, ppGBC);
         ppGBC.gridwidth = 1;
 
-
-        java.awt.event.ActionListener postProcessListener = ev -> {
+        ActionListener postProcessListener = ev -> {
             String selectedOption = (String) runPostProcessCombo.getSelectedItem();
             boolean ask = "Ask".equals(selectedOption);
             boolean architect = "Architect".equals(selectedOption);
@@ -863,37 +860,57 @@ public class BlitzForgeDialog extends JDialog {
 
             postProcessingInstructionsArea.setEnabled(!none);
             postProcessingScrollPane.setEnabled(!none);
+            assert SwingUtilities.isEventDispatchThread();
 
-            // Build-first checkbox handling
-            var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
-                    .determineVerificationCommand(chrome.getContextManager());
-            boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+            // Build-first checkbox handling (run off-EDT)
+            final String option = selectedOption;           // capture for SwingWorker
+            new javax.swing.SwingWorker<String, Void>() {
+                @Override
+                protected @org.jetbrains.annotations.Nullable String doInBackground() {
+                    // Heavy work off the Event-Dispatch Thread
+                    return io.github.jbellis.brokk.agents.BuildAgent
+                            .determineVerificationCommand(cm);
+                }
 
-            if (!hasVerification) {
-                // No verify command -> always disabled & unselected
-                buildFirstCheckbox.setEnabled(false);
-                buildFirstCheckbox.setSelected(false);
-                // The tooltip is on the info icon, so no need to set it here specifically for the checkbox
-                // buildFirstCheckbox.setToolTipText("No build/verification command available"); // This line can be removed if desired
-                buildFirstInfoIcon.setVisible(true); // show the info icon
-            } else {
-                buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
-                buildFirstInfoIcon.setVisible(false); // hide the info icon
-                switch (selectedOption) {
-                    case "Architect" -> {
-                        buildFirstCheckbox.setEnabled(true);
-                        buildFirstCheckbox.setSelected(true);
+                @Override
+                protected void done() {
+                    // Back on EDT
+                    String verificationCommand;
+                    try {
+                        verificationCommand = get();
+                    } catch (Exception ex) {
+                        logger.warn("Failed to determine verification command", ex);
+                        verificationCommand = null;
                     }
-                    case "Ask" -> {
-                        buildFirstCheckbox.setEnabled(true);
-                        buildFirstCheckbox.setSelected(false);
-                    }
-                    default -> { // None
+
+                    boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+
+                    if (!hasVerification) {
                         buildFirstCheckbox.setEnabled(false);
                         buildFirstCheckbox.setSelected(false);
+                        buildFirstInfoIcon.setVisible(true);
+                    } else {
+                        buildFirstCheckbox.setToolTipText(
+                                "Run the project's build/verification command before invoking post-processing");
+                        buildFirstInfoIcon.setVisible(false);
+
+                        switch (option) {
+                            case "Architect" -> {
+                                buildFirstCheckbox.setEnabled(true);
+                                buildFirstCheckbox.setSelected(true);
+                            }
+                            case "Ask" -> {
+                                buildFirstCheckbox.setEnabled(true);
+                                buildFirstCheckbox.setSelected(false);
+                            }
+                            default -> {
+                                buildFirstCheckbox.setEnabled(false);
+                                buildFirstCheckbox.setSelected(false);
+                            }
+                        }
                     }
                 }
-            }
+            }.execute();
 
             //Parallel-output combo defaults
             if (ask) {
