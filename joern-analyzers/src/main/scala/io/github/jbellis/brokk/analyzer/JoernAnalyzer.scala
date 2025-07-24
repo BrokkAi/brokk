@@ -99,6 +99,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     builder: CpgBuilder[R]
   ): IAnalyzer = {
     Try(cpg.close()).failed.foreach(e => logger.error("Error encountered while closing CPG before update.", e))
+    this.cpg = null // dereference cpg
     Try(
       config
         .withInputPath(cpg.projectRoot.toString)
@@ -106,10 +107,14 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
         .buildAndThrow(maybeChangedFiles)
         .open
     ) match {
-      case Success(newCpg)    => cpg = newCpg
-      case Failure(exception) => logger.error("Error encountered while updating CPG.", exception)
+      case Success(newCpg)    =>
+        cpg = newCpg
+        this
+      case Failure(exception) =>
+        logger.error("Error encountered while updating CPG.", exception)
+        Try(cpg.close())
+        DisabledAnalyzer()
     }
-    this
   }
 
   /** Return the method signature as a language-appropriate String, e.g. for Java: "public int foo(String bar)"
