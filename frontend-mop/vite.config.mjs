@@ -14,7 +14,7 @@ export default defineConfig(({command}) => ({
         conditions: ['browser', 'import', 'default'],
     },
     build: {
-        sourcemap: true,
+        sourcemap: false,
         outDir: '../app/src/main/resources/mop-web',
         emptyOutDir: true,
         cssCodeSplit: false
