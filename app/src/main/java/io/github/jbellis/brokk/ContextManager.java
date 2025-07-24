@@ -406,7 +406,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             var lastModifiedTime = Files.getLastModifiedTime(entry).toInstant();
                             if (lastModifiedTime.isBefore(cutoff)) {
                                 logger.trace("Attempting to delete old history directory (modified {}): {}", lastModifiedTime, entry);
-                                if (deleteDirectoryRecursively(entry)) {
+                                if (FileUtils.deleteDirectoryRecursively(entry)) {
                                     deletedCount.incrementAndGet();
                                 } else {
                                     logger.error("Failed to fully delete old history directory: {}", entry);
@@ -427,34 +427,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.debug("Deleted {} old LLM history directories.", count);
         } else {
             logger.debug("No old LLM history directories found to delete.");
-        }
-    }
-
-    /**
-     * Recursively deletes a directory and its contents.
-     * Logs errors encountered during deletion.
-     *
-     * @param path The directory path to delete.
-     * @return true if the directory was successfully deleted (or didn't exist), false otherwise.
-     */
-    private boolean deleteDirectoryRecursively(Path path) {
-        assert Files.exists(path);
-        try (var stream = Files.walk(path)) {
-            stream
-                    .sorted(Comparator.reverseOrder()) // Ensure contents are deleted before directories
-                    .forEach(p -> {
-                        try {
-                            Files.delete(p);
-                        } catch (IOException e) {
-                            // Log the specific error but allow the walk to continue trying other files/dirs
-                            logger.error("Failed to delete path {} during recursive cleanup of {}", p, path, e);
-                        }
-                    });
-            // Final check after attempting deletion
-            return !Files.exists(path);
-        } catch (IOException e) {
-            logger.error("Failed to walk or initiate deletion for directory: {}", path, e);
-            return false;
         }
     }
 

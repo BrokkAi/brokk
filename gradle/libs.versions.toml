@@ -66,6 +66,7 @@ jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
+apache-compress = "org.apache.commons:commons-compress:1.26.2"
 
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
@@ -91,6 +92,10 @@ treesitter-python = "io.github.bonede:tree-sitter-python:0.23.4"
 treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
 treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
 
+# Eclipse LSP
+eclipse-lsp4j = "org.eclipse.lsp4j:org.eclipse.lsp4j:0.22.0"
+eclipse-jsonrpc = "org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.22.0"
+
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
 
@@ -104,6 +109,8 @@ ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
+apache = ["apache-compress"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
