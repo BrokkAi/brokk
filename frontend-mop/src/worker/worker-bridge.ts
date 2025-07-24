@@ -40,7 +40,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       onWorkerResult(msg);
       break;
     case 'error':
-      console.error('[md-worker]', msg.message);
+      console.error('[md-worker]', msg.message + '\n' + msg.stack);
       break;
   }
 };

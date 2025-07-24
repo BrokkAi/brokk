@@ -1,6 +1,3 @@
-/// <reference lib="webworker" />
-
-import type { Root as HastRoot } from 'hast';
 import { initProcessor, parseMarkdown } from './processor';
 import type {
   InboundToWorker,
@@ -26,7 +23,9 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
         const tree = parseMarkdown(m.seq, m.text, m.fast);
         post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
       } catch (e) {
-        post(<ErrorMsg>{ type: 'error', message: String(e), seq: m.seq });
+        console.error('[md-worker]', e);
+        const error = e instanceof Error ? e : new Error(String(e));
+        post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: m.seq });
       }
       break;
 
@@ -56,7 +55,9 @@ async function parseAndPost(seq: number): Promise<void> {
     const tree = parseMarkdown(seq, buffer);
     post(<ResultMsg>{ type: 'result', tree, seq });
   } catch (e) {
-    post(<ErrorMsg>{ type: 'error', message: String(e), seq });
+    console.error('[md-worker]', e);
+    const error = e instanceof Error ? e : new Error(String(e));
+    post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq });
   }
 
   // this is needed to drain the event loop (queued message in onmessage) => accumulate some buffer

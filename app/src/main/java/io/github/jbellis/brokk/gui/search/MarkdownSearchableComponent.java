@@ -152,16 +152,16 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
             };
 
             // No render listener needed for initial scroll
-//            try {
-//                panel.setHtmlCustomizerWithCallback(searchCustomizer, processMarkdownSearchResults);
-//            } catch (Exception e) {
-//                logger.error("Error applying search customizer to panel for Markdown", e);
-//                notifySearchError("Search failed during Markdown highlighting: " + e.getMessage());
-//                // Even if one panel fails, try to complete with what we have
-//                if (remainingMarkdownOperations.decrementAndGet() == 0) {
-//                    handleSearchComplete();
-//                }
-//            }
+            try {
+                panel.setHtmlCustomizerWithCallback(searchCustomizer, processMarkdownSearchResults);
+            } catch (Exception e) {
+                logger.error("Error applying search customizer to panel for Markdown", e);
+                notifySearchError("Search failed during Markdown highlighting: " + e.getMessage());
+                // Even if one panel fails, try to complete with what we have
+                if (remainingMarkdownOperations.decrementAndGet() == 0) {
+                    handleSearchComplete();
+                }
+            }
         }
     }
 
@@ -169,7 +169,7 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
     public void clearHighlights() {
         // Clear Markdown highlights
         for (MarkdownOutputPanel panel : panels) {
-            // panel.setHtmlCustomizer(HtmlCustomizer.DEFAULT);
+            panel.setHtmlCustomizer(HtmlCustomizer.DEFAULT);
         }
         // Clear code highlights
         for (RTextAreaSearchableComponent codeComp : codeSearchComponents) {
@@ -256,13 +256,13 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
 
     private void updateMarkdownMarkerStyle(int markerId, boolean isCurrent) {
         SwingUtilities.invokeLater(() -> { // Ensure UI updates on EDT
-//            for (MarkdownOutputPanel panel : panels) {
-//                panel.renderers().forEach(renderer -> {
-//                    if (renderer.findByMarkerId(markerId).isPresent()) {
-//                        renderer.updateMarkerStyle(markerId, isCurrent);
-//                    }
-//                });
-//            }
+            for (MarkdownOutputPanel panel : panels) {
+                panel.renderers().forEach(renderer -> {
+                    if (renderer.findByMarkerId(markerId).isPresent()) {
+                        renderer.updateMarkerStyle(markerId, isCurrent);
+                    }
+                });
+            }
         });
     }
 

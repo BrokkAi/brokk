@@ -11,7 +11,7 @@ flatlaf = "3.6"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
 picocli = "4.7.7"
-javafx = "21"
+javafx = "22"
 
 [libraries]
 # Scala

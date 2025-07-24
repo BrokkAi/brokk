@@ -90,30 +90,34 @@ public final class MOPWebViewHost extends JPanel {
                     var window = (JSObject) view.getEngine().executeScript("window");
                     window.setMember("javaBridge", bridge);
                     
-                    // Inject JavaScript to intercept console methods and forward to Java bridge
-                    view.getEngine().executeScript("""
-                        (function() {
-                            var originalLog = console.log;
-                            var originalError = console.error;
-                            var originalWarn = console.warn;
-                            
-                            console.log = function() {
-                                var msg = Array.prototype.slice.call(arguments).join(' ');
-                                if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
-                                originalLog.apply(console, arguments);
-                            };
-                            console.error = function() {
-                                var msg = Array.prototype.slice.call(arguments).join(' ');
-                                if (window.javaBridge) window.javaBridge.jsLog('ERROR', msg);
-                                originalError.apply(console, arguments);
-                            };
-                            console.warn = function() {
-                                var msg = Array.prototype.slice.call(arguments).join(' ');
-                                if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
-                                originalWarn.apply(console, arguments);
-                            };
-                        })();
-                        """);
+                    // Inject JavaScript to intercept console methods and forward to Java bridge with stack traces
+            view.getEngine().executeScript("""
+                (function() {
+                    var originalLog = console.log;
+                    var originalError = console.error;
+                    var originalWarn = console.warn;
+                    
+                    function toStringWithStack(arg) {
+                        return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
+                    }
+                    
+                    console.log = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
+                        originalLog.apply(console, arguments);
+                    };
+                    console.error = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('ERROR', msg);
+                        originalError.apply(console, arguments);
+                    };
+                    console.warn = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
+                        originalWarn.apply(console, arguments);
+                    };
+                })();
+                """);
                     // Now that the page is loaded, flush any buffered commands
                     flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
@@ -129,17 +133,10 @@ public final class MOPWebViewHost extends JPanel {
             if (resourceUrl == null) {
                 view.getEngine().loadContent("<html><body><h1>Error: mop-web/index.html not found</h1></body></html>", "text/html");
             } else {
-                if ("jar".equals(resourceUrl.getProtocol())) {
-                    // When running from a JAR, serve resources via an embedded HTTP server to avoid CORS issues
-                    int port = ClasspathHttpServer.ensureStarted();
-                    var url = "http://127.0.0.1:" + port + "/index.html";
-                    logger.info("Loading WebView content from embedded server: {}", url);
-                    view.getEngine().load(url);
-                } else {
-                    // When running from IDE or exploded classes, load directly from file system
-                    logger.info("Loading WebView content from filesystem: {}", resourceUrl.toExternalForm());
-                    view.getEngine().load(resourceUrl.toExternalForm());
-                }
+                int port = ClasspathHttpServer.ensureStarted();
+                var url = "http://127.0.0.1:" + port + "/index.html";
+                logger.info("Loading WebView content from embedded server: {}", url);
+                view.getEngine().load(url);
             }
             // Apply initial theme
             applyTheme(Theme.create(darkTheme));

@@ -10,6 +10,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -156,7 +157,7 @@ public final class MOPBridge {
     }
 
     public void jsLog(String level, String message) {
-        switch (level.toUpperCase()) {
+        switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
             case "DEBUG" -> logger.debug("JS: {}", message);

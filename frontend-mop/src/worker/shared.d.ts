@@ -39,6 +39,7 @@ export interface ResultMsg {
 export interface ErrorMsg {
     type: 'error';
     message: string;
+    stack?: string;
     seq: Seq;
 }
 

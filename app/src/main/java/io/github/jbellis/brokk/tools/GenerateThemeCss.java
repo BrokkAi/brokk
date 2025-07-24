@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 
 /**
  * Tiny CLI that dumps both theme blocks into a single SCSS file.
@@ -66,7 +67,7 @@ public final class GenerateThemeCss
                 // Convert color to hex format
                 String hexColor = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
                 // Convert camelCase or snake_case to kebab-case for CSS variables
-                String cssVarName = key.replaceAll("([a-z])([A-Z])", "$1-$2").replace('_', '-').toLowerCase();
+                String cssVarName = key.replaceAll("([a-z])([A-Z])", "$1-$2").replace('_', '-').toLowerCase(Locale.ROOT);
                 sb.append("  --").append(cssVarName).append(": ").append(hexColor).append(";\n");
             }
         } catch (NoSuchFieldException | IllegalAccessException e) {

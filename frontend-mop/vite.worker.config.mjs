@@ -14,6 +14,6 @@ export default defineConfig({
             formats: ['es']
         },
         outDir: 'public',
-        emptyOutDir: false
+        emptyOutDir: true
     }
 })

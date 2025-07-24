@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.gui.mop;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import javax.swing.*;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -12,7 +15,7 @@ import static java.util.Objects.requireNonNull;
  * The pool may be accessed only from the Swing EDT.
  */
 public final class MarkdownOutputPool {
-
+    private static final Logger logger = LogManager.getLogger(MarkdownOutputPool.class);
     private static final int MAX_SIZE = 5;
     private static final int WARM_SIZE = 2;
 
@@ -42,8 +45,10 @@ public final class MarkdownOutputPool {
     public MarkdownOutputPanel borrow() {
         assert SwingUtilities.isEventDispatchThread();
         if (!idle.isEmpty()) {
+            logger.debug("Borrowed MarkdownOutputPanel from pool, {} remaining", idle.size());
             return idle.pop();
         }
+        logger.debug("Created new MarkdownOutputPanel (pool is empty)");
         return new MarkdownOutputPanel();
     }
 
@@ -56,8 +61,10 @@ public final class MarkdownOutputPool {
         panel.hideSpinner();
 
         if (idle.size() < MAX_SIZE) {
+            logger.debug("Returned MarkdownOutputPanel to pool, {} remaining", idle.size());
             idle.push(panel);
         } else {
+            logger.debug("Disposed MarkdownOutputPanel (pool capacity reached)");
             panel.dispose();
         }
     }
