@@ -4,17 +4,31 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.eclipse.lsp4j.Location;
+import org.eclipse.lsp4j.Range;
+import org.eclipse.lsp4j.WorkspaceSymbol;
+import org.eclipse.lsp4j.WorkspaceSymbolLocation;
+import org.eclipse.lsp4j.jsonrpc.messages.Either;
+import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
+  
+  Logger logger = LoggerFactory.getLogger(LspAnalyzer.class);
   
   @Override
   default boolean isCpg() {
@@ -81,6 +95,77 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
       return configPath;
     }
     throw new FileNotFoundException("Could not find configuration directory: " + configSubDir);
+  }
+
+  /**
+   * Helper to extract the URI string from the nested Either type in a WorkspaceSymbol's location.
+   */
+  @NotNull
+  default String getUriFromLocation(@NotNull Either<Location, WorkspaceSymbolLocation> locationEither) {
+    return locationEither.isLeft()
+            ? locationEither.getLeft().getUri()
+            : locationEither.getRight().getUri();
+  }
+
+  default Optional<String> getSourceForSymbol(WorkspaceSymbol symbol) {
+    // 1. Get the URI string from the symbol's location.
+    String uriString = getUriFromLocation(symbol.getLocation());
+
+    try {
+      // 2. Convert the URI string to a Path object.
+      Path filePath = Paths.get(new URI(uriString));
+
+      // 3. Read the file content directly from disk.
+      return Optional.of(Files.readString(filePath));
+
+    } catch (IOException | URISyntaxException e) {
+      logger.error("Failed to read source for symbol '{}' at {}", symbol.getName(), uriString, e);
+      return Optional.empty();
+    }
+  }
+  
+  /**
+   * Gets the precise source code for a symbol's definition using its Range.
+   *
+   * @param symbol The symbol to get the source for.
+   * @return An Optional containing the source code snippet, or empty if no range is available.
+   */
+  default Optional<String> getSourceForSymbolDefinition(WorkspaceSymbol symbol) {
+    if (symbol.getLocation().isLeft()) {
+      Location location = symbol.getLocation().getLeft();
+      return getSourceForSymbol(symbol).map(fullSource -> getSourceForRange(fullSource, location.getRange()));
+    }
+
+    logger.warn("Cannot get source for symbol '{}' because its location has no Range information.", symbol.getName());
+    return Optional.empty();
+  }
+
+  /**
+   * A helper that extracts a block of text from a string based on LSP Range data.
+   */
+  default String getSourceForRange(String fileContent, Range range) {
+    String[] lines = fileContent.split("\\R", -1); // Split by any line break
+    int startLine = range.getStart().getLine();
+    int endLine = range.getEnd().getLine();
+    int startChar = range.getStart().getCharacter();
+    int endChar = range.getEnd().getCharacter();
+
+    if (startLine == endLine) {
+      return lines[startLine].substring(startChar, endChar);
+    }
+
+    StringBuilder sb = new StringBuilder();
+    sb.append(lines[startLine].substring(startChar)).append(System.lineSeparator());
+
+    for (int i = startLine + 1; i < endLine; i++) {
+      sb.append(lines[i]).append(System.lineSeparator());
+    }
+    
+    if (endChar > 0) {
+      sb.append(lines[endLine], 0, endChar);
+    }
+
+    return sb.toString();
   }
 
 }

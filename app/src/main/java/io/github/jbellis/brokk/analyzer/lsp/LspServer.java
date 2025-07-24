@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -70,7 +72,7 @@ public abstract class LspServer {
                 String uri = filePath.toUri().toString();
 
                 DidOpenTextDocumentParams params = new DidOpenTextDocumentParams();
-                TextDocumentItem item = new TextDocumentItem(uri, language, 1, content); 
+                TextDocumentItem item = new TextDocumentItem(uri, language, 1, content);
                 params.setTextDocument(item);
 
                 server.getTextDocumentService().didOpen(params);
@@ -135,7 +137,7 @@ public abstract class LspServer {
         this.serverInitialized = languageServer.initialize(params).thenRun(() -> {
             if (this.languageServer != null) {
                 languageServer.initialized(new InitializedParams());
-                logger.info("JDT LS Initialized with initial workspace: {}", initialWorkspace);
+                logger.info("JDT LS Initialized");
             } else {
                 throw new IllegalStateException("JDT LS could not be initialized.");
             }
@@ -143,7 +145,8 @@ public abstract class LspServer {
 
         try {
             serverInitialized.join();
-            logger.debug("Server initialization confirmed.");
+            addWorkspaceFolder(initialWorkspace);
+            logger.debug("Server initialization confirmed with initial workspace: {}", initialWorkspace);
         } catch (CompletionException e) {
             logger.error("Server initialization failed", e.getCause());
             throw e; // Re-throw the exception
@@ -176,7 +179,7 @@ public abstract class LspServer {
         syncCapabilities.setWillSave(true);
         syncCapabilities.setWillSaveWaitUntil(true);
         textDocumentCapabilities.setSynchronization(syncCapabilities);
-        
+
         textDocumentCapabilities.setDefinition(new DefinitionCapabilities());
         textDocumentCapabilities.setReferences(new ReferencesCapabilities());
 
@@ -299,6 +302,16 @@ public abstract class LspServer {
         });
     }
 
+    public CompletableFuture<Object> refreshWorkspace() {
+        return query((server) -> {
+            ExecuteCommandParams params = new ExecuteCommandParams(
+                    "java.project.buildWorkspace", 
+                    List.of() 
+            );
+            return server.getWorkspaceService().executeCommand(params);
+        });
+    }
+
     public static class SimpleLanguageClient implements LanguageClient {
         @NotNull
         private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
@@ -308,11 +321,21 @@ public abstract class LspServer {
         }
 
         @Override
-        public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
+        public final void showMessage(MessageParams messageParams) {
+            logger.info("[showMessage] {}", messageParams);
         }
 
         @Override
-        public void showMessage(MessageParams messageParams) {
+        public final void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
+            try {
+                var diagnosticsAbsPath = Path.of(new URI(diagnostics.getUri())).toAbsolutePath().toString();
+                if (diagnostics.getDiagnostics().isEmpty()) logger.info("Diagnostics empty for {}", diagnosticsAbsPath);
+                diagnostics.getDiagnostics().forEach(diagnostic -> {
+                    logger.debug("[Diagnostic] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
+                });
+            } catch (URISyntaxException e) {
+                logger.error("Error parsing a URI from the LSP: " + diagnostics.getUri(), e);
+            }
         }
 
         @Override

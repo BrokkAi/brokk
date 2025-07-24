@@ -32,6 +32,14 @@ public class JdtAnalyzer implements LspAnalyzer {
     @NotNull
     private final SharedLspServer sharedServer;
 
+    // Helper set for quick lookup of type-related symbol kinds
+    private static final Set<SymbolKind> TYPE_KINDS = Set.of(
+            SymbolKind.Class,
+            SymbolKind.Interface,
+            SymbolKind.Enum,
+            SymbolKind.Struct
+    );
+
     /**
      * Creates an analyzer for a specific project workspace.
      *
@@ -47,17 +55,9 @@ public class JdtAnalyzer implements LspAnalyzer {
             ensureProjectConfiguration(this.projectRoot);
             this.sharedServer = SharedLspServer.getInstance();
             this.sharedServer.registerClient(this.projectRoot, excludedPaths);
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                logger.warn("Interrupted while waiting for shared server to start", e);
-            }
+            this.sharedServer.refreshWorkspace().join();
+
             loadProjectFiles();
-            try {
-                Thread.sleep(5000);
-            } catch (InterruptedException e) {
-                logger.warn("Interrupted while waiting for shared server to start", e);
-            }
             this.workspace = this.projectRoot.toUri().toString();
         }
     }
@@ -140,7 +140,29 @@ public class JdtAnalyzer implements LspAnalyzer {
     }
 
     public boolean isClassInProject(String className) {
-        return !findSymbolsInWorkspace(className).join().isEmpty();
+        return !findTypeByExactName(className).join().isEmpty();
+    }
+
+    /**
+     * Finds a type (class, interface, enum) by its exact simple or fully qualified name within the workspace.
+     *
+     * @param className The exact, case-sensitive simple name of the type to find.
+     * @return A CompletableFuture that will be completed with a list of matching symbols.
+     */
+    public CompletableFuture<List<WorkspaceSymbol>> findTypeByExactName(String className) {
+        // We still use the general findSymbolsInWorkspace method to get all potential candidates
+        return findSymbolsInWorkspace(className).thenApply(symbols -> {
+            // After getting the candidates, we apply our strict filters
+            return symbols.stream()
+                    // Filter 1: Keep only symbols with an exact name match.
+                    .filter(symbol -> {
+                        final String symbolFullName = symbol.getContainerName() + "." + symbol.getName();
+                        return symbol.getName().equals(className) || symbolFullName.equals(className);
+                    })
+                    // Filter 2: Keep only symbols that are a class, interface, enum, etc.
+                    .filter(symbol -> TYPE_KINDS.contains(symbol.getKind()))
+                    .collect(Collectors.toList());
+        });
     }
 
     /**
@@ -185,28 +207,6 @@ public class JdtAnalyzer implements LspAnalyzer {
         var ws = new WorkspaceSymbol(info.getName(), info.getKind(), Either.forLeft(info.getLocation()));
         ws.setContainerName(info.getContainerName());
         return ws;
-    }
-
-    /**
-     * Helper to extract the URI string from the nested Either type in a WorkspaceSymbol's location.
-     */
-    @NotNull
-    private String getUriFromLocation(@NotNull Either<Location, WorkspaceSymbolLocation> locationEither) {
-        return locationEither.isLeft()
-                ? locationEither.getLeft().getUri()
-                : locationEither.getRight().getUri();
-    }
-
-    public CompletableFuture<List<Object>> getSymbolsInFile(Path filePath) {
-        logger.info("Querying for document symbols in {}, exists {}", filePath, Files.exists(filePath));
-        return sharedServer.query(server -> {
-            DocumentSymbolParams params = new DocumentSymbolParams(new TextDocumentIdentifier(filePath.toUri().toString()));
-            return server.getTextDocumentService().documentSymbol(params).thenApply(eithers ->
-                    eithers.stream().map(either -> {
-                        return either.get();
-                    }).filter(Objects::isNull).collect(Collectors.toList())
-            ).join();
-        });
     }
 
     @Override

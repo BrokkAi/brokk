@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashSet;
 
 public class JdtAnalyzerTest {
@@ -22,7 +21,6 @@ public class JdtAnalyzerTest {
     @BeforeAll
     public static void setup() throws IOException {
         final var testPath = Path.of("src/test/resources/testcode-java");
-//        final var testPath = Path.of("/Users/dave/Workspace/test-repos/lombok-examples");
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
         analyzer = new JdtAnalyzer(testPath, new HashSet<>());
     }
@@ -36,22 +34,8 @@ public class JdtAnalyzerTest {
 
     @Test
     public void isClassInProjectTest() {
-        analyzer.findSymbolsInWorkspace("")
-                .thenApply((list) -> {
-                    System.out.println(list);
-                    return null;
-                })
-                .join();
-
-        analyzer.getSymbolsInFile(Paths.get("A.java"))
-                .thenApply((list) -> {
-                    System.out.println(list);
-                    return null;
-                })
-                .join();
-
         assert (analyzer.isClassInProject("A"));
-
+        
         assert (!analyzer.isClassInProject("java.nio.filename.Path"));
         assert (!analyzer.isClassInProject("org.foo.Bar"));
     }
