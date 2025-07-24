@@ -11,6 +11,7 @@ flatlaf = "3.6"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
 picocli = "4.7.7"
+javafx = "21"
 
 [libraries]
 # Scala
@@ -110,3 +111,4 @@ errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
 shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }
 buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
 spotless = { id = "com.diffplug.spotless", version = "6.25.0" }
+javafx = { id = "org.openjfx.javafxplugin", version = "0.1.0" }
