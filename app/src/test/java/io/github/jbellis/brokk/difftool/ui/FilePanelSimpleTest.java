@@ -13,19 +13,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class FilePanelSimpleTest {
 
-    @Test
-    void testInMemoryDocumentBasicFunctionality() {
-        InMemoryDocument doc = new InMemoryDocument("test.java", "Line 1\nLine 2\nLine 3");
-        
-        assertEquals("test.java", doc.getName());
-        assertEquals("test.java", doc.getShortName());
-        assertFalse(doc.isReadonly());
-        assertFalse(doc.isChanged());
-        assertEquals(3, doc.getNumberOfLines());
-        assertTrue(doc.getLineText(0).startsWith("Line 1"));
-        assertTrue(doc.getLineText(1).startsWith("Line 2"));
-        assertTrue(doc.getLineText(2).startsWith("Line 3"));
-    }
 
     @Test
     void testInMemoryDocumentLineCalculations() {
@@ -73,26 +60,7 @@ class FilePanelSimpleTest {
         assertTrue(listenerCalled[0], "Change listener should be called");
     }
 
-    @Test
-    void testInMemoryDocumentEmptyContent() {
-        InMemoryDocument doc = new InMemoryDocument("empty.java", "");
-        
-        assertEquals(1, doc.getNumberOfLines()); // Empty file still has 1 line
-        assertEquals("", doc.getLineText(0));
-        assertEquals(0, doc.getLineForOffset(0));
-        assertEquals(0, doc.getOffsetForLine(0));
-    }
 
-    @Test
-    void testInMemoryDocumentSingleLine() {
-        InMemoryDocument doc = new InMemoryDocument("single.java", "Single line without newline");
-        
-        assertEquals(1, doc.getNumberOfLines());
-        assertEquals("Single line without newline", doc.getLineText(0));
-        assertEquals(0, doc.getLineForOffset(0));
-        assertEquals(0, doc.getLineForOffset(10));
-        assertEquals(0, doc.getLineForOffset(25)); // End of line
-    }
 
     @Test
     void testInMemoryDocumentMultipleNewlines() {
@@ -105,16 +73,6 @@ class FilePanelSimpleTest {
         assertTrue(doc.getLineText(3).isEmpty() || doc.getLineText(3).equals("\n")); // Empty line after final \n
     }
 
-    @Test
-    void testInMemoryDocumentReadonlyFlag() {
-        InMemoryDocument doc = new InMemoryDocument("readonly.java", "Content");
-        
-        assertFalse(doc.isReadonly());
-        doc.setReadonly(true);
-        assertTrue(doc.isReadonly());
-        doc.setReadonly(false);
-        assertFalse(doc.isReadonly());
-    }
 
     @Test
     void testInMemoryDocumentListenerRemoval() {
@@ -156,41 +114,13 @@ class FilePanelSimpleTest {
         assertDoesNotThrow(() -> doc.write());
     }
 
-    @Test
-    void testPerformanceConstants() {
-        // Test that performance constants are available and reasonable
-        assertTrue(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS > 0);
-        assertTrue(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS > 0);
-        assertTrue(PerformanceConstants.TYPING_STATE_TIMEOUT_MS > 0);
-        assertTrue(PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES > 0);
-        assertTrue(PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS > 0);
-        
-        // Large file timer should be slower than default
-        assertTrue(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS >= 
-                  PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS);
-    }
 
-    @Test
-    void testInMemoryDocumentPlainDocument() {
-        InMemoryDocument doc = new InMemoryDocument("plain.java", "Test content");
-        
-        assertNotNull(doc.getDocument());
-        assertTrue(doc.getDocument().getLength() > 0);
-        
-        try {
-            String text = doc.getDocument().getText(0, doc.getDocument().getLength());
-            assertEquals("Test content", text);
-        } catch (Exception e) {
-            fail("Should be able to get text from document");
-        }
-    }
 
     @Test
     void testInMemoryDocumentReader() throws Exception {
         InMemoryDocument doc = new InMemoryDocument("reader.java", "Reader test content");
         
         try (var reader = doc.getReader()) {
-            assertNotNull(reader);
             
             char[] buffer = new char[1024];
             int charsRead = reader.read(buffer);

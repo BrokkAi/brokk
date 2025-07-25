@@ -70,61 +70,31 @@ public class ScrollSynchronizer
 
     private void init()
     {
-        // Sync horizontal:
+        // Sync horizontal scrollbars by sharing the same model.
         var barLeftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
         var barRightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
-        barRightH.addAdjustmentListener(getHorizontalAdjustmentListener());
-        barLeftH.addAdjustmentListener(getHorizontalAdjustmentListener());
+        barRightH.setModel(barLeftH.getModel());
 
         // Initialize horizontal scroll to show left side (line numbers)
         SwingUtilities.invokeLater(() -> {
             barLeftH.setValue(0);
-            barRightH.setValue(0);
         });
 
         // Sync vertical:
         var barLeftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
         var barRightV = filePanelRight.getScrollPane().getVerticalScrollBar();
-        barRightV.addAdjustmentListener(getVerticalAdjustmentListener());
-        barLeftV.addAdjustmentListener(getVerticalAdjustmentListener());
-    }
-
-    private AdjustmentListener getHorizontalAdjustmentListener()
-    {
-        if (horizontalAdjustmentListener == null) {
-            horizontalAdjustmentListener = new AdjustmentListener() {
-                boolean insideScroll;
-
-                @Override
-                public void adjustmentValueChanged(AdjustmentEvent e)
-                {
-                    if (insideScroll) return;
-
-                    var leftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
-                    var rightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
-                    var scFrom = (e.getSource() == leftH ? leftH : rightH);
-                    var scTo = (scFrom == leftH ? rightH : leftH);
-
-                    insideScroll = true;
-                    scTo.setValue(scFrom.getValue());
-                    insideScroll = false;
-                }
-            };
-        }
-        return horizontalAdjustmentListener;
+        var listener = getVerticalAdjustmentListener();
+        barRightV.addAdjustmentListener(listener);
+        barLeftV.addAdjustmentListener(listener);
     }
 
     private AdjustmentListener getVerticalAdjustmentListener()
     {
         if (verticalAdjustmentListener == null) {
             verticalAdjustmentListener = new AdjustmentListener() {
-                boolean insideScroll;
-
                 @Override
                 public void adjustmentValueChanged(AdjustmentEvent e)
                 {
-                    if (insideScroll) return;
-
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
 
@@ -141,13 +111,24 @@ public class ScrollSynchronizer
                     // Track user scrolling to prevent conflicts
                     syncState.recordUserScroll();
 
-                    // Submit debounced scroll request
-                    var request = new ScrollDebouncer.DebounceRequest<>(
-                        leftScrolled,
-                        scrollDirection -> scroll(scrollDirection),
-                        syncState::clearUserScrolling
-                    );
-                    debouncer.submit(request);
+                    // Perform sync immediately (removed debouncer for reliability)
+                    syncScroll(leftScrolled);
+
+                    // Reset the scrolling state so subsequent events are processed
+                    syncState.clearUserScrolling();
+                }
+
+                private void syncScroll(boolean leftScrolled) {
+                    syncState.setProgrammaticScroll(true);
+                    try {
+                        scroll(leftScrolled);
+                    } finally {
+                        // Reset flag after a short delay to allow scroll to complete.
+                        // This serves as the re-entrancy guard.
+                        Timer resetTimer = new Timer(50, evt -> syncState.setProgrammaticScroll(false));
+                        resetTimer.setRepeats(false);
+                        resetTimer.start();
+                    }
                 }
             };
         }
@@ -177,11 +158,9 @@ public class ScrollSynchronizer
             return;
         }
 
-        // Check if sync should be suppressed using the state utility
-        var suppressionResult = syncState.shouldSuppressSync(200);
-        if (suppressionResult.shouldSuppress()) {
-            return;
-        }
+        // We are handling a scroll event; the re-entrancy guard in syncScroll()
+        // already provides proper throttling and prevents infinite loops
+        syncState.clearUserScrolling();
 
         var patch = diffPanel.getPatch();
         if (patch == null) {
@@ -199,16 +178,8 @@ public class ScrollSynchronizer
         // (In Phase 1, we had some old “DiffUtil.getRevisedLine()” logic. If you want that back, adapt it with patch.)
         int mappedLine = approximateLineMapping(patch, line, leftScrolled);
 
-        // Mark as programmatic scroll to prevent feedback loop
-        syncState.setProgrammaticScroll(true);
-        try {
-            scrollToLine(fp2, mappedLine);
-        } finally {
-            // Reset flag after a short delay to allow scroll to complete
-            Timer resetTimer = new Timer(50, e -> syncState.setProgrammaticScroll(false));
-            resetTimer.setRepeats(false);
-            resetTimer.start();
-        }
+        // The programmatic scroll flag is now set by the caller (syncScroll)
+        scrollToLine(fp2, mappedLine);
     }
 
     /**
@@ -256,6 +227,7 @@ public class ScrollSynchronizer
      */
     private int getCurrentLineCenter(FilePanel fp)
     {
+        assert SwingUtilities.isEventDispatchThread() : "getCurrentLineCenter must be called on EDT";
         var editor = fp.getEditor();
         var viewport = fp.getScrollPane().getViewport();
         var p = viewport.getViewPosition();
@@ -355,10 +327,7 @@ public class ScrollSynchronizer
         scrollToLine(sourcePanel, line);
 
         // Determine the counterpart panel
-        FilePanel targetPanel = leftSide ? filePanelRight : filePanelLeft;
-        if (targetPanel == null) {
-            return;
-        }
+        var targetPanel = leftSide ? filePanelRight : filePanelLeft;
 
         // Compute the best-effort mapped line on the opposite side using existing logic
         int mappedLine;
@@ -406,17 +375,14 @@ public class ScrollSynchronizer
             scrollToLine(filePanelLeft, sourceLine);
 
             // For navigation, we want to scroll to the corresponding target of this specific delta
+            // Note: getTarget() returns a non-null Chunk, which may be empty for DELETE deltas.
             var target = delta.getTarget();
-            int targetLine;
+            int targetLine = target.getPosition();
 
-            if (target != null && target.size() > 0) {
-                // Normal case: target chunk exists, scroll to its position
-                targetLine = target.getPosition();
+            if (target.size() > 0) {
                 logger.debug("Navigation: delta has target at line {}, scrolling right panel", targetLine);
-            } else {
-                // DELETE case: target is empty, scroll to where the deletion would be
-                // Use the target position (where the deletion happened in revised file)
-                targetLine = target != null ? target.getPosition() : sourceLine;
+            }
+            else {
                 logger.debug("Navigation: DELETE delta, scrolling right panel to target position {}", targetLine);
             }
 
@@ -443,6 +409,16 @@ public class ScrollSynchronizer
      * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.
      * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
      */
+    /**
+     * Invalidate viewport cache for both synchronized panels.
+     * Since both panels are synchronized, when one needs cache invalidation,
+     * both should be updated to maintain consistency.
+     */
+    public void invalidateViewportCacheForBothPanels() {
+        filePanelLeft.invalidateViewportCache();
+        filePanelRight.invalidateViewportCache();
+    }
+
     public void dispose() {
         // Dispose debouncer to stop any pending timers
         debouncer.dispose();

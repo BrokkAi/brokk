@@ -13,7 +13,7 @@ target/
 build/
 build-logic/.gradle/
 .gradle/
-
+out/
 
 ### Eclipse ###
 .apt_generated
