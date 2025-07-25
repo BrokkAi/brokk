@@ -51,6 +51,16 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
  */
 public class HistoryOutputPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
+    private static final String CLEARED_TASK_HISTORY = "Cleared Task History";
+    private static final String DROPPED_ALL_CONTEXT = "Dropped all Context";
+
+    private static boolean isSeparatorAction(@Nullable Object actionValue) {
+        if (actionValue == null) {
+            return false;
+        }
+        String action = actionValue.toString();
+        return CLEARED_TASK_HISTORY.equalsIgnoreCase(action) || DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
+    }
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -313,44 +323,9 @@ public class HistoryOutputPanel extends JPanel {
         // Remove table header
         historyTable.setTableHeader(null);
 
-        // Set up tooltip renderer for description column (index 1)
-        historyTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel)super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-
-                // Set the tooltip to show the full text
-                if (value != null) {
-                    label.setToolTipText(value.toString());
-                }
-
-                return label;
-            }
-        });
-
-        // Set up icon renderer for first column
-        historyTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel)super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-
-                // Set icon and center-align
-                if (value instanceof Icon icon) {
-                    label.setIcon(icon);
-                    label.setText("");
-                } else {
-                    label.setIcon(null);
-                    label.setText(value != null ? value.toString() : "");
-                }
-                label.setHorizontalAlignment(JLabel.CENTER);
-
-                return label;
-            }
-        });
+        // Set up custom renderers for history table columns
+        historyTable.getColumnModel().getColumn(0).setCellRenderer(new IconCellRenderer());
+        historyTable.getColumnModel().getColumn(1).setCellRenderer(new ActionCellRenderer());
 
         // Add selection listener to preview context
         historyTable.getSelectionModel().addListSelectionListener(e -> {
@@ -956,6 +931,118 @@ public class HistoryOutputPanel extends JPanel {
          */
         public MarkdownOutputPanel getMarkdownOutputPanel() {
             return outputPanel;
+        }
+    }
+
+    /**
+     * A TableCellRenderer for the first column (icons) of the history table.
+     * It hides the icon for separator rows to allow the separator to span the cell.
+     */
+    private static class IconCellRenderer extends DefaultTableCellRenderer {
+        private final JPanel blankPanel = new JPanel();
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
+                                                       boolean isSelected, boolean hasFocus, int row, int column)
+        {
+            Object actionValue = table.getModel().getValueAt(row, 1);
+            if (isSeparatorAction(actionValue)) {
+                blankPanel.setOpaque(true);
+                blankPanel.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                blankPanel.setToolTipText(castNonNull(actionValue).toString());
+                return blankPanel;
+            }
+
+            // Fallback for normal cells
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (value instanceof Icon icon) {
+                setIcon(icon);
+                setText("");
+            } else {
+                setIcon(null);
+                setText(value != null ? value.toString() : "");
+            }
+            setHorizontalAlignment(JLabel.CENTER);
+            return this;
+        }
+    }
+
+    /**
+     * A TableCellRenderer for the second column (action text) of the history table.
+     * It replaces specific action texts with graphical separators.
+     */
+    private static class ActionCellRenderer extends DefaultTableCellRenderer {
+        private final SeparatorPainter separatorPainter = new SeparatorPainter();
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
+                                                       boolean isSelected, boolean hasFocus, int row, int column)
+        {
+            if (isSeparatorAction(value)) {
+                separatorPainter.setOpaque(true);
+                separatorPainter.setAction(castNonNull(value).toString());
+                separatorPainter.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                separatorPainter.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                return separatorPainter;
+            }
+
+            // Fallback for normal cells
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (value != null) {
+                setToolTipText(value.toString());
+            }
+            return this;
+        }
+    }
+
+    /**
+     * A component that paints a horizontal or squiggly line for separator rows in the history table.
+     */
+    private static class SeparatorPainter extends JComponent {
+        private String action = "";
+        private static final int SQUIGGLE_AMPLITUDE = 2;
+        private static final double SQUIGGLE_FREQUENCY = 0.25;
+
+        public SeparatorPainter() {
+            setOpaque(true);
+        }
+
+        public void setAction(String action) {
+            this.action = action;
+            setToolTipText(action);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(super.getPreferredSize().width, 8);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (isOpaque()) {
+                g.setColor(getBackground());
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setColor(getForeground());
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int y = getHeight() / 2;
+
+                if (CLEARED_TASK_HISTORY.equalsIgnoreCase(action)) {
+                    g2.drawLine(2, y, getWidth() - 3, y);
+                } else if (DROPPED_ALL_CONTEXT.equalsIgnoreCase(action)) {
+                    Path2D.Double path = new Path2D.Double();
+                    path.moveTo(2, y);
+                    for (int x = 2; x < getWidth() - 2; x++) {
+                        path.lineTo(x, y - SQUIGGLE_AMPLITUDE * Math.sin((x - 2) * SQUIGGLE_FREQUENCY));
+                    }
+                    g2.draw(path);
+                }
+            } finally {
+                g2.dispose();
+            }
         }
     }
 
