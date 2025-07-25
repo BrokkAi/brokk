@@ -58,10 +58,10 @@ class DiffHighlightUtilTest
     }
 
     /**
-     * A DELETE delta on the *revised* side should fall back to source chunk for positioning.
+     * A DELETE delta on the *revised* side should show a line indicator at the deletion point.
      */
     @Test
-    void isChunkVisible_deleteRevisedSideFallback()
+    void isChunkVisible_deleteRevisedSideShowsIndicator()
     {
         List<String> original = List.of("A", "B", "C");
         List<String> revised  = List.of("A", "C");   // removed line 1 ("B")
@@ -69,9 +69,9 @@ class DiffHighlightUtilTest
         Patch<String> patch = DiffUtils.diff(original, revised);
         AbstractDelta<String> delta = patch.getDeltas().getFirst();
 
-        // Revised side should fall back to source chunk for positioning
+        // Revised side should now show DELETE deltas with a line indicator
         var result = DiffHighlightUtil.isChunkVisible(delta, 0, 10, /*originalSide=*/false);
-        assertTrue(result.intersects(), "Revised side should fall back to source chunk positioning");
+        assertTrue(result.intersects(), "Revised side should show DELETE deltas with line indicator");
         assertNull(result.warning(), "Should have no warning");
     }
 

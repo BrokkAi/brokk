@@ -30,8 +30,8 @@ public final class DeltaHighlighter {
         // Use the utility to get the appropriate chunk with fallback logic
         @Nullable Chunk<String> chunk = DiffHighlightUtil.getChunkForHighlight(delta, originalSide);
         if (chunk == null) {
-            logger.warn("Skipping highlight: chunk is null for {} side, delta type {}",
-                       originalSide ? "original" : "revised", delta.getType());
+            logger.debug("Skipping highlight: chunk is null for {} side, delta type {}",
+                        originalSide ? "original" : "revised", delta.getType());
             return;
         }
 
@@ -42,10 +42,30 @@ public final class DeltaHighlighter {
             return;
         }
 
-        var toOffset = bufferDocument.getOffsetForLine(chunk.getPosition() + chunk.size());
+        // Clamp the end line to document bounds to prevent highlighting to document end
+        int endLineNumber = chunk.getPosition() + chunk.size();
+        int maxLines = bufferDocument.getNumberOfLines();
+
+        // For DELETE fallback on revised side, validate that position is reasonable
+        if (!originalSide && chunk.size() == 0) {
+            // This is a DELETE fallback - ensure position doesn't exceed revised document
+            if (chunk.getPosition() >= maxLines) {
+                logger.debug("Skipping DELETE fallback highlight: position {} >= maxLines {} on revised side",
+                           chunk.getPosition(), maxLines);
+                return; // Skip highlighting that would be way out of bounds
+            }
+            // For DELETE fallback, highlight just the position line, not beyond document
+            endLineNumber = Math.min(chunk.getPosition() + 1, maxLines);
+        } else if (endLineNumber > maxLines) {
+            logger.debug("Clamping highlight end line {} to document max {} on {} side",
+                        endLineNumber, maxLines, originalSide ? "original" : "revised");
+            endLineNumber = maxLines;
+        }
+
+        var toOffset = bufferDocument.getOffsetForLine(endLineNumber);
         if (toOffset < 0) {
             logger.warn("Invalid toOffset {} for line {} on {} side",
-                       toOffset, chunk.getPosition() + chunk.size(), originalSide ? "original" : "revised");
+                       toOffset, endLineNumber, originalSide ? "original" : "revised");
             return;
         }
 
@@ -80,10 +100,13 @@ public final class DeltaHighlighter {
 
         // Apply the highlight
         try {
+            logger.debug("Adding highlight: chunk pos={}, size={}, fromOffset={}, toOffset={}, side={}",
+                        chunk.getPosition(), chunk.size(), fromOffset, toOffset,
+                        originalSide ? "original" : "revised");
             panel.getHighlighter().addHighlight(JMHighlighter.LAYER0, fromOffset, toOffset, painter);
         } catch (BadLocationException ex) {
             throw new RuntimeException("Error adding highlight at offset " + fromOffset +
-                                     " size " + toOffset + " on " +
+                                     " to " + toOffset + " on " +
                                      (originalSide ? "original" : "revised") + " side", ex);
         }
     }
