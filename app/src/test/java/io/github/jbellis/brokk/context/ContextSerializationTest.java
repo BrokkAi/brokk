@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.context;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
@@ -1213,5 +1212,55 @@ public class ContextSerializationTest {
                    "Expected first instance of 'duplicateText' to be present.");
         assertTrue(deduplicatedFragments.stream().anyMatch(f -> "uniqueText2".equals(f.text()) && "Description for uniqueText2".equals(f.description())),
                    "Expected 'uniqueText2' to be present.");
+    }
+
+    @Test
+    void testWriteReadHistoryWithGitState() throws IOException {
+        // 1. Setup context 1 with a git state that has a diff
+        var context1 = new Context(mockContextManager, "Context with git state");
+        var history = new ContextHistory(context1);
+        var context1Id = context1.id();
+        var diffContent = """
+                          diff --git a/file.txt b/file.txt
+                          --- a/file.txt
+                          +++ b/file.txt
+                          @@ -1 +1 @@
+                          -hello
+                          +world
+                          """;
+        var gitState1 = new ContextHistory.GitState("test-commit-hash-1", diffContent);
+        history.addGitState(context1Id, gitState1);
+
+        // 2. Setup context 2 with a git state that has a null diff
+        var context2 = new Context(mockContextManager, "Context with null diff git state");
+        history.addFrozenContextAndClearRedo(context2.freeze());
+        var context2Id = context2.id();
+        var gitState2 = new ContextHistory.GitState("test-commit-hash-2", null);
+        history.addGitState(context2Id, gitState2);
+
+        // 3. Write to ZIP
+        Path zipFile = tempDir.resolve("history_with_git_state.zip");
+        HistoryIo.writeZip(history, zipFile);
+
+        // 4. Read from ZIP
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        // 5. Assertions
+        assertNotNull(loadedHistory);
+        assertEquals(2, loadedHistory.getHistory().size());
+
+        // Verify first context and its git state
+        assertEquals(context1Id, loadedHistory.getHistory().get(0).id());
+        var loadedGitState1 = loadedHistory.getGitState(context1Id);
+        assertTrue(loadedGitState1.isPresent());
+        assertEquals("test-commit-hash-1", loadedGitState1.get().commitHash());
+        assertEquals(diffContent, loadedGitState1.get().diff());
+
+        // Verify second context and its git state
+        assertEquals(context2Id, loadedHistory.getHistory().get(1).id());
+        var loadedGitState2 = loadedHistory.getGitState(context2Id);
+        assertTrue(loadedGitState2.isPresent());
+        assertEquals("test-commit-hash-2", loadedGitState2.get().commitHash());
+        assertNull(loadedGitState2.get().diff());
     }
 }

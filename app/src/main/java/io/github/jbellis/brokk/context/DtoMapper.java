@@ -105,6 +105,8 @@ public class DtoMapper {
                                     actionFuture);
     }
 
+    public record GitStateDto(String commitHash, @Nullable String diff) {}
+
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
     public static @Nullable ContextFragment resolveAndBuildFragment(String idToResolve,
                                                                     Map<String, ReferencedFragmentDto> referencedDtos,

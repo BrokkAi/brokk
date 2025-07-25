@@ -212,7 +212,7 @@ public class SessionManager implements AutoCloseable
 
     public void saveHistory(ContextHistory ch, UUID sessionId) {
         // ContextHistory is mutable, take a copy before passing it to an async task
-        var contextHistory = new ContextHistory(ch.getHistory(), ch.getResetEdges());
+        var contextHistory = new ContextHistory(ch.getHistory(), ch.getResetEdges(), ch.getGitStates());
         SessionInfo infoToSave = null;
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
