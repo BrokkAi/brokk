@@ -9,7 +9,11 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -78,5 +82,19 @@ public class JdtAnalyzerTest {
         assertEquals(expected, source);
     }
 
+    @Test
+    public void getCallgraphToTest() {
+        final var callgraph = analyzer.getCallgraphTo("A.method1", 5);
+        
+        // Expect A.method1 -> [B.callsIntoA, D.methodD1]
+        assertTrue(callgraph.containsKey("A.method1"), "Should contain A.method1 as a key");
+
+        final var callers =
+                callgraph.getOrDefault("A.method1", Collections.emptyList())
+                        .stream()
+                        .map(site -> site.target().fqName())
+                        .collect(Collectors.toSet());
+        assertEquals(Set.of("B.callsIntoA", "D.methodD1"), callers);
+    }
 
 }

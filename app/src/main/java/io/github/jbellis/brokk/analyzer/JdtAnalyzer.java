@@ -58,6 +58,9 @@ public class JdtAnalyzer implements LspAnalyzer {
         }
     }
 
+    record MethodName(@NotNull String className, @NotNull String methodName) {
+    }
+
     /**
      * Finds all .java files in the project and sends a 'didOpen' notification for each one,
      * forcing the server to analyze them.
@@ -235,22 +238,173 @@ public class JdtAnalyzer implements LspAnalyzer {
 
     @Override
     public Optional<String> getMethodSource(String fqName) {
-        final String cleanedName = stripMethodSignature(fqName);
-        final int lastIndex = cleanedName.lastIndexOf('.');
-        if (lastIndex != -1) {
-            final String className = cleanedName.substring(0, lastIndex);
-            final String methodName = cleanedName.substring(lastIndex + 1);
-            final String methodSources = findMethodSymbol(className, methodName)
-                    .thenApply(maybeSymbol ->
-                            maybeSymbol.stream()
-                                    .map(this::getSourceForSymbolDefinition)
-                                    .flatMap(Optional::stream)
-                                    .collect(Collectors.joining("\n\n"))
-                    ).join();
-            return Optional.of(methodSources).stream().filter(x -> !x.isBlank()).findFirst();
+        return determineMethodName(fqName).map(methodNameInfo ->
+                findMethodSymbol(methodNameInfo.className, methodNameInfo.methodName)
+                        .thenApply(maybeSymbol ->
+                                maybeSymbol.stream()
+                                        .map(this::getSourceForSymbolDefinition)
+                                        .flatMap(Optional::stream)
+                                        .collect(Collectors.joining("\n\n"))
+                        ).join()
+        ).filter(x -> !x.isBlank());
+    }
+
+    @Override
+    public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
+        final var methodNameInfo = determineMethodName(methodName);
+        if (methodNameInfo.isPresent()) {
+            final String className = methodNameInfo.get().className();
+            final String name = methodNameInfo.get().methodName();
+            final Map<String, List<CallSite>> callGraph = new HashMap<>();
+
+            final String key = className + "." + name;
+            final var functionSymbols = findMethodSymbol(className, name).join();
+            functionSymbols
+                    .stream()
+                    .flatMap(x -> Optional.ofNullable(x.getLocation().getLeft()).stream())
+                    .forEach(calleeLocation ->
+                            getCallers(calleeLocation)
+                                    .join()
+                                    .forEach(incomingCall -> callGraphEntry(callGraph, key, incomingCall, depth))
+                    );
+            return callGraph;
         } else {
-            return Optional.empty();
+            logger.warn("Method name not found: {}", methodName);
+            return new HashMap<>();
         }
+    }
+
+    public Map<String, List<CallSite>> getCallgraphTo(CallSite callSite, int depth) {
+        if (depth > 0) {
+            return getCallgraphTo(callSite.target().fqName(), depth - 1);
+        } else {
+            return new HashMap<>();
+        }
+    }
+
+    @Override
+    public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
+        final var methodNameInfo = determineMethodName(methodName);
+        if (methodNameInfo.isPresent()) {
+            final String className = methodNameInfo.get().className();
+            final String name = methodNameInfo.get().methodName();
+            final Map<String, List<CallSite>> callGraph = new HashMap<>();
+
+            final String key = className + "." + name;
+            final var functionSymbols = findMethodSymbol(className, name).join();
+            functionSymbols
+                    .stream()
+                    .flatMap(x -> Optional.ofNullable(x.getLocation().getLeft()).stream())
+                    .forEach(callerLocation ->
+                            getCallees(callerLocation)
+                                    .join()
+                                    .forEach(outgoingCall -> callGraphEntry(callGraph, key, outgoingCall, depth))
+                    );
+            return callGraph;
+        } else {
+            logger.warn("Method name not found: {}", methodName);
+            return new HashMap<>();
+        }
+    }
+
+    public Map<String, List<CallSite>> getCallgraphFrom(CallSite callSite, int depth) {
+        if (depth > 0) {
+            return getCallgraphFrom(callSite.target().fqName(), depth - 1);
+        } else {
+            return new HashMap<>();
+        }
+    }
+
+    private Map<String, List<CallSite>> callGraphEntry(Map<String, List<CallSite>> callGraph, String key, Object someCall, int depth) {
+        if (someCall instanceof CallHierarchyIncomingCall incomingCall) {
+            final var newCallSite = registerCallItem(key, incomingCall.getFrom(), callGraph);
+            // Continue search, and add any new entries
+            getCallgraphTo(newCallSite, depth - 1).forEach((k, v) -> {
+                final var nestedCallSites = callGraph.getOrDefault(k, new ArrayList<>());
+                nestedCallSites.addAll(v);
+                callGraph.put(k, nestedCallSites);
+            });
+        } else if (someCall instanceof CallHierarchyOutgoingCall outgoingCall) {
+            final var newCallSite = registerCallItem(key, outgoingCall.getTo(), callGraph);
+            // Continue search, and add any new entries
+            getCallgraphFrom(newCallSite, depth - 1).forEach((k, v) -> {
+                final var nestedCallSites = callGraph.getOrDefault(k, new ArrayList<>());
+                nestedCallSites.addAll(v);
+                callGraph.put(k, nestedCallSites);
+            });
+        }
+        return callGraph;
+    }
+    
+    private CallSite registerCallItem(String key, CallHierarchyItem callItem, Map<String, List<CallSite>> callGraph) {
+        final var uri = Path.of(URI.create(callItem.getUri()));
+        final var projectFile = new ProjectFile(this.projectRoot, this.projectRoot.relativize(uri));
+        final var cu = new CodeUnit(
+                projectFile,
+                CodeUnitType.FUNCTION,
+                callItem.getDetail(),
+                stripMethodSignature(callItem.getName())
+        );
+        final var sourceLine = callItem.getName() + callItem.getDetail(); // fixme placeholder
+        final var callSites = callGraph.getOrDefault(key, new ArrayList<>());
+        final var newCallSite = new CallSite(cu, sourceLine);
+        callSites.add(newCallSite);
+        callGraph.put(key, callSites);
+        return newCallSite;
+    }
+
+
+    /**
+     * Finds all methods that call the method at the given location.
+     *
+     * @param methodLocation The location of the method to analyze.
+     * @return A CompletableFuture that will resolve with a list of incoming calls (callers).
+     */
+    public CompletableFuture<List<CallHierarchyIncomingCall>> getCallers(Location methodLocation) {
+        // Step 1: Prepare the call hierarchy to get a handle for the method.
+        return prepareCallHierarchy(methodLocation).thenCompose(itemOpt -> {
+            if (itemOpt.isEmpty()) {
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
+            // Step 2: Use the handle to ask for incoming calls.
+            CallHierarchyIncomingCallsParams params = new CallHierarchyIncomingCallsParams(itemOpt.get());
+            return sharedServer.query(server -> server.getTextDocumentService().callHierarchyIncomingCalls(params).join());
+        });
+    }
+
+    /**
+     * Finds all methods that are called by the method at the given location.
+     *
+     * @param methodLocation The location of the method to analyze.
+     * @return A CompletableFuture that will resolve with a list of outgoing calls (callees).
+     */
+    public CompletableFuture<List<CallHierarchyOutgoingCall>> getCallees(Location methodLocation) {
+        // Step 1: Prepare the call hierarchy to get a handle for the method.
+        return prepareCallHierarchy(methodLocation).thenCompose(itemOpt -> {
+            if (itemOpt.isEmpty()) {
+                return CompletableFuture.completedFuture(Collections.emptyList());
+            }
+            // Step 2: Use the handle to ask for outgoing calls.
+            CallHierarchyOutgoingCallsParams params = new CallHierarchyOutgoingCallsParams(itemOpt.get());
+            return sharedServer.query(server -> server.getTextDocumentService().callHierarchyOutgoingCalls(params).join());
+        });
+    }
+
+    /**
+     * Helper method to perform the first step of the call hierarchy request.
+     *
+     * @param location The location of the symbol to prepare.
+     * @return A CompletableFuture resolving to an Optional containing the CallHierarchyItem handle.
+     */
+    private CompletableFuture<Optional<CallHierarchyItem>> prepareCallHierarchy(Location location) {
+        return sharedServer.query(server -> {
+            CallHierarchyPrepareParams params = new CallHierarchyPrepareParams(
+                    new TextDocumentIdentifier(location.getUri()),
+                    location.getRange().getStart()
+            );
+            // The server returns a list, but we only care about the first item for a given position.
+            return server.getTextDocumentService().prepareCallHierarchy(params);
+        }).thenApply(items -> items.join().stream().findFirst());
     }
 
     /**
@@ -345,6 +499,19 @@ public class JdtAnalyzer implements LspAnalyzer {
 
         // Otherwise, return the original string.
         return cleanedName;
+    }
+
+    @NotNull
+    private static Optional<MethodName> determineMethodName(@NotNull String methodFullName) {
+        final String cleanedName = stripMethodSignature(methodFullName);
+        final int lastIndex = cleanedName.lastIndexOf('.');
+        if (lastIndex != -1) {
+            final String className = cleanedName.substring(0, lastIndex);
+            final String methodName = cleanedName.substring(lastIndex + 1);
+            return Optional.of(new MethodName(className, methodName));
+        } else {
+            return Optional.empty();
+        }
     }
 
     @Override
