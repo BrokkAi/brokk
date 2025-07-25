@@ -220,16 +220,16 @@ public class JdtAnalyzer implements LspAnalyzer {
      */
     private List<DocumentSymbol> findSymbolsInTree(List<DocumentSymbol> symbols, String name, SymbolKind kind) {
         return symbols.stream().flatMap(symbol -> {
-                if (stripMethodSignature(symbol.getName()).equals(name) && symbol.getKind() == kind) {
-                    return Stream.of(symbol);
-                } else {
-                    if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                        return findSymbolsInTree(symbol.getChildren(), name, kind).stream();
+                    if (stripMethodSignature(symbol.getName()).equals(name) && symbol.getKind() == kind) {
+                        return Stream.of(symbol);
                     } else {
-                        return Stream.empty();
+                        if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                            return findSymbolsInTree(symbol.getChildren(), name, kind).stream();
+                        } else {
+                            return Stream.empty();
+                        }
                     }
                 }
-            }
         ).toList();
     }
 
@@ -238,13 +238,16 @@ public class JdtAnalyzer implements LspAnalyzer {
         final String cleanedName = stripMethodSignature(fqName);
         final int lastIndex = cleanedName.lastIndexOf('.');
         if (lastIndex != -1) {
-            String className = cleanedName.substring(0, lastIndex);
-            String methodName = cleanedName.substring(lastIndex + 1);
-            final String result = findMethodSymbol(className, methodName).thenApply(maybeSymbol ->
-                    maybeSymbol.stream().map(this::getSourceForSymbolDefinition).flatMap(Optional::stream).collect(Collectors.joining("\n\n"))
-            ).join();
-            if (result.isBlank()) return Optional.empty();
-            else return Optional.of(result);
+            final String className = cleanedName.substring(0, lastIndex);
+            final String methodName = cleanedName.substring(lastIndex + 1);
+            final String methodSources = findMethodSymbol(className, methodName)
+                    .thenApply(maybeSymbol ->
+                            maybeSymbol.stream()
+                                    .map(this::getSourceForSymbolDefinition)
+                                    .flatMap(Optional::stream)
+                                    .collect(Collectors.joining("\n\n"))
+                    ).join();
+            return Optional.of(methodSources).stream().filter(x -> !x.isBlank()).findFirst();
         } else {
             return Optional.empty();
         }
@@ -266,36 +269,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             return server.getTextDocumentService().documentSymbol(params).join();
         });
     }
-
-//    /**
-//     * Intelligently searches for a symbol. If the query contains a '.', it's treated as a
-//     * fully-qualified method name; otherwise, it's treated as a simple type name.
-//     *
-//     * @param query The simple type name (e.g., "MyClass") or a full method name (e.g., "com.example.MyClass.myMethod").
-//     * @return A CompletableFuture that will resolve to the Location of the found symbol, if any.
-//     */
-//    public CompletableFuture<Optional<Location>> findSymbolSmart(String query) {
-//        String cleanQuery = query;
-//        // 1. Filter out the method signature, if one exists.
-//        if (cleanQuery.contains("(")) {
-//            cleanQuery = cleanQuery.substring(0, cleanQuery.indexOf('('));
-//        }
-//
-//        int lastDot = cleanQuery.lastIndexOf('.');
-//
-//        // 2. If no dot, assume it's a simple type name.
-//        if (lastDot == -1) {
-//            logger.info("Performing TYPE search for '{}'", cleanQuery);
-//            return findTypesInWorkspace(cleanQuery);
-//        }
-//
-//        // 3. If a dot exists, split into class and method, and search for the method.
-//        String className = cleanQuery.substring(0, lastDot);
-//        String methodName = cleanQuery.substring(lastDot + 1);
-//        logger.info("Performing METHOD search for class '{}' and method '{}'", className, methodName);
-//        return findMethodSymbol(className, methodName);
-//    }
-
+    
     // A placeholder for resolveMethodName
     private boolean simpleOrFullMatch(WorkspaceSymbol symbol, String simpleOrFullName) {
         final String symbolFullName = symbol.getContainerName() + "." + symbol.getName();

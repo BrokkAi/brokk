@@ -45,20 +45,14 @@ public class JdtAnalyzerTest {
 
     @Test
     public void extractMethodSource() {
-        analyzer.findMethodSymbol("A", "method2").thenApply(methods -> {
-            System.out.println(methods); 
-            return null;
-        }).join();
-
-//        final var sourceOpt1  = analyzer.getMethodSource("com.ayon.service.RunningLomboks.tryExample1");
         final var sourceOpt  = analyzer.getMethodSource("A.method2");
         assert(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
-        // TODO: return all methods
         final String expected = """
                 public String method2(String input) {
                         return "prefix_" + input;
                     }
+                
                 public String method2(String input, int otherInput) {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
