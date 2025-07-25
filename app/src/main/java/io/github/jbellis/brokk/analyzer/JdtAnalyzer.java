@@ -186,7 +186,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             return CompletableFuture.completedFuture(findMethodSymbol(classLocations, methodName));
         });
     }
-    
+
     private List<WorkspaceSymbol> findMethodSymbol(List<WorkspaceSymbol> classLocations, String methodName) {
         return classLocations.stream().flatMap(classLocation -> {
             final String uriString = getUriStringFromLocation(classLocation.getLocation());
@@ -194,7 +194,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             return getSymbolsInFile(filePath).thenApply(fileSymbols ->
                     fileSymbols.stream().map(fileSymbolsEither -> {
                         if (fileSymbolsEither.isRight()) {
-                            return findSymbolInTree(Collections.singletonList(fileSymbolsEither.getRight()), methodName, SymbolKind.Method)
+                            return findSymbolsInTree(Collections.singletonList(fileSymbolsEither.getRight()), methodName, SymbolKind.Method)
                                     .stream()
                                     .map(documentSymbol -> documentToWorkspaceSymbol(documentSymbol, uriString))
                                     .toList();
@@ -206,7 +206,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             ).join().stream();
         }).toList();
     }
-    
+
     private WorkspaceSymbol documentToWorkspaceSymbol(DocumentSymbol documentSymbol, String uriString) {
         return new WorkspaceSymbol(
                 documentSymbol.getName(),
@@ -218,20 +218,19 @@ public class JdtAnalyzer implements LspAnalyzer {
     /**
      * Recursively searches a tree of DocumentSymbol objects for a symbol with a specific name and kind.
      */
-    private List<DocumentSymbol> findSymbolInTree(List<DocumentSymbol> symbols, String name, SymbolKind kind) {
-        for (DocumentSymbol symbol : symbols) {
-            // TODO: stripMethodSignature should be some callback ideally
-            if (stripMethodSignature(symbol.getName()).equals(name) && symbol.getKind() == kind) {
-                return Collections.singletonList(symbol);
-            }
-            if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                List<DocumentSymbol> found = findSymbolInTree(symbol.getChildren(), name, kind);
-                if (!found.isEmpty()) {
-                    return found;
+    private List<DocumentSymbol> findSymbolsInTree(List<DocumentSymbol> symbols, String name, SymbolKind kind) {
+        return symbols.stream().flatMap(symbol -> {
+                if (stripMethodSignature(symbol.getName()).equals(name) && symbol.getKind() == kind) {
+                    return Stream.of(symbol);
+                } else {
+                    if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                        return findSymbolsInTree(symbol.getChildren(), name, kind).stream();
+                    } else {
+                        return Stream.empty();
+                    }
                 }
             }
-        }
-        return Collections.emptyList();
+        ).toList();
     }
 
     @Override
@@ -242,7 +241,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             String className = cleanedName.substring(0, lastIndex);
             String methodName = cleanedName.substring(lastIndex + 1);
             final String result = findMethodSymbol(className, methodName).thenApply(maybeSymbol ->
-                    maybeSymbol.stream().map(this::getSourceForSymbolDefinition).flatMap(Optional::stream).collect(Collectors.joining("\n"))
+                    maybeSymbol.stream().map(this::getSourceForSymbolDefinition).flatMap(Optional::stream).collect(Collectors.joining("\n\n"))
             ).join();
             if (result.isBlank()) return Optional.empty();
             else return Optional.of(result);

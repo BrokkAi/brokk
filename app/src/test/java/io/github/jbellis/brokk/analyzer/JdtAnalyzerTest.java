@@ -59,6 +59,10 @@ public class JdtAnalyzerTest {
                 public String method2(String input) {
                         return "prefix_" + input;
                     }
+                public String method2(String input, int otherInput) {
+                        // overload of method2
+                        return "prefix_" + input + " " + otherInput;
+                    }
                 """.trim().stripIndent();
 
         assertEquals(expected, source);
