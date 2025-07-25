@@ -129,6 +129,11 @@ public abstract class LspServer {
         params.setProcessId((int) ProcessHandle.current().pid());
         params.setWorkspaceFolders(List.of(new WorkspaceFolder(initialWorkspace.toUri().toString(), initialWorkspace.getFileName().toString())));
         params.setClientInfo(new ClientInfo("Brokk", BuildInfo.version));
+        // Java specific
+        Map<String, Object> javaSettings = Map.of(
+                "symbols", Map.of("includeSourceMethodDeclarations", true)
+        );
+        params.setInitializationOptions(javaSettings);
 
         final var capabilities = getCapabilities();
         logger.debug("Setting JDT capabilities {}", capabilities);

@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 public class JdtAnalyzerTest {
 
     private final static Logger logger = LoggerFactory.getLogger(JdtAnalyzerTest.class);
@@ -21,6 +23,7 @@ public class JdtAnalyzerTest {
     @BeforeAll
     public static void setup() throws IOException {
         final var testPath = Path.of("src/test/resources/testcode-java");
+//        final var testPath = Path.of("/Users/dave/Workspace/test-repos/lombok-examples");
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
         analyzer = new JdtAnalyzer(testPath, new HashSet<>());
     }
@@ -38,6 +41,27 @@ public class JdtAnalyzerTest {
         
         assert (!analyzer.isClassInProject("java.nio.filename.Path"));
         assert (!analyzer.isClassInProject("org.foo.Bar"));
+    }
+
+    @Test
+    public void extractMethodSource() {
+        analyzer.findMethodSymbol("A", "method2").thenApply(methods -> {
+            System.out.println(methods); 
+            return null;
+        }).join();
+
+//        final var sourceOpt1  = analyzer.getMethodSource("com.ayon.service.RunningLomboks.tryExample1");
+        final var sourceOpt  = analyzer.getMethodSource("A.method2");
+        assert(sourceOpt.isPresent());
+        final var source = sourceOpt.get().trim().stripIndent();
+        // TODO: return all methods
+        final String expected = """
+                public String method2(String input) {
+                        return "prefix_" + input;
+                    }
+                """.trim().stripIndent();
+
+        assertEquals(expected, source);
     }
 
 
