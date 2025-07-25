@@ -616,7 +616,7 @@ public class ContextAgent {
                         return null;
                     }
                 })
-                .filter(Objects::nonNull)
+                .filter((@Nullable var f) -> f != null)
                 .filter(ProjectFile::exists)
                 .toList();
 
@@ -706,7 +706,7 @@ public class ContextAgent {
                     .collect(Collectors.toMap(ProjectFile::toString, pf -> pf));
             recommendedFiles = responseLines.stream()
                     .map(allFilesMap::get)
-                    .filter(Objects::nonNull)
+                    .filter((@Nullable var f) -> f != null)
                     .toList();
             debug("LLM simple suggested {} relevant files after pruning", recommendedFiles.size());
         }

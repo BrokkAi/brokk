@@ -178,7 +178,10 @@ public class EditBlockParser {
      */
     public EditBlock.ParseResult parseEditBlocks(String content, Set<ProjectFile> projectFiles) {
         var all = parse(content, projectFiles);
-        var editBlocks = all.blocks().stream().map(EditBlock.OutputBlock::block).filter(Objects::nonNull).toList();
+        var editBlocks = all.blocks().stream()
+                            .filter(b -> b.block() != null)
+                            .map(EditBlock.OutputBlock::block)
+                            .toList();
         return new EditBlock.ParseResult(editBlocks, all.parseError());
     }
 

@@ -514,7 +514,6 @@ public class ArchitectAgent {
                 models.add(contextManager.getSearchModel());
             }
             int minInputTokenLimit = models.stream()
-                    .filter(Objects::nonNull)
                     .mapToInt(modelsService::getMaxInputTokens)
                     .filter(limit -> limit > 0)
                     .min()

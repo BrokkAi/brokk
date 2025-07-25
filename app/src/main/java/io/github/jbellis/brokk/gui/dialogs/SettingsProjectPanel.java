@@ -788,7 +788,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                   addExcludedDirButton, removeExcludedDirButton,
                   // Parent dialog buttons
                   okButtonParent, cancelButtonParent, applyButtonParent)
-              .filter(java.util.Objects::nonNull) // Filter out null components (e.g., optional parent buttons)
               .forEach(control -> control.setEnabled(enabled));
     }
 

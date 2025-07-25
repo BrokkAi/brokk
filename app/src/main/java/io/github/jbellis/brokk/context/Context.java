@@ -191,7 +191,6 @@ public class Context {
      */
     public Context addEditableFiles(Collection<ContextFragment.ProjectPathFragment> paths) { // IContextManager is already member
         var toAdd = paths.stream()
-                .filter(Objects::nonNull) // Ensure correct type for contains check
                 .filter(fragment -> !editableFiles.contains(fragment))
                 .toList();
         if (toAdd.isEmpty()) {
@@ -209,7 +208,6 @@ public class Context {
 
     public Context addReadonlyFiles(Collection<ContextFragment.PathFragment> paths) { // IContextManager is already member
         var toAdd = paths.stream()
-            .filter(Objects::nonNull) // Ensure correct type for contains check
             .filter(fragment -> !readonlyFiles.contains(fragment))
             .toList();
         if (toAdd.isEmpty()) {

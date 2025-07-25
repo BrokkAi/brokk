@@ -70,7 +70,7 @@ public class GitHubIssueService implements IssueService {
             }
             return searchResults.stream()
                     .map(this::mapToIssueHeader)
-                    .filter(Objects::nonNull)
+                    .filter((@Nullable var h) -> h != null)
                     .collect(Collectors.toList());
         } else {
             logger.debug("No search query. Using standard listIssues with client-side filters. Options: {}", filterOptions);
@@ -97,7 +97,7 @@ public class GitHubIssueService implements IssueService {
                     .filter(ghIssue -> matchesLabel(ghIssue, filterOptions.label()))
                     .filter(ghIssue -> matchesAssignee(ghIssue, filterOptions.assignee()))
                     .map(this::mapToIssueHeader)
-                    .filter(Objects::nonNull)
+                    .filter((@Nullable var h) -> h != null)
                     .collect(Collectors.toList());
         }
     }
@@ -241,7 +241,7 @@ public class GitHubIssueService implements IssueService {
                         return null;
                     }
                 })
-                .filter(Objects::nonNull)
+                .filter((@Nullable var u) -> u != null)
                 .collect(Collectors.toList());
     }
 

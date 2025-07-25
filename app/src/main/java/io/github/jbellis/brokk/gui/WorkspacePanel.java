@@ -1318,7 +1318,6 @@ public class WorkspacePanel extends JPanel {
         var project = contextManager.getProject();
         var allFiles = fragments.stream()
                 .flatMap(frag -> frag.files().stream())
-                .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
         return !allFiles.isEmpty() && allFiles.stream()
@@ -1574,7 +1573,6 @@ public class WorkspacePanel extends JPanel {
             // Edit files from selected fragments
             var files = selectedFragments.stream()
                                         .flatMap(fragment -> fragment.files().stream())
-                                        .filter(Objects::nonNull)
                                         .collect(Collectors.toSet());
             contextManager.editFiles(files);
         }

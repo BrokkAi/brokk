@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
@@ -141,7 +142,7 @@ public class AnalyzerUtil {
                             return null;
                         }
                     })
-                    .filter(Objects::nonNull)
+                    .filter((@Nullable var s) -> s != null)
                     .sorted()
                     .toList();
         }
@@ -223,7 +224,7 @@ public class AnalyzerUtil {
                     Optional<String> skeletonOpt = analyzer.getSkeleton(cu.fqName()); // Use fqName from CodeUnit
                     return skeletonOpt.isPresent() ? Map.entry(cu, skeletonOpt.get()) : null; // Create entry if skeleton exists
                 })
-                .filter(Objects::nonNull) // Filter out null entries (where skeleton wasn't found)
+                .filter((@Nullable var entry) -> entry != null) // Filter out null entries (where skeleton wasn't found)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 

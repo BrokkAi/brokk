@@ -749,7 +749,7 @@ public class CodeAgent {
         // Identify files referenced by blocks that are not already editable
         var filesToAdd = blocksToApply.stream()
                 .map(EditBlock.SearchReplaceBlock::filename)
-                .filter(Objects::nonNull)
+                .filter((@Nullable var f) -> f != null)
                 .distinct()
                 .map(contextManager::toFile) // Convert filename string to ProjectFile
                 .filter(file -> !contextManager.getEditableFiles().contains(file))

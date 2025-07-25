@@ -386,7 +386,7 @@ public abstract class CodePrompts {
                            </file>
                            """.formatted(filename, currentContentBlock, failedBlocksXml).stripIndent();
                 })
-                .filter(Objects::nonNull)
+                .filter((@Nullable var s) -> s != null)
                 .collect(Collectors.joining("\n\n"));
 
         // Add info about successful blocks, if any
