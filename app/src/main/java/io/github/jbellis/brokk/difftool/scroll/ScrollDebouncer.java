@@ -91,6 +91,14 @@ public final class ScrollDebouncer {
     }
 
     /**
+     * Convenience method for scheduling scroll synchronization operations.
+     * Optimized for high-frequency scroll events with intelligent debouncing.
+     */
+    public void scheduleSync(Runnable syncAction) {
+        submit(new DebounceRequest<>(new Object(), ignored -> syncAction.run()));
+    }
+
+    /**
      * Stops any running timer and cleans up resources.
      * Should be called when the debouncer is no longer needed.
      */

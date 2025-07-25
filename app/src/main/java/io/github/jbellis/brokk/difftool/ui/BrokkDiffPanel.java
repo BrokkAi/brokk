@@ -25,6 +25,9 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
+import io.github.jbellis.brokk.difftool.scroll.ScrollDebugPanel;
+import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -203,11 +206,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JButton btnPrevious = new JButton("Previous Change");
     private final JButton btnPreviousFile = new JButton("Previous File");
     private final JButton btnNextFile = new JButton("Next File");
+    private final JButton btnOpenScrollDebug = new JButton("Open Scroll Debug");
+    private final JLabel scrollModeIndicatorLabel = new JLabel("Immediate"); // Initialize with default mode
     private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
     @Nullable private BufferDiffPanel bufferDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
         this.bufferDiffPanel = bufferDiffPanel;
+        updateScrollModeIndicator();
     }
 
     @Nullable
@@ -376,6 +382,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
+        
+        // Style the scroll mode indicator
+        scrollModeIndicatorLabel.setFont(scrollModeIndicatorLabel.getFont().deriveFont(Font.ITALIC));
+        scrollModeIndicatorLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        scrollModeIndicatorLabel.setToolTipText("Current scroll throttling mode");
 
         btnNext.addActionListener(e -> navigateToNextChange());
         btnPrevious.addActionListener(e -> navigateToPreviousChange());
@@ -386,6 +397,20 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // File navigation handlers
         btnPreviousFile.addActionListener(e -> previousFile());
         btnNextFile.addActionListener(e -> nextFile());
+
+        btnOpenScrollDebug.addActionListener(e -> {
+            var debugPanel = new ScrollDebugPanel();
+            var synchronizer = (bufferDiffPanel != null) ? bufferDiffPanel.getScrollSynchronizer() : null;
+            if (synchronizer != null) {
+                debugPanel.setScrollSynchronizer(synchronizer);
+            }
+            var frame = new JFrame("Scroll Debug Panel");
+            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+            frame.getContentPane().add(debugPanel);
+            frame.pack();
+            frame.setVisible(true);
+        });
+
         captureDiffButton.addActionListener(e -> {
             var bufferPanel = getBufferDiffPanel();
             if (bufferPanel == null) {
@@ -470,6 +495,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(showBlankLineDiffsCheckBox);
 
         // Add Capture Diff button to the right
+        toolBar.add(btnOpenScrollDebug);
+        toolBar.add(Box.createHorizontalStrut(5)); // Small spacing
+        toolBar.add(scrollModeIndicatorLabel);
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
 
@@ -664,12 +692,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane.removeAll();
         tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel);
         this.bufferDiffPanel = cachedPanel;
+        
+        // Update scroll mode indicator for this file
+        updateScrollModeIndicator();
 
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
 
         // Ensure diff highlights are properly displayed after theme application
-        SwingUtilities.invokeLater(cachedPanel::diff);
+        SwingUtilities.invokeLater(() -> {
+            cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
+            // Update scroll mode indicator after diff is complete and panel is fully initialized
+            updateScrollModeIndicator();
+        });
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
@@ -852,6 +887,76 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     private void updateFileIndicatorLabel(String text) {
         fileIndicatorLabel.setText(text);
+    }
+
+    /**
+     * Update the scroll mode indicator based on the current throttling strategy.
+     */
+    private void updateScrollModeIndicator() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        
+        if (bufferDiffPanel == null) {
+            scrollModeIndicatorLabel.setText("N/A");
+            scrollModeIndicatorLabel.setToolTipText("No file loaded");
+            return;
+        }
+        
+        var synchronizer = bufferDiffPanel.getScrollSynchronizer();
+        if (synchronizer == null) {
+            // The BufferDiffPanel might not be fully initialized yet, retry later
+            SwingUtilities.invokeLater(() -> {
+                if (bufferDiffPanel != null) {
+                    var retrySync = bufferDiffPanel.getScrollSynchronizer();
+                    if (retrySync == null) {
+                        scrollModeIndicatorLabel.setText("N/A");
+                        scrollModeIndicatorLabel.setToolTipText("No scroll synchronizer available");
+                    } else {
+                        updateScrollModeIndicatorWithSync(retrySync);
+                    }
+                } else {
+                    scrollModeIndicatorLabel.setText("N/A");
+                    scrollModeIndicatorLabel.setToolTipText("No file loaded");
+                }
+            });
+            return;
+        }
+        
+        updateScrollModeIndicatorWithSync(synchronizer);
+    }
+    
+    /**
+     * Update the scroll mode indicator with a valid synchronizer.
+     */
+    private void updateScrollModeIndicatorWithSync(ScrollSynchronizer synchronizer) {
+        // Check which throttling mode is currently active
+        String modeText;
+        String tooltip;
+        
+        if (PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
+            var metrics = synchronizer.getAdaptiveMetrics();
+            var currentMode = metrics.currentMode();
+            modeText = currentMode.name().charAt(0) + currentMode.name().substring(1).toLowerCase(java.util.Locale.ROOT);
+            tooltip = String.format("Adaptive mode: %s | %s", 
+                                   currentMode.getDescription(), 
+                                   metrics.getSummary());
+        } else if (PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING) {
+            modeText = "Frame-based";
+            var throttlingMetrics = synchronizer.getThrottlingMetrics();
+            tooltip = String.format("Frame-based throttling | Efficiency: %.1f%% | %d events, %d executions", 
+                                   throttlingMetrics.efficiency() * 100,
+                                   throttlingMetrics.totalEvents(),
+                                   throttlingMetrics.totalExecutions());
+        } else if (PerformanceConstants.ENABLE_SCROLL_DEBOUNCING) {
+            modeText = "Debouncing";
+            tooltip = String.format("Traditional debouncing | Delay: %dms", 
+                                   PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
+        } else {
+            modeText = "Immediate";
+            tooltip = "Immediate execution - No throttling";
+        }
+        
+        scrollModeIndicatorLabel.setText(modeText);
+        scrollModeIndicatorLabel.setToolTipText(tooltip);
     }
 
     private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {

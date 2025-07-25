@@ -146,8 +146,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         BufferDocumentIF leftDocument = bnLeft != null ? bnLeft.getDocument() : null;
         BufferDocumentIF rightDocument = bnRight != null ? bnRight.getDocument() : null;
-
-        // After calling diff() on JMDiffNode, we get patch from diffNode.getPatch():
+        
+        // Calculate the diff to get the patch with actual differences
+        diffNode.diff();
         this.patch = diffNode.getPatch(); // new Patch or null
 
         // Initialize selectedDelta to first change for proper navigation button states
@@ -172,6 +173,23 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         // Initialize dirty flag - should be false since no edits have been made yet
         recalcDirty();
+
+        // Auto-scroll to first difference when diff is opened, or to top when no differences
+        if (selectedDelta != null && scrollSynchronizer != null) {
+            // Check if content is one-sided (only INSERT or DELETE deltas)
+            if (isOneSidedContent()) {
+                logger.debug("Auto-scroll: Skipping auto-scroll for one-sided content (INSERT/DELETE only)");
+            } else {
+                // Auto-scroll to the first difference immediately
+                // The existing retry mechanism in scrollToFirstDifference() handles UI readiness
+                logger.debug("Auto-scroll: Found first difference at line {}, scrolling immediately", selectedDelta.getSource().getPosition());
+                scrollToFirstDifference();
+            }
+        } else if (scrollSynchronizer != null) {
+            // For files without differences, scroll both panels to the top immediately
+            logger.debug("Auto-scroll: No differences found, scrolling to top immediately");
+            scrollToTop();
+        }
     }
 
     /**
@@ -560,6 +578,118 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         if (scrollSynchronizer != null) {
             scrollSynchronizer.showDelta(selectedDelta);
         }
+    }
+
+    /**
+     * Auto-scroll to the first difference when a diff is opened.
+     * Centers the first difference on both panels for optimal user experience.
+     */
+    private void scrollToFirstDifference()
+    {
+        logger.debug("scrollToFirstDifference: Called with selectedDelta={}, scrollSynchronizer={}", 
+                   selectedDelta != null ? selectedDelta.getSource().getPosition() : "null", 
+                   scrollSynchronizer != null ? "available" : "null");
+                   
+        if (selectedDelta == null || scrollSynchronizer == null) {
+            logger.debug("scrollToFirstDifference: Skipping due to null state");
+            return;
+        }
+
+        // Use a retry mechanism to wait for UI readiness
+        scheduleAutoScrollWithRetry(0);
+    }
+
+    /**
+     * Schedule auto-scroll with retry mechanism to handle UI timing issues.
+     * Will retry up to 5 times with increasing delays if panels aren't ready.
+     */
+    private void scheduleAutoScrollWithRetry(int attempt)
+    {
+        SwingUtilities.invokeLater(() -> {
+            // Re-check nulls for NullAway
+            if (selectedDelta == null || scrollSynchronizer == null) {
+                logger.debug("scheduleAutoScrollWithRetry: State changed, aborting");
+                return;
+            }
+
+            var leftPanel = getFilePanel(PanelSide.LEFT);
+            var rightPanel = getFilePanel(PanelSide.RIGHT);
+            
+            boolean panelsReady = leftPanel != null && rightPanel != null && 
+                                leftPanel.getScrollPane().getViewport().getSize().height > 0 &&
+                                rightPanel.getScrollPane().getViewport().getSize().height > 0;
+            
+            if (panelsReady) {
+                logger.debug("scheduleAutoScrollWithRetry: Panels ready on attempt {}, executing auto-scroll to delta at position {}", 
+                           attempt + 1, selectedDelta.getSource().getPosition());
+                scrollSynchronizer.showDelta(selectedDelta);
+            } else if (attempt < 5) {
+                // Retry with exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
+                int delay = 100 * (int) Math.pow(2, attempt);
+                logger.debug("scheduleAutoScrollWithRetry: Panels not ready on attempt {} - left viewport height: {}, right viewport height: {}. Retrying in {}ms", 
+                           attempt + 1,
+                           leftPanel != null ? leftPanel.getScrollPane().getViewport().getSize().height : -1,
+                           rightPanel != null ? rightPanel.getScrollPane().getViewport().getSize().height : -1,
+                           delay);
+                           
+                javax.swing.Timer retryTimer = new javax.swing.Timer(delay, e -> 
+                    scheduleAutoScrollWithRetry(attempt + 1));
+                retryTimer.setRepeats(false);
+                retryTimer.start();
+            } else {
+                logger.debug("scheduleAutoScrollWithRetry: Max attempts reached ({}), giving up on auto-scroll", attempt + 1);
+            }
+        });
+    }
+
+    /**
+     * Scroll both panels to the top position (line 0).
+     * Used for files without differences to provide consistent starting position.
+     */
+    private void scrollToTop()
+    {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        
+        if (leftPanel != null && rightPanel != null) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    // Scroll both panels to position 0
+                    leftPanel.getEditor().setCaretPosition(0);
+                    rightPanel.getEditor().setCaretPosition(0);
+                    
+                    // Ensure the scroll position is at the top
+                    leftPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
+                    rightPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
+                    
+                    logger.debug("scrollToTop: Successfully scrolled both panels to top");
+                } catch (Exception e) {
+                    logger.debug("scrollToTop: Error scrolling to top", e);
+                }
+            });
+        }
+    }
+
+    /**
+     * Detects whether the patch contains one-sided content (only INSERT or DELETE deltas).
+     * One-sided content typically occurs when comparing files where one side is empty
+     * or when changes are concentrated in only one file.
+     * 
+     * @return true if the patch contains only INSERT or DELETE deltas (not CHANGE)
+     */
+    private boolean isOneSidedContent()
+    {
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            return false;
+        }
+
+        return patch.getDeltas().stream().allMatch(delta -> {
+            var sourceSize = delta.getSource().size();
+            var targetSize = delta.getTarget().size();
+            
+            // One-sided if either source or target is empty (pure INSERT or DELETE)
+            return sourceSize == 0 || targetSize == 0;
+        });
     }
 
     /**

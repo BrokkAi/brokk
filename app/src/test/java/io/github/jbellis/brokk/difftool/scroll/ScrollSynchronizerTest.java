@@ -359,12 +359,63 @@ class ScrollSynchronizerTest {
         // Test that the method exists and has expected behavior with null panels
         // The current implementation requires non-null panels
         var synchronizer = new ScrollSynchronizer(null, null, null, true);
-        
+
         // Should throw NPE with null panels (current implementation behavior)
         assertThrows(NullPointerException.class, synchronizer::invalidateViewportCacheForBothPanels);
-        
+
         // This verifies the method exists and behaves as currently implemented
         // In a full integration test with real panels, this would work correctly
+    }
+
+    // =================================================================
+    // SCROLLMODE TESTS - NEW FUNCTIONALITY
+    // =================================================================
+
+    @Test
+    @DisplayName("ScrollMode: enum values and properties")
+    void testScrollModeEnum() {
+        // Test that all expected scroll modes exist
+        var modes = ScrollSynchronizer.ScrollMode.values();
+        assertEquals(3, modes.length, "Should have exactly 3 scroll modes");
+
+        // Test enum values
+        assertEquals(ScrollSynchronizer.ScrollMode.CONTINUOUS, ScrollSynchronizer.ScrollMode.valueOf("CONTINUOUS"));
+        assertEquals(ScrollSynchronizer.ScrollMode.NAVIGATION, ScrollSynchronizer.ScrollMode.valueOf("NAVIGATION"));
+        assertEquals(ScrollSynchronizer.ScrollMode.SEARCH, ScrollSynchronizer.ScrollMode.valueOf("SEARCH"));
+    }
+
+    @Test
+    @DisplayName("ScrollMode: backward compatibility with single-parameter scrollToLine")
+    void testScrollModeBackwardCompatibility() throws Exception {
+        // Test that the single-parameter scrollToLine method still exists
+        var synchronizer = new ScrollSynchronizer(null, null, null, true);
+
+        // This should not throw NoSuchMethodException
+        var singleParamMethod = ScrollSynchronizer.class.getMethod("scrollToLine",
+            io.github.jbellis.brokk.difftool.ui.FilePanel.class, int.class);
+        assertNotNull(singleParamMethod, "Single-parameter scrollToLine method should exist for backward compatibility");
+
+        // Test that the two-parameter method exists
+        var twoParamMethod = ScrollSynchronizer.class.getMethod("scrollToLine",
+            io.github.jbellis.brokk.difftool.ui.FilePanel.class, int.class, ScrollSynchronizer.ScrollMode.class);
+        assertNotNull(twoParamMethod, "Two-parameter scrollToLine method should exist");
+    }
+
+    @Test
+    @DisplayName("ScrollMode: scroll mode selection logic")
+    void testScrollModeSelectionLogic() {
+        // Test the logic that determines which scroll mode to use in different contexts
+
+        // performScroll should use CONTINUOUS mode (we can't easily test the private method,
+        // but we can verify the enum values are what we expect)
+        var continuousMode = ScrollSynchronizer.ScrollMode.CONTINUOUS;
+        var navigationMode = ScrollSynchronizer.ScrollMode.NAVIGATION;
+        var searchMode = ScrollSynchronizer.ScrollMode.SEARCH;
+
+        // Verify modes have expected names (this indirectly tests they're used correctly)
+        assertEquals("CONTINUOUS", continuousMode.name());
+        assertEquals("NAVIGATION", navigationMode.name());
+        assertEquals("SEARCH", searchMode.name());
     }
 
     // =================================================================

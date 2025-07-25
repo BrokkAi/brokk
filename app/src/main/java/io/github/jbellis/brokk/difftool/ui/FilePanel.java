@@ -322,9 +322,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Mark initial setup as complete
             initialSetupComplete = true;
 
-            // Scroll to first diff once after initial setup is complete
-            SwingUtilities.invokeLater(this::scrollToFirstDiff);
-
         } catch (Exception ex) {
             diffPanel.getMainPanel().getConsoleIO().toolError(
                 "Could not read file or set document: "
@@ -969,45 +966,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // This avoids flickering during initial setup
     }
 
-    /**
-     * Scrolls the editor to show the first diff highlight if available.
-     * Only called during initial setup to avoid flickering.
-     */
-    private void scrollToFirstDiff() {
-        // Don't auto-scroll if user is actively typing
-        if (isActivelyTyping.get()) {
-            return;
-        }
-
-        var patch = diffPanel.getPatch();
-        if (patch != null && !patch.getDeltas().isEmpty()) {
-            var firstDelta = patch.getDeltas().getFirst();
-            Chunk<String> relevantChunk = BufferDocumentIF.ORIGINAL.equals(name)
-                                          ? firstDelta.getSource()
-                                          : firstDelta.getTarget();
-
-            if (relevantChunk == null) { // If no relevant chunk for the first delta on this side
-                return;
-            }
-            int lineToShow = relevantChunk.getPosition();
-
-            if (bufferDocument != null) {
-                int offset = bufferDocument.getOffsetForLine(lineToShow);
-                if (offset >= 0) {
-                    try {
-                        editor.setCaretPosition(offset);
-                        // Scroll to make the caret visible
-                        Rectangle rect = SwingUtil.modelToView(editor, offset);
-                        if (rect != null) {
-                            editor.scrollRectToVisible(rect);
-                        }
-                    } catch (Exception e) {
-                        // Ignore scroll errors
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * Installs bidirectional listeners that keep the PlainDocument belonging to
