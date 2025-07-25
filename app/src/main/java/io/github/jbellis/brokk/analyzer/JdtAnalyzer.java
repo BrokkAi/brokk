@@ -269,7 +269,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             return server.getTextDocumentService().documentSymbol(params).join();
         });
     }
-    
+
     // A placeholder for resolveMethodName
     private boolean simpleOrFullMatch(WorkspaceSymbol symbol, String simpleOrFullName) {
         final String symbolFullName = symbol.getContainerName() + "." + symbol.getName();
@@ -335,15 +335,16 @@ public class JdtAnalyzer implements LspAnalyzer {
      */
     @NotNull
     public static String stripMethodSignature(@NotNull String methodName) {
-        int parenIndex = methodName.indexOf('(');
+        final var cleanedName = methodName.replace('$', '.');
+        int parenIndex = cleanedName.indexOf('(');
 
         // If a parenthesis is found, return the part of the string before it.
         if (parenIndex != -1) {
-            return methodName.substring(0, parenIndex);
+            return cleanedName.substring(0, parenIndex);
         }
 
         // Otherwise, return the original string.
-        return methodName;
+        return cleanedName;
     }
 
     @Override

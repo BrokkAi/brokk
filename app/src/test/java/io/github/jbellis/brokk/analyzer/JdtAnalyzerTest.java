@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.HashSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class JdtAnalyzerTest {
 
@@ -46,7 +47,7 @@ public class JdtAnalyzerTest {
     @Test
     public void extractMethodSource() {
         final var sourceOpt  = analyzer.getMethodSource("A.method2");
-        assert(sourceOpt.isPresent());
+        assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
         final String expected = """
                 public String method2(String input) {
@@ -57,6 +58,21 @@ public class JdtAnalyzerTest {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
                     }
+                """.trim().stripIndent();
+
+        assertEquals(expected, source);
+    }
+
+    @Test
+    public void extractMethodSourceNested() {
+        final var sourceOpt = analyzer.getMethodSource("A$AInner$AInnerInner.method7");
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get().trim().stripIndent();
+
+        final var expected = """
+                public void method7() {
+                                System.out.println("hello");
+                            }
                 """.trim().stripIndent();
 
         assertEquals(expected, source);
