@@ -1330,6 +1330,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    private void captureGitState(Context frozenContext) {
+        if (!project.hasGit()) {
+            return;
+        }
+
+        try {
+            var repo = project.getRepo();
+            String commitHash = repo.getCurrentCommitId();
+            String diff = repo.diff();
+
+            var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
+            contextHistory.addGitState(frozenContext.id(), gitState);
+        } catch (Exception e) {
+            logger.error("Failed to capture git state", e);
+        }
+    }
+
     /**
      * Processes external file changes by deciding whether to replace the top context or push a new one.
      * If the current top context's action starts with "Loaded external changes", it updates the count and replaces it.
@@ -1393,6 +1410,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var fr = liveContext.freezeAndCleanup();
         liveContext = fr.liveContext();
         var frozen = fr.frozenContext();
+        captureGitState(frozen);
         contextHistory.addFrozenContextAndClearRedo(frozen); // Add frozen version to history
 
         // Ensure listeners are notified on the EDT
@@ -2092,6 +2110,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 throw new RuntimeException(e);
             }
         });
+    }
+    
+    @SuppressWarnings("unused")
+    public void restoreGitProjectState(UUID sessionId, UUID contextId) {
+        if (!project.hasGit()) {
+            return;
+        }
+        var ch = project.getSessionManager().loadHistory(sessionId, this);
+        if (ch == null) {
+            io.toolError("Could not load session " + sessionId, "Error");
+            return;
+        }
+
+        var gitState = ch.getGitState(contextId).orElse(null);
+        if (gitState == null) {
+            io.toolError("Could not find git state for context " + contextId, "Error");
+            return;
+        }
+
+        var restorer = new GitProjectStateRestorer(project, io);
+        restorer.restore(gitState);
     }
 
     /**

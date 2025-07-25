@@ -134,4 +134,24 @@ public class InMemoryRepo implements IGitRepo {
     public Set<ProjectFile> getRemovedFilesSnapshot() {
         return Collections.unmodifiableSet(new HashSet<>(removedFiles));
     }
+
+    @Override
+    public String getCurrentCommitId() throws GitAPIException {
+        return "in-memory-commit-id";
+    }
+
+    @Override
+    public Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
+        return Collections.emptySet();
+    }
+
+    @Override
+    public void checkout(String branchOrCommit) throws GitAPIException {
+        // no-op
+    }
+
+    @Override
+    public void applyDiff(String diff) throws GitAPIException {
+        // no-op for tests
+    }
 }

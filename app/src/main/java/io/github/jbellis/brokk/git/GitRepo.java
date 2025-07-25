@@ -34,6 +34,7 @@ import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 import org.eclipse.jgit.treewalk.filter.TreeFilter;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -413,6 +414,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the current commit ID (HEAD)
      */
+    @Override
     public String getCurrentCommitId() throws GitAPIException {
         var head = resolve("HEAD");
         return head.getName();
@@ -493,6 +495,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Returns a set of uncommitted files with their status (new, modified, deleted).
      */
+    @Override
     public Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
         var statusResult = git.status().call();
         var uncommittedFilesWithStatus = new HashSet<ModifiedFile>();
@@ -849,6 +852,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Checkout a specific branch
      */
+    @Override
     public void checkout(String branchName) throws GitAPIException {
         git.checkout().setName(branchName).call();
         invalidateCaches();
@@ -1342,12 +1346,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
     // getStashesAsCommits removed, functionality moved to listStashes
 
-    /**
-     * A record to hold a modified file and its status.
-     */
-    public record ModifiedFile(ProjectFile file, String status) {
-    }
-
     public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {
     }
 
@@ -1629,6 +1627,21 @@ public class GitRepo implements Closeable, IGitRepo {
                         .call();
             }
             return out.toString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Apply a diff to the working directory.
+     * @param diff The diff to apply.
+     * @throws GitAPIException if applying the diff fails.
+     */
+    @Override
+    public void applyDiff(String diff) throws GitAPIException {
+        try (var in = new ByteArrayInputStream(diff.getBytes(StandardCharsets.UTF_8))) {
+            git.apply().setPatch(in).call();
+            invalidateCaches();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
