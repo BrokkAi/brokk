@@ -262,10 +262,10 @@ public class JdtAnalyzer implements LspAnalyzer {
             functionSymbols
                     .stream()
                     .flatMap(x -> Optional.ofNullable(x.getLocation().getLeft()).stream())
-                    .forEach(calleeLocation ->
-                            getCallers(calleeLocation)
+                    .forEach(originMethod ->
+                            getCallers(originMethod)
                                     .join()
-                                    .forEach(incomingCall -> callGraphEntry(callGraph, key, incomingCall, depth))
+                                    .forEach(incomingCall -> callGraphEntry(originMethod, callGraph, key, incomingCall, depth))
                     );
             return callGraph;
         } else {
@@ -295,10 +295,10 @@ public class JdtAnalyzer implements LspAnalyzer {
             functionSymbols
                     .stream()
                     .flatMap(x -> Optional.ofNullable(x.getLocation().getLeft()).stream())
-                    .forEach(callerLocation ->
-                            getCallees(callerLocation)
+                    .forEach(originMethod ->
+                            getCallees(originMethod)
                                     .join()
-                                    .forEach(outgoingCall -> callGraphEntry(callGraph, key, outgoingCall, depth))
+                                    .forEach(outgoingCall -> callGraphEntry(originMethod, callGraph, key, outgoingCall, depth))
                     );
             return callGraph;
         } else {
@@ -315,9 +315,9 @@ public class JdtAnalyzer implements LspAnalyzer {
         }
     }
 
-    private Map<String, List<CallSite>> callGraphEntry(Map<String, List<CallSite>> callGraph, String key, Object someCall, int depth) {
+    private Map<String, List<CallSite>> callGraphEntry(Location originMethod, Map<String, List<CallSite>> callGraph, String key, Object someCall, int depth) {
         if (someCall instanceof CallHierarchyIncomingCall incomingCall) {
-            final var newCallSite = registerCallItem(key, incomingCall.getFrom(), callGraph);
+            final var newCallSite = registerCallItem(key, true, originMethod, incomingCall.getFrom(), incomingCall.getFromRanges(), callGraph);
             // Continue search, and add any new entries
             getCallgraphTo(newCallSite, depth - 1).forEach((k, v) -> {
                 final var nestedCallSites = callGraph.getOrDefault(k, new ArrayList<>());
@@ -325,7 +325,7 @@ public class JdtAnalyzer implements LspAnalyzer {
                 callGraph.put(k, nestedCallSites);
             });
         } else if (someCall instanceof CallHierarchyOutgoingCall outgoingCall) {
-            final var newCallSite = registerCallItem(key, outgoingCall.getTo(), callGraph);
+            final var newCallSite = registerCallItem(key, false, originMethod, outgoingCall.getTo(), outgoingCall.getFromRanges(), callGraph);
             // Continue search, and add any new entries
             getCallgraphFrom(newCallSite, depth - 1).forEach((k, v) -> {
                 final var nestedCallSites = callGraph.getOrDefault(k, new ArrayList<>());
@@ -335,19 +335,18 @@ public class JdtAnalyzer implements LspAnalyzer {
         }
         return callGraph;
     }
-    
-    private CallSite registerCallItem(String key, CallHierarchyItem callItem, Map<String, List<CallSite>> callGraph) {
+
+    private CallSite registerCallItem(String key, boolean isIncoming, Location originMethod, CallHierarchyItem callItem, List<Range> ranges, Map<String, List<CallSite>> callGraph) {
         final var uri = Path.of(URI.create(callItem.getUri()));
         final var projectFile = new ProjectFile(this.projectRoot, this.projectRoot.relativize(uri));
         final var containerInfo = callItem.getDetail() == null ? "" : callItem.getDetail();  // TODO: Not sure if null means empty or external
         final var cu = new CodeUnit(
                 projectFile,
-                CodeUnitType.FUNCTION,
+                codeUnitForSymbolKind(callItem.getKind()),
                 containerInfo,
                 stripMethodSignature(callItem.getName())
         );
-        // fixme: Call Items are METHOD nodes, so the source line is a whole method
-        final var sourceLine = getCodeForCallSite(callItem).orElse(callItem.getName() + "(...)");
+        final var sourceLine = getCodeForCallSite(isIncoming, originMethod, callItem, ranges).orElse(callItem.getName() + "(...)");
         final var callSites = callGraph.getOrDefault(key, new ArrayList<>());
         final var newCallSite = new CallSite(cu, sourceLine);
         callSites.add(newCallSite);

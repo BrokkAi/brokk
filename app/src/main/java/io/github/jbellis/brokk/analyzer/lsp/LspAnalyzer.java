@@ -1,10 +1,10 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
+import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
-import org.checkerframework.checker.nullness.util.Opt;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
@@ -47,6 +47,19 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             SymbolKind.Function,
             SymbolKind.Constructor
     );
+
+    Set<SymbolKind> MODULE_KINDS = Set.of(
+            SymbolKind.Module,
+            SymbolKind.Namespace,
+            SymbolKind.Package
+    );
+
+    default CodeUnitType codeUnitForSymbolKind(SymbolKind symbolKind) {
+        if (METHOD_KINDS.contains(symbolKind)) return CodeUnitType.FUNCTION;
+        else if (TYPE_KINDS.contains(symbolKind)) return CodeUnitType.CLASS;
+        else if (MODULE_KINDS.contains(symbolKind)) return CodeUnitType.MODULE;
+        else return CodeUnitType.FIELD;
+    }
 
     /**
      * Unpacks the jdt.tar.gz file from the resources into a temporary directory.
@@ -126,12 +139,20 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             return Optional.empty();
         } else return getSourceForSymbol(symbols.getFirst());
     }
-    
-    default Optional<String> getCodeForCallSite(CallHierarchyItem callSite) {
+
+    default Optional<String> getCodeForCallSite(boolean isIncoming, Location originalMethod, CallHierarchyItem callSite, List<Range> ranges) {
         try {
-            final Path filePath = Paths.get(new URI(callSite.getUri()));
+            // the ranges describe callsite or originalMethod depending on direction
+            final String targetFile = isIncoming ? callSite.getUri() : originalMethod.getUri();
+            final Path filePath = Paths.get(new URI(targetFile));
             return Optional.of(Files.readString(filePath))
-                    .map(source -> getSourceForRange(source, callSite.getRange()));
+                    .map(source -> {
+                        if (ranges.isEmpty()) {
+                            return getSourceForRange(source, callSite.getSelectionRange());
+                        } else {
+                            return getSourceForRange(source, ranges.getFirst());
+                        }
+                    });
         } catch (IOException | URISyntaxException e) {
             logger.error("Failed to read source for symbol '{}' at {}", callSite.getName(), callSite.getUri(), e);
             return Optional.empty();
@@ -145,6 +166,17 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             return Optional.of(Files.readString(filePath));
         } catch (IOException | URISyntaxException e) {
             logger.error("Failed to read source for symbol '{}' at {}", symbol.getName(), uriString, e);
+            return Optional.empty();
+        }
+    }
+
+    default Optional<String> getSourceForLocation(Location location) {
+        final String uriString = getUriStringFromLocation(Either.forLeft(location));
+        try {
+            final Path filePath = Paths.get(new URI(uriString));
+            return Optional.of(Files.readString(filePath));
+        } catch (IOException | URISyntaxException e) {
+            logger.error("Failed to read source for location '{}' at {}", location.getRange(), uriString, e);
             return Optional.empty();
         }
     }
