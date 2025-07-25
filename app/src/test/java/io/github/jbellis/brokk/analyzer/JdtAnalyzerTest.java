@@ -43,14 +43,14 @@ public class JdtAnalyzerTest {
     @Test
     public void isClassInProjectTest() {
         assert (analyzer.isClassInProject("A"));
-        
+
         assert (!analyzer.isClassInProject("java.nio.filename.Path"));
         assert (!analyzer.isClassInProject("org.foo.Bar"));
     }
 
     @Test
     public void extractMethodSource() {
-        final var sourceOpt  = analyzer.getMethodSource("A.method2");
+        final var sourceOpt = analyzer.getMethodSource("A.method2");
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
         final String expected = """
@@ -85,7 +85,7 @@ public class JdtAnalyzerTest {
     @Test
     public void getCallgraphToTest() {
         final var callgraph = analyzer.getCallgraphTo("A.method1", 5);
-        
+
         // Expect A.method1 -> [B.callsIntoA, D.methodD1]
         assertTrue(callgraph.containsKey("A.method1"), "Should contain A.method1 as a key");
 
@@ -95,6 +95,22 @@ public class JdtAnalyzerTest {
                         .map(site -> site.target().fqName())
                         .collect(Collectors.toSet());
         assertEquals(Set.of("B.callsIntoA", "D.methodD1"), callers);
+    }
+    
+    @Test
+    public void getCallgraphFromTest() {
+        final var callgraph = analyzer.getCallgraphFrom("B.callsIntoA", 5);
+
+        // Expect B.callsIntoA -> [A.method1, A.method2]
+        assertTrue(callgraph.containsKey("B.callsIntoA"), "Should contain B.callsIntoA as a key");
+
+        final var callees =
+                callgraph.getOrDefault("B.callsIntoA", Collections.emptyList())
+                        .stream()
+                        .map(site -> site.target().fqName())
+                        .collect(Collectors.toSet());
+        assertTrue(callees.contains("A.method1"), "Should call A.method1");
+        assertTrue(callees.contains("A.method2"), "Should call A.method2");
     }
 
 }

@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.checkerframework.checker.nullness.util.Opt;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
@@ -125,19 +126,23 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             return Optional.empty();
         } else return getSourceForSymbol(symbols.getFirst());
     }
+    
+    default Optional<String> getCodeForCallSite(CallHierarchyItem callSite) {
+        try {
+            final Path filePath = Paths.get(new URI(callSite.getUri()));
+            return Optional.of(Files.readString(filePath))
+                    .map(source -> getSourceForRange(source, callSite.getRange()));
+        } catch (IOException | URISyntaxException e) {
+            logger.error("Failed to read source for symbol '{}' at {}", callSite.getName(), callSite.getUri(), e);
+            return Optional.empty();
+        }
+    }
 
     default Optional<String> getSourceForSymbol(WorkspaceSymbol symbol) {
-        // 1. Get the URI string from the symbol's location.
-//        return Optional.of(symbol.getDetail());
-        String uriString = getUriStringFromLocation(symbol.getLocation());
-
+        final String uriString = getUriStringFromLocation(symbol.getLocation());
         try {
-            // 2. Convert the URI string to a Path object.
-            Path filePath = Paths.get(new URI(uriString));
-
-            // 3. Read the file content directly from disk.
+            final Path filePath = Paths.get(new URI(uriString));
             return Optional.of(Files.readString(filePath));
-
         } catch (IOException | URISyntaxException e) {
             logger.error("Failed to read source for symbol '{}' at {}", symbol.getName(), uriString, e);
             return Optional.empty();

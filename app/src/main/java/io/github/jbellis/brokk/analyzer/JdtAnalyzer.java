@@ -339,13 +339,15 @@ public class JdtAnalyzer implements LspAnalyzer {
     private CallSite registerCallItem(String key, CallHierarchyItem callItem, Map<String, List<CallSite>> callGraph) {
         final var uri = Path.of(URI.create(callItem.getUri()));
         final var projectFile = new ProjectFile(this.projectRoot, this.projectRoot.relativize(uri));
+        final var containerInfo = callItem.getDetail() == null ? "" : callItem.getDetail();  // TODO: Not sure if null means empty or external
         final var cu = new CodeUnit(
                 projectFile,
                 CodeUnitType.FUNCTION,
-                callItem.getDetail(),
+                containerInfo,
                 stripMethodSignature(callItem.getName())
         );
-        final var sourceLine = callItem.getName() + callItem.getDetail(); // fixme placeholder
+        // fixme: Call Items are METHOD nodes, so the source line is a whole method
+        final var sourceLine = getCodeForCallSite(callItem).orElse(callItem.getName() + "(...)");
         final var callSites = callGraph.getOrDefault(key, new ArrayList<>());
         final var newCallSite = new CallSite(cu, sourceLine);
         callSites.add(newCallSite);
