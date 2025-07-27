@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class GitWorktreeTab extends JPanel {
@@ -666,6 +667,7 @@ public class GitWorktreeTab extends JPanel {
 
         contextManager.submitContextTask("Removing worktree(s)", () -> {
             boolean anyFailed = false;
+            boolean forceAll = false;
             for (Path worktreePath : pathsToRemove) {
                 if (worktreePath.equals(project.getRoot())) {
                     logger.warn("Skipping removal of main project path listed as worktree: {}", worktreePath);
@@ -677,22 +679,41 @@ public class GitWorktreeTab extends JPanel {
                 } catch (GitRepo.WorktreeNeedsForceException ne) {
                     logger.warn("Worktree {} removal needs force: {}", worktreePath, ne.getMessage());
 
+                    if (forceAll) {
+                        try {
+                            logger.debug("ForceAll active; attempting forced removal of worktree {}", worktreePath);
+                            attemptRemoveWorktree(repo, worktreePath, true);
+                        } catch (GitRepo.GitRepoException forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
+                            logger.error("Error during forced removal of worktree {}: {}", worktreePath, forceEx.getMessage(), forceEx);
+                            reportRemoveError(worktreePath, forceEx);
+                            anyFailed = true;
+                        }
+                        continue;
+                    }
+
                     final java.util.concurrent.CompletableFuture<Integer> dialogResultFuture = new java.util.concurrent.CompletableFuture<>();
                     SwingUtilities.invokeLater(() -> {
-                        int result = JOptionPane.showConfirmDialog(
+                        Object[] options = {"Yes", "Yes to All", "No"};
+                        int result = JOptionPane.showOptionDialog(
                                 GitWorktreeTab.this,
                                 "Removing worktree '" + worktreePath.getFileName() + "' requires force.\n" +
                                 ne.getMessage() + "\n" +
                                 "Do you want to force delete it?",
                                 "Force Worktree Removal",
-                                JOptionPane.YES_NO_OPTION,
-                                JOptionPane.WARNING_MESSAGE);
+                                JOptionPane.DEFAULT_OPTION,
+                                JOptionPane.WARNING_MESSAGE,
+                                null,
+                                options,
+                                options[0]);
                         dialogResultFuture.complete(result);
                     });
 
                     try {
                         int forceConfirm = dialogResultFuture.get(); // Block background thread for dialog result
-                        if (forceConfirm == JOptionPane.YES_OPTION) {
+                        if (forceConfirm == 0 || forceConfirm == 1) { // Yes or Yes to All
+                            if (forceConfirm == 1) {
+                                forceAll = true;
+                            }
                             try {
                                 logger.debug("Attempting forced removal of worktree {}", worktreePath);
                                 attemptRemoveWorktree(repo, worktreePath, true);

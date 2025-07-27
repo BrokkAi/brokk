@@ -113,7 +113,7 @@ class CodeAgentTest {
         // This input contains no blocks and should be treated as a successful, empty parse.
         String proseOnlyText = "Okay, I will make the changes now.";
 
-        var result = codeAgent.parsePhase(loopContext, proseOnlyText, false, parser);
+        var result = codeAgent.parsePhase(loopContext, proseOnlyText, false, parser, null);
 
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
@@ -140,7 +140,7 @@ class CodeAgentTest {
                          This is some trailing text.
                          """;
 
-        var result = codeAgent.parsePhase(loopContext, llmText, false, parser);
+        var result = codeAgent.parsePhase(loopContext, llmText, false, parser, null);
 
         // The parser is lenient; it finds the valid block and ignores the rest.
         // This is not a parse error, so we continue.
@@ -156,7 +156,7 @@ class CodeAgentTest {
         var loopContext = createBasicLoopContext("test goal");
         String llmTextNoBlocks = "Thinking...";
 
-        var result = codeAgent.parsePhase(loopContext, llmTextNoBlocks, true, parser); // isPartial = true
+        var result = codeAgent.parsePhase(loopContext, llmTextNoBlocks, true, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -179,7 +179,7 @@ class CodeAgentTest {
                                   </block>
                                   """;
 
-        var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, parser); // isPartial = true
+        var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -196,7 +196,7 @@ class CodeAgentTest {
         var block = new EditBlock.SearchReplaceBlock(readOnlyFile.toString(), "search", "replace");
         var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(block), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser);
+        var result = codeAgent.applyPhase(loopContext, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;
@@ -214,7 +214,7 @@ class CodeAgentTest {
         var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
         var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser);
+        var result = codeAgent.applyPhase(loopContext, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -249,7 +249,7 @@ class CodeAgentTest {
                                         currentContext.editState().originalFileContents()),
                 currentContext.userGoal());
 
-            var result = codeAgent.applyPhase(contextForThisAttempt, parser);
+            var result = codeAgent.applyPhase(contextForThisAttempt, parser, null);
             assertInstanceOf(CodeAgent.Step.Retry.class, result, "Should be a retry on failure " + (i + 1));
             currentContext = result.loopContext();
             assertEquals(i + 1, currentContext.editState().consecutiveApplyFailures());
@@ -269,7 +269,7 @@ class CodeAgentTest {
             currentContext.userGoal()
         );
 
-        var result = codeAgent.applyPhase(finalContext, parser);
+        var result = codeAgent.applyPhase(finalContext, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result, "Should continue after successful fallback");
         var continueStep = (CodeAgent.Step.Continue) result;
@@ -293,7 +293,7 @@ class CodeAgentTest {
         var failureBlock = new EditBlock.SearchReplaceBlock(file2.toString(), "nonexistent", "text");
 
         var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(successBlock, failureBlock), 0);
-        var result = codeAgent.applyPhase(loopContext, parser);
+        var result = codeAgent.applyPhase(loopContext, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -319,7 +319,7 @@ class CodeAgentTest {
                                             new UserMessage("test request"),
                                             List.of(),
                                             0);
-        var result = codeAgent.verifyPhase(loopContext);
+        var result = codeAgent.verifyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var step = (CodeAgent.Step.Fatal) result;
@@ -332,7 +332,7 @@ class CodeAgentTest {
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No commands
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1); // 1 block applied
 
-        var result = codeAgent.verifyPhase(loopContext);
+        var result = codeAgent.verifyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var step = (CodeAgent.Step.Fatal) result;
@@ -364,7 +364,7 @@ class CodeAgentTest {
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1); // 1 block applied
 
         // First run - build should fail
-        var resultFail = codeAgent.verifyPhase(loopContext);
+        var resultFail = codeAgent.verifyPhase(loopContext, null);
         assertInstanceOf(CodeAgent.Step.Retry.class, resultFail);
         var retryStep = (CodeAgent.Step.Retry) resultFail;
         assertTrue(retryStep.loopContext().editState().lastBuildError().contains("Detailed build error output"));
@@ -388,7 +388,7 @@ class CodeAgentTest {
                 retryStep.loopContext().userGoal()
         );
 
-        var resultSuccess = codeAgent.verifyPhase(contextForSecondRun);
+        var resultSuccess = codeAgent.verifyPhase(contextForSecondRun, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
         var step = (CodeAgent.Step.Fatal) resultSuccess;
         assertEquals(TaskResult.StopReason.SUCCESS, step.stopDetails().reason());
@@ -407,7 +407,7 @@ class CodeAgentTest {
 
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
 
-        var result = codeAgent.verifyPhase(loopContext);
+        var result = codeAgent.verifyPhase(loopContext, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;
         assertEquals(TaskResult.StopReason.INTERRUPTED, fatalStep.stopDetails().reason());
@@ -483,7 +483,7 @@ class CodeAgentTest {
         var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(block), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser);
+        var result = codeAgent.applyPhase(loopContext, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;

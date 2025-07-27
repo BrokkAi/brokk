@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.agents;
 
+import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -491,13 +492,9 @@ public class ArchitectAgent {
     public TaskResult execute() throws ExecutionException, InterruptedException {
         io.systemOutput("Architect Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
 
-        // Check if ContextAgent is enabled in options before using it
+        // Kick off with Context Agent if it's enabled
         if (options.includeContextAgent()) {
-            var contextAgent = new ContextAgent(contextManager,
-                                                contextManager.getSearchModel(),
-                                                goal,
-                                                true);
-            contextAgent.execute();
+            addInitialContextToWorkspace();
         }
 
         var llm = contextManager.getLlm(model, "Architect: " + goal);
@@ -756,6 +753,83 @@ public class ArchitectAgent {
 
                 architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
+            }
+        }
+    }
+
+    private void addInitialContextToWorkspace() throws InterruptedException {
+        var contextAgent = new ContextAgent(contextManager, contextManager.getSearchModel(), goal, true);
+        io.llmOutput("\nExamining initial workspace", ChatMessageType.CUSTOM);
+
+        // Execute without a specific limit on recommendations, allowing skip-pruning
+        var recommendationResult = contextAgent.getRecommendations(true);
+        if (!recommendationResult.success() || recommendationResult.fragments().isEmpty()) {
+            io.llmOutput("\nNo additional recommended context found", ChatMessageType.CUSTOM);
+            // Display reasoning even if no fragments were found, if available
+            if (!recommendationResult.reasoning().isBlank()) {
+                io.llmOutput("\nReasoning: " + recommendationResult.reasoning(), ChatMessageType.CUSTOM);
+            }
+            return;
+        }
+
+        io.llmOutput("\nReasoning for recommendations: " + recommendationResult.reasoning(), ChatMessageType.CUSTOM);// Final budget check
+        int totalTokens = contextAgent.calculateFragmentTokens(recommendationResult.fragments());
+        logger.debug("Total tokens for recommended context: {}", totalTokens);
+        int finalBudget = contextManager.getService().getMaxInputTokens(model) / 2;
+        if (totalTokens > finalBudget) {
+            logger.warn("Recommended context ({} tokens) exceeds final budget ({} tokens). Adding summary isntead.", totalTokens, finalBudget);
+            var summaries = ContextFragment.getSummary(recommendationResult.fragments());
+            var messages = new ArrayList<>(List.of(new UserMessage("Scan for relevant files"),
+                                                   new AiMessage("Potentially relevant files:\n" + summaries)));
+            contextManager.addToHistory(new TaskResult(contextManager, "Scan for relevant files", messages, Set.of(), TaskResult.StopReason.SUCCESS), false);
+        } else {
+            addToWorkspace(recommendationResult);
+        }
+    }
+
+    private void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
+        logger.debug("Recommended context fits within final budget.");
+        List<ContextFragment> selected = recommendationResult.fragments();
+        // Group selected fragments by type
+        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
+
+        // Process ProjectPathFragments
+        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
+                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .toList();
+        if (!pathFragments.isEmpty()) {
+            logger.debug("Adding selected ProjectPathFragments: {}", pathFragments.stream().map(ContextFragment.ProjectPathFragment::shortDescription).collect(Collectors.joining(", ")));
+            contextManager.editFiles(pathFragments);
+        }
+
+        // Process SkeletonFragments
+        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
+                .map(ContextFragment.SkeletonFragment.class::cast)
+                .toList();
+
+        if (!skeletonFragments.isEmpty()) {
+            // For CLASS_SKELETON, collect all target FQNs.
+            // For FILE_SKELETONS, collect all target file paths.
+            // Create one fragment per type.
+            List<String> classTargetFqns = skeletonFragments.stream()
+                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.CLASS_SKELETON)
+                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
+                    .distinct()
+                    .toList();
+
+            List<String> fileTargetPaths = skeletonFragments.stream()
+                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
+                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
+                    .distinct()
+                    .toList();
+
+            if (!classTargetFqns.isEmpty()) {
+                logger.debug("Adding combined SkeletonFragment for classes: {}", classTargetFqns);
+                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, classTargetFqns, ContextFragment.SummaryType.CLASS_SKELETON));
+            }
+            if (!fileTargetPaths.isEmpty()) {
+                logger.debug("Adding combined SkeletonFragment for files: {}", fileTargetPaths);
+                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, fileTargetPaths, ContextFragment.SummaryType.FILE_SKELETONS));
             }
         }
     }

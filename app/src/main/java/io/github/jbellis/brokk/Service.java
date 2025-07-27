@@ -41,7 +41,9 @@ public class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
-    public static final int LLM_TIMEOUT_SECONDS = 4 * 60;
+
+    // TODO replace this when we consistently get thinking tokens
+    public static final int LLM_MAX_RESPONSE_TIME = 6 * 60;
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, Service.ReasoningLevel reasoning) {}
@@ -693,7 +695,7 @@ public class Service {
                 .strictJsonSchema(true)
                 .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
-                .timeout(Duration.ofSeconds(LLM_TIMEOUT_SECONDS));
+                .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
 
             if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
                 var kp = parseKey(MainProject.getBrokkKey());

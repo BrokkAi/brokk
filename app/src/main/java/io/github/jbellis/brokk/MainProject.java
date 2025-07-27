@@ -964,6 +964,20 @@ public final class MainProject extends AbstractProject {
         return new ArrayList<>(DEFAULT_FAVORITE_MODELS);
     }
 
+    /**
+     * Look up a favourite model by its alias (case-insensitive).
+     *
+     * @param alias the alias supplied by the user (e.g. from the CLI)
+     * @return the matching {@link Service.FavoriteModel}
+     * @throws IllegalArgumentException if no favourite model with the given alias exists
+     */
+    public static Service.FavoriteModel getFavoriteModel(String alias) {
+        return loadFavoriteModels().stream()
+                                   .filter(fm -> fm.alias().equalsIgnoreCase(alias))
+                                   .findFirst()
+                                   .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
+    }
+
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
         var props = loadGlobalProperties();
         String newJson;

@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
 
+import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -83,5 +84,11 @@ public final class HeadlessConsole implements IConsoleIO {
     @Override
     public List<ChatMessage> getLlmRawMessages() {
         return List.copyOf(messages);
+    }
+
+    @Override
+    public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        // for "Do you want to compact history" dialog
+        return JOptionPane.NO_OPTION;
     }
 }

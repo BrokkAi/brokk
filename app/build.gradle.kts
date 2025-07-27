@@ -84,6 +84,9 @@ dependencies {
     // Java Decompiler
     implementation(libs.java.decompiler)
 
+    // Maven Resolver for dependency import
+    implementation(libs.bundles.maven.resolver)
+
     implementation(libs.checker.util)
 
     // Testing

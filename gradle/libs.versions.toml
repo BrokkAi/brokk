@@ -11,6 +11,8 @@ flatlaf = "3.6"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
 picocli = "4.7.7"
+maven-embedder = "3.9.6"
+maven-resolver = "1.9.20"
 
 [libraries]
 # Scala
@@ -99,6 +101,15 @@ eclipse-jsonrpc = "org.eclipse.lsp4j:org.eclipse.lsp4j.jsonrpc:0.22.0"
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
 
+# Maven Resolver for dependency import
+maven-embedder = { module = "org.apache.maven:maven-embedder", version.ref = "maven-embedder" }
+maven-resolver-api = { module = "org.apache.maven.resolver:maven-resolver-api", version.ref = "maven-resolver" }
+maven-resolver-spi = { module = "org.apache.maven.resolver:maven-resolver-spi", version.ref = "maven-resolver" }
+maven-resolver-util = { module = "org.apache.maven.resolver:maven-resolver-util", version.ref = "maven-resolver" }
+maven-resolver-impl = { module = "org.apache.maven.resolver:maven-resolver-impl", version.ref = "maven-resolver" }
+maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-resolver-connector-basic", version.ref = "maven-resolver" }
+maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
+
 [bundles]
 joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-pysrc2cpg", "joern-cli", "joern-semanticcpg"]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
@@ -109,6 +120,7 @@ ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
 apache = ["apache-compress"]
 

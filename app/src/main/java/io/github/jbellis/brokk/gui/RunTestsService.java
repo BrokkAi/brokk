@@ -19,9 +19,9 @@ public final class RunTestsService {
             return;
         }
 
-        String cmd = BuildAgent.getBuildLintCommand(cm,
-                                                    cm.getProject().loadBuildDetails(),
-                                                    testFiles);
+        String cmd = BuildAgent.getBuildLintSomeCommand(cm,
+                                                        cm.getProject().loadBuildDetails(),
+                                                        testFiles);
         if (cmd.isEmpty()) {
             chrome.toolError("Run in Shell: build commands are unknown; run Build Setup first");
             return;

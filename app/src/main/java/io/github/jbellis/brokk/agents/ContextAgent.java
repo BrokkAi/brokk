@@ -4,7 +4,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.SystemMessage;
@@ -16,13 +16,16 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.TokenAware;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -36,37 +39,39 @@ import static java.util.Objects.requireNonNull;
 public class ContextAgent {
     private static final Logger logger = LogManager.getLogger(ContextAgent.class);
 
-    private final ContextManager contextManager;
+    private final ContextManager cm;
+    private final StreamingChatModel model;
     private final Llm llm;
     private final String goal;
-    private final IConsoleIO io;
     private final IAnalyzer analyzer;
     private final boolean deepScan;
 
     // if the entire project fits in the Skip Pruning budget, just include it all and call it good
     private final int skipPruningBudget;
     // if our to-prune context is larger than the Pruning budget then we give up
-    private final int budgetPruning;
-    // if our pruned context is larger than the Final target budget then we also give up
-    private final int finalBudget;
+    private int budgetPruning;
 
     // Rule 1: Use all available summaries if they fit the smallest budget and meet the limit (if not deepScan)
     private int QUICK_TOPK = 10;
 
     public ContextAgent(ContextManager contextManager, StreamingChatModel model, String goal, boolean deepScan) throws InterruptedException {
-        this.contextManager = contextManager;
+        this.cm = contextManager;
+        this.model = model;
         this.llm = contextManager.getLlm(model, "ContextAgent: " + goal); // Coder for LLM interactions
         this.goal = goal;
-        this.io = contextManager.getIo();
         this.analyzer = contextManager.getAnalyzer();
         this.deepScan = deepScan;
 
         int maxInputTokens = contextManager.getService().getMaxInputTokens(model);
         this.skipPruningBudget = min(32_000, maxInputTokens / 4);
-        this.finalBudget = maxInputTokens / 2;
-        this.budgetPruning = (int) (maxInputTokens * 0.9);
 
-        debug("ContextAgent initialized. Budgets: SkipPruning={}, Final={}, Pruning={}", skipPruningBudget, finalBudget, budgetPruning);
+        // non-openai models often use more tokens than our estimation so cap this conservatively
+        int outputTokens = model.defaultRequestParameters().maxOutputTokens(); // TODO override this when we can
+        int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
+        // god, our estimation is so bad (yes we do observe the ratio being this far off)
+        this.budgetPruning = (int) (actualInputTokens * 0.65);
+
+        debug("ContextAgent initialized. Budgets: SkipPruning={}, Pruning={}", skipPruningBudget, budgetPruning);
     }
 
     private void debug(String format, Object... args) {
@@ -119,48 +124,9 @@ public class ContextAgent {
     }
 
     /**
-     * Executes the context population logic, obtains context recommendations,
-     * presents them for selection (if workspace is not empty), and adds them to the workspace.
-     *
-     * @return true if context fragments were successfully added, false otherwise
-     */
-    public boolean execute() throws InterruptedException {
-        io.llmOutput("\nExamining initial workspace", ChatMessageType.CUSTOM);
-
-        // Execute without a specific limit on recommendations, allowing skip-pruning
-        var recommendationResult = getRecommendations(true);
-        if (!recommendationResult.success || recommendationResult.fragments.isEmpty()) {
-            io.llmOutput("\nNo additional recommended context found", ChatMessageType.CUSTOM);
-            // Display reasoning even if no fragments were found, if available
-            if (!recommendationResult.reasoning.isBlank()) {
-                io.llmOutput("\nReasoning: " + recommendationResult.reasoning, ChatMessageType.CUSTOM);
-            }
-            return false;
-        }
-        io.llmOutput("\nReasoning for recommendations: " + recommendationResult.reasoning, ChatMessageType.CUSTOM);
-
-        // Final budget check
-        int totalTokens = calculateFragmentTokens(recommendationResult.fragments());
-        debug("Total tokens for recommended context: {}", totalTokens);
-
-        if (totalTokens > finalBudget) {
-            logger.warn("Recommended context ({} tokens) exceeds final budget ({} tokens). Skipping context addition.", totalTokens, finalBudget);
-            logGiveUp("recommended context (exceeded final budget)");
-            // Optionally provide reasoning about exceeding budget
-            io.llmOutput("\nWarning: Recommended context exceeded the final budget and could not be added automatically.", ChatMessageType.CUSTOM);
-            return false; // Indicate failure due to budget
-        }
-
-        debug("Recommended context fits within final budget.");
-        addSelectedFragments(recommendationResult.fragments);
-
-        return true;
-    }
-
-    /**
      * Calculates the approximate token count for a list of ContextFragments.
      */
-    private int calculateFragmentTokens(List<ContextFragment> fragments) {
+    int calculateFragmentTokens(List<ContextFragment> fragments) {
         int totalTokens = 0;
 
         for (var fragment : fragments) {
@@ -196,64 +162,6 @@ public class ContextAgent {
     }
 
     /**
-     * ContextAgent returns fragment-per-file to make it easy for DeepScanDialog to get user input, but
-     * when adding to the Workspace we want to merge the summaries into a singleSkeletonFragment. This
-     * takes care of that.
-     */
-    public void addSelectedFragments(List<ContextFragment> selected) {
-        // Group selected fragments by type
-        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
-
-        // Process ProjectPathFragments
-        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragment.ProjectPathFragment.class::cast)
-                .toList();
-        if (!pathFragments.isEmpty()) {
-            debug("Adding selected ProjectPathFragments: {}", pathFragments.stream().map(ContextFragment.ProjectPathFragment::shortDescription).collect(Collectors.joining(", ")));
-            contextManager.editFiles(pathFragments);
-        }
-
-        // Process SkeletonFragments
-        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragment.SkeletonFragment.class::cast)
-                .toList();
-
-        if (!skeletonFragments.isEmpty()) {
-            // For CLASS_SKELETON, collect all target FQNs.
-            // For FILE_SKELETONS, collect all target file paths.
-            // Create one fragment per type.
-            List<String> classTargetFqns = skeletonFragments.stream()
-                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.CLASS_SKELETON)
-                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
-                    .distinct()
-                    .toList();
-
-            List<String> fileTargetPaths = skeletonFragments.stream()
-                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
-                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
-                    .distinct()
-                    .toList();
-
-            if (!classTargetFqns.isEmpty()) {
-                debug("Adding combined SkeletonFragment for classes: {}", classTargetFqns);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, classTargetFqns, ContextFragment.SummaryType.CLASS_SKELETON));
-            }
-            if (!fileTargetPaths.isEmpty()) {
-                debug("Adding combined SkeletonFragment for files: {}", fileTargetPaths);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, fileTargetPaths, ContextFragment.SummaryType.FILE_SKELETONS));
-            }
-        }
-
-        // Handle any unexpected fragment types (should not happen with current logic)
-        groupedByType.keySet().stream()
-                .filter(type -> type != ContextFragment.FragmentType.PROJECT_PATH && type != ContextFragment.FragmentType.SKELETON)
-                .findFirst()
-                .ifPresent(unexpectedType -> {
-                    throw new AssertionError("Unexpected fragment type selected: " + unexpectedType + " in " + selected);
-                });
-    }
-
-    /**
      * Determines the best initial context based on project size and token budgets,
      * potentially using LLM inference, and returns recommended context fragments.
      * <p>
@@ -265,9 +173,10 @@ public class ContextAgent {
     public RecommendationResult getRecommendations(boolean allowSkipPruning) throws InterruptedException {
         Collection<ChatMessage> workspaceRepresentation;
         workspaceRepresentation = deepScan 
-                                  ? CodePrompts.instance.getWorkspaceContentsMessages(contextManager.liveContext()) 
-                                  : CodePrompts.instance.getWorkspaceSummaryMessages(contextManager.liveContext());
-        var allFiles = contextManager.getProject().getAllFiles().stream().sorted().toList();
+                                  ? CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()) 
+                                  : CodePrompts.instance.getWorkspaceSummaryMessages(cm.liveContext());
+        budgetPruning -= Messages.getApproximateTokens(workspaceRepresentation);
+        var allFiles = cm.getProject().getAllFiles().stream().sorted().toList();
 
         // try single-pass mode first
         if (analyzer.isEmpty()) {
@@ -301,8 +210,6 @@ public class ContextAgent {
 
         var prunedFiles = filenameResult.fragments.stream()
                 .flatMap(f -> f.files().stream()) // No analyzer
-                .filter(ProjectFile.class::isInstance) // Ensure it's a ProjectFile
-                .map(ProjectFile.class::cast)       // Cast to ProjectFile
                 .toList();
 
         if (prunedFiles.isEmpty()) {
@@ -311,7 +218,6 @@ public class ContextAgent {
             return new RecommendationResult(true, List.of(), filenameResult.reasoning());
         }
         debug("LLM pruned to {} files based on names. Reasoning: {}", prunedFiles.size(), filenameResult.reasoning());
-
 
         // Fallback 2: After pruning filenames, try again with summaries or contents using the pruned list
         if (!analyzer.isEmpty()) {
@@ -342,12 +248,11 @@ public class ContextAgent {
                                                       boolean allowSkipPruning) throws InterruptedException
     {
         Map<CodeUnit, String> rawSummaries;
-        var ctx = contextManager.liveContext();
-        var codeInWorkspace = ctx.allFragments().flatMap(f -> f.sources().stream()).findAny().isPresent();
+        var ctx = cm.liveContext();
 
-        if (codeInWorkspace && !deepScan) {
+        if (isCodeInWorkspace(ctx) && !deepScan) {
             // If the workspace isn't empty, use pagerank candidates for Quick context
-            var ac = contextManager.liveContext().buildAutoContext(50);
+            var ac = cm.liveContext().buildAutoContext(50);
             // fetchSkeletons() is private in SkeletonFragment. We need to use its sources() or text().
             // For now, let's get the target FQNs and then fetch summaries for them.
             List<String> targetFqns = ac.getTargetIdentifiers();
@@ -365,7 +270,10 @@ public class ContextAgent {
             rawSummaries = tempSummaries;
         } else {
             // Scan all the files
-            rawSummaries = getProjectSummaries(filesToConsider);
+            requireNonNull(analyzer);
+            rawSummaries = filesToConsider.stream().parallel()
+                    .flatMap(f -> analyzer.getSkeletons(f).entrySet().stream())
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
         }
 
         int summaryTokens = Messages.getApproximateTokens(String.join("\n", rawSummaries.values()));
@@ -373,38 +281,151 @@ public class ContextAgent {
 
         boolean withinLimit = deepScan || rawSummaries.size() <= QUICK_TOPK;
         if (allowSkipPruning && summaryTokens <= skipPruningBudget && withinLimit) {
-            var fragments = skeletonPerSummary(contextManager, rawSummaries);
-            return new RecommendationResult(true, fragments, "Using all summaries within budget and limits (skip pruning).");
+            var codeUnits = rawSummaries.keySet().stream().toList();
+            return createResult(new LlmRecommendation(List.of(), codeUnits, "All summaries are under budget"));
         }
 
-        // Rule 2: Ask LLM to pick relevant summaries/files if all summaries fit the Pruning budget
+        // Ask LLM to pick relevant summaries/files if all summaries fit the Pruning budget
         if (summaryTokens <= budgetPruning) {
             var llmRecommendation = askLlmToRecommendContext(List.of(), rawSummaries, Map.of(), workspaceRepresentation);
             return createResult(llmRecommendation);
         }
 
-        // If summaries are too large even for pruning, signal failure for this branch
-        String reason = "Summaries too large for LLM pruning budget.";
-        logGiveUp("summaries (too large for pruning budget)");
-        return new RecommendationResult(false, List.of(), reason);
+        if (!deepScan) {
+            String reason = "Summaries too large for quick context pruning budget.";
+            logGiveUp(reason);
+            return new RecommendationResult(false, List.of(), reason);
+        }
+
+        // Else, split the recommendation task across multiple calls
+        debug("Summaries too large for a single call ({} tokens), splitting into chunks.", summaryTokens);
+        return createResult(recommendInChunks(rawSummaries, workspaceRepresentation, budgetPruning));
+    }
+
+    private static boolean isCodeInWorkspace(Context ctx) {
+        return ctx.allFragments().flatMap(f -> f.sources().stream()).findAny().isPresent();
+    }
+
+    private LlmRecommendation recommendInChunks(Map<CodeUnit, String> rawSummaries,
+                                                   Collection<ChatMessage> workspaceRepresentation, 
+                                                   int tokensPerMessage) 
+            throws InterruptedException
+    {
+        // A record to hold a chunk of summaries and its token count
+        record SummaryChunk(Map<CodeUnit, String> summaries, int tokenCount) {}
+
+        // Partition summaries into chunks that fit within the pruning budget
+        List<SummaryChunk> chunks = new ArrayList<>();
+        var currentChunkSummaries = new LinkedHashMap<CodeUnit, String>();
+        int currentChunkTokens = 0;
+        for (var entry : rawSummaries.entrySet()) {
+            String summaryText = entry.getValue();
+            int summaryTokensCount = Messages.getApproximateTokens(summaryText);
+            if (!currentChunkSummaries.isEmpty() && currentChunkTokens + summaryTokensCount > tokensPerMessage) {
+                chunks.add(new SummaryChunk(new LinkedHashMap<>(currentChunkSummaries), currentChunkTokens));
+                currentChunkSummaries = new LinkedHashMap<>();
+                currentChunkTokens = 0;
+            }
+            currentChunkSummaries.put(entry.getKey(), entry.getValue());
+            currentChunkTokens += summaryTokensCount;
+        }
+        if (!currentChunkSummaries.isEmpty()) {
+            chunks.add(new SummaryChunk(new LinkedHashMap<>(currentChunkSummaries), currentChunkTokens));
+        }
+        debug("Split into {} chunks.", chunks.size());
+
+        var recommendations = new ArrayList<LlmRecommendation>();
+        int parallelStartIndex = 0;
+
+        // If workspace is not empty, process the first chunk synchronously to warm up the prefix cache.
+        if (isCodeInWorkspace(cm.liveContext()) && !chunks.isEmpty()) {
+            debug("Warming up prefix cache with first chunk.");
+            var firstChunk = chunks.getFirst();
+            var firstRecommendation = askLlmToRecommendContext(List.of(), firstChunk.summaries(), Map.of(), workspaceRepresentation);
+            recommendations.add(firstRecommendation);
+            parallelStartIndex = 1;
+            if (Thread.currentThread().isInterrupted()) {
+                return new LlmRecommendation(List.of(), List.of(), "Interrupted during context recommendation.");
+            }
+        }
+
+        if (chunks.size() > parallelStartIndex) {
+            var service = cm.getService();
+            var executorService = AdaptiveExecutor.create(service, model, chunks.size() - parallelStartIndex);
+
+            interface TokenAwareLlmRecommendationCallable extends Callable<LlmRecommendation>, TokenAware {}
+
+            List<Future<LlmRecommendation>> futures = new ArrayList<>();
+            try {
+                for (int i = parallelStartIndex; i < chunks.size(); i++) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
+                    var chunk = chunks.get(i);
+                    futures.add(executorService.submit(new TokenAwareLlmRecommendationCallable() {
+                        @Override
+                        public int tokens() {
+                            return chunk.tokenCount();
+                        }
+
+                        @Override
+                        public LlmRecommendation call() throws Exception {
+                            return askLlmToRecommendContext(List.of(), chunk.summaries(), Map.of(), workspaceRepresentation);
+                        }
+                    }));
+                }
+
+                for (var future : futures) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
+                    try {
+                        LlmRecommendation result = future.get();
+                        recommendations.add(result);
+                    } catch (ExecutionException e) {
+                        logger.error("Error recommending context for a chunk", e.getCause());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            } finally {
+                executorService.shutdownNow();
+            }
+        }
+
+        if (Thread.currentThread().isInterrupted()) {
+            return new LlmRecommendation(List.of(), List.of(), "Interrupted during context recommendation.");
+        }
+
+        // Merge recommendations from all chunks
+        var mergedFiles = recommendations.stream()
+                .flatMap(r -> r.recommendedFiles().stream())
+                .distinct()
+                .toList();
+        var mergedClasses = recommendations.stream()
+                .flatMap(r -> r.recommendedClasses().stream())
+                .distinct()
+                .toList();
+        var mergedReasoning = recommendations.stream()
+                .map(LlmRecommendation::reasoning)
+                .filter(r -> !r.isBlank())
+                .collect(Collectors.joining("\n\n---\n\n"));
+
+        var finalRecommendation = new LlmRecommendation(mergedFiles, mergedClasses, mergedReasoning);
+        debug("Merged recommendations from all chunks. Files: {}, Classes: {}", finalRecommendation.recommendedFiles().size(), finalRecommendation.recommendedClasses().size());
+
+        return finalRecommendation;
     }
 
     private RecommendationResult createResult(LlmRecommendation llmRecommendation) {
         var recommendedFiles = llmRecommendation.recommendedFiles();
-        var recommendedClasses = llmRecommendation.recommendedClasses();
-        var reasoning = llmRecommendation.reasoning();
+        // LLM might recommend both a file and a summary of a class in that file. r/m any such redundant classes
+        var recommendedClasses = llmRecommendation.recommendedClasses().stream()
+                .filter(cu -> !llmRecommendation.recommendedFiles.contains(cu.source()))
+                .toList();
 
-        // We filter out duplicates in different ways depending on the request type:
-        // for Deep Scan, we filter out only exact matches, so if we have a full file and LLM recommends
-        // summary, we allow it, and vice versa; for Quick, we filter out anything that's already in the workspace in any form
-        if (deepScan) {
-            recommendedFiles = recommendedFiles.stream()
-                    .filter(f -> !isFileInWorkspace(f))
-                    .toList();
-            recommendedClasses = recommendedClasses.stream()
-                    .filter(c -> !isClassInWorkspace(c))
-                    .toList();
-        }
+        var reasoning = llmRecommendation.reasoning();
 
         // Get summaries for recommended classes
         var recommendedSummaries = getSummaries(recommendedClasses, false);
@@ -420,23 +441,23 @@ public class ContextAgent {
               recommendedFiles.size(), recommendedContentTokens, totalRecommendedTokens);
 
         // Create fragments
-        var skeletonFragments = skeletonPerSummary(contextManager, recommendedSummaries);
+        var skeletonFragments = skeletonPerSummary(cm, recommendedSummaries);
         var pathFragments = recommendedFiles.stream()
-                .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, contextManager))
+                .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        var combinedStream = Stream.concat(skeletonFragments.stream(), pathFragments.stream());
-        // deduplicate for Quick context
-        if (!deepScan) {
-            var existingFiles = contextManager.liveContext().allFragments()
-                    .flatMap(f -> f.files().stream())
-                    .collect(Collectors.toSet());
-            combinedStream = combinedStream
-                    .filter(f -> {
-                        Set<ProjectFile> fragmentFiles = f.files();
-                        return fragmentFiles.stream().noneMatch(existingFiles::contains);
-                    });
+        // Remove fragments that correspond to in-Workspace context
+        var existingFiles = cm.liveContext().allFragments()
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+        var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
+                .filter(f -> {
+                    Set<ProjectFile> fragmentFiles = f.files();
+                    return fragmentFiles.stream().noneMatch(existingFiles::contains);
+                }).toList();
+        if (combinedFragments.size() < skeletonFragments.size() + pathFragments.size()) {
+            logger.debug("After removing fragments already in Workspace {}, remaining are {}",
+                         ContextFragment.getSummary(cm.liveContext().allFragments()), combinedFragments);
         }
-        var combinedFragments = combinedStream.toList();
 
         return new RecommendationResult(true, combinedFragments, reasoning);
     }
@@ -450,22 +471,6 @@ public class ContextAgent {
         return relevantSummaries.keySet().stream()
                 .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CLASS_SKELETON))
                 .toList();
-    }
-
-    /**
-     * Collect a structural “skeleton” for every top-level class whose source file
-     * is in the supplied collection.
-     * <p>
-     * We:
-     * 1. Grab the CodeUnits belonging to those files (via the analyzer).
-     * 2. Collapse inner-classes so we only consider the outermost declaration.
-     * 3. Ask the analyzer for a skeleton of each class and keep the non-empty ones.
-     */
-    private Map<CodeUnit, String> getProjectSummaries(Collection<ProjectFile> files) {
-        requireNonNull(analyzer);
-        return files.stream().parallel()
-                .flatMap(f -> analyzer.getSkeletons(f).entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
     private Map<CodeUnit, String> getSummaries(Collection<CodeUnit> classes, boolean parallel) {
@@ -484,23 +489,6 @@ public class ContextAgent {
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-    }
-
-    private boolean isFileInWorkspace(ProjectFile file) {
-        return contextManager.getEditableFiles().contains(file) ||
-                contextManager.getReadonlyProjectFiles().contains(file);
-    }
-
-    private boolean isClassInWorkspace(CodeUnit cls) {
-        return contextManager.liveContext().allFragments()
-                .anyMatch(f -> {
-                    if (f.getType() == ContextFragment.FragmentType.SKELETON) {
-                        var sf = (ContextFragment.SkeletonFragment) f;
-                        return sf.getTargetIdentifiers().contains(cls.fqName()) && // Check if class FQN is among targets
-                                sf.getSummaryType() == ContextFragment.SummaryType.CLASS_SKELETON; // Ensure it's a class summary
-                    }
-                    return false;
-                });
     }
 
     private LlmRecommendation askLlmToRecommendContext(List<String> filenames,
@@ -598,15 +586,23 @@ public class ContextAgent {
         // *** Execute LLM call with required tool ***
         var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
         if (result.error() != null || result.isEmpty()) {
+            var error = result.error();
+            // litellm does an inconsistent job translating into ContextWindowExceededError. https://github.com/BrokkAi/brokk/issues/540
+            if (error != null && error.getMessage() != null && error.getMessage().contains("context")) {
+                // we don't have the original raw budget available here, and we don't want to split into more than
+                // two messages, so 0.6 is a reasonable value
+                debug("Context window exceeded, splitting recursively");
+                return recommendInChunks(summaries, workspaceRepresentation, (int) (promptTokens * 0.6));
+            }
             logger.warn("Error or empty response from LLM during context recommendation: {}. Returning empty.",
-                        result.error() != null ? result.error().getMessage() : "Empty response");
+                        error != null ? error.getMessage() : "Empty response");
             return LlmRecommendation.EMPTY;
         }
         var toolRequests = result.toolRequests();
         debug("LLM ToolRequests: {}", toolRequests);
         // only one call is necessary but handle LLM making multiple calls
         for (var request : toolRequests) {
-            contextManager.getToolRegistry().executeTool(contextTool, request);
+            cm.getToolRegistry().executeTool(contextTool, request);
         }
 
         String reasoning = result.text();
@@ -614,7 +610,7 @@ public class ContextAgent {
         var projectFiles = contextTool.getRecommendedFiles().stream()
                 .map(fname -> {
                     try {
-                        return contextManager.toFile(fname);
+                        return cm.toFile(fname);
                     } catch (IllegalArgumentException e) {
                         // absolute or malformed path
                         return null;
@@ -706,7 +702,7 @@ public class ContextAgent {
             responseLines = simpleRecommendItems(ContextInputType.FILE_PATHS, filenameString, null, workspaceRepresentation); // No topK for pruning
 
             // Convert response strings back to ProjectFile objects
-            var allFilesMap = contextManager.getProject().getAllFiles().stream()
+            var allFilesMap = cm.getProject().getAllFiles().stream()
                     .collect(Collectors.toMap(ProjectFile::toString, pf -> pf));
             recommendedFiles = responseLines.stream()
                     .map(allFilesMap::get)
@@ -784,7 +780,7 @@ public class ContextAgent {
                                                          boolean allowSkipPruning) throws InterruptedException
     {
         // If the workspace isn't empty and we have no analyzer, don't suggest adding whole files.
-        if (analyzer.isEmpty() && !contextManager.getEditableFiles().isEmpty()) {
+        if (analyzer.isEmpty() && !cm.getEditableFiles().isEmpty()) {
             debug("Non-empty context and no analyzer present, skipping file content suggestions");
             return new RecommendationResult(true, List.of(), "Skipping file content suggestions for non-empty context without analyzer.");
         }
@@ -796,26 +792,7 @@ public class ContextAgent {
         // Rule 1: Use all available files if content fits the smallest budget and meet the limit (if not deepScan)
         boolean withinLimit = deepScan || filesToConsider.size() <= QUICK_TOPK; // Use QUICK_TOPK here
         if (allowSkipPruning && contentTokens <= skipPruningBudget && withinLimit) {
-            var fragments = filesToConsider.stream()
-                    .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, contextManager))
-                    .toList();
-            // Need to filter here too for quick mode if skipping LLM
-            if (!deepScan) {
-                var existingFiles = contextManager.liveContext().allFragments()
-                        .flatMap(f -> f.files().stream())
-                        .collect(Collectors.toSet());
-                fragments = fragments.stream()
-                        .filter(frag -> {
-                            // Ensure frag is ProjectPathFragment and then get its file
-                            if (frag.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                                var ppf = (ContextFragment.ProjectPathFragment) frag;
-                                return !existingFiles.contains(ppf.file());
-                            }
-                            return true; // Or handle other fragment types if necessary
-                        })
-                        .toList();
-            }
-            return new RecommendationResult(true, fragments, "Using all file contents within budget and limits (skip pruning).");
+            return createResult(new LlmRecommendation(filesToConsider, List.of(), "All file contents are within token budget"));
         }
 
         // Rule 2: Ask LLM to pick relevant files if all content fits the Pruning budget

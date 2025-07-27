@@ -69,10 +69,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final LoggingExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
     private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); //_FIX_
 
-    // Regex to identify test files. Looks for "test" or "tests" surrounded by separators or camelCase boundaries.
-    private static final Pattern TEST_FILE_PATTERN = Pattern.compile( // Javadoc for TEST_FILE_PATTERN not needed here
-                                                                      "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
-    );
+    // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
+    // when it appears as its own path segment or at a camel-case boundary.
+    static final Pattern TEST_FILE_PATTERN = Pattern.compile(
+        ".*" +                                                         // anything before
+        "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))" +          // valid prefix boundary
+        "(?i:tests?)" +                                                // the word test/tests (case-insensitive only here)
+        "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)" +        // suffix: separator, word-boundary, underscore,
+                                                                       //         UC not followed by lc  OR UC followed by lc, or EOS
+        ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
 

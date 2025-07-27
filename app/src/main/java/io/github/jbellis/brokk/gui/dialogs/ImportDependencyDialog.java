@@ -1,27 +1,32 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.util.Decompiler;
+import io.github.jbellis.brokk.util.FileUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.Git;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.TreeMap;
-import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -31,10 +36,12 @@ import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static java.util.Objects.requireNonNull;
+
 public class ImportDependencyDialog {
     private static final Logger logger = LogManager.getLogger(ImportDependencyDialog.class);
 
-    private enum SourceType { JAR, DIRECTORY }
+    private enum SourceType { JAR, DIRECTORY, GIT }
 
     public static void show(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
@@ -47,29 +54,33 @@ public class ImportDependencyDialog {
 
     private static class DialogHelper {
         private final Chrome chrome;
-        private JDialog dialog = new JDialog(); // Initialized
-        @Nullable
-        private JRadioButton jarRadioButton; // Null if not Java project
-        @Nullable
-        private JRadioButton dirRadioButton; // Null if not Java project
-        private JPanel fspContainerPanel = new JPanel(new BorderLayout()); // Initialized
-        @Nullable
-        private FileSelectionPanel currentFileSelectionPanel;
-        private JTextArea previewArea = new JTextArea(); // Initialized
-        private JButton importButton = new JButton("Import"); // Initialized
+        private JDialog dialog = new JDialog();
+        @Nullable private JRadioButton jarRadioButton;
+        @Nullable private JRadioButton dirRadioButton;
+        @Nullable private JRadioButton gitRadioButton;
+        @Nullable private final ManageDependenciesDialog.DependencyLifecycleListener listener;
 
-        private SourceType currentSourceType = SourceType.JAR; // Default
-        @Nullable
-        private BrokkFile selectedBrokkFileForImport;
+        private JPanel contentPanel = new JPanel(new BorderLayout());
+        private JButton importButton = new JButton("Import");
+
+        private SourceType currentSourceType = SourceType.JAR;
         private final Path dependenciesRoot;
-        @Nullable
-        private final ManageDependenciesDialog.DependencyLifecycleListener listener;
+
+        // --- File/Dir specific fields
+        @Nullable private FileSelectionPanel currentFileSelectionPanel;
+        @Nullable private BrokkFile selectedBrokkFileForImport;
+
+        // --- Git specific fields
+        @Nullable private JPanel gitPanel;
+        @Nullable private JTextField gitUrlField;
+        @Nullable private JComboBox<String> gitRefComboBox;
+        @Nullable private JButton validateGitRepoButton;
+        @Nullable private GitRepo.RemoteInfo remoteInfo;
 
         DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
             this.chrome = chrome;
             this.dependenciesRoot = chrome.getProject().getRoot().resolve(".brokk").resolve("dependencies");
             this.listener = listener;
-            // Initialize other fields that might be null based on conditions later
         }
 
         void buildAndShow() {
@@ -84,85 +95,53 @@ public class ImportDependencyDialog {
             gbc.anchor = GridBagConstraints.WEST;
 
             boolean allowJarImport = chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA);
-            if (!allowJarImport) {
-                currentSourceType = SourceType.DIRECTORY; // Default to directory if JAR not allowed
-            } else {
-                currentSourceType = SourceType.JAR; // Default to JAR if allowed (also field default)
-            }
+            currentSourceType = allowJarImport ? SourceType.JAR : SourceType.DIRECTORY;
 
-            int currentRowIndex = 0;
+            // --- Source Type Radio Buttons ---
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            gbc.gridwidth = 1;
+            gbc.anchor = GridBagConstraints.NORTHWEST;
+            mainPanel.add(new JLabel("Source Type:"), gbc);
+
+            ButtonGroup sourceTypeGroup = new ButtonGroup();
+            JPanel radioPanel = new JPanel();
+            radioPanel.setLayout(new BoxLayout(radioPanel, BoxLayout.PAGE_AXIS));
 
             if (allowJarImport) {
-                // Source Type Radio Buttons
-            gbc.gridx = 0;
-            gbc.gridy = currentRowIndex;
-            gbc.gridwidth = 1;
-            gbc.anchor = GridBagConstraints.NORTHWEST; // Apply NORTHWEST anchor for this row.
-            mainPanel.add(new JLabel("Source Type:"), gbc);
-            // This anchor will also apply to the radioPanel in the next cell of this row.
-
-            jarRadioButton = new JRadioButton("JAR (decompile & add sources)");
-                jarRadioButton.setSelected(true); // JAR is default if shown
+                jarRadioButton = new JRadioButton("JAR (decompile & add sources)");
+                jarRadioButton.setSelected(true);
                 jarRadioButton.addActionListener(e -> updateSourceType(SourceType.JAR));
-
-                dirRadioButton = new JRadioButton("Directory");
-                dirRadioButton.addActionListener(e -> updateSourceType(SourceType.DIRECTORY));
-
-                ButtonGroup sourceTypeGroup = new ButtonGroup();
                 sourceTypeGroup.add(jarRadioButton);
-                sourceTypeGroup.add(dirRadioButton);
-
-                JPanel radioPanel = new JPanel();
-                radioPanel.setLayout(new BoxLayout(radioPanel, BoxLayout.PAGE_AXIS));
                 radioPanel.add(jarRadioButton);
-                radioPanel.add(dirRadioButton);
-                gbc.gridx = 1;
-                // gbc.gridy remains currentRowIndex
-                mainPanel.add(radioPanel, gbc);
-                currentRowIndex++;
             }
 
-            // FileSelectionPanel container
-            gbc.gridx = 0;
-            gbc.gridy = currentRowIndex;
+            dirRadioButton = new JRadioButton("Directory");
+            dirRadioButton.setSelected(!allowJarImport);
+            dirRadioButton.addActionListener(e -> updateSourceType(SourceType.DIRECTORY));
+            sourceTypeGroup.add(dirRadioButton);
+            radioPanel.add(dirRadioButton);
+
+            gitRadioButton = new JRadioButton("Git Repository");
+            gitRadioButton.addActionListener(e -> updateSourceType(SourceType.GIT));
+            sourceTypeGroup.add(gitRadioButton);
+            radioPanel.add(gitRadioButton);
+
+            gbc.gridx = 1;
+            mainPanel.add(radioPanel, gbc);
+
+            // --- Content Panel (for FSP or Git panel) ---
+            gbc.gridy = 1;
             gbc.gridwidth = 2;
-            gbc.fill = GridBagConstraints.BOTH; // Make FSP expand
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.anchor = GridBagConstraints.NORTH;
             gbc.weightx = 1.0;
-            gbc.weighty = 1.0; // Allow FSP to take vertical space
-            fspContainerPanel = new JPanel(new BorderLayout());
-            fspContainerPanel.setPreferredSize(new Dimension(500, 250));
-            mainPanel.add(fspContainerPanel, gbc);
-            currentRowIndex++;
-
-            // Preview Area Label
-            gbc.gridx = 0;
-            gbc.gridy = currentRowIndex;
-            gbc.gridwidth = 2;
-            gbc.weighty = 0; // Label doesn't take extra space
-            gbc.fill = GridBagConstraints.HORIZONTAL; // Label can take horizontal space
-            mainPanel.add(new JLabel("Preview:"), gbc);
-            currentRowIndex++;
-
-            // Preview Area
-            gbc.gridx = 0;
-            gbc.gridy = currentRowIndex;
-            gbc.gridwidth = 2;
-            gbc.weighty = 0.5; // Preview area can also take some space
-            gbc.fill = GridBagConstraints.BOTH;
-            previewArea = new JTextArea(5, 40);
-            previewArea.setEditable(false);
-            previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-            JScrollPane previewScrollPane = new JScrollPane(previewArea);
-            previewScrollPane.setMinimumSize(new Dimension(100, 80)); // Min size for preview
-            mainPanel.add(previewScrollPane, gbc);
-            // currentRowIndex++; // No more items using gridbag below this
-
-            updateFileSelectionPanel(); // Initialize FSP based on currentSourceType
+            gbc.weighty = 0;
+            mainPanel.add(contentPanel, gbc);
 
             dialog.add(mainPanel, BorderLayout.CENTER);
 
-            // Buttons
-            importButton = new JButton("Import");
+            // --- Buttons ---
             importButton.setEnabled(false);
             importButton.addActionListener(e -> performImport());
             JButton cancelButton = new JButton("Cancel");
@@ -173,7 +152,8 @@ public class ImportDependencyDialog {
             buttonPanel.add(cancelButton);
             dialog.add(buttonPanel, BorderLayout.SOUTH);
 
-            dialog.setMinimumSize(new Dimension(600, 500)); // Adjusted minimum size
+            updateContentPanel();
+
             dialog.pack();
             dialog.setLocationRelativeTo(chrome.getFrame());
             dialog.setVisible(true);
@@ -183,108 +163,204 @@ public class ImportDependencyDialog {
             if (currentSourceType == newType) return;
             currentSourceType = newType;
             selectedBrokkFileForImport = null;
-            previewArea.setText("");
+            remoteInfo = null;
             importButton.setEnabled(false);
-            updateFileSelectionPanel();
+            updateContentPanel();
+            dialog.pack();
         }
 
-        private void updateFileSelectionPanel() {
-            if (currentFileSelectionPanel != null) {
-                fspContainerPanel.remove(currentFileSelectionPanel);
+        private void updateContentPanel() {
+            contentPanel.removeAll();
+            if (currentSourceType == SourceType.GIT) {
+                contentPanel.add(createGitPanel(), BorderLayout.CENTER);
+            } else {
+                contentPanel.add(createFileSelectionPanel(), BorderLayout.CENTER);
+            }
+            contentPanel.revalidate();
+            contentPanel.repaint();
+        }
+
+        private JPanel createGitPanel() {
+            gitPanel = new JPanel(new GridBagLayout());
+            gitUrlField = new JTextField();
+            gitUrlField.setColumns(30);
+            validateGitRepoButton = new JButton("Load Tags & Branches");
+            gitRefComboBox = new JComboBox<>();
+
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(2, 2, 2, 2);
+            gbc.anchor = GridBagConstraints.WEST;
+
+            // Row 0: URL Label
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            gbc.weightx = 0;
+            gbc.gridwidth = 1;
+            gbc.fill = GridBagConstraints.NONE;
+            gitPanel.add(new JLabel("Repo URL:"), gbc);
+
+            // Row 0: URL Field
+            gbc.gridx = 1;
+            gbc.gridy = 0;
+            gbc.weightx = 1.0;
+            gbc.gridwidth = 2;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gitPanel.add(gitUrlField, gbc);
+
+            // Row 1: Button
+            gbc.gridx = 1;
+            gbc.gridy = 1;
+            // gbc constraints from URL Field are reused to make button stretch
+            gitPanel.add(validateGitRepoButton, gbc);
+
+            // Row 2: Branch/Tag Label
+            gbc.gridx = 0;
+            gbc.gridy = 2;
+            gbc.weightx = 0;
+            gbc.gridwidth = 1;
+            gbc.fill = GridBagConstraints.NONE;
+            gitPanel.add(new JLabel("Branch/Tag:"), gbc);
+
+            // Row 2: Branch/Tag ComboBox
+            gbc.gridx = 1;
+            gbc.gridy = 2;
+            gbc.weightx = 1.0;
+            gbc.gridwidth = 2;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gitPanel.add(gitRefComboBox, gbc);
+
+            gitPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
+
+            validateGitRepoButton.addActionListener(e -> validateAndPopulateRefs());
+            gitRefComboBox.addActionListener(e -> updateGitImportButtonState());
+            gitUrlField.getDocument().addDocumentListener(new SimpleDocumentListener() {
+                @Override
+                public void update(DocumentEvent e) {
+                    remoteInfo = null;
+                    requireNonNull(gitRefComboBox).setModel(new DefaultComboBoxModel<>()); // Clear
+                    importButton.setEnabled(false);
+                }
+            });
+
+            return gitPanel;
+        }
+
+        private void validateAndPopulateRefs() {
+            String url = requireNonNull(gitUrlField).getText().trim();
+            if (url.isEmpty()) {
+                chrome.toolError("Git repository URL cannot be empty.", "Validation Error");
+                return;
             }
 
+            requireNonNull(validateGitRepoButton).setEnabled(false);
+
+            chrome.getContextManager().submitBackgroundTask("Validating Git remote", () -> {
+                try {
+                    // Normalize URL for display and use
+                    String normalizedUrl = url;
+                    if (!normalizedUrl.endsWith(".git")) {
+                        // Avoid adding .git to SSH URLs like git@github.com:user/repo
+                        if (normalizedUrl.startsWith("http")) {
+                            normalizedUrl += ".git";
+                        }
+                    }
+                    final String finalUrl = normalizedUrl;
+                    SwingUtilities.invokeLater(() -> requireNonNull(gitUrlField).setText(finalUrl));
+
+                    var info = GitRepo.listRemoteRefs(finalUrl);
+                    this.remoteInfo = info;
+
+                    SwingUtilities.invokeLater(() -> {
+                        var cb = requireNonNull(gitRefComboBox);
+                        cb.removeAllItems();
+                        info.branches().forEach(cb::addItem);
+                        info.tags().forEach(cb::addItem);
+
+                        String preferred = info.defaultBranch();
+                        if (preferred == null && info.branches().contains("main")) {
+                            preferred = "main";
+                        }
+                        if (preferred == null && info.branches().contains("master")) {
+                            preferred = "master";
+                        }
+
+                        if (preferred != null) {
+                            cb.setSelectedItem(preferred);
+                        } else if (!info.branches().isEmpty()) {
+                            cb.setSelectedIndex(0);
+                        } else if (!info.tags().isEmpty()) {
+                            cb.setSelectedIndex(info.branches().size());
+                        }
+
+                        updateGitImportButtonState();
+                    });
+                } catch (Exception ex) {
+                    logger.warn("Failed to validate git repo {}", url, ex);
+                    this.remoteInfo = null;
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Failed to access remote repository:\n" + ex.getMessage(), "Validation Failed");
+                        requireNonNull(gitRefComboBox).removeAllItems();
+                        importButton.setEnabled(false);
+                    });
+                } finally {
+                    SwingUtilities.invokeLater(() -> requireNonNull(validateGitRepoButton).setEnabled(true));
+                }
+                return null;
+            });
+        }
+
+        private void updateGitImportButtonState() {
+            boolean isReady = remoteInfo != null && requireNonNull(gitRefComboBox).getSelectedItem() != null;
+            importButton.setEnabled(isReady);
+        }
+
+        private FileSelectionPanel createFileSelectionPanel() {
             Predicate<File> filter;
             Future<List<Path>> candidates;
+            String helpText;
 
             if (currentSourceType == SourceType.JAR) {
-                // This branch is only reachable if one of the project languages is Java,
-                // because the JAR radio button is only shown for Java projects.
                 assert chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA) : "JAR source type should only be possible for Java projects";
                 filter = file -> file.isDirectory() || file.getName().toLowerCase(Locale.ROOT).endsWith(".jar");
-                // For JARs, use Java language's candidates. Passing null to getDependencyCandidates might be
-                // for fetching general, non-project-specific JARs (e.g. from a global cache).
                 candidates = chrome.getContextManager().submitBackgroundTask("Scanning for JAR files",
                                                                            () -> Language.JAVA.getDependencyCandidates(chrome.getProject()));
+                helpText = "Ctrl+Space to autocomplete common dependency JARs.\nSelected JAR will be decompiled and its sources added to the project.";
             } else { // DIRECTORY
                 filter = File::isDirectory;
-                if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
-                    // For Java projects (even if mixed with other languages),
-                    // directory import does not use getDependencyCandidates for autocompletion.
-                    // Users are expected to browse to specific source directories.
-                    candidates = CompletableFuture.completedFuture(List.of());
-                } else {
-                    // For non-Java projects, get dependency candidates from all configured languages.
-                    candidates = chrome.getContextManager().submitBackgroundTask("Scanning for dependency directories",
-                        () -> {
-                            return chrome.getProject().getAnalyzerLanguages().stream()
-                                         .flatMap(lang -> lang.getDependencyCandidates(chrome.getProject()).stream())
-                                         .distinct()
-                                         .collect(Collectors.toList());
-                        });
-                }
+                candidates = CompletableFuture.completedFuture(List.of());
+                helpText = "Select a directory containing sources.\nSelected directory will be copied into the project.";
             }
 
-            FileSelectionPanel.Config fspConfig;
-            if (currentSourceType == SourceType.JAR) {
-                fspConfig = new FileSelectionPanel.Config(
-                        chrome.getProject(),
-                        true, // allowExternalFiles
-                        filter,
-                        candidates, // Candidates from Language.JAVA.getDependencyCandidates(null)
-                        false, // multiSelect = false
-                        this::handleFspSingleFileConfirmed,
-                        false, // includeProjectFilesInAutocomplete
-                        "Ctrl+Space to autocomplete common dependency JARs.\nSelected JAR will be decompiled and its sources added to the project."
-                );
-            } else { // DIRECTORY
-                String directoryHelpText;
-                if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
-                    // Java language (even if mixed), directory mode: No autocomplete candidates are provided.
-                    directoryHelpText = "Select a directory containing sources.\nSelected directory will be copied into the project.";
-                } else {
-                    // Non-Java language(s), directory mode: Autocomplete candidates ARE provided from all languages.
-                    directoryHelpText = "Ctrl+Space to autocomplete common dependency directories.\nSelected directory will be copied into the project.";
-                }
-                fspConfig = new FileSelectionPanel.Config(
-                        chrome.getProject(),
-                        true, // allowExternalFiles
-                        filter,
-                        candidates, // Candidates are empty for Java/Directory, or from combined projectLanguages for non-Java/Directory
-                        false, // multiSelect = false
-                        this::handleFspSingleFileConfirmed,
-                        false, // includeProjectFilesInAutocomplete
-                        directoryHelpText
-                );
-            }
+            var fspConfig = new FileSelectionPanel.Config(chrome.getProject(),
+                                                          true,
+                                                          filter,
+                                                          candidates,
+                                                          false,
+                                                          this::handleFspSingleFileConfirmed,
+                                                          false,
+                                                          helpText);
 
             currentFileSelectionPanel = new FileSelectionPanel(fspConfig);
 
-
-            // Listener for text changes in FSP input to update preview
-            currentFileSelectionPanel.getFileInputComponent().getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-                @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { onFspInputTextChange(); }
-                @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { onFspInputTextChange(); }
-                @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { onFspInputTextChange(); }
+            currentFileSelectionPanel.getFileInputComponent().getDocument().addDocumentListener(new SimpleDocumentListener() {
+                @Override
+                public void update(DocumentEvent e) {
+                    onFspInputTextChange();
+                }
             });
-
-            fspContainerPanel.add(currentFileSelectionPanel, BorderLayout.CENTER);
-            fspContainerPanel.revalidate();
-            fspContainerPanel.repaint();
+            return currentFileSelectionPanel;
         }
 
         private void onFspInputTextChange() {
-            SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
+            SwingUtilities.invokeLater(() -> {
                 if (currentFileSelectionPanel == null) {
                     selectedBrokkFileForImport = null;
-                    previewArea.setText("");
                     importButton.setEnabled(false);
                     return;
                 }
                 String text = currentFileSelectionPanel.getInputText();
-
                 if (text.isEmpty()) {
                     selectedBrokkFileForImport = null;
-                    previewArea.setText("");
                     importButton.setEnabled(false);
                     return;
                 }
@@ -294,192 +370,144 @@ public class ImportDependencyDialog {
                     path = Paths.get(text);
                 } catch (InvalidPathException e) {
                     selectedBrokkFileForImport = null;
-                    previewArea.setText(""); // Clear preview for invalid path
                     importButton.setEnabled(false);
                     return;
                 }
 
-                // For live preview, we need an absolute path to check existence and type.
-                // If the user types a relative path, it's relative to CWD.
-                Path resolvedPath = path.toAbsolutePath();
-
+                Path resolvedPath = path.isAbsolute() ? path : chrome.getProject().getRoot().resolve(path);
                 if (Files.exists(resolvedPath)) {
-                    BrokkFile bf;
-                    // Create a BrokkFile. ProjectFile if inside project, else ExternalFile.
-                    // For dependencies, they are typically external until copied.
-                    if (resolvedPath.startsWith(chrome.getProject().getRoot())) {
-                         bf = new io.github.jbellis.brokk.analyzer.ProjectFile(chrome.getProject().getRoot(),
-                                                                               chrome.getProject().getRoot().relativize(resolvedPath));
-                    } else {
-                         bf = new io.github.jbellis.brokk.analyzer.ExternalFile(resolvedPath);
-                    }
+                    BrokkFile bf = resolvedPath.startsWith(chrome.getProject().getRoot())
+                                   ? new io.github.jbellis.brokk.analyzer.ProjectFile(chrome.getProject().getRoot(), chrome.getProject().getRoot().relativize(resolvedPath))
+                                   : new io.github.jbellis.brokk.analyzer.ExternalFile(resolvedPath);
                     updatePreviewAndButtonState(bf);
                 } else {
                     selectedBrokkFileForImport = null;
-                    previewArea.setText("");
                     importButton.setEnabled(false);
                 }
             });
         }
 
         private void handleFspSingleFileConfirmed(BrokkFile file) {
-            // This is called on double-click or enter in FSP if configured
-            // It implies an explicit selection. Update text field which triggers document listener,
-            // or directly update preview. Let's ensure text field is set.
             if (currentFileSelectionPanel != null) {
                 currentFileSelectionPanel.setInputText(file.absPath().toString());
             }
-            // The document listener on setInputText will call updatePreviewAndButtonState.
-            // For robustness, also call it directly in case the text was already identical.
             updatePreviewAndButtonState(file);
             if (importButton.isEnabled()) {
-                // Optional: directly trigger import on double click if valid
-                // performImport();
+                performImport();
             }
         }
 
         private void updatePreviewAndButtonState(BrokkFile file) {
-            selectedBrokkFileForImport = null; // Reset
+            selectedBrokkFileForImport = null;
             importButton.setEnabled(false);
-            previewArea.setText(""); // Clear previous preview
 
             Path path = file.absPath();
             if (!Files.exists(path)) {
-                previewArea.setText("");
                 return;
             }
 
             if (currentSourceType == SourceType.JAR) {
                 if (Files.isRegularFile(path) && path.toString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
                     selectedBrokkFileForImport = file;
-                    previewArea.setText(generateJarPreviewText(path));
                     importButton.setEnabled(true);
-                } else {
-                    previewArea.setText("Selected item is not a valid JAR file: " + path.getFileName());
                 }
             } else { // DIRECTORY
                 if (Files.isDirectory(path)) {
                     selectedBrokkFileForImport = file;
-                    previewArea.setText(generateDirectoryPreviewText(path));
                     importButton.setEnabled(true);
-                } else {
-                    previewArea.setText("Selected item is not a valid directory: " + path.getFileName());
-                    // selectedBrokkFileForImport is implicitly null or reset earlier
-                    // importButton is implicitly false or reset earlier
                 }
             }
-            previewArea.setCaretPosition(0); // Scroll to top
         }
-
-        private String generateJarPreviewText(Path jarPath) {
-            Map<String, Integer> classCountsByPackage = new HashMap<>(); // Using concrete type for modification
-            try (JarFile jarFile = new JarFile(jarPath.toFile())) {
-                Enumeration<JarEntry> entries = jarFile.entries();
-                while (entries.hasMoreElements()) {
-                    JarEntry entry = entries.nextElement();
-                    if (!entry.isDirectory() && entry.getName().endsWith(".class")) {
-                        String className = entry.getName().replace('/', '.');
-                        className = className.substring(0, className.length() - ".class".length());
-                        int lastDot = className.lastIndexOf('.');
-                        String packageName = (lastDot == -1) ? "(default package)" : className.substring(0, lastDot);
-                        classCountsByPackage.merge(packageName, 1, Integer::sum);
-                    }
-                }
-            } catch (IOException e) {
-                logger.warn("Error reading JAR for preview: {}", jarPath, e);
-                return "Error reading JAR: " + e.getMessage();
-            }
-            if (classCountsByPackage.isEmpty()) return "No classes found in JAR.";
-            return classCountsByPackage.entrySet().stream()
-                                       .sorted(Map.Entry.comparingByKey())
-                                       .map(e -> e.getKey() + ": " + e.getValue() + " class(es)")
-                                       .collect(Collectors.joining("\n"));
-        }
-
-        private String generateDirectoryPreviewText(Path dirPath) {
-            List<String> extensions = chrome.getProject().getAnalyzerLanguages().stream()
-                                            .flatMap(lang -> lang.getExtensions().stream())
-                                            .distinct()
-                                            .collect(Collectors.toList());
-            Map<String, Long> counts = new TreeMap<>();
-
-            long rootFileCount = 0;
-            try (Stream<Path> filesInRoot = Files.list(dirPath).filter(Files::isRegularFile)) {
-                rootFileCount = filesInRoot.filter(p -> {
-                    String fileName = p.getFileName().toString();
-                    int lastDot = fileName.lastIndexOf('.');
-                    if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                        String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-                        return extensions.contains(ext);
-                    }
-                    return false;
-                }).count();
-            } catch (IOException e) {
-                logger.warn("Error listing files in directory root for preview: {}", dirPath, e);
-                // continue, some info might still be gathered from subdirs
-            }
-            if (rootFileCount > 0) {
-                counts.put("(Files in " + dirPath.getFileName() + ")", rootFileCount);
-            }
-
-            try (Stream<Path> subdirs = Files.list(dirPath).filter(Files::isDirectory)) {
-                for (Path subdir : subdirs.toList()) {
-                    try (Stream<Path> allFilesRecursive = Files.walk(subdir)) {
-                        long count = allFilesRecursive
-                            .filter(Files::isRegularFile)
-                            .filter(p -> {
-                                String fileName = p.getFileName().toString();
-                                int lastDot = fileName.lastIndexOf('.');
-                                if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                                    String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-                                    return extensions.contains(ext);
-                                }
-                                return false;
-                            })
-                            .count();
-                        if (count > 0) {
-                            counts.put(subdir.getFileName().toString(), count);
-                        }
-                    } catch (IOException e) {
-                         logger.warn("Error walking subdirectory for preview: {}", subdir, e);
-                    }
-                }
-            } catch (IOException e) {
-                logger.warn("Error listing subdirectories for preview: {}", dirPath, e);
-                if (counts.isEmpty() && rootFileCount == 0) return "Error reading directory: " + e.getMessage();
-            }
-
-            if (counts.isEmpty()) return "No relevant files found for project language(s) (" + String.join(", ", extensions) + ").";
-
-            String languagesDisplay;
-            var projectLangs = chrome.getProject().getAnalyzerLanguages();
-            if (projectLangs.isEmpty()) {
-                languagesDisplay = "configured"; // Fallback, should ideally not happen for a valid project
-            } else if (projectLangs.size() == 1) {
-                languagesDisplay = projectLangs.iterator().next().name().toLowerCase(Locale.ROOT);
-            } else {
-                languagesDisplay = projectLangs.stream()
-                                               .map(l -> l.name().toLowerCase(Locale.ROOT))
-                                               .sorted()
-                                               .collect(Collectors.joining("/"));
-            }
-            final String finalLanguagesDisplay = languagesDisplay;
-            return counts.entrySet().stream()
-                         .map(e -> e.getKey() + ": " + e.getValue() + " " + finalLanguagesDisplay + " file(s)")
-                         .collect(Collectors.joining("\n"));
-        }
-
 
         private void performImport() {
+            importButton.setEnabled(false);
+            if (currentSourceType == SourceType.JAR || currentSourceType == SourceType.DIRECTORY) {
+                performFileBasedImport();
+            } else if (currentSourceType == SourceType.GIT) {
+                performGitImport();
+            }
+        }
+
+        private void performGitImport() {
+            if (remoteInfo == null || requireNonNull(gitRefComboBox).getSelectedItem() == null) {
+                JOptionPane.showMessageDialog(dialog, "No valid Git repository and branch/tag selected.", "Import Error", JOptionPane.ERROR_MESSAGE);
+                importButton.setEnabled(true);
+                return;
+            }
+
+            final String repoUrl = remoteInfo.url();
+            final String selectedRef = (String) requireNonNull(gitRefComboBox).getSelectedItem();
+            final String repoName = repoUrl.substring(repoUrl.lastIndexOf('/') + 1).replace(".git", "");
+            final Path targetPath = dependenciesRoot.resolve(repoName);
+
+            if (Files.exists(targetPath)) {
+                int overwriteResponse = JOptionPane.showConfirmDialog(dialog,
+                        "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
+                        "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (overwriteResponse == JOptionPane.NO_OPTION) {
+                    importButton.setEnabled(true);
+                    return;
+                }
+            }
+
+            if (listener != null) {
+                SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(repoName));
+            }
+            dialog.dispose();
+
+            chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
+                Path tempDir = null;
+                try {
+                    tempDir = Files.createTempDirectory("brokk-git-clone-");
+                    Git.cloneRepository().setURI(repoUrl).setBranch(selectedRef)
+                       .setDirectory(tempDir.toFile()).setDepth(1).setCloneSubmodules(false).call();
+
+                    Path gitInternalDir = tempDir.resolve(".git");
+                    if (Files.exists(gitInternalDir)) {
+                        FileUtil.deleteRecursively(gitInternalDir);
+                    }
+
+                    Files.createDirectories(dependenciesRoot);
+                    if (Files.exists(targetPath)) {
+                        FileUtil.deleteRecursively(targetPath);
+                    }
+                    Files.move(tempDir, targetPath, StandardCopyOption.REPLACE_EXISTING);
+
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.systemOutput("Repository " + repoName + " imported successfully. Reopen project to incorporate the new files.");
+                        if (listener != null) {
+                            listener.dependencyImportFinished(repoName);
+                        }
+                    });
+
+                } catch (Exception ex) {
+                    logger.error("Error cloning Git repository {}", repoUrl, ex);
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(dialog, "Error cloning repository: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                        importButton.setEnabled(true);
+                    });
+                    if (tempDir != null && Files.exists(tempDir)) {
+                        try {
+                            FileUtil.deleteRecursively(tempDir);
+                        } catch (IOException e) {
+                            logger.error("Failed to delete temporary clone directory {}", tempDir, e);
+                        }
+                    }
+                }
+                return null;
+            });
+        }
+
+        private void performFileBasedImport() {
             if (selectedBrokkFileForImport == null) {
                 JOptionPane.showMessageDialog(dialog, "No valid source selected.", "Import Error", JOptionPane.ERROR_MESSAGE);
+                importButton.setEnabled(true);
                 return;
             }
 
             Path sourcePath = selectedBrokkFileForImport.absPath();
-            importButton.setEnabled(false); // Disable during operation
+            String depName = sourcePath.getFileName().toString();
 
-            var depName = sourcePath.getFileName().toString();
             if (listener != null) {
                 SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(depName));
             }
@@ -494,84 +522,63 @@ public class ImportDependencyDialog {
                                         }));
             } else { // DIRECTORY
                 var project = chrome.getProject();
-
-                boolean isAlreadyAnalyzed = project.getAnalyzerLanguages().stream()
-                                                 .anyMatch(lang -> lang.isAnalyzed(project, sourcePath));
-                if (isAlreadyAnalyzed) {
-                    int proceedResponse = JOptionPane.showConfirmDialog(dialog,
-                        """
-                        The selected directory might already be part of the project's analyzed sources.
-                        Importing it as a dependency could lead to duplicate analysis or conflicts.
-
-                        Proceed with import?\
-                        """,
-                        "Confirm Import", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (project.getAnalyzerLanguages().stream().anyMatch(lang -> lang.isAnalyzed(project, sourcePath))) {
+                    int proceedResponse = JOptionPane.showConfirmDialog(dialog, "The selected directory might already be part of the project's analyzed sources. Proceed?",
+                                                                      "Confirm Import", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                     if (proceedResponse == JOptionPane.NO_OPTION) {
-                        importButton.setEnabled(true); // Re-enable if user cancels here
+                        importButton.setEnabled(true);
                         return;
                     }
                 }
 
                 Path targetPath = dependenciesRoot.resolve(sourcePath.getFileName());
                 if (Files.exists(targetPath)) {
-                    int overwriteResponse = JOptionPane.showConfirmDialog(dialog,
-                            "The destination directory '" + targetPath.getFileName() + "' already exists. Overwrite?",
-                            "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    int overwriteResponse = JOptionPane.showConfirmDialog(dialog, "The destination '" + targetPath.getFileName() + "' already exists. Overwrite?",
+                                                                          "Confirm Overwrite", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                     if (overwriteResponse == JOptionPane.NO_OPTION) {
-                        importButton.setEnabled(true); // Re-enable if cancelled
+                        importButton.setEnabled(true);
                         return;
                     }
                 }
 
-                chrome.getContextManager().submitBackgroundTask(
-                    "Copying directory: " + sourcePath.getFileName(),
-                    () -> {
-                        try {
-                            Files.createDirectories(dependenciesRoot);
-                            if (Files.exists(targetPath)) {
-                                Decompiler.deleteDirectoryRecursive(targetPath);
-                            }
-                            List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
-                                .flatMap(lang -> lang.getExtensions().stream())
-                                .distinct()
-                                .collect(Collectors.toList());
-                            ImportDependencyDialog.copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions); // Use static method
-                            SwingUtilities.invokeLater(() -> {
-                                String langNamesForOutput;
-                                var langs = project.getAnalyzerLanguages();
-                                if (langs.isEmpty()) { // Should not happen for a valid project
-                                    langNamesForOutput = "configured";
-                                } else if (langs.size() == 1) {
-                                    langNamesForOutput = langs.iterator().next().name();
-                                } else {
-                                    langNamesForOutput = langs.stream().map(Language::name).sorted().collect(Collectors.joining(", "));
-                                }
-                                chrome.systemOutput("Directory copied successfully to " + targetPath +
-                                                    " (filtered by project language(s): " + langNamesForOutput +
-                                                    "). Reopen project to incorporate the new files.");
-                                if (listener != null) listener.dependencyImportFinished(depName);
-                            });
-                        } catch (IOException ex) {
-                            logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
-                            SwingUtilities.invokeLater(() -> {
-                                JOptionPane.showMessageDialog(dialog, "Error copying directory: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                                importButton.setEnabled(true); // Re-enable on error
-                            });
+                chrome.getContextManager().submitBackgroundTask("Copying directory: " + sourcePath.getFileName(), () -> {
+                    try {
+                        Files.createDirectories(dependenciesRoot);
+                        if (Files.exists(targetPath)) {
+                            FileUtil.deleteRecursively(targetPath);
                         }
-                        return null;
+                        List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
+                            .flatMap(lang -> lang.getExtensions().stream()).distinct().toList();
+                        copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions);
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.systemOutput("Directory copied to " + targetPath + ". Reopen project to incorporate the new files.");
+                            if (listener != null) listener.dependencyImportFinished(depName);
+                        });
+                    } catch (IOException ex) {
+                        logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
+                        SwingUtilities.invokeLater(() -> {
+                            JOptionPane.showMessageDialog(dialog, "Error copying directory: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                            importButton.setEnabled(true);
+                        });
                     }
-                );
+                    return null;
+                });
             }
         }
     }
 
-    // Static helper methods, kept from original, ensure they are used via class name if called from DialogHelper
+    private interface SimpleDocumentListener extends DocumentListener {
+        void update(DocumentEvent e);
+        @Override default void insertUpdate(DocumentEvent e) { update(e); }
+        @Override default void removeUpdate(DocumentEvent e) { update(e); }
+        @Override default void changedUpdate(DocumentEvent e) { update(e); }
+    }
+
     private static void copyDirectoryRecursively(Path source, Path destination, List<String> allowedExtensions) throws IOException {
         Files.walkFileTree(source, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                Path targetDir = destination.resolve(source.relativize(dir));
-                Files.createDirectories(targetDir);
+                Files.createDirectories(destination.resolve(source.relativize(dir)));
                 return FileVisitResult.CONTINUE;
             }
 
@@ -579,10 +586,8 @@ public class ImportDependencyDialog {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 String fileName = file.getFileName().toString();
                 int lastDot = fileName.lastIndexOf('.');
-                // Ensure dot is not the first or last character and an extension exists
                 if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                    String extension = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
-                    if (allowedExtensions.contains(extension)) {
+                    if (allowedExtensions.contains(fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT))) {
                         Files.copy(file, destination.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
                     }
                 }

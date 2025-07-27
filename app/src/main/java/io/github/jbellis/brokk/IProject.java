@@ -214,6 +214,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default Set<String> getExcludedDirectories() {
+        return Set.of();
+    }
+
     enum CpgRefresh {
         AUTO,
         ON_RESTART,

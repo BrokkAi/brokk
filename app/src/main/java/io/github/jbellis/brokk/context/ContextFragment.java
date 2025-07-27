@@ -76,6 +76,17 @@ public interface ContextFragment {
         }
     }
 
+    static String getSummary(Collection<ContextFragment> fragments) {
+        return getSummary(fragments.stream());
+    }
+
+    static String getSummary(Stream<ContextFragment> fragments) {
+        return fragments
+                .map(ContextFragment::formatSummary)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n"));
+    }
+
     // Static counter for dynamic fragments
     AtomicInteger nextId = new AtomicInteger(1);
 
@@ -232,7 +243,7 @@ public interface ContextFragment {
             try {
                 return file().read();
             } catch (IOException e) {
-                throw new UncheckedIOException(e);
+                return ""; // let freeze() clean it out later
             }
         }
 
