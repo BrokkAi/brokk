@@ -47,42 +47,14 @@ public class JdtAnalyzer implements LspAnalyzer {
             ensureProjectConfiguration(this.projectRoot);
             this.sharedServer = SharedLspServer.getInstance();
             this.sharedServer.registerClient(this.projectRoot, excludedPaths);
-//            loadProjectFiles(); // fixme: This is not scalable for larger projects
             this.sharedServer.refreshWorkspace().join();
             this.workspace = this.projectRoot.toUri().toString();
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                logger.debug("JDT server thread wait interrupted");
-            }
         }
     }
 
     record MethodName(@NotNull String className, @NotNull String methodName) {
     }
-
-    /**
-     * Finds all .java files in the project and sends a 'didOpen' notification for each one,
-     * forcing the server to analyze them.
-     *
-     * @throws IOException if there is an error reading the files.
-     */
-    public void loadProjectFiles() throws IOException {
-        logger.info("Programmatically opening all .java files in {}...", this.projectRoot);
-        try (Stream<Path> stream = Files.walk(this.projectRoot)) {
-            stream
-                    .filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".java"))
-                    .forEach(filePath -> {
-                        try {
-                            this.sharedServer.forceAnalyzeFile(filePath.toRealPath(), "java");
-                        } catch (IOException e) {
-                            logger.error("Failed to open file: {}", filePath, e);
-                        }
-                    });
-        }
-        logger.info("...finished sending didOpen notifications.");
-    }
-
+    
     /**
      * Checks for a build file (pom.xml, build.gradle) or a .classpath file.
      * If none exist, it generates a default .classpath file by guessing the source directory. This is absolutely
@@ -315,7 +287,7 @@ public class JdtAnalyzer implements LspAnalyzer {
         }
     }
 
-    private Map<String, List<CallSite>> callGraphEntry(Location originMethod, Map<String, List<CallSite>> callGraph, String key, Object someCall, int depth) {
+    private void callGraphEntry(Location originMethod, Map<String, List<CallSite>> callGraph, String key, Object someCall, int depth) {
         if (someCall instanceof CallHierarchyIncomingCall incomingCall) {
             final var newCallSite = registerCallItem(key, true, originMethod, incomingCall.getFrom(), incomingCall.getFromRanges(), callGraph);
             // Continue search, and add any new entries
@@ -333,7 +305,6 @@ public class JdtAnalyzer implements LspAnalyzer {
                 callGraph.put(k, nestedCallSites);
             });
         }
-        return callGraph;
     }
 
     private CallSite registerCallItem(String key, boolean isIncoming, Location originMethod, CallHierarchyItem callItem, List<Range> ranges, Map<String, List<CallSite>> callGraph) {

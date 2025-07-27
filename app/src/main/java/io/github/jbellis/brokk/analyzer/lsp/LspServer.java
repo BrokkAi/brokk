@@ -16,13 +16,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -40,6 +36,8 @@ public abstract class LspServer {
     private CompletableFuture<Void> serverInitialized;
 
     private final AtomicInteger clientCounter = new AtomicInteger(0);
+    @NotNull
+    private CountDownLatch serverReadyLatch = new CountDownLatch(1);
     protected final Set<Path> activeWorkspaces = ConcurrentHashMap.newKeySet();
     private final Map<Path, Set<String>> workspaceExclusions = new ConcurrentHashMap<>();
 
@@ -57,29 +55,18 @@ public abstract class LspServer {
             serverInitialized.thenRunAsync(() -> {
                 // this.languageServer should be non-null here
                 assert this.languageServer != null;
+                try {
+                    // TODO: Ensure this is is stable for incremental update
+                    serverReadyLatch.await(5000, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    logger.debug("Interrupted while waiting for initialization, the server may not be properly indexed", e);
+                }
                 callback.accept(this.languageServer);
             }).exceptionally(ex -> {
                 logger.error("Failed to execute callback after server initialization", ex);
                 return null; // Complete the exceptionally stage
             }).join();
         }
-    }
-
-    public void forceAnalyzeFile(Path filePath, String language) {
-        whenInitialized((server) -> {
-            try {
-                String content = Files.readString(filePath);
-                String uri = filePath.toUri().toString();
-
-                DidOpenTextDocumentParams params = new DidOpenTextDocumentParams();
-                TextDocumentItem item = new TextDocumentItem(uri, language, 1, content);
-                params.setTextDocument(item);
-
-                server.getTextDocumentService().didOpen(params);
-            } catch (IOException e) {
-                logger.error("Failed to open text document {}", filePath, e);
-            }
-        });
     }
 
     /**
@@ -121,7 +108,11 @@ public abstract class LspServer {
         );
         this.serverProcess = pb.start();
 
-        Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(new SimpleLanguageClient(), serverProcess.getInputStream(), serverProcess.getOutputStream());
+        Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
+                new SimpleLanguageClient(this.serverReadyLatch),
+                serverProcess.getInputStream(),
+                serverProcess.getOutputStream()
+        );
         this.languageServer = launcher.getRemoteProxy();
         launcher.startListening();
 
@@ -141,6 +132,8 @@ public abstract class LspServer {
 
         this.serverInitialized = languageServer.initialize(params).thenRun(() -> {
             if (this.languageServer != null) {
+                // will be reduced by one when server signals readiness
+                serverReadyLatch = new CountDownLatch(1);
                 languageServer.initialized(new InitializedParams());
                 logger.info("JDT LS Initialized");
             } else {
@@ -310,14 +303,21 @@ public abstract class LspServer {
     public CompletableFuture<Object> refreshWorkspace() {
         return query((server) -> {
             ExecuteCommandParams params = new ExecuteCommandParams(
-                    "java.project.buildWorkspace", 
-                    List.of() 
+                    "java.project.buildWorkspace",
+                    List.of()
             );
             return server.getWorkspaceService().executeCommand(params);
         });
     }
 
     public static class SimpleLanguageClient implements LanguageClient {
+
+        private final CountDownLatch serverReadyLatch;
+
+        public SimpleLanguageClient(CountDownLatch serverReadyLatch) {
+            this.serverReadyLatch = serverReadyLatch;
+        }
+
         @NotNull
         private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
 
@@ -357,6 +357,9 @@ public abstract class LspServer {
         @JsonNotification("language/status")
         public void languageStatus(LspStatus message) {
             logger.debug("[LSP-SERVER] {}: {}", message.type(), message.message());
+            if (Objects.equals(message.type(), "Started") && Objects.equals(message.message(), "Ready")) {
+                serverReadyLatch.countDown();
+            }
         }
 
         @Override
