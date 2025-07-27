@@ -44,7 +44,7 @@ public class Service {
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
     // TODO replace this when we consistently get thinking tokens
-    public static final int LLM_MAX_RESPONSE_TIME = 6 * 60;
+    public static final int LLM_MAX_RESPONSE_TIME = 10 * 60;
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
