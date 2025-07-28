@@ -126,6 +126,39 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void getClassSourceTwiceNestedTest() {
+        final var maybeSource = analyzer.getClassSource("A$AInner$AInnerInner");
+        assertNotNull(maybeSource);
+        final var source   = maybeSource.stripIndent();
+        // Verify the source contains inner class definition
+        final var expected = """
+                        public class AInnerInner {
+                            public void method7() {
+                                System.out.println("hello");
+                            }
+                        }
+                """.trim().stripIndent();
+        assertEquals(expected, source);
+    }
+
+    @Test
+    public void getClassSourceFallbackTest() {
+        final var maybeSource = analyzer.getClassSource("A$NonExistent");
+        assertNotNull(maybeSource);
+        final var source   = maybeSource.stripIndent();
+        // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
+        assertTrue(source.contains("class A {"));
+        assertTrue(source.contains("public void method1()"));
+        assertTrue(source.contains("public String method2(String input)"));
+    }
+
+    @Test
+    public void getClassSourceNonexistentTest() {
+        final var maybeSource = analyzer.getClassSource("NonExistentClass");
+        assertNull(maybeSource);
+    }
+
+    @Test
     public void getCallgraphToTest() {
         final var callgraph = analyzer.getCallgraphTo("A.method1", 5);
 

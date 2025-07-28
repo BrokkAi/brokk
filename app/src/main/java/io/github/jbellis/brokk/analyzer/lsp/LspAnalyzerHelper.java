@@ -343,24 +343,63 @@ public final class LspAnalyzerHelper {
     }
 
     /**
-     * Finds a type (class, interface, enum) by its exact simple or fully qualified name within the workspace.
+     * Finds a type (class, interface, enum) by its simple or fully qualified name within the workspace.
+     * This gives a fuzzy match.
      *
      * @param containerName The exact, case-sensitive simple name of the package or type to find.
      * @return A CompletableFuture that will be completed with a list of matching symbols.
      */
     @NotNull
     public static CompletableFuture<List<WorkspaceSymbol>> findTypesInWorkspace(
-            @NotNull String containerName, @NotNull String workspace, @NotNull LspServer sharedServer) {
-        return typesByName(containerName, workspace, sharedServer).thenApply(symbols -> symbols.filter(symbol -> simpleOrFullMatch(symbol, containerName)).collect(Collectors.toList()));
+            @NotNull String containerName,
+            @NotNull String workspace,
+            @NotNull LspServer sharedServer
+    ) {
+        return findTypesInWorkspace(containerName, workspace, sharedServer, true);
+    }
+
+    /**
+     * Finds a type (class, interface, enum) by its exact simple or fully qualified name within the workspace.
+     *
+     * @param containerName The exact, case-sensitive simple name of the package or type to find.
+     * @param fuzzySearch   Whether to consider "close enough" matches or exact ones.
+     * @return A CompletableFuture that will be completed with a list of matching symbols.
+     */
+    @NotNull
+    public static CompletableFuture<List<WorkspaceSymbol>> findTypesInWorkspace(
+            @NotNull String containerName,
+            @NotNull String workspace,
+            @NotNull LspServer sharedServer,
+            boolean fuzzySearch
+    ) {
+        if (fuzzySearch) {
+            return typesByNameFuzzy(containerName, workspace, sharedServer)
+                    .thenApply(symbols -> symbols.collect(Collectors.toList()));
+        } else {
+            return typesByName(containerName, workspace, sharedServer)
+                    .thenApply(symbols ->
+                            symbols.filter(symbol ->
+                                    simpleOrFullMatch(symbol, containerName)
+                            ).collect(Collectors.toList())
+                    );
+        }
     }
 
     @NotNull
     public static CompletableFuture<Stream<? extends WorkspaceSymbol>> typesByName(
             @NotNull String name, @NotNull String workspace, @NotNull LspServer sharedServer) {
+        return typesByNameFuzzy(name, workspace, sharedServer)
+                .thenApply(symbols ->
+                        symbols.filter(symbol -> simpleOrFullMatch(symbol, name))
+                );
+    }
+
+    @NotNull
+    public static CompletableFuture<Stream<? extends WorkspaceSymbol>> typesByNameFuzzy(
+            @NotNull String name, @NotNull String workspace, @NotNull LspServer sharedServer) {
         return LspAnalyzerHelper.findSymbolsInWorkspace(name, workspace, sharedServer).thenApply(symbols ->
                 symbols.stream()
                         .filter(symbol -> TYPE_KINDS.contains(symbol.getKind()))
-                        .filter(symbol -> simpleOrFullMatch(symbol, name))
         );
     }
 

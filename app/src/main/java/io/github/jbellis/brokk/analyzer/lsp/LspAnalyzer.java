@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
@@ -45,8 +46,35 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @Nullable String getClassSource(@NotNull String classFullName) {
-        return LspAnalyzerHelper
-                .findTypesInWorkspace(classFullName, getWorkspace(), getServer())
+        final var futureTypeSymbols = LspAnalyzerHelper.findTypesInWorkspace(classFullName, getWorkspace(), getServer());
+        final var exactMatch = getClassSource(futureTypeSymbols);
+
+        if (exactMatch == null) {
+            // fallback to the whole file, if any partial matches are present
+            return futureTypeSymbols.join().stream().findFirst()
+                    .flatMap(LspAnalyzerHelper::getSourceForSymbol)
+                    .orElseGet(() -> {
+                        // fallback to the whole file, if any partial matches for parent container are present
+                        final var classCleanedName = classFullName.replace('$', '.');
+                        if (classCleanedName.contains(".")) {
+                            final var parentContainer = classCleanedName.substring(0, classCleanedName.lastIndexOf('.'));
+                            return LspAnalyzerHelper.findTypesInWorkspace(parentContainer, getWorkspace(), getServer())
+                                    .join()
+                                    .stream()
+                                    .findFirst()
+                                    .flatMap(LspAnalyzerHelper::getSourceForSymbol)
+                                    .orElse(null);
+                        } else {
+                            return null;
+                        }
+                    });
+        } else {
+            return exactMatch;
+        }
+    }
+
+    private @Nullable String getClassSource(CompletableFuture<List<WorkspaceSymbol>> typeSymbols) {
+        return typeSymbols
                 .thenApply(symbols ->
                         symbols.stream()
                                 .map(symbol -> {
