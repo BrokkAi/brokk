@@ -1,10 +1,12 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
+import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -76,6 +78,12 @@ public class JdtAnalyzer implements LspAnalyzer {
         return cleanedName;
     }
 
+    @Override
+    public @Nullable String getClassSource(@NotNull String classFullName) {
+        // JSP containers are dot-delimited and get rid of the '$'
+        final var cleanedName = classFullName.replace('$', '.');
+        return LspAnalyzer.super.getClassSource(cleanedName);
+    }
 
     @Override
     public void close() {

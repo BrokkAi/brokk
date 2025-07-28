@@ -65,27 +65,30 @@ public final class LspAnalyzerHelper {
     }
 
     @NotNull
-    public static Optional<String> getSourceForSymbol(@NotNull List<WorkspaceSymbol> symbols) {
-        if (symbols.isEmpty()) {
-            return Optional.empty();
-        } else return getSourceForSymbol(symbols.getFirst());
+    public static Optional<String> getSourceForURIAndRange(@NotNull Range range, @NotNull String uriString) {
+        return getSourceForUriString(uriString).map(fullSource -> getSourceForRange(fullSource, range));
     }
 
     @NotNull
     public static Optional<String> getSourceForSymbol(@NotNull WorkspaceSymbol symbol) {
         final String uriString = getUriStringFromLocation(symbol.getLocation());
+        return getSourceForUriString(uriString);
+    }
+
+    @NotNull
+    public static Optional<String> getSourceForUriString(@NotNull String uriString) {
         try {
             final Path filePath = Paths.get(new URI(uriString));
             return Optional.of(Files.readString(filePath));
         } catch (IOException | URISyntaxException e) {
-            logger.error("Failed to read source for symbol '{}' at {}", symbol.getName(), uriString, e);
+            logger.error("Failed to read source for URI '{}'", uriString, e);
             return Optional.empty();
         }
     }
 
     @NotNull
     public static Optional<String> getCodeForCallSite(
-            boolean isIncoming, 
+            boolean isIncoming,
             @NotNull Location originalMethod,
             @NotNull CallHierarchyItem callSite,
             @NotNull List<Range> ranges
@@ -177,7 +180,7 @@ public final class LspAnalyzerHelper {
 
     @NotNull
     public static WorkspaceSymbol documentToWorkspaceSymbol(
-            @NotNull DocumentSymbol documentSymbol, 
+            @NotNull DocumentSymbol documentSymbol,
             @NotNull String uriString
     ) {
         return new WorkspaceSymbol(
@@ -209,6 +212,57 @@ public final class LspAnalyzerHelper {
                     }
                 }
         ).toList();
+    }
+
+    /**
+     * Takes a location (e.g., from a workspace/symbol search) and finds the full range
+     * for the symbol at that position by performing a more detailed documentSymbol search.
+     *
+     * @param location The location of the symbol's name.
+     * @return A CompletableFuture resolving to the full range of the symbol's definition.
+     */
+    public static CompletableFuture<Optional<Range>> getFullSymbolRange(@NotNull LspServer sharedServer, @NotNull Location location) {
+        final Path filePath = Paths.get(URI.create(location.getUri()));
+        final Position position = location.getRange().getStart();
+
+        return getSymbolsInFile(sharedServer, filePath).thenApply(eithers ->
+                eithers.stream()
+                        .map(either -> either.isRight() ?
+                                findRangeInTree(Collections.singletonList(either.getRight()), position) : Optional.<Range>empty())
+                        .flatMap(Optional::stream)
+                        .findFirst()
+        );
+    }
+
+    /**
+     * Recursively searches a tree of DocumentSymbols to find the one whose name (`selectionRange`)
+     * contains the given position, and returns its full body range (`range`).
+     */
+    private static Optional<Range> findRangeInTree(List<DocumentSymbol> symbols, Position position) {
+        for (DocumentSymbol symbol : symbols) {
+            // Check if the symbol's name range contains the position
+            if (isPositionInRange(symbol.getSelectionRange(), position)) {
+                return Optional.of(symbol.getRange()); // Return the full block range
+            }
+            // Recurse into children
+            if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                Optional<Range> found = findRangeInTree(symbol.getChildren(), position);
+                if (found.isPresent()) {
+                    return found;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isPositionInRange(Range range, Position position) {
+        if (position.getLine() < range.getStart().getLine() || position.getLine() > range.getEnd().getLine()) {
+            return false;
+        } else if (position.getLine() == range.getStart().getLine() && position.getCharacter() < range.getStart().getCharacter()) {
+            return false;
+        } else {
+            return position.getLine() != range.getEnd().getLine() || position.getCharacter() <= range.getEnd().getCharacter();
+        }
     }
 
     /**
@@ -306,6 +360,7 @@ public final class LspAnalyzerHelper {
         return LspAnalyzerHelper.findSymbolsInWorkspace(name, workspace, sharedServer).thenApply(symbols ->
                 symbols.stream()
                         .filter(symbol -> TYPE_KINDS.contains(symbol.getKind()))
+                        .filter(symbol -> simpleOrFullMatch(symbol, name))
         );
     }
 

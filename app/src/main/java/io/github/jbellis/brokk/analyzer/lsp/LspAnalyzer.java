@@ -42,12 +42,32 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     default boolean isClassInProject(String className) {
         return !LspAnalyzerHelper.findTypesInWorkspace(className, getWorkspace(), getServer()).join().isEmpty();
     }
-    
+
     @Override
     default @Nullable String getClassSource(@NotNull String classFullName) {
         return LspAnalyzerHelper
                 .findTypesInWorkspace(classFullName, getWorkspace(), getServer())
-                .thenApply(LspAnalyzerHelper::getSourceForSymbol).join().orElse(null);
+                .thenApply(symbols ->
+                        symbols.stream()
+                                .map(symbol -> {
+                                    final var eitherLocation = symbol.getLocation();
+                                    if (eitherLocation.isLeft()) {
+                                        final Location location = eitherLocation.getLeft();
+                                        return LspAnalyzerHelper.getFullSymbolRange(getServer(), location)
+                                                .join()
+                                                .stream()
+                                                .flatMap(range ->
+                                                        LspAnalyzerHelper.getSourceForURIAndRange(range, location.getUri()).stream()
+                                                ).findFirst();
+                                    } else {
+                                        return Optional.<String>empty();
+                                    }
+                                })
+                                .flatMap(Optional::stream)
+                )
+                .join()
+                .findFirst()
+                .orElse(null);
     }
 
     @Override

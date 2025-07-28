@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -14,8 +15,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class JdtAnalyzerTest {
 
@@ -94,6 +94,34 @@ public class JdtAnalyzerTest {
                             }
                         """.trim().stripIndent();
 
+        assertEquals(expected, source);
+    }
+
+    @Test
+    public void getClassSourceTest() {
+        final var source   = analyzer.getClassSource("A");
+        assertNotNull(source);
+        // Verify the source contains class definition and methods
+        assertTrue(source.contains("class A {"));
+        assertTrue(source.contains("public void method1()"));
+        assertTrue(source.contains("public String method2(String input)"));
+    }
+
+    @Test
+    public void getClassSourceNestedTest() {
+        final var maybeSource = analyzer.getClassSource("A$AInner");
+        assertNotNull(maybeSource);
+        final var source   = maybeSource.stripIndent();
+        // Verify the source contains inner class definition
+        final var expected = """
+                public class AInner {
+                        public class AInnerInner {
+                            public void method7() {
+                                System.out.println("hello");
+                            }
+                        }
+                    }
+                """.trim().stripIndent();
         assertEquals(expected, source);
     }
 
