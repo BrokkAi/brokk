@@ -24,7 +24,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public abstract class LspServer {
+public abstract class LspServer implements LspFileUtilities {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
@@ -57,7 +57,9 @@ public abstract class LspServer {
                 assert this.languageServer != null;
                 try {
                     // TODO: Ensure this is is stable for incremental update
-                    serverReadyLatch.await(5000, TimeUnit.MILLISECONDS);
+                    if (!serverReadyLatch.await(5000, TimeUnit.MILLISECONDS)) {
+                        logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
+                    }
                 } catch (InterruptedException e) {
                     logger.debug("Interrupted while waiting for initialization, the server may not be properly indexed", e);
                 }
@@ -93,9 +95,9 @@ public abstract class LspServer {
 
     protected void startServer(Path initialWorkspace) throws IOException {
         logger.info("First client connected. Starting JDT Language Server...");
-        final Path serverHome = LspAnalyzer.unpackLspServer("jdt");
-        final Path launcherJar = LspAnalyzer.findFile(serverHome, "org.eclipse.equinox.launcher_");
-        final Path configDir = LspAnalyzer.findConfigDir(serverHome);
+        final Path serverHome = unpackLspServer("jdt");
+        final Path launcherJar = findFile(serverHome, "org.eclipse.equinox.launcher_");
+        final Path configDir = findConfigDir(serverHome);
         final Path cache = Path.of(System.getProperty("user.home"), ".brokk", ".jdt-ls-data").toAbsolutePath();
         FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
 
