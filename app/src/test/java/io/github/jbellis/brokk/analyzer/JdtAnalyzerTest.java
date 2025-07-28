@@ -184,6 +184,37 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void getSkeletonTestA() {
+        final var skeletonOpt = analyzer.getSkeleton("A");
+        assertTrue(skeletonOpt.isPresent());
+        final var skeleton = skeletonOpt.get().trim().stripIndent();
+        
+        final var expected = """
+public class A {
+  public A() {...}
+  public void method1() {...}
+  public String method2(String input) {...}
+  public String method2(String input, int otherInput) {...}
+  public Function method3() {...}
+  public static int method4(double foo, Integer bar) {...}
+  public void method5() {...}
+  public void method6() {...}
+  public class AInner {
+    public AInner() {...}
+    public class AInnerInner {
+      public AInnerInner() {...}
+      public void method7() {...}
+    }
+  }
+  public static class AInnerStatic {
+    public AInnerStatic() {...}
+  }
+}
+                """.trim().stripIndent();
+        assertEquals(expected, skeleton);
+    }
+
+    @Test
     public void getCallgraphToTest() {
         final var callgraph = analyzer.getCallgraphTo("A.method1", 5);
 

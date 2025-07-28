@@ -5,6 +5,10 @@ import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
+import org.eclipse.lsp4j.SymbolKind;
+import org.eclipse.lsp4j.WorkspaceSymbol;
+import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -12,7 +16,9 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
@@ -136,6 +142,40 @@ public class JdtAnalyzer implements LspAnalyzer {
         return isArray ? shortName + "[]" : shortName;
     }
 
+    @Override
+    public Optional<String> getSkeleton(String fqName) {
+        final Set<String> skeletons = LspAnalyzerHelper.findTypesInWorkspace(fqName, workspace, sharedServer, false)
+                .thenApply(typeSymbols ->
+                        typeSymbols.stream().map(typeSymbol -> {
+                                    // First, read the full source text of the file.
+                                    final Optional<String> fullSourceOpt =
+                                            LspAnalyzerHelper.getSourceForUriString(typeSymbol.getLocation().getLeft().getUri());
+                                    if (fullSourceOpt.isEmpty()) {
+                                        return Optional.<String>empty();
+                                    } else {
+                                        final String fullSource = fullSourceOpt.get();
+                                        final var eitherLocation = typeSymbol.getLocation();
+                                        if (eitherLocation.isLeft()) {
+                                            return JdtSkeletonHelper.getSymbolSkeleton(
+                                                    sharedServer, 
+                                                    eitherLocation.getLeft(), 
+                                                    fullSource
+                                            ).join();
+                                        } else {
+                                            return Optional.<String>empty();
+                                        }
+                                    }
+                                })
+                                .flatMap(Optional::stream)
+                                .collect(Collectors.toSet())
+                ).join();
+
+        if (skeletons.isEmpty()) {
+            return Optional.empty();
+        } else {
+            return Optional.of(String.join("\n", skeletons));
+        }
+    }
 
     @Override
     public void close() {

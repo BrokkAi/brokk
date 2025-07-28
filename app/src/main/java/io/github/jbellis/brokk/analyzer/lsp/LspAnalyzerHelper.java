@@ -215,6 +215,25 @@ public final class LspAnalyzerHelper {
     }
 
     /**
+     * Recursively searches a tree of DocumentSymbols to find the one whose name (`selectionRange`)
+     * contains the given position. This version returns the full DocumentSymbol.
+     */
+    public static @NotNull Optional<DocumentSymbol> findSymbolInTree(List<DocumentSymbol> symbols, Position position) {
+        for (DocumentSymbol symbol : symbols) {
+            if (isPositionInRange(symbol.getSelectionRange(), position)) {
+                return Optional.of(symbol);
+            }
+            if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                Optional<DocumentSymbol> found = findSymbolInTree(symbol.getChildren(), position);
+                if (found.isPresent()) {
+                    return found;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Takes a location (e.g., from a workspace/symbol search) and finds the full range
      * for the symbol at that position by performing a more detailed documentSymbol search.
      *
@@ -255,7 +274,7 @@ public final class LspAnalyzerHelper {
         return Optional.empty();
     }
 
-    private static boolean isPositionInRange(Range range, Position position) {
+    public static boolean isPositionInRange(Range range, Position position) {
         if (position.getLine() < range.getStart().getLine() || position.getLine() > range.getEnd().getLine()) {
             return false;
         } else if (position.getLine() == range.getStart().getLine() && position.getCharacter() < range.getStart().getCharacter()) {
