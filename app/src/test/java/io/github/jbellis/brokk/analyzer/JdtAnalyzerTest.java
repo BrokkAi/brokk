@@ -159,6 +159,31 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void  sanitizeTypeTest() {
+        // Simple types
+        assertEquals("String", analyzer.sanitizeType("java.lang.String"));
+        assertEquals("String[]", analyzer.sanitizeType("java.lang.String[]"));
+
+        // Generic types
+        assertEquals(
+                "Function<Integer, Integer>",
+                analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>")
+        );
+
+        // Nested generic types
+        assertEquals(
+                "Map<String, List<Integer>>",
+                analyzer.sanitizeType("java.util.Map<java.lang.String, java.util.List<java.lang.Integer>>")
+        );
+
+        // Method return type with generics
+        assertEquals(
+                "Function<Integer, Integer>",
+                analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>")
+        );
+    }
+
+    @Test
     public void getCallgraphToTest() {
         final var callgraph = analyzer.getCallgraphTo("A.method1", 5);
 

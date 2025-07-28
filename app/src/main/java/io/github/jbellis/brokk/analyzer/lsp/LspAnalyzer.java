@@ -38,8 +38,12 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     /**
      * Transform method node fullName to a stable "resolved" name (e.g. removing lambda suffixes).
      */
-    String resolveMethodName(@NotNull String methodName);
+    @NotNull String resolveMethodName(@NotNull String methodName);
 
+    /** Possibly remove package names from a type string, or do other language-specific cleanup.
+     */
+    @NotNull String sanitizeType(@NotNull String typeName);
+    
     default boolean isClassInProject(String className) {
         return !LspAnalyzerHelper.findTypesInWorkspace(className, getWorkspace(), getServer()).join().isEmpty();
     }

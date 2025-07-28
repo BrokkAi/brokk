@@ -11,7 +11,9 @@ import org.jetbrains.annotations.Nullable;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
 
@@ -64,8 +66,7 @@ public class JdtAnalyzer implements LspAnalyzer {
      * @return The clean method name without the signature (e.g., "myMethod").
      */
     @Override
-    @NotNull
-    public String resolveMethodName(@NotNull String methodName) {
+    public @NotNull String resolveMethodName(@NotNull String methodName) {
         final var cleanedName = methodName.replace('$', '.');
         int parenIndex = cleanedName.indexOf('(');
 
@@ -81,9 +82,60 @@ public class JdtAnalyzer implements LspAnalyzer {
     @Override
     public @Nullable String getClassSource(@NotNull String classFullName) {
         // JSP containers are dot-delimited and get rid of the '$'
-        final var cleanedName = classFullName.replace('$', '.');
+        final String cleanedName = classFullName.replace('$', '.');
         return LspAnalyzer.super.getClassSource(cleanedName);
     }
+
+    @Override
+    public @NotNull String sanitizeType(String typeName) {
+        // Check if the type has generic parameters
+        if (typeName.contains("<")) {
+            final String mainType = typeName.substring(0, typeName.indexOf('<'));
+            final String genericPart = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
+
+            // Process the main part of the type (e.g., "java.util.List")
+            final String processedMain = this.processType(mainType);
+
+            // Process each generic parameter recursively
+            final String processedParams = Arrays.stream(genericPart.split(","))
+                    .map(param -> {
+                        final String trimmed = param.trim();
+                        // If a parameter is itself generic, recurse
+                        if (trimmed.contains("<")) {
+                            return this.sanitizeType(trimmed);
+                        } else {
+                            return this.processType(trimmed);
+                        }
+                    })
+                    .collect(Collectors.joining(", "));
+
+            return String.format("%s<%s>", processedMain, processedParams);
+        } else {
+            // If not a generic type, process directly
+            return this.processType(typeName);
+        }
+    }
+
+    /**
+     * A helper method to convert a single, non-generic type name
+     * to its simple name, preserving array brackets.
+     *
+     * @param typeString The type string (e.g., "java.lang.String" or "int[]").
+     * @return The simple name (e.g., "String" or "int[]").
+     */
+    private String processType(String typeString) {
+        boolean isArray = typeString.endsWith("[]");
+        // Remove array brackets to get the base type name
+        String base = isArray ? typeString.substring(0, typeString.length() - 2) : typeString;
+
+        // Get the last part of the dot-separated package name
+        int lastDotIndex = base.lastIndexOf('.');
+        String shortName = (lastDotIndex != -1) ? base.substring(lastDotIndex + 1) : base;
+
+        // Add array brackets back if they were present
+        return isArray ? shortName + "[]" : shortName;
+    }
+
 
     @Override
     public void close() {
