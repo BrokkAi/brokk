@@ -145,7 +145,11 @@ public interface ContextFragment {
     boolean isDynamic();
 
     /**
-     * for Quick Context LLM
+     * Used for Quick Context LLM to give the LLM more information than the description but less than full text.
+     *
+     * ACHTUNG! While multiple CF subtypes override this, FrozenFragment does not; you will always get just
+     * the description of a FrozenFragment. This is useful for debug logging (description is much more compact),
+     * but confusing if you're not careful.
      */
     default String formatSummary() throws CancellationException {
         return description();
@@ -168,7 +172,10 @@ public interface ContextFragment {
     }
 
     /**
-     * code sources found in this fragment
+     * Code sources found in this fragment.
+     *
+     * ACHTUNG! This is not supported by FrozenFragment, since computing it requires an Analyzer
+     * and one of our goals for freeze() is to not require Analyzer.
      */
     Set<CodeUnit> sources();
 
@@ -1236,7 +1243,7 @@ public interface ContextFragment {
             if (graphData.isEmpty()) {
                 return "No call graph available for " + methodName;
             }
-            return AnalyzerUtil.formatCallGraph(graphData, methodName, isCalleeGraph);
+            return AnalyzerUtil.formatCallGraph(graphData, methodName, !isCalleeGraph);
         }
 
         @Override

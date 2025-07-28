@@ -1646,6 +1646,8 @@ public class WorkspacePanel extends JPanel {
     }
 
     private void doPasteAction() {
+        assert !SwingUtilities.isEventDispatchThread();
+        
         var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         var contents = clipboard.getContents(null);
         if (contents == null) {

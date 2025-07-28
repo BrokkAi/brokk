@@ -62,7 +62,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final Logger logger = LogManager.getLogger(ContextManager.class);
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
-    private final AnalyzerWrapper analyzerWrapper;
+
+    @SuppressWarnings("NullAway.Init")
+    private AnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
@@ -96,7 +98,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
             }
-            
+
             // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
             if (OomShutdownHandler.isOomError(th)) {
                 OomShutdownHandler.shutdownWithRecovery();
@@ -128,7 +130,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") 
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
     private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
@@ -216,7 +218,83 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC
         );
 
-        var analyzerListener = new AnalyzerListener() {
+        this.currentSessionId = UUID.randomUUID(); // Initialize currentSessionId
+    }
+
+    /**
+     * Initializes the current session by loading its history or creating a new one.
+     * This is typically called for standard project openings.
+     * This method is synchronous but intended to be called from a background task.
+     */
+    private void initializeCurrentSessionAndHistory(boolean forceNew) {
+        // load last active session, if present
+        var lastActiveSessionId = project.getLastActiveSession();
+        var sessionManager = project.getSessionManager();
+        var sessions = sessionManager.listSessions();
+        UUID sessionIdToLoad;
+        if (forceNew || lastActiveSessionId.isEmpty() || sessions.stream().noneMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
+            var newSessionInfo = sessionManager.newSession(DEFAULT_SESSION_NAME);
+            sessionIdToLoad = newSessionInfo.id();
+            logger.info("Created and loaded new session: {}", newSessionInfo.id());
+        } else {
+            // Try to resume the last active session for this worktree
+            sessionIdToLoad = lastActiveSessionId.get();
+            logger.info("Resuming last active session {}", sessionIdToLoad);
+        }
+        this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
+
+        // load session contents
+        var loadedCH = sessionManager.loadHistory(currentSessionId, this);
+        if (loadedCH == null) {
+            liveContext = new Context(this, buildWelcomeMessage());
+            contextHistory = new ContextHistory(liveContext);
+        } else {
+            contextHistory = loadedCH;
+            liveContext = Context.unfreeze(contextHistory.topContext());
+        }
+
+        // make it official
+        updateActiveSession(currentSessionId);
+
+        // Notify listeners and UI on EDT
+        SwingUtilities.invokeLater(() -> {
+            var tc = topContext();
+            notifyContextListeners(tc);
+            if (io instanceof Chrome) { // Check if UI is ready
+                io.enableActionButtons();
+            }
+        });
+    }
+
+    /**
+     * Called from Brokk to finish wiring up references to Chrome and Coder
+     * <p>
+     * Returns the future doing off-EDT context loading
+     */
+    public CompletableFuture<Void> createGui() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var analyzerListener = createAnalyzerListener();
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
+
+        this.io = new Chrome(this);
+
+        // Load saved context history or create a new one
+        var contextTask = submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
+
+        // Ensure style guide and build details are loaded/generated asynchronously
+        ensureStyleGuide();
+        ensureReviewGuide();
+        ensureBuildDetailsAsync();
+        cleanupOldHistoryAsync();
+
+        checkBalanceAndNotify();
+
+        return contextTask;
+    }
+
+    private AnalyzerListener createAnalyzerListener() {
+        return new AnalyzerListener() {
             @Override
             public void onBlocked() {
                 if (Thread.currentThread() == userActionThread.get()) {
@@ -302,78 +380,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
         };
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
-
-        this.currentSessionId = UUID.randomUUID(); // Initialize currentSessionId
-    }
-
-    /**
-     * Initializes the current session by loading its history or creating a new one.
-     * This is typically called for standard project openings.
-     * This method is synchronous but intended to be called from a background task.
-     */
-    private void initializeCurrentSessionAndHistory(boolean forceNew) {
-        // load last active session, if present
-        var lastActiveSessionId = project.getLastActiveSession();
-        var sessionManager = project.getSessionManager();
-        var sessions = sessionManager.listSessions();
-        UUID sessionIdToLoad;
-        if (forceNew || lastActiveSessionId.isEmpty() || sessions.stream().noneMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
-            var newSessionInfo = sessionManager.newSession(DEFAULT_SESSION_NAME);
-            sessionIdToLoad = newSessionInfo.id();
-            logger.info("Created and loaded new session: {}", newSessionInfo.id());
-        } else {
-            // Try to resume the last active session for this worktree
-            sessionIdToLoad = lastActiveSessionId.get();
-            logger.info("Resuming last active session {}", sessionIdToLoad);
-        }
-        this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
-
-        // load session contents
-        var loadedCH = sessionManager.loadHistory(currentSessionId, this);
-        if (loadedCH == null) {
-            liveContext = new Context(this, buildWelcomeMessage());
-            contextHistory = new ContextHistory(liveContext);
-        } else {
-            contextHistory = loadedCH;
-            liveContext = Context.unfreeze(contextHistory.topContext());
-        }
-
-        // make it official
-        updateActiveSession(currentSessionId);
-
-        // Notify listeners and UI on EDT
-        SwingUtilities.invokeLater(() -> {
-            var tc = topContext();
-            notifyContextListeners(tc);
-            if (io instanceof Chrome) { // Check if UI is ready
-                io.enableActionButtons();
-            }
-        });
-    }
-
-    /**
-     * Called from Brokk to finish wiring up references to Chrome and Coder
-     * <p>
-     * Returns the future doing off-EDT context loading
-     */
-    public CompletableFuture<Void> createGui() {
-        assert SwingUtilities.isEventDispatchThread();
-
-        this.io = new Chrome(this);
-
-        // Load saved context history or create a new one
-        var contextTask = submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
-
-        // Ensure style guide and build details are loaded/generated asynchronously
-        ensureStyleGuide();
-        ensureReviewGuide();
-        ensureBuildDetailsAsync();
-        cleanupOldHistoryAsync();
-
-        checkBalanceAndNotify();
-
-        return contextTask;
     }
 
     /**
@@ -718,14 +724,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Add read-only path fragments.
-     */
-    public void addReadOnlyFragments(List<PathFragment> fragments) {
-        pushContext(currentLiveCtx -> applyReadOnlyPathFragmentChanges(currentLiveCtx, fragments));
-        io.systemOutput("Read " + joinForOutput(fragments));
-    }
-
-    /**
      * Add read-only files.
      */
     public void addReadOnlyFiles(Collection<? extends BrokkFile> files)
@@ -733,8 +731,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var proposedReadOnlyFragments = files.stream()
                 .map(bf -> ContextFragment.toPathFragment(bf, this))
                 .toList();
-        addReadOnlyFragments(proposedReadOnlyFragments);
-        // io.systemOutput is handled by addReadOnlyFragments
+        pushContext(currentLiveCtx -> applyReadOnlyPathFragmentChanges(currentLiveCtx, proposedReadOnlyFragments));
+        io.systemOutput("Read " + joinForOutput(proposedReadOnlyFragments));
     }
 
     /**
@@ -1707,7 +1705,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (!project.getReviewGuide().isEmpty()) {
             return;
         }
-        
+
         project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
         io.systemOutput("Review guide created at .brokk/review.md");
     }
@@ -1970,8 +1968,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 
+        io.showSessionSwitchSpinner();
         var future = submitUserTask("Switching session", () -> {
-            switchToSession(sessionId);
+            try {
+                switchToSession(sessionId);
+            } finally {
+                io.hideSessionSwitchSpinner();
+            }
         });
         return CompletableFuture.runAsync(() -> {
             try {
@@ -1995,26 +1998,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
 
-        if (loadedCh != null) {
-            final ContextHistory nnLoadedCh = loadedCh; // Introduce nnLoadedCh for the non-null scope
-            if (nnLoadedCh.getHistory().isEmpty()) {
+        if (loadedCh == null) {
+            // Case: loadedCh is null
+            liveContext = new Context(this, "Welcome to session: " + sessionName);
+            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+            sessionManager.saveHistory(contextHistory, currentSessionId);
+        } else {
+            if (loadedCh.getHistory().isEmpty()) {
                 // Case: loadedCh exists but its history is empty
                 liveContext = new Context(this, "Welcome to session: " + sessionName);
                 contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
                 sessionManager.saveHistory(contextHistory, currentSessionId);
             } else {
                 // Case: loadedCh exists and has history
-                contextHistory.setInitialContext(nnLoadedCh.getHistory().getFirst());
-                for (int i = 1; i < nnLoadedCh.getHistory().size(); i++) {
-                    contextHistory.addFrozenContextAndClearRedo(nnLoadedCh.getHistory().get(i));
+                contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
+                for (int i = 1; i < loadedCh.getHistory().size(); i++) {
+                    contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                 }
                 liveContext = Context.unfreeze(topContext());
             }
-        } else {
-            // Case: loadedCh is null
-            liveContext = new Context(this, "Welcome to session: " + sessionName);
-            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
-            sessionManager.saveHistory(contextHistory, currentSessionId);
         }
         notifyContextListeners(topContext());
         io.updateContextHistoryTable(topContext());
@@ -2137,6 +2139,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void createHeadless() {
         this.io = new HeadlessConsole();
+
+        // no AnalyzerListener, instead we will block for it to be ready
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null);
+        try {
+            analyzerWrapper.get();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
         initializeCurrentSessionAndHistory(true);
 
         ensureStyleGuide();

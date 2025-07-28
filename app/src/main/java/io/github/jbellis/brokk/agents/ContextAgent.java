@@ -6,6 +6,7 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -291,48 +292,30 @@ public class ContextAgent {
             return createResult(llmRecommendation);
         }
 
-        if (!deepScan) {
-            String reason = "Summaries too large for quick context pruning budget.";
+        if (!deepScan || summaryTokens > 20 * budgetPruning) {
+            // TODO notify the user that he's getting worse-quality results and can do better if he trims his workspace
+            // (to give more space for summaries per request)
+            String reason = "Summaries too large for context-pruning budget.";
             logGiveUp(reason);
             return new RecommendationResult(false, List.of(), reason);
         }
 
         // Else, split the recommendation task across multiple calls
         debug("Summaries too large for a single call ({} tokens), splitting into chunks.", summaryTokens);
-        return createResult(recommendInChunks(rawSummaries, workspaceRepresentation, budgetPruning));
+        var partitioned = partitionSummaries(rawSummaries, budgetPruning);
+        return createResult(recommendInChunks(partitioned, workspaceRepresentation, 0));
     }
 
     private static boolean isCodeInWorkspace(Context ctx) {
         return ctx.allFragments().flatMap(f -> f.sources().stream()).findAny().isPresent();
     }
 
-    private LlmRecommendation recommendInChunks(Map<CodeUnit, String> rawSummaries,
-                                                   Collection<ChatMessage> workspaceRepresentation, 
-                                                   int tokensPerMessage) 
-            throws InterruptedException
+    private LlmRecommendation recommendInChunks(List<Map<CodeUnit, String>> chunks,
+                                                Collection<ChatMessage> workspaceRepresentation,
+                                                int recursionDepth)
+            throws InterruptedException 
     {
-        // A record to hold a chunk of summaries and its token count
-        record SummaryChunk(Map<CodeUnit, String> summaries, int tokenCount) {}
-
-        // Partition summaries into chunks that fit within the pruning budget
-        List<SummaryChunk> chunks = new ArrayList<>();
-        var currentChunkSummaries = new LinkedHashMap<CodeUnit, String>();
-        int currentChunkTokens = 0;
-        for (var entry : rawSummaries.entrySet()) {
-            String summaryText = entry.getValue();
-            int summaryTokensCount = Messages.getApproximateTokens(summaryText);
-            if (!currentChunkSummaries.isEmpty() && currentChunkTokens + summaryTokensCount > tokensPerMessage) {
-                chunks.add(new SummaryChunk(new LinkedHashMap<>(currentChunkSummaries), currentChunkTokens));
-                currentChunkSummaries = new LinkedHashMap<>();
-                currentChunkTokens = 0;
-            }
-            currentChunkSummaries.put(entry.getKey(), entry.getValue());
-            currentChunkTokens += summaryTokensCount;
-        }
-        if (!currentChunkSummaries.isEmpty()) {
-            chunks.add(new SummaryChunk(new LinkedHashMap<>(currentChunkSummaries), currentChunkTokens));
-        }
-        debug("Split into {} chunks.", chunks.size());
+        debug("Requesting parallel recommendations for {} chunks", chunks.size());
 
         var recommendations = new ArrayList<LlmRecommendation>();
         int parallelStartIndex = 0;
@@ -341,7 +324,7 @@ public class ContextAgent {
         if (isCodeInWorkspace(cm.liveContext()) && !chunks.isEmpty()) {
             debug("Warming up prefix cache with first chunk.");
             var firstChunk = chunks.getFirst();
-            var firstRecommendation = askLlmToRecommendContext(List.of(), firstChunk.summaries(), Map.of(), workspaceRepresentation);
+            var firstRecommendation = askLlmToRecommendContext(List.of(), firstChunk, Map.of(), workspaceRepresentation);
             recommendations.add(firstRecommendation);
             parallelStartIndex = 1;
             if (Thread.currentThread().isInterrupted()) {
@@ -350,13 +333,13 @@ public class ContextAgent {
         }
 
         if (chunks.size() > parallelStartIndex) {
-            var service = cm.getService();
-            var executorService = AdaptiveExecutor.create(service, model, chunks.size() - parallelStartIndex);
-
-            interface TokenAwareLlmRecommendationCallable extends Callable<LlmRecommendation>, TokenAware {}
-
+            interface TokenAwareLlmRecommendationCallable extends Callable<LlmRecommendation>, TokenAware {
+            }
             List<Future<LlmRecommendation>> futures = new ArrayList<>();
-            try {
+            // this isn't ideal, since if we estimate token counts wrong and call recommendInChunks recursively,
+            // we create multiple executors (and potentially exceed the intended rate limits). In this case
+            // we'll have to just let the underlying Llm class deal with the vendor rate limits and retry as necessary.
+            try (var executorService = AdaptiveExecutor.create(cm.getService(), model, chunks.size() - parallelStartIndex)) {
                 for (int i = parallelStartIndex; i < chunks.size(); i++) {
                     if (Thread.currentThread().isInterrupted()) {
                         break;
@@ -365,12 +348,12 @@ public class ContextAgent {
                     futures.add(executorService.submit(new TokenAwareLlmRecommendationCallable() {
                         @Override
                         public int tokens() {
-                            return chunk.tokenCount();
+                            return Messages.getApproximateTokens(String.join("\n", chunk.values()));
                         }
 
                         @Override
                         public LlmRecommendation call() throws Exception {
-                            return askLlmToRecommendContext(List.of(), chunk.summaries(), Map.of(), workspaceRepresentation);
+                            return askLlmDeepRecommendContext(List.of(), chunk, Map.of(), workspaceRepresentation, recursionDepth);
                         }
                     }));
                 }
@@ -389,8 +372,6 @@ public class ContextAgent {
                         break;
                     }
                 }
-            } finally {
-                executorService.shutdownNow();
             }
         }
 
@@ -416,6 +397,29 @@ public class ContextAgent {
         debug("Merged recommendations from all chunks. Files: {}, Classes: {}", finalRecommendation.recommendedFiles().size(), finalRecommendation.recommendedClasses().size());
 
         return finalRecommendation;
+    }
+
+    private @NotNull List<Map<CodeUnit, String>> partitionSummaries(Map<CodeUnit, String> rawSummaries, int tokensPerMessage) {
+        // Partition summaries into chunks that fit within the pruning budget
+        List<Map<CodeUnit, String>> chunks = new ArrayList<>();
+        var currentChunkSummaries = new LinkedHashMap<CodeUnit, String>();
+        int currentChunkTokens = 0;
+        for (var entry : rawSummaries.entrySet()) {
+            String summaryText = entry.getValue();
+            int summaryTokensCount = Messages.getApproximateTokens(summaryText);
+            if (!currentChunkSummaries.isEmpty() && currentChunkTokens + summaryTokensCount > tokensPerMessage) {
+                chunks.add(new LinkedHashMap<>(currentChunkSummaries));
+                currentChunkSummaries = new LinkedHashMap<>();
+                currentChunkTokens = 0;
+            }
+            currentChunkSummaries.put(entry.getKey(), entry.getValue());
+            currentChunkTokens += summaryTokensCount;
+        }
+        if (!currentChunkSummaries.isEmpty()) {
+            chunks.add(new LinkedHashMap<>(currentChunkSummaries));
+        }
+        debug("Split into {} chunks.", chunks.size());
+        return chunks;
     }
 
     private RecommendationResult createResult(LlmRecommendation llmRecommendation) {
@@ -456,7 +460,7 @@ public class ContextAgent {
                 }).toList();
         if (combinedFragments.size() < skeletonFragments.size() + pathFragments.size()) {
             logger.debug("After removing fragments already in Workspace {}, remaining are {}",
-                         ContextFragment.getSummary(cm.liveContext().allFragments()), combinedFragments);
+                         ContextFragment.getSummary(cm.topContext().allFragments()), combinedFragments);
         }
 
         return new RecommendationResult(true, combinedFragments, reasoning);
@@ -494,10 +498,11 @@ public class ContextAgent {
     private LlmRecommendation askLlmToRecommendContext(List<String> filenames,
                                                        Map<CodeUnit, String> summaries,
                                                        Map<ProjectFile, String> contentsMap,
-                                                       Collection<ChatMessage> workspaceRepresentation) throws InterruptedException
+                                                       Collection<ChatMessage> workspaceRepresentation) 
+            throws InterruptedException
     {
         if (deepScan) {
-            return askLlmDeepRecommendContext(filenames, summaries, contentsMap, workspaceRepresentation);
+            return askLlmDeepRecommendContext(filenames, summaries, contentsMap, workspaceRepresentation, 0);
         } else {
             return askLlmQuickRecommendContext(filenames, summaries, contentsMap, workspaceRepresentation);
         }
@@ -508,7 +513,9 @@ public class ContextAgent {
     private LlmRecommendation askLlmDeepRecommendContext(List<String> filenames,
                                                          Map<CodeUnit, String> summaries,
                                                          Map<ProjectFile, String> contentsMap,
-                                                         Collection<ChatMessage> workspaceRepresentation) throws InterruptedException
+                                                         Collection<ChatMessage> workspaceRepresentation,
+                                                         int recursionDepth)
+            throws InterruptedException
     {
         // Determine the type of context being provided
         String contextTypeElement;
@@ -587,14 +594,40 @@ public class ContextAgent {
         var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
         if (result.error() != null || result.isEmpty()) {
             var error = result.error();
+
             // litellm does an inconsistent job translating into ContextWindowExceededError. https://github.com/BrokkAi/brokk/issues/540
             if (error != null && error.getMessage() != null && error.getMessage().contains("context")) {
-                // we don't have the original raw budget available here, and we don't want to split into more than
-                // two messages, so 0.6 is a reasonable value
+                if (summaries.size() < 2 || recursionDepth > 0) {
+                    logger.warn("Unable to split summaries into small enough chunks. Returning empty");
+                    return LlmRecommendation.EMPTY;
+                }
+
                 debug("Context window exceeded, splitting recursively");
-                return recommendInChunks(summaries, workspaceRepresentation, (int) (promptTokens * 0.6));
+                // Split `summaries` into two nearly equal chunks and recurse
+                // (We've already learned that our token estimation is not accurate enough to do this, so split by count)
+                List<Map<CodeUnit, String>> chunks = new ArrayList<>(2);
+                var entries = new ArrayList<>(summaries.entrySet());
+                int mid = entries.size() / 2;
+                Map<CodeUnit, String> left = new LinkedHashMap<>();
+                Map<CodeUnit, String> right = new LinkedHashMap<>();
+                for (int i = 0; i < entries.size(); i++) {
+                    var entry = entries.get(i);
+                    if (i < mid) {
+                        left.put(entry.getKey(), entry.getValue());
+                    } else {
+                        right.put(entry.getKey(), entry.getValue());
+                    }
+                }
+
+                assert !left.isEmpty();
+                assert !right.isEmpty();
+                chunks.add(left);
+                chunks.add(right);
+                return recommendInChunks(chunks, workspaceRepresentation, recursionDepth + 1);
             }
-            logger.warn("Error or empty response from LLM during context recommendation: {}. Returning empty.",
+
+            // not a context problem
+            logger.warn("Error or empty response from LLM during context recommendation: {}. Returning empty",
                         error != null ? error.getMessage() : "Empty response");
             return LlmRecommendation.EMPTY;
         }

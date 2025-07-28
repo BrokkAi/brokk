@@ -1,39 +1,36 @@
 package io.github.jbellis.brokk.cli;
 
-import com.google.common.collect.Streams;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
+import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.Service;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
@@ -260,7 +257,7 @@ public final class BrokkCli implements Callable<Integer> {
 
         // Build context
         if (!resolvedEditFiles.isEmpty())
-            workspaceTools.addFilesToWorkspace(resolvedEditFiles);
+            cm.editFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
         if (!resolvedReadFiles.isEmpty())
             cm.addReadOnlyFiles(resolvedReadFiles.stream().map(cm::toFile).toList());
         if (!resolvedClasses.isEmpty())
@@ -278,6 +275,9 @@ public final class BrokkCli implements Callable<Integer> {
 
         // --- Deep Scan ------------------------------------------------------
         if (deepScan) {
+            io.systemOutput("# Workspace (pre-scan)");
+            io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+
             String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
                     .filter(s -> s != null && !s.isBlank())
                     .findFirst()
@@ -300,12 +300,10 @@ public final class BrokkCli implements Callable<Integer> {
             }
         }
 
-        io.systemOutput("# Workspace");
-        var ctx = cm.topContext();
-        var summaries = ContextFragment.getSummary(ctx.allFragments());
-        io.systemOutput(summaries);
-
         // --- Run Action ---
+        io.systemOutput("# Workspace (pre-task)");
+        io.systemOutput(ContextFragment.getSummary(cm.topContext().allFragments()));
+
         TaskResult result = null;
         try {
             if (architectPrompt != null) {

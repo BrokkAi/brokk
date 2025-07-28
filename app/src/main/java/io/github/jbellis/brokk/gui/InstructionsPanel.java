@@ -1165,6 +1165,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * This runs inside the Runnable passed to contextManager.submitAction.
      */
     private void executeRunCommand(String input) {
+        assert !SwingUtilities.isEventDispatchThread();
+
         var contextManager = chrome.getContextManager();
         String actionMessage = "Run: " + input;
 
