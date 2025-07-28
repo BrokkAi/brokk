@@ -1,21 +1,176 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
+import io.github.jbellis.brokk.analyzer.CallSite;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
+import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.net.URI;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.stream.Collectors;
 
 public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     Logger logger = LoggerFactory.getLogger(LspAnalyzer.class);
+
+    @NotNull
+    Path getProjectRoot();
+
+    @NotNull
+    String getWorkspace();
+
+    @NotNull
+    LspServer getServer();
 
     @Override
     default boolean isCpg() {
         return false;
     }
 
-    /** Transform method node fullName to a stable "resolved" name (e.g. removing lambda suffixes).
+    /**
+     * Transform method node fullName to a stable "resolved" name (e.g. removing lambda suffixes).
      */
     String resolveMethodName(@NotNull String methodName);
+
+    default boolean isClassInProject(String className) {
+        return !LspAnalyzerHelper.findTypesInWorkspace(className, getWorkspace(), getServer()).join().isEmpty();
+    }
+    
+    @Override
+    default @Nullable String getClassSource(@NotNull String classFullName) {
+        return LspAnalyzerHelper
+                .findTypesInWorkspace(classFullName, getWorkspace(), getServer())
+                .thenApply(LspAnalyzerHelper::getSourceForSymbol).join().orElse(null);
+    }
+
+    @Override
+    default @NotNull Optional<String> getMethodSource(@NotNull String fqName) {
+        return LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName)
+                .map(qualifiedMethodInfo ->
+                        LspAnalyzerHelper.findMethodSymbol(
+                                qualifiedMethodInfo.containerFullName(),
+                                qualifiedMethodInfo.methodName(),
+                                getWorkspace(),
+                                getServer(),
+                                this::resolveMethodName
+                        ).thenApply(maybeSymbol ->
+                                maybeSymbol.stream()
+                                        .map(LspAnalyzerHelper::getSourceForSymbolDefinition)
+                                        .flatMap(Optional::stream)
+                                        .collect(Collectors.joining("\n\n"))
+                        ).join()
+                ).filter(x -> !x.isBlank());
+    }
+
+    @Override
+    default @NotNull Map<String, List<CallSite>> getCallgraphTo(@NotNull String methodName, int depth) {
+        final Optional<QualifiedMethod> methodNameInfo = LspAnalyzerHelper.determineMethodName(methodName, this::resolveMethodName);
+        if (methodNameInfo.isPresent()) {
+            final String className = methodNameInfo.get().containerFullName();
+            final String name = methodNameInfo.get().methodName();
+            final Map<String, List<CallSite>> callGraph = new HashMap<>();
+
+            final String key = className + "." + name;
+            final var functionSymbols = LspAnalyzerHelper.findMethodSymbol(className, name, getWorkspace(), getServer(), this::resolveMethodName).join();
+            functionSymbols
+                    .stream()
+                    .flatMap(x -> Optional.ofNullable(x.getLocation().getLeft()).stream())
+                    .forEach(originMethod ->
+                            LspCallGraphHelper.getCallers(getServer(), originMethod)
+                                    .join()
+                                    .forEach(incomingCall -> callGraphEntry(originMethod, callGraph, key, incomingCall, depth))
+                    );
+            return callGraph;
+        } else {
+            logger.warn("Method name not found: {}", methodName);
+            return new HashMap<>();
+        }
+    }
+
+    private Map<String, List<CallSite>> getCallgraphTo(CallSite callSite, int depth) {
+        if (depth > 0) {
+            return getCallgraphTo(callSite.target().fqName(), depth - 1);
+        } else {
+            return new HashMap<>();
+        }
+    }
+
+    @Override
+    default @NotNull Map<String, List<CallSite>> getCallgraphFrom(@NotNull String methodName, int depth) {
+        final Optional<QualifiedMethod> methodNameInfo = LspAnalyzerHelper.determineMethodName(methodName, this::resolveMethodName);
+        if (methodNameInfo.isPresent()) {
+            final String className = methodNameInfo.get().containerFullName();
+            final String name = methodNameInfo.get().methodName();
+            final Map<String, List<CallSite>> callGraph = new HashMap<>();
+
+            final String key = className + "." + name;
+            final var functionSymbols = LspAnalyzerHelper.findMethodSymbol(className, name, getWorkspace(), getServer(), this::resolveMethodName).join();
+            functionSymbols
+                    .stream()
+                    .flatMap(x -> Optional.ofNullable(x.getLocation().getLeft()).stream())
+                    .forEach(originMethod ->
+                            LspCallGraphHelper.getCallees(getServer(), originMethod)
+                                    .join()
+                                    .forEach(outgoingCall -> callGraphEntry(originMethod, callGraph, key, outgoingCall, depth))
+                    );
+            return callGraph;
+        } else {
+            logger.warn("Method name not found: {}", methodName);
+            return new HashMap<>();
+        }
+    }
+
+    private Map<String, List<CallSite>> getCallgraphFrom(CallSite callSite, int depth) {
+        if (depth > 0) {
+            return getCallgraphFrom(callSite.target().fqName(), depth - 1);
+        } else {
+            return new HashMap<>();
+        }
+    }
+
+    private void callGraphEntry(Location originMethod, Map<String, List<CallSite>> callGraph, String key, Object someCall, int depth) {
+        if (someCall instanceof CallHierarchyIncomingCall incomingCall) {
+            final CallSite newCallSite = registerCallItem(key, true, originMethod, incomingCall.getFrom(), incomingCall.getFromRanges(), callGraph);
+            // Continue search, and add any new entries
+            getCallgraphTo(newCallSite, depth - 1).forEach((k, v) -> {
+                final var nestedCallSites = callGraph.getOrDefault(k, new ArrayList<>());
+                nestedCallSites.addAll(v);
+                callGraph.put(k, nestedCallSites);
+            });
+        } else if (someCall instanceof CallHierarchyOutgoingCall outgoingCall) {
+            final CallSite newCallSite = registerCallItem(key, false, originMethod, outgoingCall.getTo(), outgoingCall.getFromRanges(), callGraph);
+            // Continue search, and add any new entries
+            getCallgraphFrom(newCallSite, depth - 1).forEach((k, v) -> {
+                final var nestedCallSites = callGraph.getOrDefault(k, new ArrayList<>());
+                nestedCallSites.addAll(v);
+                callGraph.put(k, nestedCallSites);
+            });
+        }
+    }
+
+    private CallSite registerCallItem(String key, boolean isIncoming, Location originMethod, CallHierarchyItem callItem, List<Range> ranges, Map<String, List<CallSite>> callGraph) {
+        final var uri = Path.of(URI.create(callItem.getUri()));
+        final var projectFile = new ProjectFile(this.getProjectRoot(), this.getProjectRoot().relativize(uri));
+        final var containerInfo = callItem.getDetail() == null ? "" : callItem.getDetail();  // TODO: Not sure if null means empty or external
+        final var cu = new CodeUnit(
+                projectFile,
+                LspAnalyzerHelper.codeUnitForSymbolKind(callItem.getKind()),
+                containerInfo,
+                resolveMethodName(callItem.getName())
+        );
+        final var sourceLine = LspAnalyzerHelper.getCodeForCallSite(isIncoming, originMethod, callItem, ranges).orElse(callItem.getName() + "(...)");
+        final var callSites = callGraph.getOrDefault(key, new ArrayList<>());
+        final var newCallSite = new CallSite(cu, sourceLine);
+        callSites.add(newCallSite);
+        callGraph.put(key, callSites);
+        return newCallSite;
+    }
 
 }
