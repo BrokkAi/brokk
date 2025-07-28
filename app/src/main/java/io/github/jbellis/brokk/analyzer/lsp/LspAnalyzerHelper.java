@@ -194,15 +194,15 @@ public final class LspAnalyzerHelper {
     public static List<DocumentSymbol> findSymbolsInTree(
             @NotNull List<DocumentSymbol> symbols,
             @NotNull String name,
-            @NotNull SymbolKind kind,
+            @NotNull Set<SymbolKind> kinds,
             @NotNull Function<String, String> resolveMethodName
     ) {
         return symbols.stream().flatMap(symbol -> {
-                    if (resolveMethodName.apply(symbol.getName()).equals(name) && symbol.getKind() == kind) {
+                    if (resolveMethodName.apply(symbol.getName()).equals(name) && kinds.contains(symbol.getKind())) {
                         return Stream.of(symbol);
                     } else {
                         if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                            return findSymbolsInTree(symbol.getChildren(), name, kind, resolveMethodName).stream();
+                            return findSymbolsInTree(symbol.getChildren(), name, kinds, resolveMethodName).stream();
                         } else {
                             return Stream.empty();
                         }
@@ -264,13 +264,14 @@ public final class LspAnalyzerHelper {
     /**
      * Using the language-specific method full name resolution, will determine the name of the given method's "container" name and parent method name.
      *
-     * @param methodFullName    the fully qualified method name.
+     * @param methodFullName    the fully qualified method name. No special constructor handling is done.
      * @param resolveMethodName the method name cleaning function.
      * @return a qualified method record if successful, an empty result otherwise.
      */
     @NotNull
     public static Optional<QualifiedMethod> determineMethodName(
-            @NotNull String methodFullName, @NotNull Function<String, String> resolveMethodName) {
+            @NotNull String methodFullName, @NotNull Function<String, String> resolveMethodName
+    ) {
         final String cleanedName = resolveMethodName.apply(methodFullName);
         final int lastIndex = cleanedName.lastIndexOf('.');
         if (lastIndex != -1) {
@@ -346,7 +347,7 @@ public final class LspAnalyzerHelper {
                             return LspAnalyzerHelper.findSymbolsInTree(
                                             Collections.singletonList(fileSymbolsEither.getRight()),
                                             methodName,
-                                            SymbolKind.Method,
+                                            METHOD_KINDS,
                                             resolveMethodName
                                     )
                                     .stream()

@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -83,6 +82,22 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void extractMethodSourceConstructor() {
+        final var sourceOpt = analyzer.getMethodSource("B.B"); // TODO: Should we handle <init>?
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get().trim().stripIndent();
+
+        final var expected =
+                """
+                        public B() {
+                                System.out.println("B constructor");
+                            }
+                        """.trim().stripIndent();
+
+        assertEquals(expected, source);
+    }
+
+    @Test
     public void getCallgraphToTest() {
         final var callgraph = analyzer.getCallgraphTo("A.method1", 5);
 
@@ -96,7 +111,7 @@ public class JdtAnalyzerTest {
                         .collect(Collectors.toSet());
         assertEquals(Set.of("B.callsIntoA", "D.methodD1"), callers);
     }
-    
+
     @Test
     public void getCallgraphFromTest() {
         final var callgraph = analyzer.getCallgraphFrom("B.callsIntoA", 5);

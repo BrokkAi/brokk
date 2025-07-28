@@ -58,3 +58,6 @@ project/project/
 ### JOERN'S CONFIGURATION ###
 cpg.bin
 /workspace/
+
+### LSP Test Files ###
+**/testcode-*/bin/

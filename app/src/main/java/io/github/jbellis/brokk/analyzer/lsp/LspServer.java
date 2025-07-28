@@ -4,9 +4,7 @@ import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.util.FileUtils;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
-import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.launch.LSPLauncher;
-import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageServer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -14,8 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
@@ -110,7 +106,9 @@ public abstract class LspServer implements LspFileUtilities {
         );
         this.serverProcess = pb.start();
 
-        Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
+        // will be reduced by one when server signals readiness
+        this.serverReadyLatch = new CountDownLatch(1);
+        final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
                 new SimpleLanguageClient(this.serverReadyLatch),
                 serverProcess.getInputStream(),
                 serverProcess.getOutputStream()
@@ -134,8 +132,6 @@ public abstract class LspServer implements LspFileUtilities {
 
         this.serverInitialized = languageServer.initialize(params).thenRun(() -> {
             if (this.languageServer != null) {
-                // will be reduced by one when server signals readiness
-                serverReadyLatch = new CountDownLatch(1);
                 languageServer.initialized(new InitializedParams());
                 logger.info("JDT LS Initialized");
             } else {
@@ -312,65 +308,5 @@ public abstract class LspServer implements LspFileUtilities {
         });
     }
 
-    public static class SimpleLanguageClient implements LanguageClient {
-
-        private final CountDownLatch serverReadyLatch;
-
-        public SimpleLanguageClient(CountDownLatch serverReadyLatch) {
-            this.serverReadyLatch = serverReadyLatch;
-        }
-
-        @NotNull
-        private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
-
-        @Override
-        public void telemetryEvent(Object object) {
-        }
-
-        @Override
-        public final void showMessage(MessageParams messageParams) {
-            logger.info("[showMessage] {}", messageParams);
-        }
-
-        @Override
-        public final void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
-            try {
-                var diagnosticsAbsPath = Path.of(new URI(diagnostics.getUri())).toAbsolutePath().toString();
-                if (diagnostics.getDiagnostics().isEmpty()) logger.info("Diagnostics empty for {}", diagnosticsAbsPath);
-                diagnostics.getDiagnostics().forEach(diagnostic -> {
-                    logger.debug("[Diagnostic] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
-                });
-            } catch (URISyntaxException e) {
-                logger.error("Error parsing a URI from the LSP: " + diagnostics.getUri(), e);
-            }
-        }
-
-        @Override
-        @Nullable
-        public CompletableFuture<MessageActionItem> showMessageRequest(ShowMessageRequestParams r) {
-            return null;
-        }
-
-        @Override
-        public void logMessage(MessageParams message) {
-            logger.debug("[LSP-SERVER] {}: {}", message.getType(), message.getMessage());
-        }
-
-        @JsonNotification("language/status")
-        public void languageStatus(LspStatus message) {
-            logger.debug("[LSP-SERVER] {}: {}", message.type(), message.message());
-            if (Objects.equals(message.type(), "Started") && Objects.equals(message.message(), "Ready")) {
-                serverReadyLatch.countDown();
-            }
-        }
-
-        @Override
-        public CompletableFuture<Void> registerCapability(RegistrationParams params) {
-            // Acknowledge the server's request and return a completed future.
-            // This satisfies the protocol and prevents an exception.
-            logger.info("Server requested to register capabilities: {}", params.getRegistrations());
-            return CompletableFuture.completedFuture(null);
-        }
-    }
-
+    
 }

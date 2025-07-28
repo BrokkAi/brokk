@@ -1,0 +1,75 @@
+package io.github.jbellis.brokk.analyzer.lsp;
+
+import org.eclipse.lsp4j.*;
+import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
+import org.eclipse.lsp4j.services.LanguageClient;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+
+public final class SimpleLanguageClient implements LanguageClient {
+
+    private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
+    private final CountDownLatch serverReadyLatch;
+
+    public SimpleLanguageClient(CountDownLatch serverReadyLatch) {
+        this.serverReadyLatch = serverReadyLatch;
+    }
+
+    @Override
+    public void telemetryEvent(Object object) {
+    }
+
+    @Override
+    public void showMessage(MessageParams messageParams) {
+        logger.info("[LSP-SERVER-SHOW-MESSAGE] {}", messageParams);
+    }
+
+    @Override
+    public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
+        diagnostics.getDiagnostics().forEach(diagnostic -> {
+            logger.debug("[LSP-SERVER-DIAGNOSTICS] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
+        });
+    }
+
+    @Override
+    @Nullable
+    public CompletableFuture<MessageActionItem> showMessageRequest(ShowMessageRequestParams r) {
+        return null;
+    }
+
+    @Override
+    public void logMessage(MessageParams message) {
+        logger.debug("[LSP-SERVER-LOG] {}: {}", message.getType(), message.getMessage());
+    }
+
+    @JsonNotification("language/status")
+    public void languageStatus(LspStatus message) {
+        final var kind = message.type();
+        final var msg = message.message();
+        logger.debug("[LSP-SERVER-STATUS] {}: {}", kind, msg);
+        // The logs below are various ways we can tell when indexing is done
+        switch (kind) {
+            case "Started" -> {
+                if (Objects.equals(msg, "Ready")) serverReadyLatch.countDown();
+            }
+            case "Starting" -> {
+                // e.g., 100% Starting Java Language Server
+                if (msg != null && msg.startsWith("100%") && msg.endsWith("Language Server")) 
+                    serverReadyLatch.countDown();
+            }
+        }
+    }
+
+    @Override
+    public CompletableFuture<Void> registerCapability(RegistrationParams params) {
+        // Acknowledge the server's request and return a completed future.
+        // This satisfies the protocol and prevents an exception.
+        logger.info("Server requested to register capabilities: {}", params.getRegistrations());
+        return CompletableFuture.completedFuture(null);
+    }
+}
