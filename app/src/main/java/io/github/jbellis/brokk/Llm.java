@@ -185,7 +185,8 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     accumulatedTextBuilder.append(reasoningContent);
                     if (echo) {
-                        io.llmOutput(reasoningContent, ChatMessageType.AI);
+                        // BrokkBench hack: output to stdout but don't capture it
+                        System.out.println(reasoningContent);
                     }
                 });
             }
