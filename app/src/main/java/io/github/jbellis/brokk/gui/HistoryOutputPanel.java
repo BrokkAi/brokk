@@ -19,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -72,6 +73,9 @@ public class HistoryOutputPanel extends JPanel {
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
     private ResetArrowLayerUI arrowLayerUI;
+    @Nullable private JPanel sessionSwitchPanel;
+    @Nullable private JLabel sessionSwitchSpinner;
+    private JLayeredPane historyLayeredPane;
 
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
@@ -122,6 +126,9 @@ public class HistoryOutputPanel extends JPanel {
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
 
+        this.historyLayeredPane = new JLayeredPane();
+        this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
+
         var sessionControlsPanel = buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton, this.manageSessionsButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
@@ -141,6 +148,37 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
+    }
+
+    private void buildSessionSwitchPanel() {
+        // This is the main panel that will be added to the layered pane.
+        // It uses BorderLayout to position its content at the top.
+        sessionSwitchPanel = new JPanel(new BorderLayout());
+        sessionSwitchPanel.setOpaque(true);
+        sessionSwitchPanel.setVisible(false);
+
+        // This is the panel that actually holds the spinner and text.
+        // It will be placed at the top of sessionSwitchPanel.
+        var contentPanel = new JPanel(new BorderLayout(5, 0)); // stretch horizontally
+        contentPanel.setOpaque(false);
+        contentPanel.setBorder(new EmptyBorder(8, 5, 5, 5));
+
+        sessionSwitchSpinner = new JLabel();
+        var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, false);
+        if (spinnerIcon != null) {
+            sessionSwitchSpinner.setIcon(spinnerIcon);
+        }
+
+        JLabel notificationText = new JLabel("Loading session...");
+        notificationText.setOpaque(false);
+        notificationText.setFont(historyTable.getFont());
+        notificationText.setForeground(UIManager.getColor("Label.foreground"));
+        notificationText.setBorder(null);
+
+        contentPanel.add(sessionSwitchSpinner, BorderLayout.WEST);
+        contentPanel.add(notificationText, BorderLayout.CENTER);
+
+        sessionSwitchPanel.add(contentPanel, BorderLayout.NORTH);
     }
 
     private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
@@ -422,7 +460,9 @@ public class HistoryOutputPanel extends JPanel {
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
 
-        panel.add(layer, BorderLayout.CENTER);
+        historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
+
+        panel.add(historyLayeredPane, BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         // Calculate preferred width for the history panel
@@ -755,6 +795,37 @@ public class HistoryOutputPanel extends JPanel {
         llmStreamArea.hideSpinner();
         lastSpinnerMessage = null;
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
+    }
+
+    /**
+     * Shows the session switching spinner.
+     */
+    public void showSessionSwitchSpinner() {
+        SwingUtilities.invokeLater(() -> {
+            historyModel.setRowCount(0);
+            JPanel ssp = sessionSwitchPanel;
+            if (ssp == null) {
+                buildSessionSwitchPanel();
+                ssp = requireNonNull(sessionSwitchPanel);
+                historyLayeredPane.add(ssp, JLayeredPane.PALETTE_LAYER);
+            }
+            ssp.setVisible(true);
+            ssp.revalidate();
+            ssp.repaint();
+        });
+    }
+
+    /**
+     * Hides the session switching spinner.
+     */
+    public void hideSessionSwitchSpinner() {
+        SwingUtilities.invokeLater(() -> {
+            if (sessionSwitchPanel != null) {
+                sessionSwitchPanel.setVisible(false);
+                sessionSwitchPanel.revalidate();
+                sessionSwitchPanel.repaint();
+            }
+        });
     }
 
     /**

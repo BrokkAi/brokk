@@ -72,6 +72,10 @@ public interface IConsoleIO {
 
     default void hideOutputSpinner() {}
 
+    default void showSessionSwitchSpinner() {}
+
+    default void hideSessionSwitchSpinner() {}
+
     default String getLlmOutputText() {
         throw new UnsupportedOperationException();
     }

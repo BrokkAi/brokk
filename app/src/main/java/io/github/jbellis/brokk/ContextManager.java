@@ -1996,8 +1996,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 
+        io.showSessionSwitchSpinner();
         var future = submitUserTask("Switching session", () -> {
-            switchToSession(sessionId);
+            try {
+                switchToSession(sessionId);
+            } finally {
+                io.hideSessionSwitchSpinner();
+            }
         });
         return CompletableFuture.runAsync(() -> {
             try {
