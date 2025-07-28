@@ -135,16 +135,19 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return CpgCache.getOrCompute(project, this, () -> {
-                var cpgPath = getCpgPath(project);
-                return new JavaAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
-            });
+            try {
+                return new JdtAnalyzer(project.getRoot(), project.getExcludedDirectories());
+            } catch (IOException e) {
+                logger.error("The JDT LSP server could not be started.", e);
+                return new DisabledAnalyzer();
+            }
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            Path cpgPath = getCpgPath(project);
-            return JavaAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
+            // TODO: Not persisting the analyzer cache, need to still handle
+            //  the case of cache corruption before we do.
+            return createAnalyzer(project);
         }
 
         @Override
@@ -239,7 +242,7 @@ public interface Language {
 
         @Override
         public boolean isCpg() {
-            return true;
+            return false;
         }
     };
 

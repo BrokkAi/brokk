@@ -475,4 +475,16 @@ public final class LspAnalyzerHelper {
         }).toList();
     }
 
+    /**
+     * Gets all symbols that the server has indexed for this specific workspace.
+     *
+     * @return A CompletableFuture that will be completed with a list of all indexed symbols.
+     */
+    public static CompletableFuture<List<? extends WorkspaceSymbol>> getAllWorkspaceSymbols(@NotNull String workspace, @NotNull LspServer sharedServer) {
+        // An empty query string "" tells the server to return all symbols. 
+        // Relies on indexes, so shouldn't be too expensive
+        return findSymbolsInWorkspace("*", workspace, sharedServer);
+    }
+
+
 }

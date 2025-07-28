@@ -34,6 +34,11 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     default boolean isCpg() {
         return false;
     }
+    
+    @Override
+    default boolean isEmpty() {
+        return LspAnalyzerHelper.getAllWorkspaceSymbols(getWorkspace(), getServer()).join().isEmpty();
+    }
 
     /**
      * Transform method node fullName to a stable "resolved" name (e.g. removing lambda suffixes).

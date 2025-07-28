@@ -27,7 +27,6 @@ public class JdtAnalyzerTest {
     @BeforeAll
     public static void setup() throws IOException {
         final var testPath = Path.of("src/test/resources/testcode-java");
-//        final var testPath = Path.of("/Users/dave/Workspace/test-repos/lombok-examples");
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
         analyzer = new JdtAnalyzer(testPath, new HashSet<>());
     }
@@ -37,6 +36,12 @@ public class JdtAnalyzerTest {
         if (analyzer != null) {
             analyzer.close();
         }
+    }
+
+    @Test
+    public void isEmptyTest() {
+        // setup() should feed code into the server, and this method should behave as expected
+        assertFalse(analyzer.isEmpty());
     }
 
     @Test
@@ -188,7 +193,7 @@ public class JdtAnalyzerTest {
         final var skeletonOpt = analyzer.getSkeleton("A");
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
-        
+
         final var expected = """
 public class A {
   public A() {...}
