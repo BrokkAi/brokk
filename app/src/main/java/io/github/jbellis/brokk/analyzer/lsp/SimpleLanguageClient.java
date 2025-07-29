@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 
 public final class SimpleLanguageClient implements LanguageClient {
 
@@ -50,7 +51,18 @@ public final class SimpleLanguageClient implements LanguageClient {
 
     @Override
     public void logMessage(MessageParams message) {
-        logger.debug("[LSP-SERVER-LOG] {}: {}", message.getType(), message.getMessage());
+        switch (message.getType()) {
+            case Error -> {
+                // Avoid chained stack trace spam
+                final var conciseMessage = message.getMessage().lines()
+                        .takeWhile(line -> !line.startsWith("Caused by"))
+                        .collect(Collectors.joining(System.lineSeparator()));
+                logger.error("[LSP-SERVER-LOG] {}", conciseMessage);
+            }
+            case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
+            case Info -> logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
+            default -> logger.debug("[LSP-SERVER-LOG] {}", message.getMessage());
+        }
     }
 
     @JsonNotification("language/status")

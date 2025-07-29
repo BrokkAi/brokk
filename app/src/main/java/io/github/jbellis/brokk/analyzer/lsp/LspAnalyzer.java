@@ -34,7 +34,15 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default boolean isEmpty() {
+        // This may not work until the build tool has completed building
         return LspAnalyzerHelper.getAllWorkspaceSymbols(getWorkspace(), getServer()).join().isEmpty();
+    }
+
+    /**
+     * @return the language-specific configuration options for the LSP.
+     */
+    default @NotNull Map<String, Object> getInitializationOptions() {
+        return Collections.emptyMap();
     }
 
     /**

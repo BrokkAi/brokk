@@ -13,6 +13,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -40,10 +41,15 @@ public class JdtAnalyzer implements LspAnalyzer {
         } else {
             JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
             this.sharedServer = SharedLspServer.getInstance();
-            this.sharedServer.registerClient(this.projectRoot, excludedPaths);
+            this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions());
             this.sharedServer.refreshWorkspace().join();
             this.workspace = this.projectRoot.toUri().toString();
         }
+    }
+    
+    @Override
+    public boolean isEmpty() {
+        return false; // fixme: figure out a different way to test this
     }
 
     @Override
@@ -59,6 +65,18 @@ public class JdtAnalyzer implements LspAnalyzer {
     @Override
     public @NotNull LspServer getServer() {
         return this.sharedServer;
+    }
+    
+    @Override
+    public @NotNull Map<String, Object> getInitializationOptions() {
+        return Map.of(
+                "symbols", Map.of("includeSourceMethodDeclarations", true),
+                "configuration", Map.of("updateBuildConfiguration", "automatic"),
+                "import", Map.of(
+                        "maven", Map.of("wrapper.enabled", true),
+                        "gradle", Map.of("wrapper.enabled", true)
+                )
+        );
     }
 
     /**

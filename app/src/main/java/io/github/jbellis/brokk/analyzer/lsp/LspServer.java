@@ -90,7 +90,36 @@ public abstract class LspServer implements LspFileUtilities {
         });
     }
 
-    protected void startServer(Path initialWorkspace) throws IOException {
+    public void sendDidOpen(Path filePath, String language) {
+        try {
+            final var content = Files.readString(filePath);
+            final var uri = filePath.toUri().toString();
+
+            final var params = new DidOpenTextDocumentParams();
+            final var item = new TextDocumentItem(uri, language, 1, content);
+            params.setTextDocument(item);
+
+            // Send a notification to the server. This is non-blocking.
+            whenInitialized(server -> server.getTextDocumentService().didOpen(params));
+            logger.info("Sent didOpen notification for {}", filePath);
+        } catch (IOException ex) {
+            logger.error("Error while trying to open text document at '{}'", filePath, ex);
+        }
+    }
+
+    public void sendDidClose(Path filePath) {
+        final var uri = filePath.toUri().toString();
+
+        final var params = new DidCloseTextDocumentParams();
+        final var item = new TextDocumentIdentifier(uri);
+        params.setTextDocument(item);
+
+        // Send a notification to the server. This is non-blocking.
+        whenInitialized(server -> server.getTextDocumentService().didClose(params));
+        logger.info("Sent didClose notification for {}", filePath);
+    }
+
+    protected void startServer(Path initialWorkspace, Map<String, Object> initializationOptions) throws IOException {
         logger.info("First client connected. Starting JDT Language Server...");
         final Path serverHome = unpackLspServer("jdt");
         final Path launcherJar = findFile(serverHome, "org.eclipse.equinox.launcher_");
@@ -122,14 +151,10 @@ public abstract class LspServer implements LspFileUtilities {
         params.setProcessId((int) ProcessHandle.current().pid());
         params.setWorkspaceFolders(List.of(new WorkspaceFolder(initialWorkspace.toUri().toString(), initialWorkspace.getFileName().toString())));
         params.setClientInfo(new ClientInfo("Brokk", BuildInfo.version));
-        // Java specific
-        Map<String, Object> javaSettings = Map.of(
-                "symbols", Map.of("includeSourceMethodDeclarations", true)
-        );
-        params.setInitializationOptions(javaSettings);
+        params.setInitializationOptions(initializationOptions);
 
         final var capabilities = getCapabilities();
-        logger.debug("Setting JDT capabilities {}", capabilities);
+        logger.trace("Setting JDT capabilities {}", capabilities);
         params.setCapabilities(capabilities);
 
         this.serverInitialized = languageServer.initialize(params).thenRun(() -> {
@@ -223,11 +248,11 @@ public abstract class LspServer implements LspFileUtilities {
      * @param projectPath     The workspace path for the new client.
      * @param excludePatterns A set of glob patterns to exclude for this workspace.
      */
-    public synchronized void registerClient(Path projectPath, Set<String> excludePatterns) throws IOException {
+    public synchronized void registerClient(Path projectPath, Set<String> excludePatterns, Map<String, Object> initializationOptions) throws IOException {
         final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
         workspaceExclusions.put(projectPathAbsolute, excludePatterns);
         if (clientCounter.getAndIncrement() == 0) {
-            startServer(projectPathAbsolute);
+            startServer(projectPathAbsolute, initializationOptions);
         } else {
             addWorkspaceFolder(projectPathAbsolute);
         }
@@ -313,6 +338,7 @@ public abstract class LspServer implements LspFileUtilities {
 
     /**
      * Notifies the server of specific file changes.
+     *
      * @param changedFiles A set of files that have been created, modified, or deleted.
      */
     public void update(@NotNull Set<ProjectFile> changedFiles) {
@@ -330,5 +356,5 @@ public abstract class LspServer implements LspFileUtilities {
         whenInitialized(server -> server.getWorkspaceService().didChangeWatchedFiles(params));
     }
 
-    
+
 }

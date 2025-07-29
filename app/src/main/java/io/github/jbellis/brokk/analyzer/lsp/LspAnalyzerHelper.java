@@ -176,7 +176,7 @@ public final class LspAnalyzerHelper {
     ) {
         logger.info("Querying for document symbols in {}", filePath);
         return sharedServer.query(server -> {
-            DocumentSymbolParams params = new DocumentSymbolParams(
+            final var params = new DocumentSymbolParams(
                     new TextDocumentIdentifier(filePath.toUri().toString())
             );
             return server.getTextDocumentService().documentSymbol(params).join();
