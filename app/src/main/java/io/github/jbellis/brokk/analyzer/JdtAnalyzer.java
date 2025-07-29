@@ -73,8 +73,8 @@ public class JdtAnalyzer implements LspAnalyzer {
                 "symbols", Map.of("includeSourceMethodDeclarations", true),
                 "configuration", Map.of("updateBuildConfiguration", "automatic"),
                 "import", Map.of(
-                        "maven", Map.of("wrapper.enabled", true),
-                        "gradle", Map.of("wrapper.enabled", true)
+                        "maven", Map.of("wrapper", Map.of("enabled", true)),
+                        "gradle",Map.of("wrapper", Map.of("enabled", true))
                 )
         );
     }
