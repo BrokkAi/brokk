@@ -328,6 +328,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onTrackedFileChange() {
                 // we don't need the full onRepoChange but we do need these parts
                 project.getRepo().invalidateCaches();
+                project.invalidateAllFiles();
                 io.updateCommitPanel();
 
                 // update Workspace

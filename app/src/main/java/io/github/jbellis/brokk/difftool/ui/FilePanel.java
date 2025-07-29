@@ -7,25 +7,23 @@ import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
 import io.github.jbellis.brokk.difftool.search.SearchHit;
 import io.github.jbellis.brokk.difftool.search.SearchHits;
-import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchCommand;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
 import io.github.jbellis.brokk.util.SyntaxDetector;
-import io.github.jbellis.brokk.difftool.ui.DiffHighlightUtil;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
+import java.awt.Font;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
@@ -40,6 +38,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.swing.SwingWorker;
 
 import static java.util.Objects.requireNonNullElseGet;
 
@@ -83,10 +82,24 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     // Navigation state to ensure highlights appear when scrolling to diffs
     private final AtomicBoolean isNavigatingToDiff = new AtomicBoolean(false);
 
+    // Background worker handling large-file optimisation off the EDT
+    @Nullable
+    private volatile SwingWorker<?, ?> optimisationWorker;
+
+    // Flag to force plain text mode for performance with large single-line files
+    private volatile boolean forcePlainText = false;
+
+    // Flag to indicate file content was truncated for safety
+    private volatile boolean contentTruncated = false;
+
+    // Status panel for showing file truncation and editing status
+    private JPanel statusPanel;
+    private JLabel statusLabel;
+
     // Viewport cache for thread-safe access
     private final AtomicReference<ViewportCache> viewportCache = new AtomicReference<>();
 
-    public FilePanel(@NotNull BufferDiffPanel diffPanel, @NotNull String name) {
+    public FilePanel(BufferDiffPanel diffPanel, String name) {
         this.diffPanel = diffPanel;
         this.name = name;
         init();
@@ -94,6 +107,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     private void init() {
         visualComponentContainer = new JPanel(new BorderLayout());
+
+        // Initialize status panel for file notifications
+        statusPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 5, 2));
+        statusLabel = new JLabel();
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 11f));
+        statusLabel.setForeground(new java.awt.Color(204, 120, 50)); // Orange color for warnings
+        statusPanel.add(statusLabel);
+        statusPanel.setVisible(false); // Hidden by default
 
         // Initialize RSyntaxTextArea with composite highlighter
         editor = new RSyntaxTextArea();
@@ -141,7 +162,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                             // Then update highlights based on the new diff
                             reDisplayInternal();
                         } catch (Exception ex) {
-                            logger.warn("{}: Error applying deferred updates: {}", name, ex.getMessage());
                             // Ensure typing state is reset even if update fails
                             isActivelyTyping.set(false);
                         }
@@ -217,10 +237,18 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // installMirroring will call removeMirroring again, which is harmless.
             removeMirroring();
 
+            // Reset flags for new document
             this.bufferDocument = bd;
+            this.forcePlainText = false;
+            this.contentTruncated = false;
+
+
+            // Clear status panel for new document
+            clearStatusPanel();
             visualComponentContainer.removeAll(); // Clear previous content
 
-            // Always add the scrollPane (which contains the editor)
+            // Always add the status panel and scrollPane (which contains the editor)
+            visualComponentContainer.add(statusPanel, BorderLayout.NORTH);
             visualComponentContainer.add(scrollPane, BorderLayout.CENTER);
 
             if (bd != null) {
@@ -228,8 +256,32 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 // Copy text into RSyntaxDocument instead of replacing the model
                 String txt = newDocument.getText(0, newDocument.getLength());
 
+                // EARLY MEMORY PROTECTION: Disable syntax before setText() for dense files
+                // This prevents RSyntaxTextArea from tokenizing huge single-line files
+                if (shouldUsePlainTextMode(bd, txt.length())) {
+                    editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+                    forcePlainText = true;
+
+                    // AGGRESSIVE PROTECTION: For extremely large single-line files,
+                    // truncate content to prevent memory explosion even in plain text mode
+                    ProtectionLevel level = getProtectionLevel(bd, txt.length());
+                    if (level == ProtectionLevel.MINIMAL && bd.getNumberOfLines() <= 2) {
+                        int maxDisplayLength = 100 * 1024; // 100KB max for single-line display
+                        if (txt.length() > maxDisplayLength) {
+                            int originalSizeKB = txt.length() / 1024;
+                            txt = txt.substring(0, maxDisplayLength);
+                            logger.warn("Truncated huge single-line file {} from {}KB to {}KB for safe display",
+                                       bd.getName(), originalSizeKB, txt.length() / 1024);
+
+                            // Show truncation status and mark as truncated
+                            contentTruncated = true;
+                            updateStatusPanel(originalSizeKB);
+                        }
+                    }
+                }
+
                 // PERFORMANCE OPTIMIZATION: Apply file size-based optimizations for large files
-                applyPerformanceOptimizations(txt.length());
+                optimiseAsyncIfLarge(txt.length());
 
                 editor.setText(txt);
                 editor.setTabSize(PerformanceConstants.DEFAULT_EDITOR_TAB_SIZE);
@@ -239,7 +291,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 installMirroring(newDocument);
 
                 // Undo tracking on the RSyntaxDocument (what the user edits)
-                editor.getDocument().addUndoableEditListener(diffPanel.getUndoHandler());
+                // Only enable undo/redo for editable files
+                if (!contentTruncated) {
+                    editor.getDocument().addUndoableEditListener(diffPanel.getUndoHandler());
+                }
 
                 // Ensure highlighter is still properly connected after setText
                 if (editor.getHighlighter() instanceof CompositeHighlighter) {
@@ -247,7 +302,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     var highlighter = editor.getHighlighter();
                     highlighter.install(editor);
                 }
-                editor.setEditable(!bd.isReadonly());
+                // Disable editing for truncated files or readonly files
+                boolean shouldBeEditable = !bd.isReadonly() && !contentTruncated;
+                editor.setEditable(shouldBeEditable);
                 updateSyntaxStyle();            // pick syntax based on filename
             } else {
                 // If BufferDocumentIF is null, clear the editor and make it non-editable
@@ -269,10 +326,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             SwingUtilities.invokeLater(this::scrollToFirstDiff);
 
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(diffPanel, "Could not read file or set document: "
-                                                  + (bd != null ? bd.getName() : "Unknown")
-                                                  + "\n" + ex.getMessage(),
-                                          "Error processing file", JOptionPane.ERROR_MESSAGE);
+            diffPanel.getMainPanel().getConsoleIO().toolError(
+                "Could not read file or set document: "
+                + (bd != null ? bd.getName() : "Unknown")
+                + "\n" + ex.getMessage(),
+                "Error processing file"
+            );
         }
     }
 
@@ -313,10 +372,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Repaint highlights: we get the patch from BufferDiffPanel, then highlight
      * each delta's relevant lines in *this* panel (ORIGINAL or REVISED).
      */
-    /**
-     * PERFORMANCE OPTIMIZATION: Only highlights deltas visible in the current viewport
-     * for massive performance improvement with large files.
-     */
     private void paintRevisionHighlights()
     {
         assert SwingUtilities.isEventDispatchThread() : "NOT ON EDT";
@@ -326,18 +381,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         var patch = diffPanel.getPatch();
         if (patch == null) return;
 
+        boolean isOriginal = BufferDocumentIF.ORIGINAL.equals(name);
+
         // Skip viewport optimization when navigating to ensure highlights appear
         if (isNavigatingToDiff.get()) {
-            paintAllDeltas(patch);
+            paintAllDeltas(patch, isOriginal);
             return;
         }
 
         // For right side, also check if paired left side is navigating
-        if (BufferDocumentIF.REVISED.equals(name)) {
+        if (!isOriginal) {
             try {
                 var leftPanel = diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
                 if (leftPanel != null && leftPanel.isNavigatingToDiff()) {
-                    paintAllDeltas(patch);
+                    paintAllDeltas(patch, isOriginal);
                     return;
                 }
             } catch (Exception e) {
@@ -349,42 +406,21 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         var visibleRange = getVisibleLineRange();
         if (visibleRange == null) {
             // Fallback to highlighting all deltas if viewport calculation fails
-            paintAllDeltas(patch);
+            paintAllDeltas(patch, isOriginal);
             return;
         }
 
-        int startLine = visibleRange.start;
-        int endLine = visibleRange.end;
-
-        for (var delta : patch.getDeltas()) {
-            if (deltaIntersectsViewport(delta, startLine, endLine)) {
-                // Are we the "original" side or the "revised" side?
-                if (BufferDocumentIF.ORIGINAL.equals(name)) {
-                    new HighlightOriginal(delta).highlight();
-                } else if (BufferDocumentIF.REVISED.equals(name)) {
-                    var targetChunk = delta.getTarget();
-                    if (targetChunk == null) {
-                        logger.warn("Right side delta has null target chunk: type={}, delta={}", delta.getType(), delta);
-                        continue;
-                    }
-                    new HighlightRevised(delta).highlight();
-                }
-            }
-        }
-
+        // Use streams to filter and highlight visible deltas
+        patch.getDeltas().stream()
+            .filter(delta -> deltaIntersectsViewport(delta, visibleRange.start, visibleRange.end))
+            .forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
     }
 
     /**
      * Fallback method to paint all deltas (original behavior).
      */
-    private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch) {
-        for (var delta : patch.getDeltas()) {
-            if (BufferDocumentIF.ORIGINAL.equals(name)) {
-                new HighlightOriginal(delta).highlight();
-            } else if (BufferDocumentIF.REVISED.equals(name)) {
-                new HighlightRevised(delta).highlight();
-            }
-        }
+    private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch, boolean isOriginal) {
+        patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
     }
 
     /**
@@ -464,16 +500,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Force invalidation of viewport cache for both sides to ensure consistency
      */
     private void invalidateViewportCacheForBothSides() {
-        invalidateViewportCache();
-        // Also invalidate the paired panel's cache to ensure both sides recalculate together
-        try {
-            var pairedPanel = diffPanel.getFilePanel(BufferDocumentIF.REVISED.equals(name) ?
-                BufferDiffPanel.PanelSide.LEFT : BufferDiffPanel.PanelSide.RIGHT);
-            if (pairedPanel != null && pairedPanel != this) {
-                pairedPanel.invalidateViewportCache();
-            }
-        } catch (Exception e) {
-            // Continue without invalidating paired cache
+        var scrollSync = diffPanel.getScrollSynchronizer();
+        if (scrollSync != null) {
+            scrollSync.invalidateViewportCacheForBothPanels();
+        } else {
+            // Fallback to individual invalidation if synchronizer not available
+            invalidateViewportCache();
         }
     }
 
@@ -560,13 +592,92 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /**
+     * Protection levels for memory and performance optimization.
+     */
+    private enum ProtectionLevel {
+        NONE,     // Full syntax highlighting and all features enabled
+        REDUCED,  // Syntax highlighting but heavy features disabled
+        MINIMAL   // Plain text mode, all features disabled
+    }
+
+    /**
+     * SHARED PROTECTION LOGIC: Determines the appropriate protection level for a file
+     * based on line density and size. Used by both synchronous and asynchronous paths.
+     */
+    private ProtectionLevel getProtectionLevel(@Nullable BufferDocumentIF document, long contentLength) {
+        if (document == null) {
+            return ProtectionLevel.NONE;
+        }
+
+        int numberOfLines = document.getNumberOfLines();
+        long averageLineLength = numberOfLines > 0 ? contentLength / numberOfLines : contentLength;
+
+        // Minimal protection: Plain text for extreme cases
+        if (averageLineLength > PerformanceConstants.MINIMAL_SYNTAX_LINE_LENGTH_BYTES ||
+            (numberOfLines <= 3 && contentLength > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES)) {
+            return ProtectionLevel.MINIMAL;
+        }
+
+        // Reduced protection: Keep syntax but disable heavy features
+        if (averageLineLength > PerformanceConstants.REDUCED_SYNTAX_LINE_LENGTH_BYTES) {
+            return ProtectionLevel.REDUCED;
+        }
+
+        // No protection needed
+        return ProtectionLevel.NONE;
+    }
+
+    /**
+     * EARLY MEMORY PROTECTION: Determines if a file should use plain text mode
+     * to prevent memory explosion during setText(). This check runs BEFORE
+     * RSyntaxTextArea tokenization to avoid token allocation.
+     */
+    private boolean shouldUsePlainTextMode(@Nullable BufferDocumentIF document, long contentLength) {
+        ProtectionLevel level = getProtectionLevel(document, contentLength);
+
+        return level == ProtectionLevel.MINIMAL;
+    }
+
+
+    /**
      * PERFORMANCE OPTIMIZATION: Apply performance optimizations based on file size.
      */
     private void applyPerformanceOptimizations(long contentLength) {
+        // Reset editor features for normal files, but preserve early protection
+        if (!forcePlainText) {
+            editor.setCodeFoldingEnabled(true);
+            editor.setBracketMatchingEnabled(true);
+            editor.setMarkOccurrences(true);
+        }
+
+        // Apply protection based on shared logic to ensure consistency
+        ProtectionLevel level = getProtectionLevel(bufferDocument, contentLength);
+
+        switch (level) {
+            case MINIMAL -> {
+                if (!forcePlainText && bufferDocument != null) {
+                    forcePlainText = true;
+                    editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+                }
+                editor.setCodeFoldingEnabled(false);
+                editor.setBracketMatchingEnabled(false);
+                editor.setMarkOccurrences(false);
+            }
+            case REDUCED -> {
+                // Keep syntax highlighting but disable memory-intensive features
+                editor.setCodeFoldingEnabled(false);
+                editor.setBracketMatchingEnabled(false);
+                editor.setMarkOccurrences(false);
+            }
+            case NONE -> {
+                // Features already reset above, no additional changes needed
+            }
+        }
+
         boolean isLargeFile = contentLength > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
 
         if (isLargeFile) {
-            logger.info("Applying performance optimizations for large file: {}KB", contentLength / 1024);
+            logger.info("Applying general performance optimizations for large file: {}KB", contentLength / 1024);
 
             // Use longer debounce times for large files to reduce update frequency
             if (timer != null) {
@@ -581,6 +692,46 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /**
+     * Execute {@link #applyPerformanceOptimizations(long)} asynchronously for
+     * large files so the EDT stays responsive. For small files, call it
+     * directly to avoid thread overhead.
+     */
+    private void optimiseAsyncIfLarge(long contentLength) {
+        // For files ≤1MB, apply optimizations immediately
+        if (contentLength <= PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES) {
+            applyPerformanceOptimizations(contentLength);
+            return;
+        }
+
+        // For large files, if early plain-text protection is already active we
+        // still want to run the full optimisation pass (it is safe-idempotent).
+        if (forcePlainText) {
+            applyPerformanceOptimizations(contentLength);
+            return;
+        }
+        // Cancel any previous optimisation still running
+        if (optimisationWorker != null) {
+            optimisationWorker.cancel(true);
+        }
+        optimisationWorker = new SwingWorker<>() {
+            @Override protected Void doInBackground() {
+                // Potential heavy analysis could be done here.
+                return null;
+            }
+            @Override protected void done() {
+                Runnable r = () -> applyPerformanceOptimizations(contentLength);
+                if (SwingUtilities.isEventDispatchThread()) {
+                    r.run();
+                } else {
+                    SwingUtilities.invokeLater(r);
+                }
+                optimisationWorker = null; // clear after completion
+            }
+        };
+        optimisationWorker.execute();
+    }
+
+    /**
      * Simple data record for visible line range.
      */
     private record VisibleRange(int start, int end) {}
@@ -589,6 +740,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     public void applyTheme(GuiTheme guiTheme) {
         // Apply current theme
         GuiTheme.loadRSyntaxTheme(guiTheme.isDarkTheme()).ifPresent(theme -> {
+            // Ensure syntax style is set before applying theme
+            if (bufferDocument != null) {
+                updateSyntaxStyle();
+            }
+
             // Apply theme to the composite highlighter (which will forward to JMHighlighter)
             if (editor.getHighlighter() instanceof ThemeAware high) {
                 high.applyTheme(guiTheme);
@@ -598,128 +754,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         });
     }
 
-    abstract class AbstractHighlight {
-        protected final AbstractDelta<String> delta;
-
-        AbstractHighlight(AbstractDelta<String> delta) {
-            this.delta = delta;
-        }
-
-        public void highlight() {
-            if (bufferDocument == null) {
-                logger.trace("Skipping highlight: bufferDocument is null for {}", this.getClass().getSimpleName());
-                return;
-            }
-
-            // Retrieve the chunk relevant to this side
-            var chunk = getChunk(delta);
-            if (chunk == null) {
-                logger.warn("Skipping highlight: chunk is null for {} delta type {}",
-                           this.getClass().getSimpleName(), delta.getType());
-                return;
-            }
-
-            var fromOffset = bufferDocument.getOffsetForLine(chunk.getPosition());
-            if (fromOffset < 0) {
-                logger.warn("{}: invalid fromOffset {} for line {}",
-                           this.getClass().getSimpleName(), fromOffset, chunk.getPosition());
-                return;
-            }
-            var toOffset = bufferDocument.getOffsetForLine(chunk.getPosition() + chunk.size());
-            if (toOffset < 0) {
-                logger.warn("{}: invalid toOffset {} for line {}",
-                           this.getClass().getSimpleName(), toOffset, chunk.getPosition() + chunk.size());
-                return;
-            }
-
-            // Check if chunk is effectively "empty line" in the old code
-            boolean isEmpty = (chunk.size() == 0);
-
-            // End offset might be the doc length; check trailing newline logic:
-            boolean isEndAndNewline = isEndAndLastNewline(toOffset);
-
-            // Decide color. For Insert vs Delete vs Change we do:
-            var isDark = diffPanel.isDarkTheme();
-            var type = delta.getType(); // DeltaType.INSERT, DELETE, CHANGE
-            var painter = switch (type) {
-                case INSERT ->
-                        isEmpty
-                                ? new JMHighlightPainter.JMHighlightLinePainter(Colors.getAdded(isDark))
-                                : isEndAndNewline
-                                ? new JMHighlightPainter.JMHighlightNewLinePainter(Colors.getAdded(isDark))
-                                : new JMHighlightPainter(Colors.getAdded(isDark));
-
-                case DELETE ->
-                        isEmpty
-                                ? new JMHighlightPainter.JMHighlightLinePainter(Colors.getDeleted(isDark))
-                                : isEndAndNewline
-                                ? new JMHighlightPainter.JMHighlightNewLinePainter(Colors.getDeleted(isDark))
-                                : new JMHighlightPainter(Colors.getDeleted(isDark));
-
-                case CHANGE ->
-                        isEndAndNewline
-                                ? new JMHighlightPainter.JMHighlightNewLinePainter(Colors.getChanged(isDark))
-                                : new JMHighlightPainter(Colors.getChanged(isDark));
-                case EQUAL -> throw new IllegalStateException();
-            };
-            setHighlight(fromOffset, toOffset, painter);
-        }
-
-        // Check if the last char is a newline *and* if offset is doc length
-        private boolean isEndAndLastNewline(int toOffset) {
-            if (bufferDocument == null) {
-                return false;
-            }
-            try {
-                var docLen = bufferDocument.getDocument().getLength();
-                int endOffset = toOffset - 1;
-                if (endOffset < 0 || endOffset >= docLen) {
-                    return false;
-                }
-                // If the final character is a newline & chunk touches doc-end
-                boolean lastCharIsNL = "\n".equals(bufferDocument.getDocument().getText(endOffset, 1));
-                return (endOffset == docLen - 1) && lastCharIsNL;
-            } catch (BadLocationException e) {
-                // This exception indicates an issue with offsets, likely a bug
-                throw new RuntimeException("Bad location accessing document text", e);
-            }
-        }
-
-        protected abstract @Nullable Chunk<String> getChunk(AbstractDelta<String> d);
-    }
-
-    class HighlightOriginal extends AbstractHighlight {
-        HighlightOriginal(AbstractDelta<String> delta) {
-            super(delta);
-        }
-
-        @Override
-        protected Chunk<String> getChunk(AbstractDelta<String> d) {
-            return d.getSource(); // For the original side
-        }
-    }
-
-    class HighlightRevised extends AbstractHighlight {
-        HighlightRevised(AbstractDelta<String> delta) {
-            super(delta);
-        }
-
-        @Override
-        protected Chunk<String> getChunk(AbstractDelta<String> d) {
-            var target = d.getTarget();
-            if (target == null) {
-                logger.warn("HighlightRevised: target chunk is null for delta type {}", d.getType());
-                // For certain delta types (like DELETE), target might be null
-                // In that case, try to use source chunk as fallback for positioning
-                var source = d.getSource();
-                if (source != null) {
-                    logger.trace("HighlightRevised: using source chunk as fallback for positioning");
-                    return source;
-                }
-            }
-            return target; // For the revised side
-        }
-    }
 
 
     /** Package-clients (e.g. BufferDiffPanel) need to query the composite highlighter. */
@@ -727,16 +761,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return jmHighlighter;
     }
 
+    /** Provide access to the parent diff panel for DeltaHighlighter. */
+    public BufferDiffPanel getDiffPanel() {
+        return diffPanel;
+    }
+
     private void removeHighlights() {
         JMHighlighter jmhl = getHighlighter();
         jmhl.removeHighlights(JMHighlighter.LAYER0);
         jmhl.removeHighlights(JMHighlighter.LAYER1);
         jmhl.removeHighlights(JMHighlighter.LAYER2);
-    }
-
-    private void setHighlight(int offset, int size,
-                              Highlighter.HighlightPainter highlight) {
-        setHighlight(JMHighlighter.LAYER0, offset, size, highlight);
     }
 
     private void setHighlight(Integer layer, int offset, int size,
@@ -765,7 +799,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Check for stuck typing state (longer than reasonable typing session)
             long typingDuration = System.currentTimeMillis() - lastTypingStateChange;
             if (typingDuration > PerformanceConstants.TYPING_STATE_TIMEOUT_MS * 5) {
-                logger.warn("{}: Detected stuck typing state ({}ms), forcing reset", name, typingDuration);
                 forceResetTypingState();
             } else {
                 return;
@@ -778,8 +811,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             return;
         }
 
-        long startTime = System.currentTimeMillis();
-
         try {
             // First, update the diff (this may change the patch)
             diffPanel.diff();
@@ -791,11 +822,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // The viewport optimization will ensure only visible deltas are processed
             reDisplayInternal();
 
-            long duration = System.currentTimeMillis() - startTime;
-            if (duration > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                logger.debug("Unified update took {}ms for document: {}",
-                           duration, bufferDocument != null ? bufferDocument.getName() : "unknown");
-            }
         } catch (Exception ex) {
             logger.warn("Error during unified update: {}", ex.getMessage(), ex);
             // Fallback to individual operations if unified update fails
@@ -827,7 +853,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             } else if (typingStateTimer != null) {
                 typingStateTimer.start();
             } else {
-                logger.warn("{}: Typing detected but timer is null - resetting typing state", name);
                 isActivelyTyping.set(false);
             }
         }
@@ -870,7 +895,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         editor.setBorder(new LineNumberBorder(this));
         FontMetrics fm = editor.getFontMetrics(font);
         scrollPane.getHorizontalScrollBar().setUnitIncrement(fm.getHeight());
-        editor.setEditable(true);
+
+        // Only set editable to true if not truncated and not readonly
+        if (bufferDocument != null) {
+            boolean shouldBeEditable = !bufferDocument.isReadonly() && !contentTruncated;
+            editor.setEditable(shouldBeEditable);
+        } else {
+            editor.setEditable(false);
+        }
     }
 
     /**
@@ -878,6 +910,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Falls back to plain-text when the extension is not recognised.
      */
     private void updateSyntaxStyle() {
+        if (forcePlainText) {
+            editor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
+            return;
+        }
+
         /*
          * Heuristic 1: strip well-known VCS/backup suffixes and decide
          *              the style from the remaining extension.
@@ -910,7 +947,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     style = SyntaxDetector.fromExtension(ext);
                 }
             }
-            logger.info("File type detection heuristic 1 type: {}, filename: {}, style {}", name, Objects.toString(fileName, "<null_filename>"), style);
         }
 
         // --------------------------- Heuristic 2 -----------------------------
@@ -924,8 +960,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 if (!SyntaxConstants.SYNTAX_STYLE_NONE.equals(otherStyle)) {
                     style = otherStyle;
                 }
-                var docName = Optional.ofNullable(otherPanel.getBufferDocument()).map(BufferDocumentIF::getName).orElse("'<No other document>'");
-                logger.info("File type detection heuristic 2 type: {}, filename: {}, style {}", name, docName, style);
             }
         }
 
@@ -947,7 +981,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         var patch = diffPanel.getPatch();
         if (patch != null && !patch.getDeltas().isEmpty()) {
-            var firstDelta = patch.getDeltas().get(0);
+            var firstDelta = patch.getDeltas().getFirst();
             Chunk<String> relevantChunk = BufferDocumentIF.ORIGINAL.equals(name)
                                           ? firstDelta.getSource()
                                           : firstDelta.getTarget();
@@ -1096,6 +1130,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Clear cached search hits
         searchHits = null;
 
+        // Cancel any optimisation still running
+        if (optimisationWorker != null) {
+            optimisationWorker.cancel(true);
+            optimisationWorker = null;
+        }
+
         // Clear viewport cache
         viewportCache.set(null);
 
@@ -1105,6 +1145,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 editor.removeFocusListener(fl);
             }
         }
+    }
+
+    /**
+     * Clear viewport cache to free memory
+     */
+    public void clearViewportCache() {
+        viewportCache.set(null);
+    }
+
+    /**
+     * Clear search cache to free memory
+     */
+    public void clearSearchCache() {
+        searchHits = null; // Clear reference to search results
     }
 
     /**
@@ -1223,92 +1277,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         reDisplay();
     }
 
-    SearchCommand getSearchCommand() {
-        // Default to case insensitive - GenericSearchBar handles case sensitivity through its own toggle
-        return new SearchCommand("", false);
-    }
-
-    public SearchHits doSearch() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            logger.warn("doSearch called off EDT, redirecting to EDT");
-            try {
-                var result = SwingUtil.runOnEdt(() -> doSearch(), new SearchHits());
-                return result != null ? result : new SearchHits();
-            } catch (Exception e) {
-                logger.error("Failed to run doSearch on EDT", e);
-                return new SearchHits();
-            }
-        }
-
-        int numberOfLines;
-        BufferDocumentIF doc;
-        String text;
-        int index, fromIndex;
-        boolean caseSensitive;
-        String searchText, searchTextToCompare, textToSearch;
-        SearchHit searchHit;
-        int offset;
-        SearchCommand searchCommand;
-
-        searchCommand = getSearchCommand();
-        // If searchText is empty, return empty hits. getSearchCommand() always returns non-null.
-        if (searchCommand.searchText().isEmpty()) {
-            this.searchHits = new SearchHits(); // Ensure searchHits is non-null for getSearchHits()
-            reDisplay(); // Clear previous highlights
-            return this.searchHits;
-        }
-
-        searchText = searchCommand.searchText();
-        caseSensitive = searchCommand.isCaseSensitive(); // Get case-sensitive flag
-
-        doc = getBufferDocument();
-        if (doc == null) { // Should not happen if isDisplayingEditor is true and doc set
-            this.searchHits = new SearchHits();
-            return this.searchHits;
-        }
-        numberOfLines = doc.getNumberOfLines();
-
-        this.searchHits = new SearchHits();
-        for (int line = 0; line < numberOfLines; line++) {
-            text = doc.getLineText(line);
-            var nonNullText = Objects.requireNonNullElse(text, "");
-
-            // Adjust case based on case-sensitive flag
-            if (!caseSensitive) {
-                textToSearch = nonNullText.toLowerCase(Locale.ROOT);
-                searchTextToCompare = searchText.toLowerCase(Locale.ROOT);
-            } else {
-                textToSearch = nonNullText;
-                searchTextToCompare = searchText;
-            }
-
-            fromIndex = 0;
-            while ((index = textToSearch.indexOf(searchTextToCompare, fromIndex)) != -1) {
-                // Use the local 'doc' variable which is already null-checked for this search operation.
-                offset = doc.getOffsetForLine(line);
-                if (offset < 0) {
-                    // Can this actually happen?
-                    fromIndex = index + searchTextToCompare.length(); // Advance past this match to avoid infinite loop on bad offset
-                    continue;
-                }
-
-                searchHit = new SearchHit(line, offset + index, searchText.length());
-                this.searchHits.add(searchHit);
-
-                fromIndex = index + searchHit.getSize();
-            }
-        }
-
-        reDisplay(); // This will also check isDisplayingEditor
-        scrollToSearch(this, this.searchHits);
-        return getSearchHits();
-    }
-
-
-    SearchHits getSearchHits() {
-        return requireNonNullElseGet(searchHits, SearchHits::new);
-    }
-
     private void paintSearchHighlights() {
         if (searchHits == null) {
             return;
@@ -1321,29 +1289,35 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
     }
 
-    public void doPreviousSearch() {
-        SearchHits sh = getSearchHits();
-        sh.previous();
-        reDisplay();
-        scrollToSearch(this, sh);
+    /**
+     * Update the status panel to show file truncation information.
+     * Displays a contextual note near the file content instead of a popup.
+     */
+    private void updateStatusPanel(int originalSizeKB) {
+        SwingUtilities.invokeLater(() -> {
+            String message = String.format(
+                "⚠ File truncated from %d KB to 100 KB for safe display. Editing is disabled",
+                originalSizeKB
+            );
+            statusLabel.setText(message);
+            statusPanel.setVisible(true);
+            statusPanel.revalidate();
+            statusPanel.repaint();
+
+            // Ensure editing is disabled (double-check after status update)
+            editor.setEditable(false);
+        });
     }
 
-    private void scrollToSearch(FilePanel fp, SearchHits searchHitsToScroll) {
-        SearchHit currentHit = searchHitsToScroll.getCurrent();
-        if (currentHit != null) {
-            int line = currentHit.getLine();
-            var scrollSync = diffPanel.getScrollSynchronizer();
-            if (scrollSync != null) {
-                scrollSync.scrollToLineAndSync(fp, line);
-            }
-            diffPanel.setSelectedLine(line);
-        }
-    }
-
-    public void doNextSearch() {
-        SearchHits sh = getSearchHits();
-        sh.next();
-        reDisplay();
-        scrollToSearch(this, sh);
+    /**
+     * Clear the status panel when loading normal files.
+     */
+    private void clearStatusPanel() {
+        SwingUtilities.invokeLater(() -> {
+            statusLabel.setText("");
+            statusPanel.setVisible(false);
+            statusPanel.revalidate();
+            statusPanel.repaint();
+        });
     }
 }

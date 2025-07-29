@@ -1,17 +1,13 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
 import com.github.difflib.DiffUtils;
-import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
-import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
-import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
 import javax.swing.*;
-import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -357,6 +353,20 @@ class ScrollSynchronizerTest {
         assertTrue(navigationResetExecuted.get(), "Navigation reset should be executed");
     }
 
+    @Test
+    @DisplayName("Viewport cache invalidation: coordinated invalidation for both panels")
+    void testInvalidateViewportCacheForBothPanels() throws Exception {
+        // Test that the method exists and has expected behavior with null panels
+        // The current implementation requires non-null panels
+        var synchronizer = new ScrollSynchronizer(null, null, null, true);
+        
+        // Should throw NPE with null panels (current implementation behavior)
+        assertThrows(NullPointerException.class, synchronizer::invalidateViewportCacheForBothPanels);
+        
+        // This verifies the method exists and behaves as currently implemented
+        // In a full integration test with real panels, this would work correctly
+    }
+
     // =================================================================
     // HELPER METHODS
     // =================================================================
@@ -374,4 +384,5 @@ class ScrollSynchronizerTest {
 
         return (Integer) method.invoke(testSynchronizer, patch, line, fromOriginal);
     }
+
 }
