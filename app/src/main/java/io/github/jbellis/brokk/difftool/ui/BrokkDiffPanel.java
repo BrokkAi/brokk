@@ -772,20 +772,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
-                // Ask about unsaved changes
-                if (hasUnsavedChanges()) {
-                    var opt = contextManager.getIo().showConfirmDialog(
-                            "There are unsaved changes. Save before closing?",
-                            "Unsaved Changes",
-                            JOptionPane.YES_NO_CANCEL_OPTION,
-                            JOptionPane.WARNING_MESSAGE);
-                    if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
-                        frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-                        return;
-                    }
-                    if (opt == JOptionPane.YES_OPTION) {
-                        saveAll();
-                    }
+                if (!checkUnsavedChangesBeforeClose()) {
+                    frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+                    return;
                 }
                 contextManager.getProject().saveDiffWindowBounds(frame);
             }
@@ -1003,10 +992,33 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void close() {
-        var window = SwingUtilities.getWindowAncestor(this);
-        if (window != null) {
-            window.dispose();
+        if (checkUnsavedChangesBeforeClose()) {
+            var window = SwingUtilities.getWindowAncestor(this);
+            if (window != null) {
+                window.dispose();
+            }
         }
+    }
+
+    /**
+     * Checks for unsaved changes and prompts user to save before closing.
+     * @return true if it's OK to close, false if user cancelled
+     */
+    private boolean checkUnsavedChangesBeforeClose() {
+        if (hasUnsavedChanges()) {
+            var opt = contextManager.getIo().showConfirmDialog(
+                    "There are unsaved changes. Save before closing?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
+                return false; // Don't close
+            }
+            if (opt == JOptionPane.YES_OPTION) {
+                saveAll();
+            }
+        }
+        return true; // OK to close
     }
 
     /**
