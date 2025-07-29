@@ -19,7 +19,7 @@ import java.util.stream.Stream;
 /**
  * An Eclipse JDT-based analyzer for Java source code that builds a call graph.
  */
-public class JdtAnalyzer implements IAnalyzer {
+public class JdtAnalyzer implements IAnalyzer, AutoCloseable {
 
     private final Logger logger = LoggerFactory.getLogger(JdtAnalyzer.class);
     private final Map<Method, Set<Method>> callGraph = new HashMap<>();
@@ -62,6 +62,64 @@ public class JdtAnalyzer implements IAnalyzer {
                 this.parseFilesAndConstructCallGraph(absProjectRoot, this.parseDirectory(absProjectRoot, exclusions));
             }
         }
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return callGraph.isEmpty();
+    }
+
+    public boolean isClassInProject(String classFullName) {
+        throw new UnsupportedOperationException();
+    }
+
+    public @NotNull String sanitizeType(String typeName) {
+        // Check if the type has generic parameters
+        if (typeName.contains("<")) {
+            final String mainType = typeName.substring(0, typeName.indexOf('<'));
+            final String genericPart = typeName.substring(typeName.indexOf('<') + 1, typeName.lastIndexOf('>'));
+
+            // Process the main part of the type (e.g., "java.util.List")
+            final String processedMain = this.processType(mainType);
+
+            // Process each generic parameter recursively
+            final String processedParams = Arrays.stream(genericPart.split(","))
+                    .map(param -> {
+                        final String trimmed = param.trim();
+                        // If a parameter is itself generic, recurse
+                        if (trimmed.contains("<")) {
+                            return this.sanitizeType(trimmed);
+                        } else {
+                            return this.processType(trimmed);
+                        }
+                    })
+                    .collect(Collectors.joining(", "));
+
+            return String.format("%s<%s>", processedMain, processedParams);
+        } else {
+            // If not a generic type, process directly
+            return this.processType(typeName);
+        }
+    }
+
+    /**
+     * A helper method to convert a single, non-generic type name
+     * to its simple name, preserving array brackets.
+     *
+     * @param typeString The type string (e.g., "java.lang.String" or "int[]").
+     * @return The simple name (e.g., "String" or "int[]").
+     */
+    private String processType(String typeString) {
+        boolean isArray = typeString.endsWith("[]");
+        // Remove array brackets to get the base type name
+        String base = isArray ? typeString.substring(0, typeString.length() - 2) : typeString;
+
+        // Get the last part of the dot-separated package name
+        int lastDotIndex = base.lastIndexOf('.');
+        String shortName = (lastDotIndex != -1) ? base.substring(lastDotIndex + 1) : base;
+
+        // Add array brackets back if they were present
+        return isArray ? shortName + "[]" : shortName;
     }
 
     /**
@@ -355,6 +413,11 @@ public class JdtAnalyzer implements IAnalyzer {
             return String.format("LibraryMethod(%s)", fullName());
         }
 
+    }
+
+    @Override
+    public void close() {
+        // TODO: Implement?
     }
 
 }
