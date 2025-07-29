@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk;
 
+import io.github.jbellis.brokk.ProjectWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
@@ -11,12 +12,12 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.KeyboardFocusManager;
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.HashSet;
-import java.util.Set;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -26,15 +27,11 @@ import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
-public class AnalyzerWrapper implements AutoCloseable {
+public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Listener {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
     public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
     public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
-
-    private static final long DEBOUNCE_DELAY_MS = 500;
-    private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
-    private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
 
     @Nullable
     private final AnalyzerListener listener; // can be null if no one is listening
@@ -43,9 +40,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     private final Path gitRepoRoot;
     private final ContextManager.TaskRunner runner;
     private final IProject project;
-
-    private volatile boolean running = true;
-    private volatile boolean paused = false;
+    private final ProjectWatchService watchService;
 
     private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
@@ -59,17 +54,22 @@ public class AnalyzerWrapper implements AutoCloseable {
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.runner = runner;
         this.listener = listener;
+        this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
+            // Watcher will wait for the future to complete before processing events,
+            // but it will start watching files immediately in order not to miss any changes in the meantime.
+            var delayNotificationsUntilCompleted = new CompletableFuture<Void>();
+            watchService.start(delayNotificationsUntilCompleted);
+
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start =  System.currentTimeMillis();
             currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
-
-            // Watcher assumes that currentAnalyzer has been initialized so start it after we have one
-            startWatcher();
             
+            delayNotificationsUntilCompleted.complete(null);
+
             // debug logging
             var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
@@ -84,92 +84,8 @@ public class AnalyzerWrapper implements AutoCloseable {
         });
     }
 
-    private void beginWatching(Path root) {
-        try {
-            // Wait for the initial analyzer to build
-            future.get();
-        } catch (InterruptedException | ExecutionException e) {
-            // everything expects that get() will work, this is fatal
-            logger.debug("Error building initial analyzer", e);
-            throw new RuntimeException(e);
-        }
-
-        logger.debug("Signaling repo + tracked files change to catch any events that we missed during initial analyzer build");
-        if (listener != null) {
-            listener.onRepoChange();
-            listener.onTrackedFileChange();
-        }
-
-        logger.debug("Setting up WatchService for {}", root);
-        try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-            // Recursively register all directories under project root except .brokk
-            registerAllDirectories(root, watchService);
-
-            // If the actual .git directory's parent (gitRepoRoot) is different from the project root
-            // (common in worktrees), explicitly watch the .git directory within gitRepoRoot.
-            // The registerAllDirectories method's .brokk exclusion (relative to this.root)
-            // will not interfere with watching contents of .git.
-            if (gitRepoRoot != null && !gitRepoRoot.equals(this.root)) {
-                Path actualGitMetaDir = gitRepoRoot.resolve(".git");
-                assert Files.isDirectory(actualGitMetaDir);
-                logger.debug("Additionally watching git metadata directory for changes: {}", actualGitMetaDir);
-                registerAllDirectories(actualGitMetaDir, watchService);
-            }
-
-            // Watch for events, debounce them, and handle them
-            while (running) {
-                // Wait if paused
-                while (paused) {
-                    Thread.onSpinWait();
-                }
-
-                // Choose a short or long poll depending on focus
-                long pollTimeout = isApplicationFocused() ? POLL_TIMEOUT_FOCUSED_MS : POLL_TIMEOUT_UNFOCUSED_MS;
-                WatchKey key = watchService.poll(pollTimeout, TimeUnit.MILLISECONDS);
-
-                // If no event arrived within the poll window, check for external rebuild requests
-                if (key == null) {
-                    if (externalRebuildRequested && !rebuildInProgress) {
-                        logger.debug("External rebuild requested");
-                        refresh(() -> getLanguageHandle().createAnalyzer(project));
-                    }
-                    continue;
-                }
-
-                // We got an event, collect it and any others within the debounce window
-                var batch = new EventBatch();
-                collectEventsFromKey(key, watchService, batch);
-
-                long deadline = System.currentTimeMillis() + DEBOUNCE_DELAY_MS;
-                while (true) {
-                    long remaining = deadline - System.currentTimeMillis();
-                    if (remaining <= 0) break;
-                    WatchKey nextKey = watchService.poll(remaining, TimeUnit.MILLISECONDS);
-                    if (nextKey == null) break;
-                    collectEventsFromKey(nextKey, watchService, batch);
-                }
-
-                // Process the batch
-                handleBatch(batch);
-            }
-        } catch (IOException e) {
-            logger.error("Error setting up watch service", e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("FileWatchService thread interrupted; shutting down");
-        }
-    }
-
-    /** mutable since we will collect events until they stop arriving */
-    static class EventBatch {
-        boolean isOverflowed;
-        Set<ProjectFile> files = new HashSet<>();
-    }
-
-    /**
-     * Check if changes in this batch of events require a .git refresh and/or analyzer rebuild.
-     */
-    private void handleBatch(EventBatch batch) {
+    @Override
+    public void onFilesChanged(EventBatch batch) {
         logger.trace("Events batch: {}", batch);
 
         // 1) Possibly refresh Git
@@ -179,6 +95,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
+                    listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
                 }
             }
         }
@@ -211,18 +128,26 @@ public class AnalyzerWrapper implements AutoCloseable {
             }
 
             logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
-                         relevantFiles.stream()
-                                 .filter(pf -> {
-                                     Language lang = Language.fromExtension(pf.extension());
-                                     return projectLanguages.contains(lang);
-                                 })
-                                 .distinct()
-                                 .map(ProjectFile::toString)
-                                 .collect(Collectors.joining(", "))
+                    relevantFiles.stream()
+                            .filter(pf -> {
+                                Language lang = Language.fromExtension(pf.extension());
+                                return projectLanguages.contains(lang);
+                            })
+                            .distinct()
+                            .map(ProjectFile::toString)
+                            .collect(Collectors.joining(", "))
             );
             refresh(() -> requireNonNull(currentAnalyzer).update(relevantFiles));
         } else {
             logger.trace("No tracked files changed (overall); skipping analyzer rebuild");
+        }
+    }
+
+    @Override
+    public void onNoFilesChangedDuringPollInterval() {
+        if (externalRebuildRequested && !rebuildInProgress) {
+            logger.debug("External rebuild requested");
+            refresh(() -> getLanguageHandle().createAnalyzer(project));
         }
     }
 
@@ -249,7 +174,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // ACHTUNG!
         // Do not call into the listener directly in this method, since if the listener asks for the analyzer
         // object via get() it can cause a deadlock.
-        
+
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
@@ -315,8 +240,8 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild
-            && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL
-            && !externalRebuildRequested) 
+                && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL
+                && !externalRebuildRequested)
         {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
@@ -331,7 +256,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, Set<Language> languages) {
-        var isEmpty = totalDeclarations > 0;
+        var isEmpty = totalDeclarations == 0;
         String langNames = languages.stream().map(Language::name).collect(Collectors.joining("/"));
         String langExtensions = languages.stream()
                 .flatMap(l -> l.getExtensions().stream())
@@ -395,15 +320,15 @@ public class AnalyzerWrapper implements AutoCloseable {
      */
     private Language getLanguageHandle() {
         var projectLangs = project.getAnalyzerLanguages()
-                                  .stream()
-                                  .filter(l -> l != Language.NONE)
-                                  .collect(Collectors.toUnmodifiableSet());
+                .stream()
+                .filter(l -> l != Language.NONE)
+                .collect(Collectors.toUnmodifiableSet());
         if (projectLangs.isEmpty()) {
             return Language.NONE;
         }
         return (projectLangs.size() == 1)
-               ? projectLangs.iterator().next()
-               : new Language.MultiLanguage(projectLangs);
+                ? projectLangs.iterator().next()
+                : new Language.MultiLanguage(projectLangs);
     }
 
     /**
@@ -438,7 +363,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 long fileMTime = Files.getLastModifiedTime(path).toMillis();
                 if (fileMTime > cpgMTime) {
                     logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
-                                 path, lang.name(), analyzerPath, fileMTime, cpgMTime);
+                            path, lang.name(), analyzerPath, fileMTime, cpgMTime);
                     return true;
                 }
             } catch (IOException e) {
@@ -468,6 +393,9 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.trace("Refreshing analyzer (full)");
         future = runner.submit("Refreshing code intelligence", () -> {
             try {
+                if (listener != null) {
+                    listener.beforeEachBuild();
+                }
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
                 currentAnalyzer = supplier.get();
                 logger.debug("Analyzer refresh completed.");
@@ -552,96 +480,6 @@ public class AnalyzerWrapper implements AutoCloseable {
         externalRebuildRequested = true;
     }
 
-    /**
-     * Checks if any window in the application currently has focus
-     *
-     * @return true if any application window has focus, false otherwise
-     */
-    private boolean isApplicationFocused() {
-        var focusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
-        return focusedWindow != null;
-    }
-
-    private void startWatcher() {
-        Thread watcherThread = new Thread(() -> beginWatching(root), "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
-        watcherThread.start();
-    }
-
-    private void collectEventsFromKey(WatchKey key, WatchService watchService, EventBatch batch) {
-        Path watchPath = (Path) key.watchable();
-        for (WatchEvent<?> event : key.pollEvents()) {
-            if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
-                batch.isOverflowed = true;
-                continue;
-            }
-
-            // Guard: context might be null (OVERFLOW) or not a Path
-            if (!(event.context() instanceof Path ctx)) {
-                logger.warn("Event is not overflow but has no path: {}", event);
-                continue;
-            }
-
-            // convert to ProjectFile
-            Path eventPath = watchPath.resolve(ctx);
-            batch.files.add(new ProjectFile(root, root.relativize(eventPath)));
-
-            // If it's a directory creation, register it so we can watch its children
-            if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {
-                try {
-                    registerAllDirectories(eventPath, watchService);
-                } catch (IOException ex) {
-                    logger.warn("Failed to register new directory for watching: {}", eventPath, ex);
-                }
-            }
-        }
-
-        // If the key is no longer valid, we can't watch this path anymore
-        if (!key.reset()) {
-            logger.warn("Watch key no longer valid: {}", key.watchable());
-        }
-    }
-
-    /**
-     * @param start can be either the root project directory, or a newly created directory we want to add to the watch
-     */
-    private void registerAllDirectories(Path start, WatchService watchService) throws IOException {
-        if (!Files.isDirectory(start)) return;
-
-        var brokkPrivate = root.resolve(".brokk");
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            try (var walker = Files.walk(start)) {
-                walker.filter(Files::isDirectory)
-                        .filter(dir -> !dir.startsWith(brokkPrivate))
-                        .forEach(dir -> {
-                            try {
-                                dir.register(watchService,
-                                        StandardWatchEventKinds.ENTRY_CREATE,
-                                        StandardWatchEventKinds.ENTRY_DELETE,
-                                        StandardWatchEventKinds.ENTRY_MODIFY);
-                            } catch (IOException e) {
-                                logger.warn("Failed to register directory for watching: {}", dir, e);
-                            }
-                        });
-                // Success: If the walk completes without exception, break the retry loop.
-                return;
-            } catch (IOException | java.io.UncheckedIOException e) {
-                // Determine the root cause, handling the case where the UncheckedIOException wraps another exception.
-                Throwable cause = (e instanceof java.io.UncheckedIOException uioe) ? uioe.getCause() : e;
-
-                // Retry only if it's a NoSuchFileException and we have attempts left.
-                if (cause instanceof java.nio.file.NoSuchFileException && attempt < 3) {
-                    logger.warn("Attempt {} failed to walk directory {} due to NoSuchFileException. Retrying in 10ms...", attempt, start, cause);
-                    try {
-                        Thread.sleep(10);
-                    } catch (InterruptedException ie) {
-                        throw new RuntimeException(e);
-                    }
-                }
-            }
-        } // End of retry loop
-        logger.debug("Failed to (completely) register directory `{}` for watching", start);
-    }
-
     public void updateFiles(Set<ProjectFile> changedFiles) {
         try {
             currentAnalyzer = future.get().update(changedFiles);
@@ -654,22 +492,19 @@ public class AnalyzerWrapper implements AutoCloseable {
      * Pause the file watching service.
      */
     public synchronized void pause() {
-        logger.debug("Pausing file watcher");
-        paused = true;
+        watchService.pause();
     }
 
     /**
      * Resume the file watching service.
      */
     public synchronized void resume() {
-        logger.debug("Resuming file watcher");
-        paused = false;
+        watchService.resume();
     }
 
     @Override
     public void close() {
-        running = false;
-        resume(); // Ensure any waiting thread is woken up to exit
+        watchService.close();
     }
 
 }

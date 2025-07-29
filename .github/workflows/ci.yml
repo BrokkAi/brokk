@@ -8,7 +8,6 @@ on:
 
 jobs:
   test:
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +34,6 @@ jobs:
       run: ./gradlew shadowJar
 
   build:
-    continue-on-error: true
     runs-on: ubuntu-latest
 
     steps:
@@ -55,7 +53,6 @@ jobs:
         run: ./gradlew build
 
   formatting:
-    continue-on-error: true
     runs-on: ubuntu-latest
 
     steps:

@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.agents;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -19,15 +21,18 @@ import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.*;
-import static java.util.Objects.requireNonNull;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 
 /**
@@ -65,6 +70,9 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult runTask(String userInput, boolean forArchitect) {
+        var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_CODEAGENT_METRICS"));
+        @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
+
         var io = contextManager.getIo();
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
@@ -120,13 +128,18 @@ public class CodeAgent {
                                                                                  loopContext.editState().changedFiles(),
                                                                                  loopContext.conversationState().originalWorkspaceEditableMessages());
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
+                if (metrics != null) {
+                    Optional.ofNullable(streamingResult.tokenUsage())
+                            .ifPresent(metrics::addTokens);
+                    metrics.addApiRetries(streamingResult.retries());
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 continue; // let main loop interruption check handle
             }
 
             // REQUEST PHASE handles the result of sendLlmRequest
-            var requestOutcome = requestPhase(loopContext, streamingResult);
+            var requestOutcome = requestPhase(loopContext, streamingResult, metrics);
             switch (requestOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Fatal(var details) -> stopDetails = details;
@@ -135,10 +148,13 @@ public class CodeAgent {
             if (stopDetails != null) break; // If requestPhase was Fatal
 
             // PARSE PHASE parses edit blocks
-            var parseOutcome = parsePhase(loopContext, streamingResult.text(), streamingResult.isPartial(), parser); // Ensure parser is available
+            var parseOutcome = parsePhase(loopContext, streamingResult.text(), streamingResult.isPartial(), parser, metrics); // Ensure parser is available
             switch (parseOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Retry(var newLoopContext) -> {
+                    if (metrics != null) {
+                        metrics.parseRetries++;
+                    }
                     loopContext = newLoopContext;
                     continue; // Restart main loop
                 }
@@ -147,7 +163,7 @@ public class CodeAgent {
             if (stopDetails != null) break;
 
             // APPLY PHASE applies blocks
-            var applyOutcome = applyPhase(loopContext, parser);
+            var applyOutcome = applyPhase(loopContext, parser, metrics);
             switch (applyOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Retry(var newLoopContext) -> {
@@ -161,7 +177,7 @@ public class CodeAgent {
             // VERIFY PHASE runs the build
             // since this is the last phase, it does not use Continue
             assert loopContext.editState().pendingBlocks().isEmpty() : loopContext;
-            var verifyOutcome = verifyPhase(loopContext);
+            var verifyOutcome = verifyPhase(loopContext, metrics);
             switch (verifyOutcome) {
                 case Step.Retry(var newLoopContext) -> {
                     loopContext = newLoopContext;
@@ -178,6 +194,11 @@ public class CodeAgent {
         if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
             reportComplete("Cancelled by user.");
         }
+
+        if (metrics != null) {
+            metrics.print(loopContext.editState().changedFiles(), stopDetails);
+        }
+
         // create the Result for history
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                                         ? loopContext.userGoal()
@@ -228,7 +249,7 @@ public class CodeAgent {
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
-                                .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
+                             .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
 
         TaskResult.StopDetails stopDetails;
 
@@ -255,7 +276,7 @@ public class CodeAgent {
             }
 
             // ----- 1-c.  REQUEST PHASE ---------------------------------------
-            var step = requestPhase(loopContext, streamingResult);
+            var step = requestPhase(loopContext, streamingResult, null);
             if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
                 stopDetails = details;
                 break;
@@ -266,7 +287,8 @@ public class CodeAgent {
             step = parsePhase(loopContext,
                               streamingResult.text(),
                               streamingResult.isPartial(),
-                              parser);
+                              parser,
+                              null);
             if (step instanceof Step.Retry retry) {
                 loopContext = retry.loopContext();
                 continue;                               // back to while-loop top
@@ -278,7 +300,7 @@ public class CodeAgent {
             loopContext = step.loopContext();
 
             // ----- 1-e.  APPLY PHASE -----------------------------------------
-            step = applyPhase(loopContext, parser);
+            step = applyPhase(loopContext, parser, null);
             if (step instanceof Step.Retry retry2) {
                 loopContext = retry2.loopContext();
                 continue;
@@ -314,7 +336,7 @@ public class CodeAgent {
                               loopContext.editState().changedFiles(),
                               stopDetails);
     }
-    
+
     void report(String message) {
         logger.debug(message);
         io.llmOutput("\n" + message, ChatMessageType.CUSTOM);
@@ -325,25 +347,28 @@ public class CodeAgent {
         io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM);
     }
 
-    Step parsePhase(LoopContext currentLoopContext, String llmText, boolean isPartialResponse, EditBlockParser parser) {
+    Step parsePhase(LoopContext currentLoopContext, String llmText, boolean isPartialResponse, EditBlockParser parser, @Nullable Metrics metrics) {
         var cs = currentLoopContext.conversationState();
         var ws = currentLoopContext.editState();
 
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
         var parseResult = parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
         var newlyParsedBlocks = parseResult.blocks();
+        if (metrics != null) {
+            metrics.totalEditBlocks += newlyParsedBlocks.size();
+        }
 
         // Handle explicit parse errors from the parser
         if (parseResult.parseError() != null) {
             int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
             UserMessage messageForRetry;
             String consoleLogForRetry;
-            if (newlyParsedBlocks.isEmpty()) { 
+            if (newlyParsedBlocks.isEmpty()) {
                 // Pure parse failure
                 updatedConsecutiveParseFailures++;
                 messageForRetry = new UserMessage(parseResult.parseError());
                 consoleLogForRetry = "Failed to parse LLM response; retrying";
-            } else { 
+            } else {
                 // Partial parse, then an error
                 updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
@@ -458,7 +483,7 @@ public class CodeAgent {
         }
 
         report("Attempting full file replacement for: " + failuresByFile.keySet().stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
-        
+
         // Prepare tasks for parallel execution
         var tasks = failuresByFile.entrySet().stream().map(entry -> (Callable<Optional<String>>) () -> {
             var file = entry.getKey();
@@ -525,7 +550,7 @@ public class CodeAgent {
      * @return an error message, or empty if successful
      */
     public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages)
-    throws InterruptedException, IOException
+            throws InterruptedException, IOException
     {
         // Send request
         StreamingResult result = coder.sendRequest(messages, false);
@@ -692,7 +717,7 @@ public class CodeAgent {
         }
     }
 
-    Step requestPhase(LoopContext currentLoopContext, StreamingResult streamingResultFromLlm) {
+    Step requestPhase(LoopContext currentLoopContext, StreamingResult streamingResultFromLlm, @Nullable Metrics metrics) {
         var cs = currentLoopContext.conversationState();
 
         var llmError = streamingResultFromLlm.error();
@@ -758,7 +783,7 @@ public class CodeAgent {
         return editResult;
     }
 
-    Step verifyPhase(LoopContext loopContext) {
+    Step verifyPhase(LoopContext loopContext, @Nullable Metrics metrics) {
         var cs = loopContext.conversationState();
         var ws = loopContext.editState();
 
@@ -788,13 +813,16 @@ public class CodeAgent {
             // Build succeeded or was skipped by performBuildVerification
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
-        } else { 
+        } else {
             // Build failed
+            if (metrics != null) {
+                metrics.buildFailures++;
+            }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
             var newCs = new ConversationState(
-                cs.taskMessages(),
-                nextRequestForBuildFailure,
-                cs.originalWorkspaceEditableMessages()
+                    cs.taskMessages(),
+                    nextRequestForBuildFailure,
+                    cs.originalWorkspaceEditableMessages()
             );
             var newWs = ws.afterBuildFailure(latestBuildError);
             report("Asking LLM to fix build/lint failures");
@@ -802,7 +830,7 @@ public class CodeAgent {
         }
     }
 
-    Step applyPhase(LoopContext currentLoopContext, EditBlockParser parser) {
+    Step applyPhase(LoopContext currentLoopContext, EditBlockParser parser, @Nullable Metrics metrics) {
         var cs = currentLoopContext.conversationState();
         var ws = currentLoopContext.editState();
 
@@ -821,7 +849,11 @@ public class CodeAgent {
                                                     ws.changedFiles() /* Helper mutates this set */);
 
             int attemptedBlockCount = ws.pendingBlocks().size();
-            int succeededCount = attemptedBlockCount - editResult.failedBlocks().size();
+            var failedBlocks = editResult.failedBlocks();
+            if (metrics != null) {
+                metrics.failedEditBlocks += failedBlocks.size();
+            }
+            int succeededCount = attemptedBlockCount - failedBlocks.size();
             int newBlocksAppliedWithoutBuild = ws.blocksAppliedWithoutBuild() + succeededCount;
 
             // Update originalFileContents in the workspace state being built for the next step
@@ -830,7 +862,7 @@ public class CodeAgent {
 
             List<EditBlock.SearchReplaceBlock> nextPendingBlocks = new ArrayList<>(); // Blocks are processed, so clear for next step's ws
 
-            if (!editResult.failedBlocks().isEmpty()) { // Some blocks failed the direct apply
+            if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
                 if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
                     updatedConsecutiveApplyFailures++;
                 } else { // Partial success
@@ -839,7 +871,7 @@ public class CodeAgent {
 
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES_BEFORE_FALLBACK) {
                     report("Apply failure limit reached (%d), attempting full file replacement fallback.".formatted(updatedConsecutiveApplyFailures));
-                    List<EditBlock.FailedBlock> blocksForFallback = List.copyOf(editResult.failedBlocks());
+                    List<EditBlock.FailedBlock> blocksForFallback = List.copyOf(failedBlocks);
                     attemptFullFileReplacements(blocksForFallback, currentLoopContext.userGoal(), cs.taskMessages());
                     // If attemptFullFileReplacements succeeds, it doesn't throw. If it fails, it throws EditStopException caught below.
                     report("Full file replacement fallback successful.");
@@ -847,21 +879,24 @@ public class CodeAgent {
                     // Update changedFiles with files modified by fallback
                     Set<ProjectFile> updatedChangedFiles = new HashSet<>(ws.changedFiles());
                     blocksForFallback.stream()
-                        .filter(fb -> fb.block().filename() != null) // Ensure filename is not null
-                        .map(fb -> contextManager.toFile(requireNonNull(fb.block().filename()))) // Now safe to call requireNonNull
-                        .forEach(updatedChangedFiles::add);
-                    
+                            .filter(fb -> fb.block().filename() != null) // Ensure filename is not null
+                            .map(fb -> contextManager.toFile(requireNonNull(fb.block().filename()))) // Now safe to call requireNonNull
+                            .forEach(updatedChangedFiles::add);
+
                     UserMessage placeholderPrompt = new UserMessage("[Placeholder: Build errors will be inserted here by verifyPhase if build fails after this full file replacement]");
                     csForStep = new ConversationState(cs.taskMessages(), placeholderPrompt, cs.originalWorkspaceEditableMessages());
-                    
+
                     wsForStep = ws.afterFallbackSuccess(nextPendingBlocks, updatedChangedFiles, nextOriginalFileContents);
                     return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
                 } else { // Apply failed, but not yet time for full fallback -> ask LLM to retry
-                    String retryPromptText = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(), parser, succeededCount, contextManager);
+                    if (metrics != null) {
+                        metrics.applyRetries++;
+                    }
+                    String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount, contextManager);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
                     csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.originalWorkspaceEditableMessages());
                     wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(editResult.failedBlocks().size()));
+                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedBlocks.size()));
                     return new Step.Retry(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
                 }
             } else { // All blocks from ws.pendingBlocks() applied successfully
@@ -964,7 +999,7 @@ public class CodeAgent {
             return new EditState(newPendingBlocks, newParseFailures, consecutiveApplyFailures,
                                  blocksAppliedWithoutBuild, lastBuildError, changedFiles, originalFileContents);
         }
-        
+
         /**
          * Returns a new WorkspaceState after a build failure, updating the error message.
          */
@@ -993,6 +1028,63 @@ public class CodeAgent {
         {
             return new EditState(newPendingBlocks, consecutiveParseFailures, 0,
                                  1, lastBuildError, updatedChangedFiles, newOriginalContents);
+        }
+    }
+
+    private static class Metrics {
+        private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+        final long startNanos = System.nanoTime();
+        int totalInputTokens = 0;
+        int totalCachedTokens = 0;
+        int totalThinkingTokens = 0;
+        int totalOutputTokens = 0;
+        int totalEditBlocks = 0;
+        int failedEditBlocks = 0;
+        int parseRetries = 0;
+        int buildFailures = 0;
+            int applyRetries = 0;
+            int apiRetries = 0;
+
+        void addTokens(@Nullable Llm.RichTokenUsage usage) {
+            if (usage == null) {
+                return;
+            }
+            totalInputTokens += usage.inputTokens();
+            totalCachedTokens += usage.cachedInputTokens();
+            totalThinkingTokens += usage.thinkingTokens();
+            totalOutputTokens += usage.outputTokens();
+        }
+
+        void addApiRetries(int retryCount) {
+            apiRetries += retryCount;
+        }
+
+        void print(Set<ProjectFile> changedFiles, TaskResult.StopDetails stopDetails) {
+            var changedFilesList = changedFiles.stream().map(ProjectFile::toString).toList();
+
+            var jsonMap = new LinkedHashMap<String, Object>();
+            jsonMap.put("elapsedMillis", Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+            jsonMap.put("inputTokens", totalInputTokens);
+            jsonMap.put("cachedInputTokens", totalCachedTokens);
+            jsonMap.put("reasoningTokens", totalThinkingTokens);
+            jsonMap.put("outputTokens", totalOutputTokens);
+            jsonMap.put("editBlocksTotal", totalEditBlocks);
+            jsonMap.put("editBlocksFailed", failedEditBlocks);
+            jsonMap.put("buildFailures", buildFailures);
+            jsonMap.put("parseRetries", parseRetries);
+            jsonMap.put("applyRetries", applyRetries);
+            jsonMap.put("apiRetries", apiRetries);
+            jsonMap.put("changedFiles", changedFilesList);
+            jsonMap.put("stopReason", stopDetails.reason().name());
+            jsonMap.put("stopExplanation", stopDetails.explanation());
+
+            try {
+                var jsonString = OBJECT_MAPPER.writeValueAsString(jsonMap);
+                System.err.println("\nBRK_CODEAGENT_METRICS=" + jsonString);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 }

@@ -1189,6 +1189,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    /**
+     * Shows the session switching spinner in the history panel.
+     */
+    @Override
+    public void showSessionSwitchSpinner() {
+        SwingUtilities.invokeLater(historyOutputPanel::showSessionSwitchSpinner);
+    }
+
+    /**
+     * Hides the session switching spinner in the history panel.
+     */
+    @Override
+    public void hideSessionSwitchSpinner() {
+        SwingUtilities.invokeLater(historyOutputPanel::hideSessionSwitchSpinner);
+    }
+
     public void focusInput() {
         SwingUtilities.invokeLater(() -> instructionsPanel.requestCommandInputFocus());
     }

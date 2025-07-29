@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
+import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 
 import javax.swing.*;
 import java.util.List;
@@ -21,6 +23,14 @@ public final class AddMenuFactory {
     public static void populateAddMenu(JMenu parent, WorkspacePanel wp) {
         // For the table menu, do not include call graph items here as they are added separately
         populateAddMenuItems(parent, wp, true);
+    }
+
+    private static void addSeparator(JComponent parent) {
+        if (parent instanceof JMenu menu) {
+            menu.addSeparator();
+        } else if (parent instanceof JPopupMenu popupMenu) {
+            popupMenu.addSeparator();
+        }
     }
 
     /**
@@ -53,6 +63,8 @@ public final class AddMenuFactory {
         });
         parent.add(summarizeMenuItem);
 
+        addSeparator(parent);
+
         JMenuItem symbolMenuItem = new JMenuItem("Symbol Usage");
         symbolMenuItem.addActionListener(e -> {
             wp.findSymbolUsageAsync();
@@ -60,12 +72,7 @@ public final class AddMenuFactory {
         parent.add(symbolMenuItem);
 
         if (includeCallGraphItems) {
-            // Optional: visually group these
-            if (parent instanceof JPopupMenu popupMenu) {
-                popupMenu.addSeparator();
-            } else if (parent instanceof JMenu menu) {
-                menu.addSeparator();
-            }
+            addSeparator(parent);
 
             JMenuItem callersMenuItem = new JMenuItem("Callers");
             callersMenuItem.addActionListener(e -> {
@@ -79,5 +86,11 @@ public final class AddMenuFactory {
             });
             parent.add(calleesMenuItem);
         }
+
+        addSeparator(parent);
+
+        JMenuItem dependencyItem = new JMenuItem("Import Dependency...");
+        dependencyItem.addActionListener(e -> ImportDependencyDialog.show((Chrome) wp.getContextManager().getIo()));
+        parent.add(dependencyItem);
     }
 }

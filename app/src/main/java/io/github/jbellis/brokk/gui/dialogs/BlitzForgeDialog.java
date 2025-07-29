@@ -15,10 +15,7 @@ import io.github.jbellis.brokk.util.Messages;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
+import java.awt.event.*;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
@@ -28,6 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.RowSorter;
 import javax.swing.SortOrder;
 import javax.swing.table.TableRowSorter;
+
+import io.github.jbellis.brokk.agents.BuildAgent;
+import org.jetbrains.annotations.Nullable;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
@@ -41,8 +41,6 @@ public class BlitzForgeDialog extends JDialog {
     private JLabel costEstimateLabel;
     private JCheckBox includeWorkspaceCheckbox;
     private JRadioButton entireProjectScopeRadioButton;
-    private JRadioButton selectFilesScopeRadioButton;
-    private ButtonGroup scopeButtonGroup;
     private JPanel scopeCardsPanel;
     private CardLayout scopeCardLayout;
     private JComboBox<String> languageComboBox;
@@ -80,7 +78,6 @@ public class BlitzForgeDialog extends JDialog {
     private JLabel parsedFilesCountLabel;
     private JLabel selectedFilesCountLabel;
     private JComboBox<String> listLanguageCombo;
-    private JLabel entireProjectFileCountLabel;
 
     private static final Icon smallInfoIcon;
 
@@ -207,7 +204,7 @@ public class BlitzForgeDialog extends JDialog {
         epGBC.weightx = 1.0;
         epGBC.fill = GridBagConstraints.HORIZONTAL;
         epGBC.anchor = GridBagConstraints.WEST;
-        entireProjectFileCountLabel = new JLabel(" ");
+        JLabel entireProjectFileCountLabel = new JLabel(" ");
         entireProjectFileCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0)); // Add a bit of top padding
         entireProjectPanel.add(entireProjectFileCountLabel, epGBC);
         entireProjectFileCountLabel.setVisible(false);
@@ -414,7 +411,6 @@ public class BlitzForgeDialog extends JDialog {
 
         // Context + Post-processing option panels
         gbc.gridy++;
-        gbc.gridx = 0;
         gbc.gridwidth = 3;
         gbc.weightx = 1.0;
         gbc.weighty = 0.15;
@@ -437,7 +433,6 @@ public class BlitzForgeDialog extends JDialog {
         paraGBC.gridwidth = 3;
         paraGBC.weightx = 1.0; // Allow it to expand horizontally
         paraGBC.weighty = 0;
-        paraGBC.fill = GridBagConstraints.HORIZONTAL;
         paraGBC.anchor = GridBagConstraints.WEST;
 
         var instructionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // explicit H_GAP components
@@ -465,11 +460,11 @@ public class BlitzForgeDialog extends JDialog {
 
         var infoIcon = new JLabel(smallInfoIcon);
         infoIcon.setToolTipText("""
-                                <html>
-                                BlitzForge applies your instructions independently to multiple files in parallel, with optional
-                                post-processing by a single agent.
-                                </html>
-                                """);
+                                        <html>
+                                        BlitzForge applies your instructions independently to multiple files in parallel, with optional
+                                        post-processing by a single agent.
+                                        </html>
+                                        """);
         instructionsPanel.add(infoIcon);
         parallelProcessingPanel.add(instructionsPanel, paraGBC);
 
@@ -537,8 +532,7 @@ public class BlitzForgeDialog extends JDialog {
                                                           Object value,
                                                           int index,
                                                           boolean isSelected,
-                                                          boolean cellHasFocus)
-            {
+                                                          boolean cellHasFocus) {
                 // Use default renderer for basic background/selection handling
                 super.getListCellRendererComponent(list, "", index, isSelected, cellHasFocus);
                 var fav = (Service.FavoriteModel) value;
@@ -613,12 +607,12 @@ public class BlitzForgeDialog extends JDialog {
         paraGBC.anchor = GridBagConstraints.WEST;
         var perFileIconCtx = new JLabel(smallInfoIcon);
         perFileIconCtx.setToolTipText("""
-                                      <html>
-                                      Command to run for each file.<br>
-                                      Use {{filepath}} for the file path. Blank for no command.
-                                      <br>The output will be sent to the LLM with each target file.
-                                      </html>
-                                      """);
+                                              <html>
+                                              Command to run for each file.<br>
+                                              Use {{filepath}} for the file path. Blank for no command.
+                                              <br>The output will be sent to the LLM with each target file.
+                                              </html>
+                                              """);
         parallelProcessingPanel.add(perFileIconCtx, paraGBC);
         // Per-file command input on the same row, spanning the remaining column(s)
         paraGBC.gridx = 2;
@@ -855,8 +849,7 @@ public class BlitzForgeDialog extends JDialog {
         ppPanel.add(outputPanel, ppGBC);
         ppGBC.gridwidth = 1;
 
-
-        java.awt.event.ActionListener postProcessListener = ev -> {
+        ActionListener postProcessListener = ev -> {
             String selectedOption = (String) runPostProcessCombo.getSelectedItem();
             boolean ask = "Ask".equals(selectedOption);
             boolean architect = "Architect".equals(selectedOption);
@@ -864,37 +857,40 @@ public class BlitzForgeDialog extends JDialog {
 
             postProcessingInstructionsArea.setEnabled(!none);
             postProcessingScrollPane.setEnabled(!none);
+            assert SwingUtilities.isEventDispatchThread();
 
-            // Build-first checkbox handling
-            var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
-                    .determineVerificationCommand(chrome.getContextManager());
-            boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+            // Build-first checkbox handling (runs off-EDT via ContextManager)
+            final @Nullable String option = selectedOption;   // capture for async callback
+            BuildAgent.determineVerificationCommandAsync(cm)
+                          .thenAccept(verificationCommand -> SwingUtilities.invokeLater(() -> {
+                              boolean hasVerification =
+                                      !Objects.requireNonNullElse(verificationCommand, "").isBlank();
 
-            if (!hasVerification) {
-                // No verify command -> always disabled & unselected
-                buildFirstCheckbox.setEnabled(false);
-                buildFirstCheckbox.setSelected(false);
-                // The tooltip is on the info icon, so no need to set it here specifically for the checkbox
-                // buildFirstCheckbox.setToolTipText("No build/verification command available"); // This line can be removed if desired
-                buildFirstInfoIcon.setVisible(true); // show the info icon
-            } else {
-                buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
-                buildFirstInfoIcon.setVisible(false); // hide the info icon
-                switch (selectedOption) {
-                    case "Architect" -> {
-                        buildFirstCheckbox.setEnabled(true);
-                        buildFirstCheckbox.setSelected(true);
-                    }
-                    case "Ask" -> {
-                        buildFirstCheckbox.setEnabled(true);
-                        buildFirstCheckbox.setSelected(false);
-                    }
-                    default -> { // None
-                        buildFirstCheckbox.setEnabled(false);
-                        buildFirstCheckbox.setSelected(false);
-                    }
-                }
-            }
+                              if (!hasVerification) {
+                                  buildFirstCheckbox.setEnabled(false);
+                                  buildFirstCheckbox.setSelected(false);
+                                  buildFirstInfoIcon.setVisible(true);
+                              } else {
+                                  buildFirstCheckbox.setToolTipText(
+                                          "Run the project's build/verification command before invoking post-processing");
+                                  buildFirstInfoIcon.setVisible(false);
+
+                                  switch (option) {
+                                      case "Architect" -> {
+                                          buildFirstCheckbox.setEnabled(true);
+                                          buildFirstCheckbox.setSelected(true);
+                                      }
+                                      case "Ask" -> {
+                                          buildFirstCheckbox.setEnabled(true);
+                                          buildFirstCheckbox.setSelected(false);
+                                      }
+                                      default -> {
+                                          buildFirstCheckbox.setEnabled(false);
+                                          buildFirstCheckbox.setSelected(false);
+                                      }
+                                  }
+                              }
+                          }));
 
             //Parallel-output combo defaults
             if (ask) {
@@ -939,11 +935,11 @@ public class BlitzForgeDialog extends JDialog {
         scopePanel.setBorder(BorderFactory.createTitledBorder("Scope"));
 
         entireProjectScopeRadioButton = new JRadioButton("Entire Project");
-        selectFilesScopeRadioButton = new JRadioButton("Select Files");
+        JRadioButton selectFilesScopeRadioButton = new JRadioButton("Select Files");
         listFilesScopeRadioButton = new JRadioButton("List Files");
         selectFilesScopeRadioButton.setSelected(true);
 
-        scopeButtonGroup = new ButtonGroup();
+        ButtonGroup scopeButtonGroup = new ButtonGroup();
         scopeButtonGroup.add(entireProjectScopeRadioButton);
         scopeButtonGroup.add(selectFilesScopeRadioButton);
         scopeButtonGroup.add(listFilesScopeRadioButton);
@@ -1003,8 +999,7 @@ public class BlitzForgeDialog extends JDialog {
      * Display a dropdown menu containing recent BlitzForge instructions.
      * Selecting an entry populates the Instructions and Post-processing fields.
      */
-    private void showBlitzHistoryMenu(Component invoker)
-    {
+    private void showBlitzHistoryMenu(Component invoker) {
         var historyEntries = chrome.getProject().loadBlitzHistory();
         JPopupMenu popup = new JPopupMenu();
 
@@ -1461,22 +1456,19 @@ public class BlitzForgeDialog extends JDialog {
         setVisible(false); // Hide this dialog
 
         // Show progress dialog
-        var progressDialog = new BlitzForgeProgressDialog(
-                (Frame) getOwner(),
-                instructions,
-                action,
-                selectedFavorite,
-                filesToProcessList,
-                chrome,
-                relatedK,
-                perFileCommandTemplate,
-                includeWorkspace,
-                runOption,
-                contextFilter,
-                parallelOutputMode,
-                buildFirst,
-                postProcessingInstructions
-        );
+        var progressDialog = new BlitzForgeProgressDialog(instructions,
+                                                          action,
+                                                          selectedFavorite,
+                                                          filesToProcessList,
+                                                          chrome,
+                                                          relatedK,
+                                                          perFileCommandTemplate,
+                                                          includeWorkspace,
+                                                          runOption,
+                                                          contextFilter,
+                                                          parallelOutputMode,
+                                                          buildFirst,
+                                                          postProcessingInstructions);
         progressDialog.setVisible(true);
     }
 }

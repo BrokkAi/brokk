@@ -41,6 +41,8 @@ tasks.register("printVersion") {
 }
 
 subprojects {
+    apply(plugin = "java-library")
+
     repositories {
         mavenCentral()
         // Additional repositories for dependencies
@@ -49,6 +51,13 @@ subprojects {
         }
         maven {
             url = uri("https://www.jetbrains.com/intellij-repository/releases")
+        }
+    }
+
+
+    tasks.withType<Test> {
+        filter {
+            isFailOnNoMatchingTests = false
         }
     }
 }

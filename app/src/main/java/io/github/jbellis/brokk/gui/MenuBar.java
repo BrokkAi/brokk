@@ -246,7 +246,7 @@ public class MenuBar {
         var clearTaskHistoryItem = new JMenuItem("Clear Task History");
         clearTaskHistoryItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         clearTaskHistoryItem.addActionListener(e -> {
-            chrome.getContextManager().clearHistory();
+            chrome.getContextManager().submitContextTask("Clear Task History", () -> chrome.getContextManager().clearHistory());
         });
         clearTaskHistoryItem.setEnabled(true);
         contextMenu.add(clearTaskHistoryItem);
@@ -254,8 +254,9 @@ public class MenuBar {
         var dropAllItem = new JMenuItem("Drop All");
         dropAllItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         dropAllItem.addActionListener(e -> {
-            chrome.getContextPanel().performContextActionAsync(
-                    WorkspacePanel.ContextAction.DROP, List.of());
+            chrome.getContextManager().submitContextTask("Drop All", () -> {
+                chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of());
+            });
         });
         dropAllItem.setEnabled(true);
         contextMenu.add(dropAllItem);

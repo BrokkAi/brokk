@@ -448,7 +448,7 @@ public class SearchTools {
         }
 
         var graph = getAnalyzer().getCallgraphTo(methodName, 5);
-        String result = AnalyzerUtil.formatCallGraph(graph, methodName, false);
+        String result = AnalyzerUtil.formatCallGraph(graph, methodName, true);
         if (result.isEmpty()) {
             return "No callers found of method: " + methodName;
         }
@@ -471,7 +471,7 @@ public class SearchTools {
         }
 
         var graph = getAnalyzer().getCallgraphFrom(methodName, 5); // Use correct analyzer method
-        String result = AnalyzerUtil.formatCallGraph(graph, methodName, true);
+        String result = AnalyzerUtil.formatCallGraph(graph, methodName, false);
         if (result.isEmpty()) {
             return "No calls out made by method: " + methodName;
         }
