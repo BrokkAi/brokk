@@ -54,7 +54,6 @@ public abstract class LspServer implements LspFileUtilities {
                 // this.languageServer should be non-null here
                 assert this.languageServer != null;
                 try {
-                    // TODO: Ensure this is is stable for incremental update
                     if (!serverReadyLatch.await(5000, TimeUnit.MILLISECONDS)) {
                         logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
                     }
@@ -96,6 +95,7 @@ public abstract class LspServer implements LspFileUtilities {
         final Path serverHome = unpackLspServer("jdt");
         final Path launcherJar = findFile(serverHome, "org.eclipse.equinox.launcher_");
         final Path configDir = findConfigDir(serverHome);
+        // TODO: Consider detecting a corrupt cache before destroying it
         final Path cache = Path.of(System.getProperty("user.home"), ".brokk", ".jdt-ls-data").toAbsolutePath();
         FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
 

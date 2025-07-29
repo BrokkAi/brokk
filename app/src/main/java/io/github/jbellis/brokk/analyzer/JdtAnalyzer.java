@@ -6,9 +6,6 @@ import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
-import org.eclipse.lsp4j.SymbolKind;
-import org.eclipse.lsp4j.WorkspaceSymbol;
-import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -18,7 +15,6 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
@@ -141,9 +137,8 @@ public class JdtAnalyzer implements LspAnalyzer {
         // Add array brackets back if they were present
         return isArray ? shortName + "[]" : shortName;
     }
-
-    @Override
-    public Optional<String> getSkeleton(String fqName) {
+    
+    private Optional<String> getSkeleton(String fqName, boolean headerOnly) {
         final Set<String> skeletons = LspAnalyzerHelper.findTypesInWorkspace(fqName, workspace, sharedServer, false)
                 .thenApply(typeSymbols ->
                         typeSymbols.stream().map(typeSymbol -> {
@@ -157,9 +152,10 @@ public class JdtAnalyzer implements LspAnalyzer {
                                         final var eitherLocation = typeSymbol.getLocation();
                                         if (eitherLocation.isLeft()) {
                                             return JdtSkeletonHelper.getSymbolSkeleton(
-                                                    sharedServer, 
-                                                    eitherLocation.getLeft(), 
-                                                    fullSource
+                                                    sharedServer,
+                                                    eitherLocation.getLeft(),
+                                                    fullSource,
+                                                    headerOnly
                                             ).join();
                                         } else {
                                             return Optional.<String>empty();
@@ -175,6 +171,16 @@ public class JdtAnalyzer implements LspAnalyzer {
         } else {
             return Optional.of(String.join("\n", skeletons));
         }
+    }
+
+    @Override
+    public Optional<String> getSkeleton(String fqName) {
+        return getSkeleton(fqName, false);
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(String className) {
+        return getSkeleton(className, true);
     }
 
     @Override

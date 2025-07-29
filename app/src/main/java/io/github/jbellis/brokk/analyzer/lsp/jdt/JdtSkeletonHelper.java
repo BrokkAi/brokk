@@ -15,7 +15,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 public final class JdtSkeletonHelper {
 
@@ -28,7 +27,8 @@ public final class JdtSkeletonHelper {
     public static @NotNull CompletableFuture<Optional<String>> getSymbolSkeleton(
             @NotNull LspServer sharedServer,
             @NotNull Location classLocation,
-            @NotNull String fullSource
+            @NotNull String fullSource,
+            boolean headerOnly
     ) {
         Path filePath = Paths.get(URI.create(classLocation.getUri()));
         Position position = classLocation.getRange().getStart();
@@ -45,7 +45,7 @@ public final class JdtSkeletonHelper {
                                 ).map(symbol -> {
                                     StringBuilder sb = new StringBuilder();
                                     // Start the recursive build process
-                                    buildSkeleton(symbol, sb, 0, fullSource);
+                                    buildSkeleton(symbol, sb, 0, fullSource, headerOnly);
                                     return sb.toString();
                                 });
 
@@ -65,7 +65,8 @@ public final class JdtSkeletonHelper {
             DocumentSymbol symbol, 
             StringBuilder sb, 
             int indent, 
-            String fullSource
+            String fullSource,
+            boolean headerOnly
     ) {
         final String indentation = "  ".repeat(indent);
         final String snippet = LspAnalyzerHelper
@@ -86,7 +87,7 @@ public final class JdtSkeletonHelper {
 
 
                 // Before processing all children, check if an implicit constructor is needed.
-                if (symbol.getKind() == SymbolKind.Class) {
+                if (symbol.getKind() == SymbolKind.Class && !headerOnly) {
                     final boolean hasExplicitConstructor = children.stream()
                             .anyMatch(c -> c.getKind() == SymbolKind.Constructor);
 
@@ -100,7 +101,16 @@ public final class JdtSkeletonHelper {
 
                 // Build skeletons for all explicit members.
                 for (DocumentSymbol child : children) {
-                    buildSkeleton(child, sb, indent + 1, fullSource);
+                    if (headerOnly && LspAnalyzerHelper.FIELD_KINDS.contains(child.getKind())) {
+                        buildSkeleton(child, sb, indent + 1, fullSource, true);
+                    } else if (!headerOnly) {
+                        buildSkeleton(child, sb, indent + 1, fullSource, false);
+                    }
+                }
+                
+                // If this is headers only, then add the omission notice
+                if (headerOnly) {
+                    sb.append("  ".repeat(indent + 1)).append("[... methods not shown ...]\n");
                 }
 
                 sb.append(indentation).append("}\n");

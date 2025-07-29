@@ -46,6 +46,11 @@ public final class LspAnalyzerHelper {
             SymbolKind.Package
     );
 
+    public static final Set<SymbolKind> FIELD_KINDS = Set.of(
+            SymbolKind.Field,
+            SymbolKind.Variable
+    );
+
     @NotNull
     public static CodeUnitType codeUnitForSymbolKind(@NotNull SymbolKind symbolKind) {
         if (METHOD_KINDS.contains(symbolKind)) return CodeUnitType.FUNCTION;
@@ -212,6 +217,20 @@ public final class LspAnalyzerHelper {
                     }
                 }
         ).toList();
+    }
+
+    /**
+     * Recursively searches a tree of DocumentSymbol objects for symbols.
+     */
+    @NotNull
+    public static List<DocumentSymbol> findAllSymbolsInTree(@NotNull List<DocumentSymbol> symbols) {
+        return symbols.stream().flatMap(symbol -> {
+            if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                return findAllSymbolsInTree(symbol.getChildren()).stream();
+            } else {
+                return Stream.of(symbol);
+            }
+        }).toList();
     }
 
     /**
@@ -485,6 +504,29 @@ public final class LspAnalyzerHelper {
         // An empty query string "" tells the server to return all symbols. 
         // Relies on indexes, so shouldn't be too expensive
         return findSymbolsInWorkspace("*", workspace, sharedServer);
+    }
+
+    /**
+     * Gets all symbols that the server has indexed for this specific workspace for a specific file.
+     *
+     * @return A CompletableFuture that will be completed with a list of all indexed symbols.
+     */
+    public static CompletableFuture<List<? extends WorkspaceSymbol>> getAllSymbolsInFile(
+            @NotNull LspServer sharedServer, @NotNull Path filePath
+    ) {
+        return LspAnalyzerHelper.getSymbolsInFile(sharedServer, filePath).thenApply(fileSymbols ->
+                fileSymbols.stream().map(fileSymbolsEither -> {
+                    if (fileSymbolsEither.isRight()) {
+                        return LspAnalyzerHelper.findAllSymbolsInTree(Collections.singletonList(fileSymbolsEither.getRight()))
+                                .stream()
+                                .map(documentSymbol -> LspAnalyzerHelper.documentToWorkspaceSymbol(documentSymbol, filePath.toUri().toString()))
+                                .toList();
+                    } else {
+                        // Find the symbol and map it to a new Location object with a precise range
+                        return new ArrayList<WorkspaceSymbol>();
+                    }
+                }).flatMap(Collection::stream).toList()
+        );
     }
 
 

@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -104,7 +105,7 @@ public class JdtAnalyzerTest {
 
     @Test
     public void getClassSourceTest() {
-        final var source   = analyzer.getClassSource("A");
+        final var source = analyzer.getClassSource("A");
         assertNotNull(source);
         // Verify the source contains class definition and methods
         assertTrue(source.contains("class A {"));
@@ -116,7 +117,7 @@ public class JdtAnalyzerTest {
     public void getClassSourceNestedTest() {
         final var maybeSource = analyzer.getClassSource("A$AInner");
         assertNotNull(maybeSource);
-        final var source   = maybeSource.stripIndent();
+        final var source = maybeSource.stripIndent();
         // Verify the source contains inner class definition
         final var expected = """
                 public class AInner {
@@ -134,7 +135,7 @@ public class JdtAnalyzerTest {
     public void getClassSourceTwiceNestedTest() {
         final var maybeSource = analyzer.getClassSource("A$AInner$AInnerInner");
         assertNotNull(maybeSource);
-        final var source   = maybeSource.stripIndent();
+        final var source = maybeSource.stripIndent();
         // Verify the source contains inner class definition
         final var expected = """
                         public class AInnerInner {
@@ -150,7 +151,7 @@ public class JdtAnalyzerTest {
     public void getClassSourceFallbackTest() {
         final var maybeSource = analyzer.getClassSource("A$NonExistent");
         assertNotNull(maybeSource);
-        final var source   = maybeSource.stripIndent();
+        final var source = maybeSource.stripIndent();
         // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
         assertTrue(source.contains("class A {"));
         assertTrue(source.contains("public void method1()"));
@@ -164,7 +165,7 @@ public class JdtAnalyzerTest {
     }
 
     @Test
-    public void  sanitizeTypeTest() {
+    public void sanitizeTypeTest() {
         // Simple types
         assertEquals("String", analyzer.sanitizeType("java.lang.String"));
         assertEquals("String[]", analyzer.sanitizeType("java.lang.String[]"));
@@ -195,28 +196,78 @@ public class JdtAnalyzerTest {
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
         final var expected = """
-public class A {
-  public A() {...}
-  public void method1() {...}
-  public String method2(String input) {...}
-  public String method2(String input, int otherInput) {...}
-  public Function<Integer, Integer> method3() {...}
-  public static int method4(double foo, Integer bar) {...}
-  public void method5() {...}
-  public void method6() {...}
-  public class AInner {
-    public AInner() {...}
-    public class AInnerInner {
-      public AInnerInner() {...}
-      public void method7() {...}
-    }
-  }
-  public static class AInnerStatic {
-    public AInnerStatic() {...}
-  }
-}
+                public class A {
+                  public A() {...}
+                  public void method1() {...}
+                  public String method2(String input) {...}
+                  public String method2(String input, int otherInput) {...}
+                  public Function<Integer, Integer> method3() {...}
+                  public static int method4(double foo, Integer bar) {...}
+                  public void method5() {...}
+                  public void method6() {...}
+                  public class AInner {
+                    public AInner() {...}
+                    public class AInnerInner {
+                      public AInnerInner() {...}
+                      public void method7() {...}
+                    }
+                  }
+                  public static class AInnerStatic {
+                    public AInnerStatic() {...}
+                  }
+                }
                 """.trim().stripIndent();
         assertEquals(expected, skeleton);
+    }
+
+    @Test
+    public void getSkeletonTestD() {
+        final var skeletonOpt = analyzer.getSkeleton("D");
+        assertTrue(skeletonOpt.isPresent());
+        final var skeleton = skeletonOpt.get().trim().stripIndent();
+
+        final var expected = """
+                public class D {
+                  public D() {...}
+                  public int field1;
+                  private String field2;
+                  public void methodD1() {...}
+                  public void methodD2() {...}
+                  private static class DSubStatic {
+                    public DSubStatic() {...}
+                  }
+                  private class DSub {
+                    public DSub() {...}
+                  }
+                }
+                """.trim().stripIndent();
+        assertEquals(expected, skeleton);
+    }
+
+    @Test
+    public void getGetSkeletonHeaderTest() {
+        final var skeletonOpt = analyzer.getSkeletonHeader("D");
+        assertTrue(skeletonOpt.isPresent());
+        final var skeleton = skeletonOpt.get().trim().stripIndent();
+
+        final var expected = """
+                public class D {
+                  public int field1;
+                  private String field2;
+                  [... methods not shown ...]
+                }
+                """.trim().stripIndent();
+        assertEquals(expected, skeleton);
+    }
+
+    @Test
+    public void getAllClassesTest() {
+        final var classes = analyzer.getAllDeclarations().stream().map(CodeUnit::fqName).sorted().toList();
+        final var expected = List.of("A", "A.AInner", "A.AInner.AInnerInner", "A.AInnerStatic",
+                "AnonymousUsage", "AnonymousUsage.NestedClass", "B", "BaseClass", "C", "C.Foo", "CamelClass",
+                "CyclicMethods", "D", "D.DSub", "D.DSubStatic", "E", "F", "Foo", "Interface", "MethodReturner",
+                "UseE", "UsePackaged", "XExtendsY");
+        assertEquals(expected, classes);
     }
 
     @Test
@@ -248,6 +299,31 @@ public class A {
                         .collect(Collectors.toSet());
         assertTrue(callees.contains("A.method1"), "Should call A.method1");
         assertTrue(callees.contains("A.method2"), "Should call A.method2");
+    }
+
+    @Test
+    public void getDeclarationsInFileTest() {
+        final var maybeFile =  analyzer.getFileFor("D");
+        assertTrue(maybeFile.isPresent());
+        final var file         = maybeFile.get();
+        final var classes = analyzer.getDeclarationsInFile(file);
+
+        final var expected = Set.of(
+                // Classes
+                CodeUnit.cls(file, "", "D"),
+                CodeUnit.cls(file, "", "D$DSub"),
+                CodeUnit.cls(file, "", "D$DSubStatic"),
+                // Methods
+                CodeUnit.fn(file, "", "D.methodD1"),
+                CodeUnit.fn(file, "", "D.methodD2"),
+                CodeUnit.fn(file, "", "D.D"),
+                CodeUnit.fn(file, "", "D$DSubStatic.DSubStatic"),
+                CodeUnit.fn(file, "", "D$DSub.DSub"),
+                // Fields
+                CodeUnit.field(file, "", "D.field1"),
+                CodeUnit.field(file, "", "D.field2")
+        );
+        assertEquals(expected, classes);
     }
 
 }

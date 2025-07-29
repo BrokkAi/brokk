@@ -1,9 +1,6 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
-import io.github.jbellis.brokk.analyzer.CallSite;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
 import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
@@ -12,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -35,7 +31,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     default boolean isCpg() {
         return false;
     }
-    
+
     @Override
     default boolean isEmpty() {
         return LspAnalyzerHelper.getAllWorkspaceSymbols(getWorkspace(), getServer()).join().isEmpty();
@@ -46,19 +42,20 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      */
     @NotNull String resolveMethodName(@NotNull String methodName);
 
-    /** Possibly remove package names from a type string, or do other language-specific cleanup.
+    /**
+     * Possibly remove package names from a type string, or do other language-specific cleanup.
      */
     @NotNull String sanitizeType(@NotNull String typeName);
 
     @Override
-    default IAnalyzer update(@NotNull Set<ProjectFile> changedFiles) {
+    default @NotNull IAnalyzer update(@NotNull Set<ProjectFile> changedFiles) {
         getServer().update(changedFiles);
         logger.debug("Sent didChangeWatchedFiles notification for {} files.", changedFiles.size());
         return this;
     }
 
     @Override
-    default IAnalyzer update() {
+    default @NotNull IAnalyzer update() {
         getServer().refreshWorkspace().join();
         return this;
     }
@@ -145,6 +142,40 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                         .collect(Collectors.joining("\n\n"))
                         ).join()
                 ).filter(x -> !x.isBlank());
+    }
+
+    @Override
+    default @NotNull List<CodeUnit> getAllDeclarations() {
+        return LspAnalyzerHelper
+                .getAllWorkspaceSymbols(getWorkspace(), getServer())
+                .thenApply(symbols ->
+                        symbols.
+                                stream()
+                                .filter(s -> LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind()))
+                                .map(this::codeUnitForWorkspaceSymbolOfType)
+                ).join()
+                .toList();
+    }
+
+    @Override
+    default @NotNull Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
+        return LspAnalyzerHelper.getAllSymbolsInFile(getServer(), file.absPath())
+                .thenApply(symbols ->
+                        symbols.stream().map(this::codeUnitForWorkspaceSymbolOfType)
+                ).join()
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    default @NotNull Optional<ProjectFile> getFileFor(@NotNull String fqName) {
+        return LspAnalyzerHelper.typesByName(fqName, getWorkspace(), getServer()).
+                thenApply(symbols ->
+                        symbols.map(symbol -> {
+                            final var symbolUri = URI.create(LspAnalyzerHelper.getUriStringFromLocation(symbol.getLocation()));
+                            return new ProjectFile(getProjectRoot(), getProjectRoot().relativize(Path.of(symbolUri).toAbsolutePath()));
+                        })
+                ).join()
+                .findFirst();
     }
 
     @Override
@@ -249,6 +280,28 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         callSites.add(newCallSite);
         callGraph.put(key, callSites);
         return newCallSite;
+    }
+
+    default CodeUnit codeUnitForWorkspaceSymbolOfType(WorkspaceSymbol symbol) {
+        final var uri = Path.of(URI.create(symbol.getLocation().getLeft().getUri()));
+        final var projectFile = new ProjectFile(this.getProjectRoot(), this.getProjectRoot().relativize(uri));
+        final var codeUnitKind = LspAnalyzerHelper.codeUnitForSymbolKind(symbol.getKind());
+        final var containerName =  Optional.ofNullable(symbol.getContainerName()).orElse("");
+        
+        final var lastDot = containerName.lastIndexOf('.');
+        final String shortNamePrefix;
+        if (lastDot > 0 && codeUnitKind != CodeUnitType.CLASS && codeUnitKind != CodeUnitType.MODULE) {
+            shortNamePrefix = containerName.substring(lastDot + 1);
+        } else {
+            shortNamePrefix = "";
+        }
+        
+        return new CodeUnit(
+                projectFile,
+                codeUnitKind,
+                containerName,
+                shortNamePrefix + symbol.getName()
+        );
     }
 
 }
