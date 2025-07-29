@@ -78,6 +78,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             return futureTypeSymbols.join().stream()
                     .map(LspAnalyzerHelper::getSourceForSymbol)
                     .flatMap(Optional::stream)
+                    .distinct()
                     .findFirst()
                     .orElseGet(() -> {
                         // fallback to the whole file, if any partial matches for parent container are present
@@ -89,6 +90,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                     .stream()
                                     .map(LspAnalyzerHelper::getSourceForSymbol)
                                     .flatMap(Optional::stream)
+                                    .distinct()
                                     .findFirst()
                                     .orElse(null);
                         } else {
@@ -139,6 +141,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                 maybeSymbol.stream()
                                         .map(LspAnalyzerHelper::getSourceForSymbolDefinition)
                                         .flatMap(Optional::stream)
+                                        .distinct()
                                         .collect(Collectors.joining("\n\n"))
                         ).join()
                 ).filter(x -> !x.isBlank());
