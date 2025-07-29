@@ -103,19 +103,14 @@ public final class JdtSkeletonHelper {
                     buildSkeleton(child, sb, indent + 1, fullSource);
                 }
 
-
                 sb.append(indentation).append("}\n");
             }
             case Method, Constructor, Function -> {
-                // There is a parser quirk of adding ' : ' to the beginning of return types
-                final var returnType = symbol.getDetail().replace(" : ", "");
-                final var snippetWithCleanReturnType = snippet.replace(returnType, removeGeneric(returnType));
-                
-                final int bodyStart = snippetWithCleanReturnType.indexOf('{');
+                final int bodyStart = snippet.indexOf('{');
                 if (bodyStart != -1) {
-                    sb.append(snippetWithCleanReturnType, 0, bodyStart).append("{...}\n");
+                    sb.append(snippet, 0, bodyStart).append("{...}\n");
                 } else {
-                    sb.append(snippetWithCleanReturnType).append("\n");
+                    sb.append(snippet).append("\n");
                 }
             }
             case Field -> sb.append(snippet).append("\n");

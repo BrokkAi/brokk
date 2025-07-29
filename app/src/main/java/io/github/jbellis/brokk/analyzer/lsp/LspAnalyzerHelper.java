@@ -436,13 +436,14 @@ public final class LspAnalyzerHelper {
             @NotNull LspServer sharedServer,
             @NotNull Function<String, String> resolveMethodName
     ) {
-        return LspAnalyzerHelper.findTypesInWorkspace(containerName, workspace, sharedServer).thenCompose(classLocations -> {
-            if (classLocations.isEmpty()) {
-                return CompletableFuture.completedFuture(Collections.emptyList());
-            }
-            return CompletableFuture.completedFuture(
-                    findMethodSymbol(classLocations, methodName, sharedServer, resolveMethodName));
-        });
+        return LspAnalyzerHelper.findTypesInWorkspace(containerName, workspace, sharedServer, false)
+                .thenCompose(classLocations -> {
+                    if (classLocations.isEmpty()) {
+                        return CompletableFuture.completedFuture(Collections.emptyList());
+                    }
+                    return CompletableFuture.completedFuture(
+                            findMethodSymbol(classLocations, methodName, sharedServer, resolveMethodName));
+                });
     }
 
     private static List<WorkspaceSymbol> findMethodSymbol(

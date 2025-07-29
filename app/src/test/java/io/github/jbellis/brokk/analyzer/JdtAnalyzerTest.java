@@ -200,7 +200,7 @@ public class A {
   public void method1() {...}
   public String method2(String input) {...}
   public String method2(String input, int otherInput) {...}
-  public Function method3() {...}
+  public Function<Integer, Integer> method3() {...}
   public static int method4(double foo, Integer bar) {...}
   public void method5() {...}
   public void method6() {...}

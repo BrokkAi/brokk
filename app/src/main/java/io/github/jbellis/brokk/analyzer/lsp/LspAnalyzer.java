@@ -69,13 +69,16 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @Nullable String getClassSource(@NotNull String classFullName) {
-        final var futureTypeSymbols = LspAnalyzerHelper.findTypesInWorkspace(classFullName, getWorkspace(), getServer());
+        final var futureTypeSymbols = LspAnalyzerHelper
+                .findTypesInWorkspace(classFullName, getWorkspace(), getServer(), false);
         final var exactMatch = getClassSource(futureTypeSymbols);
 
         if (exactMatch == null) {
             // fallback to the whole file, if any partial matches are present
-            return futureTypeSymbols.join().stream().findFirst()
-                    .flatMap(LspAnalyzerHelper::getSourceForSymbol)
+            return futureTypeSymbols.join().stream()
+                    .map(LspAnalyzerHelper::getSourceForSymbol)
+                    .flatMap(Optional::stream)
+                    .findFirst()
                     .orElseGet(() -> {
                         // fallback to the whole file, if any partial matches for parent container are present
                         final var classCleanedName = classFullName.replace('$', '.');
@@ -84,8 +87,9 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                             return LspAnalyzerHelper.findTypesInWorkspace(parentContainer, getWorkspace(), getServer())
                                     .join()
                                     .stream()
+                                    .map(LspAnalyzerHelper::getSourceForSymbol)
+                                    .flatMap(Optional::stream)
                                     .findFirst()
-                                    .flatMap(LspAnalyzerHelper::getSourceForSymbol)
                                     .orElse(null);
                         } else {
                             return null;
