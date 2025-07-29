@@ -216,46 +216,6 @@ class ScrollSynchronizerTest {
     // TIMER-BASED LOGIC TESTS WITH MINIMAL SWING
     // =================================================================
 
-    @Test
-    @DisplayName("Timer logic: debouncer integration with scroll events")
-    void testDebouncerIntegrationWithScrollEvents() throws Exception {
-        var debouncer = new ScrollDebouncer(30); // Shorter debounce for faster test
-        var executionCount = new AtomicInteger(0);
-        var completionCount = new AtomicInteger(0);
-        var executionLatch = new CountDownLatch(1);
-        var completionLatch = new CountDownLatch(1);
-
-        try {
-            // Create request that simulates scroll processing
-            var request = new ScrollDebouncer.DebounceRequest<>(
-                Boolean.TRUE, // leftScrolled flag
-                (leftScrolled) -> {
-                    executionCount.incrementAndGet();
-                    executionLatch.countDown();
-                },
-                () -> {
-                    completionCount.incrementAndGet();
-                    completionLatch.countDown();
-                }
-            );
-
-            // Submit multiple rapid requests (simulating rapid scrolling)
-            debouncer.submit(request);
-            debouncer.submit(request);
-            debouncer.submit(request);
-
-            // Wait for execution and completion with longer timeout
-            assertTrue(executionLatch.await(3000, TimeUnit.MILLISECONDS), "Debounced action should execute");
-            assertTrue(completionLatch.await(3000, TimeUnit.MILLISECONDS), "Completion callback should execute");
-
-            // Should only execute once due to debouncing
-            assertEquals(1, executionCount.get(), "Should execute only once due to debouncing");
-            assertEquals(1, completionCount.get(), "Should complete only once");
-
-        } finally {
-            debouncer.dispose();
-        }
-    }
 
     @Test
     @DisplayName("Timer logic: programmatic scroll flag timing")

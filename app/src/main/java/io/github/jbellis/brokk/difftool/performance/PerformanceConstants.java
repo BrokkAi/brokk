@@ -36,11 +36,7 @@ public final class PerformanceConstants {
     // Typing state management
     public static final int TYPING_STATE_TIMEOUT_MS = 150;
 
-    // Scroll synchronization - optimized for responsiveness
-    public static final int SCROLL_SYNC_DEBOUNCE_MS = 50; // Reduced from 100ms for better responsiveness
-
     // Scroll throttling mode configuration (mutable for developer UI)
-    public static volatile boolean ENABLE_SCROLL_DEBOUNCING = false; // Traditional debouncing
     public static volatile boolean ENABLE_FRAME_BASED_THROTTLING = false; // Frame-based throttling
     public static volatile boolean ENABLE_ADAPTIVE_THROTTLING = true; // Adaptive mode (default)
     public static volatile int SCROLL_FRAME_RATE_MS = 16; // 60fps default (configurable via UI)
@@ -49,7 +45,7 @@ public final class PerformanceConstants {
     public static final int FRAME_60FPS = 16;  // Gaming-smooth (recommended)
     public static final int FRAME_30FPS = 33;  // Standard UI
     public static final int FRAME_20FPS = 50;  // Conservative (equivalent to debounce delay)
-    
+
     // Adaptive throttling thresholds
     public static final int ADAPTIVE_MODE_LINE_THRESHOLD = 1000; // Switch to frame mode for files > 1000 lines
     public static final int ADAPTIVE_MODE_DELTA_THRESHOLD = 50;  // Switch to frame mode for > 50 deltas
@@ -88,16 +84,13 @@ public final class PerformanceConstants {
     public static boolean validateScrollThrottlingConfig() {
         int activeCount = 0;
         if (ENABLE_ADAPTIVE_THROTTLING) activeCount++;
-        if (ENABLE_SCROLL_DEBOUNCING) activeCount++;
         if (ENABLE_FRAME_BASED_THROTTLING) activeCount++;
 
         if (activeCount > 1) {
             // Auto-resolve: prioritize adaptive throttling, then frame-based
             if (ENABLE_ADAPTIVE_THROTTLING) {
-                ENABLE_SCROLL_DEBOUNCING = false;
                 ENABLE_FRAME_BASED_THROTTLING = false;
             } else if (ENABLE_FRAME_BASED_THROTTLING) {
-                ENABLE_SCROLL_DEBOUNCING = false;
             }
             return true; // Configuration was changed
         }
@@ -114,8 +107,6 @@ public final class PerformanceConstants {
         } else if (ENABLE_FRAME_BASED_THROTTLING) {
             return String.format("Frame-Based (%dms / %.1f FPS)",
                                 SCROLL_FRAME_RATE_MS, 1000.0 / SCROLL_FRAME_RATE_MS);
-        } else if (ENABLE_SCROLL_DEBOUNCING) {
-            return String.format("Debouncing (%dms delay)", SCROLL_SYNC_DEBOUNCE_MS);
         } else {
             return "Immediate (No throttling)";
         }

@@ -49,7 +49,6 @@ public class ScrollSynchronizer
 
     // State management and throttling utilities
     private final ScrollSyncState syncState;
-    private final ScrollDebouncer debouncer;
     private final ScrollFrameThrottler frameThrottler;
     private final AdaptiveThrottlingStrategy adaptiveStrategy;
 
@@ -64,7 +63,6 @@ public class ScrollSynchronizer
 
         // Initialize state management utilities
         this.syncState = new ScrollSyncState();
-        this.debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
         this.frameThrottler = new ScrollFrameThrottler(PerformanceConstants.SCROLL_FRAME_RATE_MS);
         this.adaptiveStrategy = new AdaptiveThrottlingStrategy();
         this.performanceMonitor = new ScrollPerformanceMonitor();
@@ -84,7 +82,6 @@ public class ScrollSynchronizer
 
         // Initialize state management utilities
         this.syncState = new ScrollSyncState();
-        this.debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
         this.frameThrottler = new ScrollFrameThrottler(PerformanceConstants.SCROLL_FRAME_RATE_MS);
         this.adaptiveStrategy = new AdaptiveThrottlingStrategy();
         this.performanceMonitor = new ScrollPerformanceMonitor();
@@ -482,7 +479,7 @@ public class ScrollSynchronizer
     public void scrollToLine(FilePanel fp, int line, ScrollMode mode)
     {
         logger.debug("scrollToLine: Called for line {} with mode {} on panel {}", line, mode, fp.hashCode());
-        
+
         var bd = fp.getBufferDocument();
         if (bd == null) {
             logger.debug("scrollToLine: No buffer document available");
@@ -529,7 +526,7 @@ public class ScrollSynchronizer
                     // For lines very close to the top, ensure they're positioned optimally
                     // Instead of scrolling to 0, position the line at 1/3 from top for better visibility
                     finalY = Math.max(0, originalY - (viewportHeight / 3));
-                    logger.debug("scrollToLine: Line {} is near top, positioning at Y {} for optimal visibility (original: {})", 
+                    logger.debug("scrollToLine: Line {} is near top, positioning at Y {} for optimal visibility (original: {})",
                                line, finalY, originalY);
                 } else if (centeredY > maxY) {
                     // For lines very close to the bottom, scroll to the very bottom
@@ -538,7 +535,7 @@ public class ScrollSynchronizer
                 } else {
                     // For other lines, use normal centering with padding
                     finalY = Math.max(normalPadding, centeredY);
-                    logger.debug("scrollToLine: Line {} centered at Y position {} (original: {}, centered: {})", 
+                    logger.debug("scrollToLine: Line {} centered at Y position {} (original: {}, centered: {})",
                                line, finalY, originalY, centeredY);
                 }
 
@@ -547,12 +544,12 @@ public class ScrollSynchronizer
 
                 var currentPos = viewport.getViewPosition();
                 var p = new Point(rect.x, finalY);
-                
+
                 // Calculate if this scroll will be visually meaningful
                 int scrollDistance = Math.abs(finalY - currentPos.y);
                 boolean isVisuallyMeaningful = scrollDistance > 20; // More than 20 pixels difference
-                
-                logger.debug("scrollToLine: Moving viewport from ({}, {}) to ({}, {}) for line {} - distance: {}px, meaningful: {}", 
+
+                logger.debug("scrollToLine: Moving viewport from ({}, {}) to ({}, {}) for line {} - distance: {}px, meaningful: {}",
                            currentPos.x, currentPos.y, p.x, p.y, line, scrollDistance, isVisuallyMeaningful);
 
                 // Set viewport position
@@ -646,7 +643,7 @@ public class ScrollSynchronizer
             int targetLine = target.getPosition();
 
             int rightPanelScrollLine = targetLine;
-            
+
             if (target.size() > 0) {
                 logger.debug("Navigation: delta has target at line {}, scrolling RIGHT panel", targetLine);
             }
@@ -656,7 +653,7 @@ public class ScrollSynchronizer
                 // If target position is very close to top, scroll to a line that provides better context
                 if (targetLine <= 8) {
                     rightPanelScrollLine = Math.max(targetLine + 3, 10); // Scroll a bit lower for better visibility
-                    logger.debug("Navigation: DELETE delta near top (line {}), adjusting scroll to line {} for better visibility", 
+                    logger.debug("Navigation: DELETE delta near top (line {}), adjusting scroll to line {} for better visibility",
                                targetLine, rightPanelScrollLine);
                 }
             }
@@ -715,8 +712,6 @@ public class ScrollSynchronizer
             }
         } else if (PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING) {
             frameThrottler.submit(syncAction);
-        } else if (PerformanceConstants.ENABLE_SCROLL_DEBOUNCING) {
-            debouncer.scheduleSync(syncAction);
         } else {
             // Immediate execution (no throttling)
             syncAction.run();
@@ -808,7 +803,6 @@ public class ScrollSynchronizer
 
     public void dispose() {
         // Dispose throttling utilities to stop any pending timers
-        debouncer.dispose();
         frameThrottler.dispose();
 
         // Remove adjustment listeners
