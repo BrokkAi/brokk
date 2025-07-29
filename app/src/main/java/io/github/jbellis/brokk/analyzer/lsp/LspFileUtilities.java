@@ -64,21 +64,37 @@ public interface LspFileUtilities {
 
     @NotNull
     default Path findConfigDir(@NotNull Path dir) throws IOException {
-        final String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
-        final String configSubDir;
-        if (os.contains("win")) {
-            configSubDir = "config_win";
-        } else if (os.contains("mac")) {
-            configSubDir = "config_mac";
+        final String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        final String osArch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
+
+        final String baseConfigDir;
+        if (osName.contains("win")) {
+            baseConfigDir = "config_win";
+        } else if (osName.contains("mac")) {
+            baseConfigDir = "config_mac";
         } else {
-            configSubDir = "config_linux";
+            baseConfigDir = "config_linux";
         }
-        final Path configPath = dir.resolve(configSubDir);
-        if (Files.isDirectory(configPath)) {
-            return configPath;
-        } else {
-            throw new FileNotFoundException("Could not find configuration directory: " + configSubDir);
+
+        // First, check for the more specific ARM-based directory.
+        if (osArch.equals("aarch64")) {
+            final Path armConfigPath = dir.resolve(baseConfigDir + "_arm");
+            if (Files.isDirectory(armConfigPath)) {
+                return armConfigPath;
+            }
         }
+
+        //If the ARM-specific one isn't found (or we're not on ARM), fall back to the generic one.
+        final Path genericConfigPath = dir.resolve(baseConfigDir);
+        if (Files.isDirectory(genericConfigPath)) {
+            return genericConfigPath;
+        }
+
+        // If neither is found, throw an error.
+        throw new FileNotFoundException(String.format(
+                "Could not find a valid configuration directory. Checked for '%s_arm' and '%s' in %s",
+                baseConfigDir, baseConfigDir, dir
+        ));
     }
     
 }

@@ -12,6 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -129,8 +130,16 @@ public abstract class LspServer implements LspFileUtilities {
         FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
 
         ProcessBuilder pb = new ProcessBuilder(
-                "java", "-Declipse.application=org.eclipse.jdt.ls.core.id1", "-Dosgi.bundles.defaultStartLevel=4",
-                "-Declipse.product=org.eclipse.jdt.ls.core.product", "-noverify", "-Xmx1G",
+                "java",
+                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Dosgi.bundles.defaultStartLevel=4",
+                "-Declipse.product=org.eclipse.jdt.ls.core.product",
+                "-Dlog.level=ALL",
+                "-Xmx1G",
+                "--add-modules=ALL-SYSTEM",
+//                "--add-opens java.base/java.util=ALL-UNNAMED", // This crashes `LSPLauncher.createClientLauncher`
+//                "--add-opens java.base/java.lang=ALL-UNNAMED", // and are needed to open up some class files
+                "-noverify",
                 "-jar", launcherJar.toString(),
                 "-configuration", configDir.toString(),
                 "-data", cache.toString()
@@ -250,9 +259,25 @@ public abstract class LspServer implements LspFileUtilities {
      */
     public synchronized void registerClient(Path projectPath, Set<String> excludePatterns, Map<String, Object> initializationOptions) throws IOException {
         final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
-        workspaceExclusions.put(projectPathAbsolute, excludePatterns);
+        
+        final var excludeRelPaths = new HashSet<String>();
+        excludePatterns.forEach(x -> {
+            if (x.startsWith(File.separator)) {
+                // Relativize the paths if necessary
+                excludeRelPaths.add("." + x);
+            } else {
+                excludeRelPaths.add(x);
+            }
+        });
+        excludeRelPaths.add("**/resources/**"); // Ignore resources files
+        
+        workspaceExclusions.put(projectPathAbsolute, excludeRelPaths);
         if (clientCounter.getAndIncrement() == 0) {
-            startServer(projectPathAbsolute, initializationOptions);
+            final var options = new HashMap<>(initializationOptions);
+            final var exclusionParams = new HashMap<String, Object>();
+            excludeRelPaths.forEach(x -> exclusionParams.put(x, true));
+            options.put("files", Map.of("exclude", exclusionParams));
+            startServer(projectPathAbsolute, options);
         } else {
             addWorkspaceFolder(projectPathAbsolute);
         }
