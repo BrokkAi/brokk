@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -48,7 +49,20 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     /** Possibly remove package names from a type string, or do other language-specific cleanup.
      */
     @NotNull String sanitizeType(@NotNull String typeName);
-    
+
+    @Override
+    default IAnalyzer update(@NotNull Set<ProjectFile> changedFiles) {
+        getServer().update(changedFiles);
+        logger.debug("Sent didChangeWatchedFiles notification for {} files.", changedFiles.size());
+        return this;
+    }
+
+    @Override
+    default IAnalyzer update() {
+        getServer().refreshWorkspace().join();
+        return this;
+    }
+
     default boolean isClassInProject(String className) {
         return !LspAnalyzerHelper.findTypesInWorkspace(className, getWorkspace(), getServer()).join().isEmpty();
     }

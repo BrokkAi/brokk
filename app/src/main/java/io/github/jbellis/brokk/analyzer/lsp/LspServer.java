@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
 import io.github.jbellis.brokk.BuildInfo;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.FileUtils;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
@@ -12,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
@@ -299,6 +301,7 @@ public abstract class LspServer implements LspFileUtilities {
     }
 
     public CompletableFuture<Object> refreshWorkspace() {
+        logger.debug("Refreshing workspace");
         return query((server) -> {
             ExecuteCommandParams params = new ExecuteCommandParams(
                     "java.project.buildWorkspace",
@@ -306,6 +309,25 @@ public abstract class LspServer implements LspFileUtilities {
             );
             return server.getWorkspaceService().executeCommand(params);
         });
+    }
+
+    /**
+     * Notifies the server of specific file changes.
+     * @param changedFiles A set of files that have been created, modified, or deleted.
+     */
+    public void update(@NotNull Set<ProjectFile> changedFiles) {
+        // Create a list of FileEvent objects from the set of changed files.
+        final List<FileEvent> events = changedFiles.stream().map(projectFile -> {
+            String uri = projectFile.absPath().toUri().toString();
+            // Infer the change type based on whether the file still exists.
+            FileChangeType type = Files.exists(projectFile.absPath())
+                    ? FileChangeType.Changed // Covers both creation and modification
+                    : FileChangeType.Deleted;
+            return new FileEvent(uri, type);
+        }).collect(Collectors.toList());
+
+        final var params = new DidChangeWatchedFilesParams(events);
+        whenInitialized(server -> server.getWorkspaceService().didChangeWatchedFiles(params));
     }
 
     
