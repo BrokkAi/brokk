@@ -22,6 +22,8 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -70,6 +72,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     private Patch<String> patch; // from JMDiffNode
     @Nullable
     private AbstractDelta<String> selectedDelta;
+
+    /**
+     * Ensures that the automatic centering of the first difference executes at
+     * most once per BufferDiffPanel lifecycle.
+     */
+    private volatile boolean initialAutoScrollDone = false;
 
     private int selectedLine;
 
@@ -146,7 +154,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         BufferDocumentIF leftDocument = bnLeft != null ? bnLeft.getDocument() : null;
         BufferDocumentIF rightDocument = bnRight != null ? bnRight.getDocument() : null;
-        
+
         // Calculate the diff to get the patch with actual differences
         diffNode.diff();
         this.patch = diffNode.getPatch(); // new Patch or null
@@ -176,9 +184,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         // Auto-scroll to first difference when diff is opened, or to top when no differences
         if (selectedDelta != null && scrollSynchronizer != null) {
-            // Check if content is one-sided (only INSERT or DELETE deltas)
-            if (isOneSidedContent()) {
-                logger.debug("Auto-scroll: Skipping auto-scroll for one-sided content (INSERT/DELETE only)");
+            // Check if auto-scroll should be skipped
+            if (shouldSkipAutoScroll()) {
+                logger.debug("Auto-scroll: Skipping auto-scroll - see previous debug messages for reason");
             } else {
                 // Auto-scroll to the first difference immediately
                 // The existing retry mechanism in scrollToFirstDifference() handles UI readiness
@@ -586,17 +594,97 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      */
     private void scrollToFirstDifference()
     {
-        logger.debug("scrollToFirstDifference: Called with selectedDelta={}, scrollSynchronizer={}", 
-                   selectedDelta != null ? selectedDelta.getSource().getPosition() : "null", 
+        logger.debug("scrollToFirstDifference: Called with selectedDelta={}, scrollSynchronizer={}",
+                   selectedDelta != null ? selectedDelta.getSource().getPosition() : "null",
                    scrollSynchronizer != null ? "available" : "null");
-                   
+
         if (selectedDelta == null || scrollSynchronizer == null) {
             logger.debug("scrollToFirstDifference: Skipping due to null state");
             return;
         }
 
-        // Use a retry mechanism to wait for UI readiness
-        scheduleAutoScrollWithRetry(0);
+        if (initialAutoScrollDone) {
+            logger.debug("scrollToFirstDifference: Auto-scroll already performed; skipping");
+            return;
+        }
+
+        // Register hierarchy listeners that will execute the auto-scroll
+        // exactly once when both scroll panes are visible and laid out.
+        registerAutoScrollListeners(getFilePanel(PanelSide.LEFT), getFilePanel(PanelSide.RIGHT));
+    }
+
+    /**
+     * Registers listeners on the two scroll panes and performs the initial
+     * centering once both panes are displayable and have a non-zero viewport
+     * height.
+     */
+    private void registerAutoScrollListeners(@Nullable FilePanel leftPanel,
+                                             @Nullable FilePanel rightPanel)
+    {
+        if (leftPanel == null || rightPanel == null
+                || selectedDelta == null || scrollSynchronizer == null) {
+            return;
+        }
+
+        var leftScroll  = leftPanel.getScrollPane();
+        var rightScroll = rightPanel.getScrollPane();
+
+        /* If panes are already realised, scroll now and skip listener setup */
+        if (invokeAutoScrollIfReady(leftScroll, rightScroll)) {
+            return;
+        }
+
+        /* Shared listener removed after both panes report readiness */
+        HierarchyListener readyListener = new HierarchyListener() {
+            private boolean leftReady  = false;
+            private boolean rightReady = false;
+
+            @Override
+            public void hierarchyChanged(HierarchyEvent e) {
+                var src = (JComponent) e.getComponent();
+
+                if (src == leftScroll && leftScroll.isShowing()
+                        && leftScroll.getViewport().getHeight() > 0) {
+                    leftReady = true;
+                    leftScroll.removeHierarchyListener(this);
+                }
+
+                if (src == rightScroll && rightScroll.isShowing()
+                        && rightScroll.getViewport().getHeight() > 0) {
+                    rightReady = true;
+                    rightScroll.removeHierarchyListener(this);
+                }
+
+                if (leftReady && rightReady && !initialAutoScrollDone) {
+                    initialAutoScrollDone = true;
+                    logger.debug("Auto-scroll: panes ready – centring first delta");
+                     requireNonNull(scrollSynchronizer).showDelta(requireNonNull(selectedDelta));
+                }
+            }
+        };
+
+        leftScroll.addHierarchyListener(readyListener);
+        rightScroll.addHierarchyListener(readyListener);
+    }
+
+    /**
+     * Executes the auto-scroll immediately when both panes are already visible
+     * and sized. Returns {@code true} if the scroll was performed.
+     */
+    private boolean invokeAutoScrollIfReady(javax.swing.JScrollPane left,
+                                            javax.swing.JScrollPane right)
+    {
+        boolean ready = left.isShowing() && right.isShowing()
+                     && left.getViewport().getHeight()  > 0
+                     && right.getViewport().getHeight() > 0;
+
+        if (ready && !initialAutoScrollDone) {
+            initialAutoScrollDone = true;
+            logger.debug("Auto-scroll: panes already ready – centring first delta");
+            requireNonNull(scrollSynchronizer).showDelta(requireNonNull(selectedDelta));
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -614,25 +702,25 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
             var leftPanel = getFilePanel(PanelSide.LEFT);
             var rightPanel = getFilePanel(PanelSide.RIGHT);
-            
-            boolean panelsReady = leftPanel != null && rightPanel != null && 
+
+            boolean panelsReady = leftPanel != null && rightPanel != null &&
                                 leftPanel.getScrollPane().getViewport().getSize().height > 0 &&
                                 rightPanel.getScrollPane().getViewport().getSize().height > 0;
-            
+
             if (panelsReady) {
-                logger.debug("scheduleAutoScrollWithRetry: Panels ready on attempt {}, executing auto-scroll to delta at position {}", 
+                logger.debug("scheduleAutoScrollWithRetry: Panels ready on attempt {}, executing auto-scroll to delta at position {}",
                            attempt + 1, selectedDelta.getSource().getPosition());
                 scrollSynchronizer.showDelta(selectedDelta);
             } else if (attempt < 5) {
                 // Retry with exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms
                 int delay = 100 * (int) Math.pow(2, attempt);
-                logger.debug("scheduleAutoScrollWithRetry: Panels not ready on attempt {} - left viewport height: {}, right viewport height: {}. Retrying in {}ms", 
+                logger.debug("scheduleAutoScrollWithRetry: Panels not ready on attempt {} - left viewport height: {}, right viewport height: {}. Retrying in {}ms",
                            attempt + 1,
                            leftPanel != null ? leftPanel.getScrollPane().getViewport().getSize().height : -1,
                            rightPanel != null ? rightPanel.getScrollPane().getViewport().getSize().height : -1,
                            delay);
-                           
-                javax.swing.Timer retryTimer = new javax.swing.Timer(delay, e -> 
+
+                javax.swing.Timer retryTimer = new javax.swing.Timer(delay, e ->
                     scheduleAutoScrollWithRetry(attempt + 1));
                 retryTimer.setRepeats(false);
                 retryTimer.start();
@@ -650,18 +738,18 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     {
         var leftPanel = getFilePanel(PanelSide.LEFT);
         var rightPanel = getFilePanel(PanelSide.RIGHT);
-        
+
         if (leftPanel != null && rightPanel != null) {
             SwingUtilities.invokeLater(() -> {
                 try {
                     // Scroll both panels to position 0
                     leftPanel.getEditor().setCaretPosition(0);
                     rightPanel.getEditor().setCaretPosition(0);
-                    
+
                     // Ensure the scroll position is at the top
                     leftPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
                     rightPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
-                    
+
                     logger.debug("scrollToTop: Successfully scrolled both panels to top");
                 } catch (Exception e) {
                     logger.debug("scrollToTop: Error scrolling to top", e);
@@ -671,25 +759,124 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Detects whether the patch contains one-sided content (only INSERT or DELETE deltas).
-     * One-sided content typically occurs when comparing files where one side is empty
-     * or when changes are concentrated in only one file.
-     * 
-     * @return true if the patch contains only INSERT or DELETE deltas (not CHANGE)
+     * Determines whether auto-scroll should be skipped for this diff.
+     * Auto-scroll is skipped for:
+     * 1. File additions/deletions (one side ≤ 2 lines)
+     * 2. Massive changes (single large delta from beginning)
+     * 3. Pure INSERT/DELETE deltas with very asymmetric content (< 5 vs > 20 lines)
+     *
+     * @return true if auto-scroll should be skipped
      */
-    private boolean isOneSidedContent()
+    private boolean shouldSkipAutoScroll()
     {
         if (patch == null || patch.getDeltas().isEmpty()) {
             return false;
         }
 
-        return patch.getDeltas().stream().allMatch(delta -> {
+        // Primary check: file addition/deletion scenarios (one side essentially empty)
+        if (isFileAdditionOrDeletion()) {
+            logger.debug("Auto-scroll skip: File addition/deletion detected");
+            return true;
+        }
+
+        // Check for massive single change covering most of the file
+        if (isMassiveFileChange()) {
+            logger.debug("Auto-scroll skip: Massive file change detected");
+            return true;
+        }
+
+        // Only skip pure INSERT/DELETE if BOTH conditions are met:
+        // 1. All deltas are pure INSERT/DELETE
+        // 2. AND one side is very asymmetric (< 5 lines vs > 20 lines)
+        boolean hasOnlyInsertDelete = patch.getDeltas().stream().allMatch(delta -> {
             var sourceSize = delta.getSource().size();
             var targetSize = delta.getTarget().size();
-            
-            // One-sided if either source or target is empty (pure INSERT or DELETE)
             return sourceSize == 0 || targetSize == 0;
         });
+
+        if (hasOnlyInsertDelete && isVeryAsymmetricContent()) {
+            logger.debug("Auto-scroll skip: Pure INSERT/DELETE deltas with very asymmetric content");
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Detects file addition or deletion by checking if one side is essentially empty.
+     * @return true if one side has very few lines (likely file addition/deletion)
+     */
+    private boolean isFileAdditionOrDeletion()
+    {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel == null || rightPanel == null) {
+            return false;
+        }
+
+        var leftDoc = leftPanel.getBufferDocument();
+        var rightDoc = rightPanel.getBufferDocument();
+
+        if (leftDoc == null || rightDoc == null) {
+            return false;
+        }
+
+        // Get line counts for both sides
+        int leftLines = leftDoc.getNumberOfLines();
+        int rightLines = rightDoc.getNumberOfLines();
+
+        // Consider it file addition/deletion if one side has <= 2 lines
+        // This handles empty files and files with just minimal content
+        return leftLines <= 2 || rightLines <= 2;
+    }
+
+    /**
+     * Detects massive changes that likely represent file restructuring.
+     * @return true if there's a single large delta covering most of the file
+     */
+    private boolean isMassiveFileChange()
+    {
+        if (patch == null || patch.getDeltas().size() != 1) {
+            return false;
+        }
+
+        var delta = patch.getDeltas().get(0);
+
+        // Consider it massive if:
+        // 1. Change starts near the beginning (position <= 2)
+        // 2. Either source or target has substantial content (> 20 lines)
+        return delta.getSource().getPosition() <= 2 &&
+               (delta.getSource().size() > 20 || delta.getTarget().size() > 20);
+    }
+
+    /**
+     * Detects very asymmetric content where one side is much smaller than the other.
+     * This helps distinguish between normal file modifications with INSERT/DELETE deltas
+     * vs actual file additions/deletions.
+     * @return true if one side has < 5 lines and the other has > 20 lines
+     */
+    private boolean isVeryAsymmetricContent()
+    {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel == null || rightPanel == null) {
+            return false;
+        }
+
+        var leftDoc = leftPanel.getBufferDocument();
+        var rightDoc = rightPanel.getBufferDocument();
+
+        if (leftDoc == null || rightDoc == null) {
+            return false;
+        }
+
+        int leftLines = leftDoc.getNumberOfLines();
+        int rightLines = rightDoc.getNumberOfLines();
+
+        // Very asymmetric if one side < 5 lines and other side > 20 lines
+        return (leftLines < 5 && rightLines > 20) || (rightLines < 5 && leftLines > 20);
     }
 
     /**
