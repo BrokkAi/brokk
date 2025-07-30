@@ -65,7 +65,6 @@ dependencies {
     // Utilities
     implementation(libs.bundles.ui)
     implementation(libs.java.diff.utils)
-    implementation(libs.snakeyaml)
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
     implementation(libs.picocli)
@@ -85,6 +84,9 @@ dependencies {
 
     // Java Decompiler
     implementation(libs.java.decompiler)
+
+    // Maven Resolver for dependency import
+    implementation(libs.bundles.maven.resolver)
 
     implementation(libs.checker.util)
 

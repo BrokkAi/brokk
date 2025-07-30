@@ -224,14 +224,14 @@ public class Llm {
         });
 
         try {
-            if (!latch.await(Service.LLM_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!latch.await(Service.LLM_MAX_RESPONSE_TIME, TimeUnit.SECONDS)) {
                 lock.lock(); // LockNotBeforeTry
                 try {
                     cancelled.set(true); // Ensure callback stops echoing
                 } finally {
                     lock.unlock();
                 }
-                errorRef.set(new HttpException(500, "LLM timed out"));
+                errorRef.set(new HttpException(504, "LLM timed out"));
             }
         } catch (InterruptedException e) {
             lock.lock(); // LockNotBeforeTry
@@ -353,7 +353,7 @@ public class Llm {
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
-                return response;
+                return response.withRetryCount(attempt - 1);
             }
 
             // don't retry on bad request errors
@@ -387,9 +387,9 @@ public class Llm {
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            return new StreamingResult(null, new IllegalStateException("Empty response after max retries"));
+            return new StreamingResult(null, new IllegalStateException("Empty response after max retries"), attempt - 1);
         }
-        return new StreamingResult(null, lastError);
+        return new StreamingResult(null, lastError, attempt - 1);
     }
 
     /**
@@ -529,13 +529,13 @@ public class Llm {
                 }
 
                 // we got tool calls, or they're optional -- we're done
-                finalResult = new StreamingResult(parseResult, null);
+                finalResult = new StreamingResult(parseResult, null, rawResult.retries());
                 break;
             } catch (IllegalArgumentException parseError) {
                 // JSON invalid or lacked tool_calls
                 if (attempt == maxTries) {
                     // create dummy result for failure
-                    finalResult = new StreamingResult(null, parseError);
+                    finalResult = new StreamingResult(null, parseError, rawResult.retries());
                     break; // out of retry loop
                 }
 
@@ -1083,6 +1083,8 @@ public class Llm {
         // TODO this should be final but disentanglihg from ContextManager is difficult
         this.io = io;
     }
+    
+    public record RichTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) { }
 
     /**
      * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS
@@ -1094,8 +1096,13 @@ public class Llm {
      * inspecting the contents of chatResponse.
      */
     public record StreamingResult(@Nullable NullSafeResponse chatResponse,
-                                  @Nullable Throwable error)
+                                  @Nullable Throwable error,
+                                  int retries)
     {
+        public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error) {
+            this(partialResponse, error, 0);
+        }
+
         public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Throwable error) {
             return new StreamingResult(new NullSafeResponse(originalResponse), error);
         }
@@ -1110,6 +1117,31 @@ public class Llm {
                 // indicating it's a partial/synthetic response accompanying an error.
                 assert chatResponse == null || chatResponse.originalResponse == null;
             }
+        }
+        
+        public @Nullable RichTokenUsage tokenUsage() {
+            if (originalResponse() == null) {
+                return null;
+            }
+            var usage = (OpenAiTokenUsage) originalResponse().tokenUsage();
+
+            // always present
+            int inputTokens       = usage.inputTokenCount();
+            int cachedInputTokens = 0;
+            int thinkingTokens    = 0;
+            int outputTokens      = usage.outputTokenCount();
+
+            // only present if litellm didn't fuck up the streaming-complete response
+            var inputDetails = usage.inputTokensDetails();
+            var outputDetails = usage.outputTokensDetails();
+            if (inputDetails != null && inputDetails.cachedTokens() != null) {
+                cachedInputTokens = inputDetails.cachedTokens();
+            }
+            if (outputDetails != null && outputDetails.reasoningTokens() != null) {
+                thinkingTokens = outputDetails.reasoningTokens();
+            }
+
+            return new RichTokenUsage(inputTokens, cachedInputTokens, thinkingTokens, outputTokens);
         }
 
         public String text() {
@@ -1184,7 +1216,7 @@ public class Llm {
          */
         public String getDescription() {
             if (error != null) {
-                return requireNonNull(error.getMessage());
+                return requireNonNull(error.getMessage(), error.toString());
             }
 
             var cr = castNonNull(chatResponse);
@@ -1199,6 +1231,10 @@ public class Llm {
             }
 
             return text;
+        }
+
+        public StreamingResult withRetryCount(int retries) {
+            return new StreamingResult(chatResponse, error, retries);
         }
     }
 }

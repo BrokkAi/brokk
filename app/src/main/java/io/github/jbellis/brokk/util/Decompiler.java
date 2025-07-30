@@ -10,17 +10,47 @@ import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 import javax.swing.*;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.FileVisitResult;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipFile;
 
 public class Decompiler {
     private static final Logger logger = LogManager.getLogger(Decompiler.class);
+
+    /**
+     * Extracts Maven coordinates from a {@code pom.properties} file found under {@code META-INF/maven/}.
+     */
+    private static Optional<String> getMavenCoordinatesFromPomProperties(Path jarPath) {
+        try (var zip = new ZipFile(jarPath.toFile())) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                var name = entry.getName();
+                if (!entry.isDirectory() && name.startsWith("META-INF/maven/") && name.endsWith("/pom.properties")) {
+                    var props = new Properties();
+                    try (var in = zip.getInputStream(entry)) {
+                        props.load(in);
+                    }
+                    var groupId = props.getProperty("groupId");
+                    var artifactId = props.getProperty("artifactId");
+                    var version = props.getProperty("version");
+                    if (groupId != null && artifactId != null && version != null) {
+                        var coords = String.format("%s:%s:%s", groupId, artifactId, version);
+                        logger.debug("Determined Maven coordinates for {} as {} from pom.properties", jarPath, coords);
+                        return Optional.of(coords);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            logger.warn("Could not read pom.properties from {}: {}", jarPath, e.getMessage());
+        }
+        return Optional.empty();
+    }
 
     /**
      * Performs the decompilation of the selected JAR file.
@@ -40,143 +70,157 @@ public class Decompiler {
                                     Path jarPath,
                                     ContextManager.TaskRunner runner,
                                     @Nullable Runnable onComplete) {
-        try {
-            String jarName = jarPath.getFileName().toString();
-            // Use the *original* project's root to determine the .brokk directory
-            Path originalProjectRoot = io.getContextManager().getRoot();
-            Path brokkDir = originalProjectRoot.resolve(".brokk");
-            Path depsDir = brokkDir.resolve("dependencies");
-            Path outputDir = depsDir.resolve(jarName.replaceAll("\\.jar$", "")); // Decompile target dir
+        String jarName = jarPath.getFileName().toString();
+        Path originalProjectRoot = io.getContextManager().getRoot();
+        Path brokkDir = originalProjectRoot.resolve(".brokk");
+        Path depsDir = brokkDir.resolve("dependencies");
+        Path outputDir = depsDir.resolve(jarName.replaceAll("\\.jar$", ""));
 
-            logger.debug("Original project root: {}", originalProjectRoot);
-            logger.debug("Decompile output directory: {}", outputDir);
+        io.systemOutput("Importing " + jarName + "...");
 
-            Files.createDirectories(depsDir);
+        runner.submit("Importing " + jarName, () -> {
+            try {
+                // Attempt to download sources if we can determine Maven coordinates
+                var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath);
 
-            // Check if already decompiled
-            if (Files.exists(outputDir)) {
-                int choice = JOptionPane.showConfirmDialog(
-                        io.getFrame(), // Use current IO frame
-                        """
-                        This JAR appears to have been decompiled previously.
-                        Output directory: %s
-
-                        Delete output directory and decompile again?
-                        (Choosing 'No' will leave the existing decompiled files unchanged.)
-                        """.formatted(outputDir.toString()),
-                        "Dependency exists",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.QUESTION_MESSAGE
-                );
-
-                if (choice == JOptionPane.YES_OPTION) {
-                    logger.debug("Removing old decompiled contents at {}", outputDir);
-                    try {
-                        Decompiler.deleteDirectoryRecursive(outputDir);
-                    } catch (IOException e) {
-                        io.toolError("Error deleting existing decompiled directory: " + e.getMessage());
-                        return; // Stop if deletion fails
-                    }
-                    // Recreate the directory after deletion
-                    Files.createDirectories(outputDir);
-                } else if (choice == JOptionPane.NO_OPTION) {
-                    logger.debug("Opening previously decompiled dependency at {}", outputDir);
-                    return;
+                Optional<Path> sourcesJarPathOpt = Optional.empty();
+                if (coordsOpt.isPresent()) {
+                    var coords = coordsOpt.get();
+                    io.systemOutput("Detected Maven coordinates: " + coords + ". Attempting to download sources...");
+                    var fetcher = new MavenArtifactFetcher();
+                    sourcesJarPathOpt = fetcher.fetch(coords, "sources");
                 }
-            } else {
-                // Create the output directory if it didn't exist
-                Files.createDirectories(outputDir);
+
+                // If not downloaded, check for a local sibling
+                if (sourcesJarPathOpt.isEmpty()) {
+                    if (coordsOpt.isEmpty()) {
+                        logger.info("No pom.properties found in {}. Checking for local *-sources.jar before decompiling.", jarPath.getFileName());
+                    }
+                    Path localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
+                    if (Files.exists(localSources)) {
+                        sourcesJarPathOpt = Optional.of(localSources);
+                    }
+                }
+
+                // Prepare output directory, asking for overwrite if necessary
+                if (!prepareOutputDirectory(io, outputDir)) {
+                    logger.debug("User chose not to overwrite existing dependency directory {}", outputDir);
+                    return null;
+                }
+
+                if (sourcesJarPathOpt.isPresent()) {
+                    Path sourcesJarPath = sourcesJarPathOpt.get();
+                    io.systemOutput("Found sources JAR. Unpacking " + sourcesJarPath.getFileName() + "...");
+                    extractJarToTemp(sourcesJarPath, outputDir);
+                    io.systemOutput("Sources unpacked. Reopen project to incorporate the new source files.");
+                } else {
+                    if (coordsOpt.isPresent()) {
+                        logger.info("Could not find sources for {}. Falling back to decompilation.", coordsOpt.get());
+                    }
+                    decompile(io, jarPath, outputDir);
+                }
+
+                if (onComplete != null) {
+                    SwingUtilities.invokeLater(onComplete);
+                }
+            } catch (Exception e) {
+                io.toolError("Error during import process: " + e.getMessage());
+                logger.error("Error processing JAR {}", jarPath, e);
             }
+            return null;
+        });
+    }
 
+    private static boolean prepareOutputDirectory(Chrome io, Path outputDir) throws Exception {
+        Files.createDirectories(outputDir.getParent());
 
-            io.systemOutput("Decompiling " + jarName + "...");
-
-            // Submit the decompilation task to the provided executor
-            runner.submit("Decompiling " + jarName, () -> {
-                logger.debug("Starting decompilation in background thread for {}", jarPath);
-                Path tempDir = null; // To store the path of the temporary directory
-
+        if (Files.exists(outputDir)) {
+            var proceed = new AtomicBoolean(false);
+            var latch = new CountDownLatch(1);
+            SwingUtilities.invokeLater(() -> {
                 try {
-                    // 1. Create a temporary directory
-                    tempDir = Files.createTempDirectory("fernflower-extracted-");
-                    logger.debug("Created temporary directory: {}", tempDir);
+                    int choice = JOptionPane.showConfirmDialog(
+                            io.getFrame(),
+                            """
+                            This dependency appears to exist already.
+                            Output directory: %s
 
-                    // 2. Extract the JAR contents to the temporary directory
-                    Decompiler.extractJarToTemp(jarPath, tempDir);
-                    logger.debug("Extracted JAR contents to temporary directory.");
-
-                    // 3. Set up Decompiler with the *final* output directory
-                    Map<String, Object> options = Map.of("hes", "1", // hide empty super
-                                                         "hdc", "1", // hide default constructor
-                                                         "dgs", "1", // decompile generic signature
-                                                         "ren", "1" /* rename ambiguous */);
-                    ConsoleDecompiler decompiler = new ConsoleDecompiler(
-                            outputDir.toFile(), // Use the final desired output directory here
-                            options,
-                            new org.jetbrains.java.decompiler.main.extern.IFernflowerLogger() {
-                                @Override
-                                public void writeMessage(String message, Severity severity) {
-                                    switch (severity) {
-                                        case ERROR -> logger.error("Fernflower: {}", message);
-                                        case WARN  -> logger.warn("Fernflower: {}", message);
-                                        case INFO  -> logger.info("Fernflower: {}", message);
-                                        case TRACE -> logger.trace("Fernflower: {}", message);
-                                        default    -> logger.debug("Fernflower: {}", message);
-                                    }
-                                }
-
-                                @Override
-                                public void writeMessage(String message, Severity severity, Throwable t) {
-                                    switch (severity) {
-                                        case ERROR -> logger.error("Fernflower: {}", message, t);
-                                        case WARN  -> logger.warn("Fernflower: {}", message, t);
-                                        case INFO  -> logger.info("Fernflower: {}", message, t);
-                                        case TRACE -> logger.trace("Fernflower: {}", message, t);
-                                        default   -> logger.debug("Fernflower: {}", message, t);
-                                    }
-                                }
-                            }
+                            Delete output directory and import again?
+                            (Choosing 'No' will leave the existing files unchanged.)
+                            """.formatted(outputDir.toString()),
+                            "Dependency exists",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE
                     );
-
-                    // 4. Add the *temporary directory* as the source
-                    decompiler.addSource(tempDir.toFile());
-
-                    // 5. Decompile
-                    logger.info("Starting decompilation process...");
-                    decompiler.decompileContext();
-                    logger.info("Decompilation process finished.");
-
-                    // Notify user of success
-                    if (onComplete != null) {
-                        SwingUtilities.invokeLater(onComplete);
-                    }
-                    // Log final directory structure for troubleshooting
-                    logger.debug("Final contents of {} after decompilation:", outputDir);
-                    try (var pathStream = Files.walk(outputDir, 1)) { // Walk only one level deep for brevity
-                        pathStream.forEach(path -> logger.debug("   {}", path.getFileName()));
-                    } catch (IOException e) {
-                        logger.warn("Error listing output directory contents", e);
-                    }
-                } catch (Exception e) {
-                    // Handle exceptions within the task
-                    io.toolError("Error during decompilation process: " + e.getMessage());
+                    proceed.set(choice == JOptionPane.YES_OPTION);
                 } finally {
-                    // 6. Clean up the temporary directory
-                    if (tempDir != null) {
-                        try {
-                            logger.debug("Cleaning up temporary directory: {}", tempDir);
-                            Decompiler.deleteDirectoryRecursive(tempDir);
-                            logger.debug("Temporary directory deleted.");
-                        } catch (IOException e) {
-                            logger.error("Failed to delete temporary directory: {}", tempDir, e);
+                    latch.countDown();
+                }
+            });
+            latch.await();
+
+            if (proceed.get()) {
+                logger.debug("Removing old dependency contents at {}", outputDir);
+                deleteDirectoryRecursive(outputDir);
+            } else {
+                return false;
+            }
+        }
+
+        Files.createDirectories(outputDir);
+        return true;
+    }
+
+    private static void decompile(Chrome io, Path jarPath, Path outputDir) throws Exception {
+        io.systemOutput("Decompiling " + jarPath.getFileName() + "...");
+        logger.debug("Starting decompilation in background thread for {}", jarPath);
+        Path tempDir = null;
+
+        try {
+            tempDir = Files.createTempDirectory("fernflower-extracted-");
+            extractJarToTemp(jarPath, tempDir);
+
+            Map<String, Object> options = Map.of("hes", "1", "hdc", "1", "dgs", "1", "ren", "1");
+            ConsoleDecompiler decompiler = new ConsoleDecompiler(
+                    outputDir.toFile(),
+                    options,
+                    new org.jetbrains.java.decompiler.main.extern.IFernflowerLogger() {
+                        @Override
+                        public void writeMessage(String message, Severity severity) {
+                            switch (severity) {
+                                case ERROR -> logger.error("Fernflower: {}", message);
+                                case WARN  -> logger.warn("Fernflower: {}", message);
+                                case INFO  -> logger.info("Fernflower: {}", message);
+                                case TRACE -> logger.trace("Fernflower: {}", message);
+                                default    -> logger.debug("Fernflower: {}", message);
+                            }
+                        }
+
+                        @Override
+                        public void writeMessage(String message, Severity severity, Throwable t) {
+                            switch (severity) {
+                                case ERROR -> logger.error("Fernflower: {}", message, t);
+                                case WARN  -> logger.warn("Fernflower: {}", message, t);
+                                case INFO  -> logger.info("Fernflower: {}", message, t);
+                                case TRACE -> logger.trace("Fernflower: {}", message, t);
+                                default   -> logger.debug("Fernflower: {}", message, t);
+                            }
                         }
                     }
+            );
+
+            decompiler.addSource(tempDir.toFile());
+            decompiler.decompileContext();
+
+            io.systemOutput("Decompilation completed. Reopen project to incorporate the new source files.");
+        } finally {
+            if (tempDir != null) {
+                try {
+                    deleteDirectoryRecursive(tempDir);
+                } catch (IOException e) {
+                    logger.error("Failed to delete temporary directory: {}", tempDir, e);
                 }
-                return null;
-            });
-        } catch (IOException e) {
-            // Error *before* starting the worker (e.g., creating directories)
-            io.toolError("Error preparing decompilation: " + e.getMessage());
+            }
         }
     }
 

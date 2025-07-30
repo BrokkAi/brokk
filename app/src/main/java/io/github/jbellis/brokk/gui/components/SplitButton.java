@@ -216,9 +216,6 @@ public class SplitButton extends JButton {
         @Override
         public Dimension getPreferredSize(JComponent c) {
             Dimension d = super.getPreferredSize(c);
-            if (c.isPreferredSizeSet()) {
-                return d;
-            }
             d.width += ARROW_WIDTH;
             return d;
         }
@@ -226,25 +223,15 @@ public class SplitButton extends JButton {
         @Override
         public Dimension getMinimumSize(JComponent c) {
             Dimension d = super.getMinimumSize(c);
-            // If minimum size is explicitly set, or if preferred size is set, use the superclass's calculation.
-            // Otherwise, add arrow width.
-            if (c.isMinimumSizeSet() || c.isPreferredSizeSet()) {
-                return d;
-            }
             d.width += ARROW_WIDTH;
             return d;
         }
 
         @Override
         public Dimension getMaximumSize(JComponent c) {
-            Dimension d = super.getMaximumSize(c);
-            // If maximum size is explicitly set, or if preferred size is set, use the superclass's calculation.
-            // Otherwise, add arrow width.
-            if (c.isMaximumSizeSet() || c.isPreferredSizeSet()) {
-                return d;
-            }
-            d.width += ARROW_WIDTH;
-            return d;
+            // The maximum size is the preferred size, which is calculated by the super call
+            // and already includes the arrow width.
+            return super.getMaximumSize(c);
         }
     }
 }

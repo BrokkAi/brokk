@@ -344,45 +344,25 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
          */
         @Override
         public String toString() {
-            try {
-                int start = getStartOffset();
-                int end = getEndOffset();
-                if (document == null || content == null) return "<DOCUMENT_NOT_INITIALIZED>";
-            int docLen = document.getLength();
+            if (document == null || content == null) {
+                return "<DOCUMENT_NOT_INITIALIZED>";
+            }
 
-            if (start < 0 || end < 0 || start > docLen) {
+            int start = getStartOffset();
+            int end   = Math.min(getEndOffset(), document.getLength());
+
+            if (start < 0 || start > end) {
                 return "<INVALID RANGE>";
             }
-
-            // If end is docLen+1, that usually indicates a final trailing newline in PlainDocument
-            if (end > docLen) {
-                if (end == docLen + 1 && docLen > 0 && content.charAtOffset(docLen -1) == '\n') {
-                    // This is the common case of the last line having a newline that PlainDocument counts beyond length.
-                    // Return the content up to docLen, including the newline.
-                    return content.getString(start, docLen - start);
-                } else if (end == docLen && start == docLen) { // empty last line
-                    return "";
-                }
-                // Other cases of end > docLen are unexpected or represent empty trailing lines.
-                // For simplicity, clamp to docLen. If it's truly just the newline char for last line,
-                // it will be included if start < docLen.
-                // An empty string for an "empty" last line is usually fine.
-                log.warn("Line end offset {} > docLen {}. Clamping. Start={}, Doc: {}", end, docLen, start, name);
-                end = docLen;
-            }
-
-            int length = end - start;
-            if (length <= 0) {
+            int len = end - start;
+            if (len == 0) {
                 return "";
             }
-            return content.getString(start, length);
-
-        } catch (BadLocationException ex) {
-            throw new RuntimeException(ex);
-        } catch (NullPointerException npe) { // Catch NPE if getContent() returns null
-            log.error("NPE in Line.toString() for doc {}, likely content not initialized.", name, npe);
-            return "<CONTENT_ERROR>";
-        }
+            try {
+                return content.getString(start, len);
+            } catch (BadLocationException e) {
+                throw new RuntimeException(e);
+            }
         }
 
         @Override
@@ -467,19 +447,18 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
     /**
      * Returns the entire document as a list of strings, one per line.
      * This is used directly by the diff logic.
+     * The result is cached until the document is changed.
      */
     @Override
-    public List<String> getLineList() {
-        initLines();
-        if (lineArray == null) {
-            return List.of();
-        }
-        List<String> result = new ArrayList<>(lineArray.length);
-        for (Line line : lineArray) {
-            result.add(line.toString());
-        }
-        return result;
+public List<String> getLineList() {
+    initLines();
+    if (lineArray == null || lineArray.length == 0) {
+        return List.of();
     }
+    return Arrays.stream(lineArray)
+                 .map(Line::toString)
+                 .toList();
+}
 
     @Override
     public String toString() {

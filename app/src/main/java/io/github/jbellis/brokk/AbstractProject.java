@@ -399,17 +399,19 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
 
         var allFiles = new HashSet<>(trackedFiles);
-        try (var pathStream = Files.walk(dependenciesPath)) {
-            pathStream
-                    .filter(Files::isRegularFile)
-                    .map(path -> {
-                        var relPath = masterRootPathForConfig.relativize(path);
-                        return new ProjectFile(masterRootPathForConfig, relPath);
-                    })
-                    .forEach(allFiles::add);
-        } catch (IOException e) {
-            logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
-            return trackedFiles;
+        for (var live: getLiveDependencies()) {
+            try (var pathStream = Files.walk(live.absPath())) {
+                pathStream
+                        .filter(Files::isRegularFile)
+                        .map(path -> {
+                            var relPath = masterRootPathForConfig.relativize(path);
+                            return new ProjectFile(masterRootPathForConfig, relPath);
+                        })
+                        .forEach(allFiles::add);
+            } catch (IOException e) {
+                logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
+                return trackedFiles;
+            }
         }
 
         return allFiles;
@@ -426,5 +428,34 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized void invalidateAllFiles() {
         allFilesCache = null;
+    }
+
+    @Override
+    public Set<String> getExcludedDirectories() {
+        var exclusions = new HashSet<String>();
+        exclusions.addAll(loadBuildDetails().excludedDirectories());
+
+        var dependenciesDir = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
+        if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
+            return exclusions;
+        }
+
+        var liveDependencyPaths = getLiveDependencies().stream()
+                                                       .map(ProjectFile::absPath)
+                                                       .collect(Collectors.toSet());
+
+        try (var pathStream = Files.list(dependenciesDir)) {
+            pathStream
+                    .filter(Files::isDirectory)
+                    .filter(path -> !liveDependencyPaths.contains(path))
+                    .forEach(path -> {
+                        var relPath = masterRootPathForConfig.relativize(path).toString();
+                        exclusions.add(relPath);
+                    });
+        } catch (IOException e) {
+            logger.error("Error loading excluded dependency directories from {}: {}", dependenciesDir, e.getMessage());
+        }
+
+        return exclusions;
     }
 }

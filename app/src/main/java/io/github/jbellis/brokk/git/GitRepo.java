@@ -6,10 +6,12 @@ import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.NoHeadException;
+import org.eclipse.jgit.revwalk.FollowFilter;
 import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ProgressMonitor;
+import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
@@ -138,8 +140,9 @@ public class GitRepo implements Closeable, IGitRepo {
         this.projectRoot = projectRoot;
 
         try {
-            FileRepositoryBuilder builder = new FileRepositoryBuilder();
-            builder.findGitDir(projectRoot.toFile());
+            var builder = new FileRepositoryBuilder()
+                    .setWorkTree(projectRoot.toFile())
+                    .findGitDir(projectRoot.toFile());
             if (builder.getGitDir() == null) {
                 throw new RuntimeException("No git repo found at or above " + projectRoot);
             }
@@ -1151,7 +1154,6 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public MergeResult rebaseMergeIntoHead(String branchName) throws GitAPIException {
         String targetBranch = getCurrentBranch();
-        String originalBranch = targetBranch;
         String tempRebaseBranchName = null;
 
         try {
@@ -1193,11 +1195,11 @@ public class GitRepo implements Closeable, IGitRepo {
         } finally {
             // Cleanup: ensure we're on the original branch and delete temp branch
             try {
-                if (!getCurrentBranch().equals(originalBranch)) {
-                    checkout(originalBranch);
+                if (!getCurrentBranch().equals(targetBranch)) {
+                    checkout(targetBranch);
                 }
             } catch (GitAPIException e) {
-                logger.error("Error ensuring checkout to target branch '{}' during rebase cleanup", originalBranch, e);
+                logger.error("Error ensuring checkout to target branch '{}' during rebase cleanup", targetBranch, e);
             }
 
             if (tempRebaseBranchName != null) {
@@ -1304,6 +1306,16 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             var branch = repository.getBranch();
             if (branch == null) {
+                // Check for detached HEAD state by resolving HEAD directly
+                ObjectId head;
+                try {
+                    head = repository.resolve("HEAD");
+                } catch (IOException ex) {
+                    throw new GitWrappedIOException(ex);
+                }
+                if (head != null) {
+                    return head.getName(); // Return the commit SHA in detached HEAD state
+                }
                 throw new GitRepoException("Repository has no HEAD", new NullPointerException());
             }
             return branch;
@@ -1336,6 +1348,45 @@ public class GitRepo implements Closeable, IGitRepo {
      * A record to hold a modified file and its status.
      */
     public record ModifiedFile(ProjectFile file, String status) {
+    }
+
+    public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {
+    }
+
+    /**
+     * Lists branches and tags from a remote repository URL.
+     *
+     * @param url The URL of the remote repository.
+     * @return A RemoteInfo record containing the branches, tags, and default branch.
+     * @throws GitAPIException if the remote is inaccessible or another Git error occurs.
+     */
+    public static RemoteInfo listRemoteRefs(String url) throws GitAPIException {
+        var remoteRefs = Git.lsRemoteRepository()
+                            .setHeads(true)
+                            .setTags(true)
+                            .setRemote(url)
+                            .call();
+
+        var branches = new ArrayList<String>();
+        var tags = new ArrayList<String>();
+        String defaultBranch = null;
+
+        for (var ref : remoteRefs) {
+            String name = ref.getName();
+            if (name.startsWith("refs/heads/")) {
+                branches.add(name.substring("refs/heads/".length()));
+            } else if (name.startsWith("refs/tags/")) {
+                tags.add(name.substring("refs/tags/".length()));
+            } else if (name.equals("HEAD")) {
+                @Nullable var target = ref.getTarget();
+                if (target != null && target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
+                    defaultBranch = target.getName().substring("refs/heads/".length());
+                }
+            }
+        }
+        Collections.sort(branches);
+        Collections.sort(tags);
+        return new RemoteInfo(url, branches, tags, defaultBranch);
     }
 
     /**
@@ -1830,17 +1881,111 @@ public class GitRepo implements Closeable, IGitRepo {
              throw new GitWrappedIOException(e);
          }
      }
- 
+
      /**
       * Get the commit history for a specific file
       */
-     public List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
-        var commits = new ArrayList<CommitInfo>();
-        for (var commit : git.log().addPath(toRepoRelativePath(file)).call()) {
-            // Use factory method
-            commits.add(this.fromRevCommit(commit));
+    private List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
+        var commits = new LinkedHashSet<CommitInfo>();
+        var path = toRepoRelativePath(file);
+        try {
+            var headId = resolve("HEAD");
+            try (var revWalk = new RevWalk(repository)) {
+                var diffconfig = repository.getConfig().get(DiffConfig.KEY);
+                revWalk.setTreeFilter(FollowFilter.create(path, diffconfig));
+                revWalk.markStart(revWalk.parseCommit(headId));
+
+                for (var commit : revWalk) {
+                    commits.add(this.fromRevCommit(commit));
+                }
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
         }
-        return commits;
+        return new ArrayList<>(commits);
+    }
+
+    /** One commit in a file’s history together with the path the file had
+     *  inside that commit.
+     */
+    public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
+
+    /**
+     * Like {@link #getFileHistory(ProjectFile)} but also returns, for each
+     * commit, the path the file had *in that commit* (following renames
+     * backwards).
+     *
+     * @param file the file (at its current path) whose history we want
+     */
+    public List<FileHistoryEntry> getFileHistoryWithPaths(ProjectFile file) throws GitAPIException
+    {
+        // 1. normal commit list, newest → oldest (already follows renames)
+        var commits = getFileHistory(file);
+        if (commits.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        var results    = new ArrayList<FileHistoryEntry>(commits.size());
+        var currPath   = file;                     // path valid for current head
+        var currGitRel = toRepoRelativePath(currPath);
+
+        try (var revWalk = new RevWalk(repository);
+             var diffFmt = new DiffFormatter(new ByteArrayOutputStream()))
+        {
+            diffFmt.setRepository(repository);
+            diffFmt.setDetectRenames(true);
+
+            for (var commitInfo : commits)
+            {
+                // record current path for this commit
+                results.add(new FileHistoryEntry(commitInfo, currPath));
+
+                // prepare for next (older) commit
+                RevCommit commit;
+                try {
+                    commit = revWalk.parseCommit(ObjectId.fromString(commitInfo.id()));
+                } catch (IOException | IllegalArgumentException e) {
+                    logger.warn("Failed to parse commit {}: {}", commitInfo.id(), e.getMessage());
+                    continue; // Skip this commit but continue processing
+                }
+
+                if (commit.getParentCount() == 0) {
+                    // reached root – no parent to diff against
+                    logger.debug("Reached root commit {} with no parents", commitInfo.id());
+                    continue;
+                }
+
+                // For merge commits, check all parents for renames
+                boolean renameFound = false;
+                for (int i = 0; i < commit.getParentCount() && !renameFound; i++) {
+                    try {
+                        var parent = revWalk.parseCommit(commit.getParent(i).getId());
+                        var diffs = diffFmt.scan(parent.getTree(), commit.getTree());
+
+                        for (var d : diffs) {
+                            if (d.getChangeType() == DiffEntry.ChangeType.RENAME &&
+                                d.getNewPath().equals(currGitRel))
+                            {
+                                // file was renamed in THIS commit; older commits use oldPath
+                                logger.debug("Detected rename: {} -> {} in commit {}",
+                                           d.getOldPath(), d.getNewPath(), commitInfo.id());
+                                currGitRel = d.getOldPath();
+                                currPath   = toProjectFile(currGitRel);
+                                renameFound = true;
+                                break;
+                            }
+                        }
+                    } catch (IOException e) {
+                        logger.warn("Failed to process parent {} of commit {}: {}",
+                                  i, commitInfo.id(), e.getMessage());
+                        // Continue with next parent
+                    }
+                }
+
+                logger.debug("Processing commit {}, current path: {}", commitInfo.id(), currGitRel);
+            }
+        }
+        return results;
     }
 
     /**
@@ -2099,15 +2244,14 @@ public class GitRepo implements Closeable, IGitRepo {
         return mb == null ? null : mb.getName();
     }
 
-    /**
-     * Lists all worktrees in the repository.
-     */
-    @Override
-    public List<WorktreeInfo> listWorktrees() throws GitAPIException {
+    public record ListWorktreesResult(List<WorktreeInfo> worktrees, List<Path> invalidPaths) {}
+
+    public ListWorktreesResult listWorktreesAndInvalid() throws GitAPIException {
         try {
             var command = "git worktree list --porcelain";
             var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
             var worktrees = new ArrayList<WorktreeInfo>();
+            var invalidPaths = new ArrayList<Path>();
             var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output); // Split by any newline sequence
 
             Path currentPath = null;
@@ -2121,42 +2265,63 @@ public class GitRepo implements Closeable, IGitRepo {
                         worktrees.add(new WorktreeInfo(currentPath,
                                                        currentBranch,
                                                        requireNonNull(currentHead)));
-                        currentHead = null;
-                        currentBranch = null;
                     }
+                    // Reset for next entry
+                    currentHead = null;
+                    currentBranch = null;
 
+                    var pathStr = line.substring("worktree ".length());
                     try {
-                        currentPath = Path.of(line.substring("worktree ".length())).toRealPath();
+                        currentPath = Path.of(pathStr).toRealPath();
+                    } catch (NoSuchFileException e) {
+                        logger.warn("Worktree path does not exist, scheduling for prune: {}", pathStr);
+                        invalidPaths.add(Path.of(pathStr));
+                        currentPath = null; // Mark as invalid for subsequent processing
                     } catch (IOException e) {
-                        throw new GitRepoException("Failed to resolve worktree path: " + line.substring("worktree ".length()), e);
+                        throw new GitRepoException("Failed to resolve worktree path: " + pathStr, e);
                     }
                 } else if (line.startsWith("HEAD ")) {
-                    currentHead = line.substring("HEAD ".length());
+                    // Only process if current worktree path is valid
+                    if (currentPath != null) {
+                        currentHead = line.substring("HEAD ".length());
+                    }
                 } else if (line.startsWith("branch ")) {
-                    var branchRef = line.substring("branch ".length());
-                    if (branchRef.startsWith("refs/heads/")) {
-                        currentBranch = branchRef.substring("refs/heads/".length());
-                    } else {
-                        currentBranch = branchRef; // Should not happen with porcelain but good to be defensive
+                    if (currentPath != null) {
+                        var branchRef = line.substring("branch ".length());
+                        if (branchRef.startsWith("refs/heads/")) {
+                            currentBranch = branchRef.substring("refs/heads/".length());
+                        } else {
+                            currentBranch = branchRef; // Should not happen with porcelain but good to be defensive
+                        }
                     }
                 } else if (line.equals("detached")) {
-                    // Detached-HEAD worktree: branch remains null (WorktreeInfo.branch is @Nullable).
-                    currentBranch = null;
+                    if (currentPath != null) {
+                        // Detached-HEAD worktree: branch remains null (WorktreeInfo.branch is @Nullable).
+                        currentBranch = null;
+                    }
                 }
             }
             // Add the last parsed worktree
             if (currentPath != null) {
                 worktrees.add(new WorktreeInfo(currentPath,
-                                               currentBranch,   // empty string for detached worktrees
+                                               currentBranch,
                                                requireNonNull(currentHead)));
             }
-            return worktrees;
+            return new ListWorktreesResult(worktrees, invalidPaths);
         } catch (Environment.SubprocessException e) {
             throw new GitRepoException("Failed to list worktrees: " + e.getOutput(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new GitRepoException("Listing worktrees was interrupted", e);
         }
+    }
+
+    /**
+     * Lists all worktrees in the repository.
+     */
+    @Override
+    public List<WorktreeInfo> listWorktrees() throws GitAPIException {
+        return listWorktreesAndInvalid().worktrees();
     }
 
     /**
@@ -2276,6 +2441,23 @@ public class GitRepo implements Closeable, IGitRepo {
             String interruptMessage = String.format("Removing worktree at %s%s was interrupted",
                                                     path, (force ? " (with force)" : ""));
             throw new GitRepoException(interruptMessage, e);
+        }
+    }
+
+    /**
+     * Prunes worktree metadata for worktrees that no longer exist.
+     * This is equivalent to `git worktree prune`.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void pruneWorktrees() throws GitAPIException {
+        try {
+            var command = "git worktree prune";
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+        } catch (Environment.SubprocessException e) {
+            throw new GitRepoException("Failed to prune worktrees: " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GitRepoException("Pruning worktrees was interrupted", e);
         }
     }
 

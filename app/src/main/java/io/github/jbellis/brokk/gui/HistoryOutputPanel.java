@@ -19,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -51,6 +52,16 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
  */
 public class HistoryOutputPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
+    private static final String CLEARED_TASK_HISTORY = "Cleared Task History";
+    private static final String DROPPED_ALL_CONTEXT = "Dropped all Context";
+
+    private static boolean isSeparatorAction(@Nullable Object actionValue) {
+        if (actionValue == null) {
+            return false;
+        }
+        String action = actionValue.toString();
+        return CLEARED_TASK_HISTORY.equalsIgnoreCase(action) || DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
+    }
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -62,6 +73,9 @@ public class HistoryOutputPanel extends JPanel {
     private final SplitButton newSessionButton;
     private final SplitButton manageSessionsButton;
     private ResetArrowLayerUI arrowLayerUI;
+    @Nullable private JPanel sessionSwitchPanel;
+    @Nullable private JLabel sessionSwitchSpinner;
+    private JLayeredPane historyLayeredPane;
 
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
@@ -112,6 +126,9 @@ public class HistoryOutputPanel extends JPanel {
         this.newSessionButton = new SplitButton("New");
         this.manageSessionsButton = new SplitButton("Manage");
 
+        this.historyLayeredPane = new JLayeredPane();
+        this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
+
         var sessionControlsPanel = buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton, this.manageSessionsButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
@@ -131,6 +148,37 @@ public class HistoryOutputPanel extends JPanel {
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
+    }
+
+    private void buildSessionSwitchPanel() {
+        // This is the main panel that will be added to the layered pane.
+        // It uses BorderLayout to position its content at the top.
+        sessionSwitchPanel = new JPanel(new BorderLayout());
+        sessionSwitchPanel.setOpaque(true);
+        sessionSwitchPanel.setVisible(false);
+
+        // This is the panel that actually holds the spinner and text.
+        // It will be placed at the top of sessionSwitchPanel.
+        var contentPanel = new JPanel(new BorderLayout(5, 0)); // stretch horizontally
+        contentPanel.setOpaque(false);
+        contentPanel.setBorder(new EmptyBorder(8, 5, 5, 5));
+
+        sessionSwitchSpinner = new JLabel();
+        var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, false);
+        if (spinnerIcon != null) {
+            sessionSwitchSpinner.setIcon(spinnerIcon);
+        }
+
+        JLabel notificationText = new JLabel("Loading session...");
+        notificationText.setOpaque(false);
+        notificationText.setFont(historyTable.getFont());
+        notificationText.setForeground(UIManager.getColor("Label.foreground"));
+        notificationText.setBorder(null);
+
+        contentPanel.add(sessionSwitchSpinner, BorderLayout.WEST);
+        contentPanel.add(notificationText, BorderLayout.CENTER);
+
+        sessionSwitchPanel.add(contentPanel, BorderLayout.NORTH);
     }
 
     private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
@@ -313,44 +361,9 @@ public class HistoryOutputPanel extends JPanel {
         // Remove table header
         historyTable.setTableHeader(null);
 
-        // Set up tooltip renderer for description column (index 1)
-        historyTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel)super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-
-                // Set the tooltip to show the full text
-                if (value != null) {
-                    label.setToolTipText(value.toString());
-                }
-
-                return label;
-            }
-        });
-
-        // Set up icon renderer for first column
-        historyTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel)super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
-
-                // Set icon and center-align
-                if (value instanceof Icon icon) {
-                    label.setIcon(icon);
-                    label.setText("");
-                } else {
-                    label.setIcon(null);
-                    label.setText(value != null ? value.toString() : "");
-                }
-                label.setHorizontalAlignment(JLabel.CENTER);
-
-                return label;
-            }
-        });
+        // Set up custom renderers for history table columns
+        historyTable.getColumnModel().getColumn(0).setCellRenderer(new IconCellRenderer());
+        historyTable.getColumnModel().getColumn(1).setCellRenderer(new ActionCellRenderer());
 
         // Add selection listener to preview context
         historyTable.getSelectionModel().addListSelectionListener(e -> {
@@ -447,7 +460,9 @@ public class HistoryOutputPanel extends JPanel {
         buttonPanel.add(undoButton);
         buttonPanel.add(redoButton);
 
-        panel.add(layer, BorderLayout.CENTER);
+        historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
+
+        panel.add(historyLayeredPane, BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         // Calculate preferred width for the history panel
@@ -785,6 +800,37 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /**
+     * Shows the session switching spinner.
+     */
+    public void showSessionSwitchSpinner() {
+        SwingUtilities.invokeLater(() -> {
+            historyModel.setRowCount(0);
+            JPanel ssp = sessionSwitchPanel;
+            if (ssp == null) {
+                buildSessionSwitchPanel();
+                ssp = requireNonNull(sessionSwitchPanel);
+                historyLayeredPane.add(ssp, JLayeredPane.PALETTE_LAYER);
+            }
+            ssp.setVisible(true);
+            ssp.revalidate();
+            ssp.repaint();
+        });
+    }
+
+    /**
+     * Hides the session switching spinner.
+     */
+    public void hideSessionSwitchSpinner() {
+        SwingUtilities.invokeLater(() -> {
+            if (sessionSwitchPanel != null) {
+                sessionSwitchPanel.setVisible(false);
+                sessionSwitchPanel.revalidate();
+                sessionSwitchPanel.repaint();
+            }
+        });
+    }
+
+    /**
      * Gets the LLM scroll pane
      */
     public JScrollPane getLlmScrollPane() {
@@ -958,6 +1004,164 @@ public class HistoryOutputPanel extends JPanel {
          */
         public MarkdownOutputPanel getMarkdownOutputPanel() {
             return outputPanel;
+        }
+    }
+
+    /**
+     * A TableCellRenderer for the first column (icons) of the history table.
+     * It hides the icon for separator rows to allow the separator to span the cell.
+     */
+    private static class IconCellRenderer extends DefaultTableCellRenderer {
+        private final SeparatorPainter separatorPainter = new SeparatorPainter();
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
+                                                       boolean isSelected, boolean hasFocus, int row, int column)
+        {
+            Object actionValue = table.getModel().getValueAt(row, 1);
+            if (isSeparatorAction(actionValue)) {
+                separatorPainter.setAction(castNonNull(actionValue).toString());
+                separatorPainter.setCellContext(table, row, column);
+                separatorPainter.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                separatorPainter.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                return separatorPainter;
+            }
+
+            // Fallback for normal cells
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (value instanceof Icon icon) {
+                setIcon(icon);
+                setText("");
+            } else {
+                setIcon(null);
+                setText(value != null ? value.toString() : "");
+            }
+            setHorizontalAlignment(JLabel.CENTER);
+            return this;
+        }
+    }
+
+    /**
+     * A TableCellRenderer for the second column (action text) of the history table.
+     * It replaces specific action texts with graphical separators.
+     */
+    private static class ActionCellRenderer extends DefaultTableCellRenderer {
+        private final SeparatorPainter separatorPainter = new SeparatorPainter();
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
+                                                       boolean isSelected, boolean hasFocus, int row, int column)
+        {
+            if (isSeparatorAction(value)) {
+                separatorPainter.setOpaque(true);
+                separatorPainter.setAction(castNonNull(value).toString());
+                separatorPainter.setCellContext(table, row, column);
+                separatorPainter.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
+                separatorPainter.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
+                return separatorPainter;
+            }
+
+            // Fallback for normal cells
+            super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            if (value != null) {
+                setToolTipText(value.toString());
+            }
+            return this;
+        }
+    }
+
+    /**
+     * A component that paints a horizontal or squiggly line for separator rows in the history table.
+     */
+    private static class SeparatorPainter extends JComponent {
+        private String action = "";
+        private @Nullable JTable table;
+        private int row;
+        private int column;
+        private static final int SQUIGGLE_AMPLITUDE = 2;
+        private static final double PIXELS_PER_SQUIGGLE_WAVE = 24.0;
+
+        public SeparatorPainter() {
+            setOpaque(true);
+        }
+
+        public void setAction(String action) {
+            this.action = action;
+            setToolTipText(action);
+        }
+
+        public void setCellContext(JTable table, int row, int column) {
+            this.table = table;
+            this.row = row;
+            this.column = column;
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(super.getPreferredSize().width, 8);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            if (isOpaque()) {
+                g.setColor(getBackground());
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
+
+            if (table == null) {
+                return;
+            }
+
+            int totalWidth = table.getWidth();
+            int iconColumnWidth = table.getColumnModel().getColumn(0).getWidth();
+            int margin = iconColumnWidth / 2;
+            int ruleStartX = margin;
+            int ruleEndX = totalWidth - margin - 1;
+
+            Rectangle cellRect = table.getCellRect(row, column, false);
+            int localStartX = ruleStartX - cellRect.x;
+            int localEndX = ruleEndX - cellRect.x;
+
+            int drawStart = Math.max(0, localStartX);
+            int drawEnd = Math.min(getWidth(), localEndX);
+
+            if (drawStart >= drawEnd) {
+                return;
+            }
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setColor(getForeground());
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                int y = getHeight() / 2;
+
+                if (CLEARED_TASK_HISTORY.equalsIgnoreCase(action)) {
+                    g2.drawLine(drawStart, y, drawEnd, y);
+                } else if (DROPPED_ALL_CONTEXT.equalsIgnoreCase(action)) {
+                    int lineWidth = ruleEndX - ruleStartX;
+                    if (lineWidth <= 0) {
+                        return;
+                    }
+
+                    // Dynamically calculate frequency to ensure the wave completes an integer number of cycles
+                    int waves = Math.max(1, (int) Math.round(lineWidth / PIXELS_PER_SQUIGGLE_WAVE));
+                    double frequency = (2 * Math.PI * waves) / lineWidth;
+
+                    Path2D.Double path = new Path2D.Double();
+                    int globalXStart = cellRect.x + drawStart;
+                    double startY = y - SQUIGGLE_AMPLITUDE * Math.sin((globalXStart - ruleStartX) * frequency);
+                    path.moveTo(drawStart, startY);
+                    for (int x = drawStart + 1; x < drawEnd; x++) {
+                        int globalX = cellRect.x + x;
+                        double waveY = y - SQUIGGLE_AMPLITUDE * Math.sin((globalX - ruleStartX) * frequency);
+                        path.lineTo(x, waveY);
+                    }
+                    g2.draw(path);
+                }
+            } finally {
+                g2.dispose();
+            }
         }
     }
 

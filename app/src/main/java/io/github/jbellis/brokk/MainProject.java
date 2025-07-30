@@ -964,6 +964,20 @@ public final class MainProject extends AbstractProject {
         return new ArrayList<>(DEFAULT_FAVORITE_MODELS);
     }
 
+    /**
+     * Look up a favourite model by its alias (case-insensitive).
+     *
+     * @param alias the alias supplied by the user (e.g. from the CLI)
+     * @return the matching {@link Service.FavoriteModel}
+     * @throws IllegalArgumentException if no favourite model with the given alias exists
+     */
+    public static Service.FavoriteModel getFavoriteModel(String alias) {
+        return loadFavoriteModels().stream()
+                                   .filter(fm -> fm.alias().equalsIgnoreCase(alias))
+                                   .findFirst()
+                                   .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
+    }
+
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
         var props = loadGlobalProperties();
         String newJson;
@@ -1308,25 +1322,29 @@ public final class MainProject extends AbstractProject {
                 Path wtPath = wtInfo.path().toAbsolutePath().normalize();
                 if (wtPath.equals(this.root)) continue;
 
-                if (!Brokk.isProjectOpen(wtPath)) {
-                    var wsPropsPath = wtPath.resolve(".brokk").resolve("workspace.properties");
-                    if (Files.exists(wsPropsPath)) {
-                        var props = new Properties();
-                        try (var reader = Files.newBufferedReader(wsPropsPath)) {
-                            props.load(reader);
-                            String sessionIdStr = props.getProperty("lastActiveSession");
-                            if (sessionIdStr != null && !sessionIdStr.isBlank()) {
-                                UUID sessionId = UUID.fromString(sessionIdStr.trim());
-                                if (SessionRegistry.claim(wtPath, sessionId)) {
-                                    logger.info("Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
-                                } else {
-                                    logger.warn("Failed to reserve session {} for worktree {} (already claimed elsewhere or error).", sessionId, wtPath.getFileName());
-                                }
-                            }
-                        } catch (IOException | IllegalArgumentException e) {
-                            logger.warn("Error reading last active session for worktree {} or claiming it: {}", wtPath.getFileName(), e.getMessage());
+                if (Brokk.isProjectOpen(wtPath)) {
+                    continue;
+                }
+
+                var wsPropsPath = wtPath.resolve(".brokk").resolve("workspace.properties");
+                if (!Files.exists(wsPropsPath)) {
+                    continue;
+                }
+
+                var props = new Properties();
+                try (var reader = Files.newBufferedReader(wsPropsPath)) {
+                    props.load(reader);
+                    String sessionIdStr = props.getProperty("lastActiveSession");
+                    if (sessionIdStr != null && !sessionIdStr.isBlank()) {
+                        UUID sessionId = UUID.fromString(sessionIdStr.trim());
+                        if (SessionRegistry.claim(wtPath, sessionId)) {
+                            logger.info("Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
+                        } else {
+                            logger.warn("Failed to reserve session {} for worktree {} (already claimed elsewhere or error).", sessionId, wtPath.getFileName());
                         }
                     }
+                } catch (IOException | IllegalArgumentException e) {
+                    logger.warn("Error reading last active session for worktree {} or claiming it: {}", wtPath.getFileName(), e.getMessage());
                 }
             }
         } catch (Exception e) {

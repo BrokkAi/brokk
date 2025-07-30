@@ -347,7 +347,13 @@ public class Environment {
         if (stderr.isEmpty()) {
             return stdout;
         }
-        return "stdout:\n" + stdout + "\n\nstderr:\n" + stderr;
+        // Check environment variable to decide whether to suppress stderr
+        if (Boolean.parseBoolean(System.getenv("BRK_SUPPRESS_STDERR"))) {
+            return stdout;
+        } else {
+            // include both stdout and stderr
+            return "stdout:\n" + stdout + "\n\nstderr:\n" + stderr;
+        }
     }
 
     private static ProcessBuilder createProcessBuilder(Path root, String... command) {

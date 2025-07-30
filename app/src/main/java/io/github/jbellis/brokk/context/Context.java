@@ -427,7 +427,7 @@ public class Context {
                               sortedProjectFiles.map(ContextFragment.class::cast));
     }
 
-    public Stream<? extends ContextFragment> allFragments() {
+    public Stream<ContextFragment> allFragments() {
         return Streams.concat(editableFiles.stream(),
                               readonlyFiles.stream(),
                               virtualFragments.stream());

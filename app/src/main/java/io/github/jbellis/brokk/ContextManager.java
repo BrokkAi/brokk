@@ -62,17 +62,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final Logger logger = LogManager.getLogger(ContextManager.class);
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
-    private final AnalyzerWrapper analyzerWrapper;
+
+    @SuppressWarnings("NullAway.Init")
+    private AnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
     private final LoggingExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
     private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); //_FIX_
 
-    // Regex to identify test files. Looks for "test" or "tests" surrounded by separators or camelCase boundaries.
-    private static final Pattern TEST_FILE_PATTERN = Pattern.compile( // Javadoc for TEST_FILE_PATTERN not needed here
-                                                                      "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
-    );
+    // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
+    // when it appears as its own path segment or at a camel-case boundary.
+    static final Pattern TEST_FILE_PATTERN = Pattern.compile(
+        ".*" +                                                         // anything before
+        "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))" +          // valid prefix boundary
+        "(?i:tests?)" +                                                // the word test/tests (case-insensitive only here)
+        "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)" +        // suffix: separator, word-boundary, underscore,
+                                                                       //         UC not followed by lc  OR UC followed by lc, or EOS
+        ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
 
@@ -91,7 +98,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
             }
-            
+
             // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
             if (OomShutdownHandler.isOomError(th)) {
                 OomShutdownHandler.shutdownWithRecovery();
@@ -123,7 +130,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") 
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ")
     private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
@@ -211,94 +218,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC
         );
 
-        var analyzerListener = new AnalyzerListener() {
-            @Override
-            public void onBlocked() {
-                if (Thread.currentThread() == userActionThread.get()) {
-                    io.systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
-                                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
-                                    JOptionPane.INFORMATION_MESSAGE);
-                }
-            }
-
-            @Override
-            public void afterFirstBuild(String msg) {
-                if (io instanceof Chrome chrome) {
-                    chrome.notifyActionComplete("Analyzer build completed");
-                }
-                if (msg.isEmpty()) {
-                    SwingUtilities.invokeLater(() -> {
-                        io.systemNotify("Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.", "Code Intelligence Warning", JOptionPane.WARNING_MESSAGE);
-                    });
-                } else {
-                    io.systemOutput(msg);
-                }
-            }
-
-            @Override
-            public void onRepoChange() {
-                project.getRepo().invalidateCaches();
-                io.updateGitRepo();
-            }
-
-            @Override
-            public void onTrackedFileChange() {
-                // we don't need the full onRepoChange but we do need these parts
-                project.getRepo().invalidateCaches();
-                io.updateCommitPanel();
-
-                // update Workspace
-                var fr = liveContext.freezeAndCleanup();
-                // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                    processExternalFileChanges(fr);
-                    // analyzer refresh will call this too, but it will be delayed
-                    io.updateWorkspace();
-                }
-
-                // ProjectTree
-                for (var fsListener : fileSystemEventListeners) {
-                    fsListener.onTrackedFilesChanged();
-                }
-            }
-
-            @Override
-            public void beforeEachBuild() {
-                if (io instanceof Chrome chrome) {
-                    chrome.getContextPanel().showAnalyzerRebuildSpinner();
-                }
-            }
-
-            @Override
-            public void afterEachBuild(boolean externalRequest) {
-                if (io instanceof Chrome chrome) {
-                    chrome.getContextPanel().hideAnalyzerRebuildSpinner();
-                }
-
-                // Wait for context load to finish, with a timeout
-                long startTime = System.currentTimeMillis();
-                long timeoutMillis = 5000; // 5 seconds
-                while (liveContext.equals(Context.EMPTY) && (System.currentTimeMillis() - startTime < timeoutMillis)) {
-                    Thread.onSpinWait();
-                }
-                if (liveContext.equals(Context.EMPTY)) {
-                    logger.warn("Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
-                }
-
-                // re-freeze context w/ new analyzer
-                var fr = liveContext.freezeAndCleanup();
-                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                    processExternalFileChanges(fr);
-                }
-                io.updateWorkspace();
-
-                if (externalRequest && io instanceof Chrome chrome) {
-                    chrome.notifyActionComplete("Analyzer rebuild completed");
-                }
-            }
-        };
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
-
         this.currentSessionId = UUID.randomUUID(); // Initialize currentSessionId
     }
 
@@ -355,6 +274,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
+        var analyzerListener = createAnalyzerListener();
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
+
         this.io = new Chrome(this);
 
         // Load saved context history or create a new one
@@ -369,6 +291,96 @@ public class ContextManager implements IContextManager, AutoCloseable {
         checkBalanceAndNotify();
 
         return contextTask;
+    }
+
+    private AnalyzerListener createAnalyzerListener() {
+        return new AnalyzerListener() {
+            @Override
+            public void onBlocked() {
+                if (Thread.currentThread() == userActionThread.get()) {
+                    io.systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                    JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+
+            @Override
+            public void afterFirstBuild(String msg) {
+                if (io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer build completed");
+                }
+                if (msg.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> {
+                        io.systemNotify("Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.", "Code Intelligence Warning", JOptionPane.WARNING_MESSAGE);
+                    });
+                } else {
+                    io.systemOutput(msg);
+                }
+            }
+
+            @Override
+            public void onRepoChange() {
+                project.getRepo().invalidateCaches();
+                io.updateGitRepo();
+            }
+
+            @Override
+            public void onTrackedFileChange() {
+                // we don't need the full onRepoChange but we do need these parts
+                project.getRepo().invalidateCaches();
+                project.invalidateAllFiles();
+                io.updateCommitPanel();
+
+                // update Workspace
+                var fr = liveContext.freezeAndCleanup();
+                // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+                    processExternalFileChanges(fr);
+                    // analyzer refresh will call this too, but it will be delayed
+                    io.updateWorkspace();
+                }
+
+                // ProjectTree
+                for (var fsListener : fileSystemEventListeners) {
+                    fsListener.onTrackedFilesChanged();
+                }
+            }
+
+            @Override
+            public void beforeEachBuild() {
+                if (io instanceof Chrome chrome) {
+                    chrome.getContextPanel().showAnalyzerRebuildSpinner();
+                }
+            }
+
+            @Override
+            public void afterEachBuild(boolean externalRequest) {
+                if (io instanceof Chrome chrome) {
+                    chrome.getContextPanel().hideAnalyzerRebuildSpinner();
+                }
+
+                // Wait for context load to finish, with a timeout
+                long startTime = System.currentTimeMillis();
+                long timeoutMillis = 5000; // 5 seconds
+                while (liveContext.equals(Context.EMPTY) && (System.currentTimeMillis() - startTime < timeoutMillis)) {
+                    Thread.onSpinWait();
+                }
+                if (liveContext.equals(Context.EMPTY)) {
+                    logger.warn("Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
+                }
+
+                // re-freeze context w/ new analyzer
+                var fr = liveContext.freezeAndCleanup();
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+                    processExternalFileChanges(fr);
+                }
+                io.updateWorkspace();
+
+                if (externalRequest && io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer rebuild completed");
+                }
+            }
+        };
     }
 
     /**
@@ -741,14 +753,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Add read-only path fragments.
-     */
-    public void addReadOnlyFragments(List<PathFragment> fragments) {
-        pushContext(currentLiveCtx -> applyReadOnlyPathFragmentChanges(currentLiveCtx, fragments));
-        io.systemOutput("Read " + joinForOutput(fragments));
-    }
-
-    /**
      * Add read-only files.
      */
     public void addReadOnlyFiles(Collection<? extends BrokkFile> files)
@@ -756,8 +760,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var proposedReadOnlyFragments = files.stream()
                 .map(bf -> ContextFragment.toPathFragment(bf, this))
                 .toList();
-        addReadOnlyFragments(proposedReadOnlyFragments);
-        // io.systemOutput is handled by addReadOnlyFragments
+        pushContext(currentLiveCtx -> applyReadOnlyPathFragmentChanges(currentLiveCtx, proposedReadOnlyFragments));
+        io.systemOutput("Read " + joinForOutput(proposedReadOnlyFragments));
     }
 
     /**
@@ -1730,7 +1734,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (!project.getReviewGuide().isEmpty()) {
             return;
         }
-        
+
         project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
         io.systemOutput("Review guide created at .brokk/review.md");
     }
@@ -1993,8 +1997,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 
+        io.showSessionSwitchSpinner();
         var future = submitUserTask("Switching session", () -> {
-            switchToSession(sessionId);
+            try {
+                switchToSession(sessionId);
+            } finally {
+                io.hideSessionSwitchSpinner();
+            }
         });
         return CompletableFuture.runAsync(() -> {
             try {
@@ -2018,26 +2027,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
 
-        if (loadedCh != null) {
-            final ContextHistory nnLoadedCh = loadedCh; // Introduce nnLoadedCh for the non-null scope
-            if (nnLoadedCh.getHistory().isEmpty()) {
+        if (loadedCh == null) {
+            // Case: loadedCh is null
+            liveContext = new Context(this, "Welcome to session: " + sessionName);
+            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+            sessionManager.saveHistory(contextHistory, currentSessionId);
+        } else {
+            if (loadedCh.getHistory().isEmpty()) {
                 // Case: loadedCh exists but its history is empty
                 liveContext = new Context(this, "Welcome to session: " + sessionName);
                 contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
                 sessionManager.saveHistory(contextHistory, currentSessionId);
             } else {
                 // Case: loadedCh exists and has history
-                contextHistory.setInitialContext(nnLoadedCh.getHistory().getFirst());
-                for (int i = 1; i < nnLoadedCh.getHistory().size(); i++) {
-                    contextHistory.addFrozenContextAndClearRedo(nnLoadedCh.getHistory().get(i));
+                contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
+                for (int i = 1; i < loadedCh.getHistory().size(); i++) {
+                    contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                 }
                 liveContext = Context.unfreeze(topContext());
             }
-        } else {
-            // Case: loadedCh is null
-            liveContext = new Context(this, "Welcome to session: " + sessionName);
-            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
-            sessionManager.saveHistory(contextHistory, currentSessionId);
         }
         notifyContextListeners(topContext());
         io.updateContextHistoryTable(topContext());
@@ -2160,6 +2168,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void createHeadless() {
         this.io = new HeadlessConsole();
+
+        // no AnalyzerListener, instead we will block for it to be ready
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null);
+        try {
+            analyzerWrapper.get();
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
         initializeCurrentSessionAndHistory(true);
 
         ensureStyleGuide();

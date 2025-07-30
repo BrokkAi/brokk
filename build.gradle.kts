@@ -23,6 +23,21 @@ fun getVersionFromGit(): String {
     }
 }
 
+plugins {
+    alias(libs.plugins.dependency.analysis)
+}
+
+dependencyAnalysis {
+    issues {
+        all {
+            onAny {
+                // the objective is to get this to fail, i.e. don't allow failing dependencies
+                severity("warn")
+            }
+        }
+    }
+}
+
 allprojects {
     group = "io.github.jbellis"
     version = getVersionFromGit()
@@ -41,6 +56,9 @@ tasks.register("printVersion") {
 }
 
 subprojects {
+    apply(plugin = "java-library")
+    apply(plugin = "com.autonomousapps.dependency-analysis")
+
     repositories {
         mavenCentral()
         // Additional repositories for dependencies
@@ -51,6 +69,7 @@ subprojects {
             url = uri("https://www.jetbrains.com/intellij-repository/releases")
         }
     }
+
 
     tasks.withType<Test> {
         filter {

@@ -11,6 +11,9 @@ flatlaf = "3.6"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
 picocli = "4.7.7"
+maven-embedder = "3.9.6"
+maven-resolver = "1.9.20"
+dependency-analysis = "2.6.0"
 javafx = "22"
 
 [libraries]
@@ -62,7 +65,6 @@ jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
 okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
 jspecify = "org.jspecify:jspecify:1.0.0"
 jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
-snakeyaml = "org.yaml:snakeyaml:2.3"
 jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
@@ -95,8 +97,17 @@ treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
 
+# Maven Resolver for dependency import
+maven-embedder = { module = "org.apache.maven:maven-embedder", version.ref = "maven-embedder" }
+maven-resolver-api = { module = "org.apache.maven.resolver:maven-resolver-api", version.ref = "maven-resolver" }
+maven-resolver-spi = { module = "org.apache.maven.resolver:maven-resolver-spi", version.ref = "maven-resolver" }
+maven-resolver-util = { module = "org.apache.maven.resolver:maven-resolver-util", version.ref = "maven-resolver" }
+maven-resolver-impl = { module = "org.apache.maven.resolver:maven-resolver-impl", version.ref = "maven-resolver" }
+maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-resolver-connector-basic", version.ref = "maven-resolver" }
+maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
+
 [bundles]
-joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-pysrc2cpg", "joern-cli", "joern-semanticcpg"]
+joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-cli", "joern-semanticcpg"]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
@@ -105,6 +116,7 @@ ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
@@ -112,3 +124,4 @@ shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }
 buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
 spotless = { id = "com.diffplug.spotless", version = "6.25.0" }
 javafx = { id = "org.openjfx.javafxplugin", version = "0.1.0" }
+dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependency-analysis" }

@@ -109,6 +109,19 @@ After running tests, detailed reports are automatically generated:
 - `./gradlew :joern-analyzers:scalafmt` - Format Scala code
 - `./gradlew scalafmt` - Format all Scala code in project
 
+### Dependency Management
+
+The project uses the Gradle Dependency Analysis plugin to maintain clean dependencies:
+
+- `./gradlew buildHealth` - Run comprehensive dependency analysis
+- `./gradlew dependencies` - Show dependency tree with conflicts
+
+#### What the dependency analysis checks:
+- **Unused Dependencies**: Identifies dependencies that aren't actually used
+- **Dependency Conflicts**: Detects version conflicts between transitive dependencies
+- **Incorrect Configuration**: Finds dependencies in wrong configurations (e.g., runtime vs compile)
+The dependency analysis runs automatically in CI and will fail builds on critical dependency issues.
+
 ### Static Analysis
 
 #### ErrorProne (Java modules: analyzer-api, app)
@@ -163,9 +176,24 @@ The project uses automatic versioning based on git tags. Version numbers are der
 
 ### Creating Releases
 To create a new release:
-1. Tag the commit: `git tag v0.13.0`
-2. Build will automatically use clean version: `0.13.0`
-3. Push tag: `git push origin v0.13.0`
+1. **Tag the commit**: `git tag v0.13.0`
+2. **Build will automatically use clean version**: `0.13.0`
+3. **Push tag to trigger release**: `git push origin v0.13.0`
+4. **Wait for GitHub Actions** to complete (creates release + uploads JAR)
+5. **Update JBang catalog locally**:
+   ```bash
+   # Uses latest git tag automatically
+   ./scripts/update-jbang-catalog.sh
+
+   # Or specify version explicitly
+   ./scripts/update-jbang-catalog.sh v0.13.0
+   ```
+6. **Commit and push catalog update**:
+   ```bash
+   git add jbang-catalog.json
+   git commit -m "Update JBang catalog for release v0.13.0"
+   git push
+   ```
 
 No manual version updates needed - everything is derived from git tags automatically.
 

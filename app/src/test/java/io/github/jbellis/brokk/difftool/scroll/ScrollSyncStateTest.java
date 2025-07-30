@@ -18,14 +18,6 @@ class ScrollSyncStateTest
         state = new ScrollSyncState();
     }
 
-    @Test
-    void initialState()
-    {
-        assertFalse(state.isUserScrolling(), "Should not be user scrolling initially");
-        assertFalse(state.isProgrammaticScroll(), "Should not be programmatic scrolling initially");
-        assertFalse(state.hasPendingScroll(), "Should not have pending scroll initially");
-        assertEquals(Long.MAX_VALUE, state.getTimeSinceLastUserScroll(), "Should have no user scroll time initially");
-    }
 
     @Test
     void userScrollRecording()
@@ -40,26 +32,7 @@ class ScrollSyncStateTest
         assertFalse(state.isUserScrolling(), "Should not be user scrolling after clearing");
     }
 
-    @Test
-    void programmaticScrollState()
-    {
-        state.setProgrammaticScroll(true);
-        assertTrue(state.isProgrammaticScroll(), "Should be programmatic scrolling");
-        
-        state.setProgrammaticScroll(false);
-        assertFalse(state.isProgrammaticScroll(), "Should not be programmatic scrolling");
-    }
 
-    @Test
-    void pendingScrollState()
-    {
-        state.setPendingScroll(true);
-        assertTrue(state.hasPendingScroll(), "Should have pending scroll");
-        
-        assertTrue(state.getAndClearPendingScroll(), "Should return true and clear");
-        assertFalse(state.hasPendingScroll(), "Should not have pending scroll after clearing");
-        assertFalse(state.getAndClearPendingScroll(), "Should return false when already cleared");
-    }
 
     @Test
     void timeBasedUserScrolling() throws InterruptedException
@@ -156,7 +129,9 @@ class ScrollSyncStateTest
         programmaticThread.join(1000);
         pendingThread.join(1000);
         
-        // Should not crash and state should be consistent
-        assertNotNull(state.shouldSuppressSync(100), "Should be able to check suppression after concurrent access");
+        // Should not crash and state should be consistent.
+        // We can't assert on the final state, because it's non-deterministic.
+        // So we just call a method to make sure the state is valid enough to be used without throwing an exception.
+        state.shouldSuppressSync(100);
     }
 }

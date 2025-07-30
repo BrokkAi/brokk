@@ -12,11 +12,11 @@ import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.util.SlidingWindowCache;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -28,12 +28,11 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
  * It no longer depends on custom JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
+public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware, SlidingWindowCache.Disposable
 {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
@@ -85,7 +84,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     */
     private void recalcDirty() {
             // Check if either side has unsaved changes (document changed since last save)
-            boolean newDirty = filePanels.values().stream().anyMatch(fp -> fp.isDocumentChanged());
+            boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
 
         if (dirtySinceOpen != newDirty) {
             dirtySinceOpen = newDirty;
@@ -249,17 +248,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             fp.reDisplay();
         }
         mainPanel.repaint();
-    }
-
-    /**
-     * Refresh highlights for only the specified panel to reduce flickering.
-     */
-    public void reDisplayPanel(PanelSide side)
-    {
-        var fp = filePanels.get(side);
-        if (fp != null) {
-            fp.reDisplay();
-        }
     }
 
     public String getTitle()
@@ -471,7 +459,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * @return the FilePanel for the specified side
      * @throws IllegalStateException if the panel is not initialized
      */
-    @NotNull
     public FilePanel requireFilePanel(PanelSide side)
     {
         var panel = filePanels.get(side);
@@ -492,10 +479,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     /**
      * Gets the currently selected file panel.
      */
-    @Nullable
     public FilePanel getSelectedFilePanel()
     {
-        return filePanels.get(selectedPanelSide);
+        return requireFilePanel(selectedPanelSide);
     }
 
     /**
@@ -696,13 +682,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
             // Check if document is read-only before attempting to save
             if (doc.isReadonly()) {
-                logger.debug("Skipping save for read-only document: {}", doc.getName());
                 continue;
             }
 
             try {
                 doc.write();
-                logger.debug("Successfully saved file: {}", doc.getName());
             } catch (Exception ex) {
                 logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
                 mainPanel.getConsoleIO().systemNotify(
@@ -778,9 +762,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         this.guiTheme = guiTheme;
 
         // Refresh RSyntax themes and highlights in each child FilePanel
-        for (FilePanel fp : filePanels.values()) {
-            // Note: fp.applyTheme() already calls reDisplay()
-            fp.applyTheme(guiTheme);
+        // Apply to RIGHT panel first so LEFT panel can inherit syntax style if needed
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        if (rightPanel != null) {
+            rightPanel.applyTheme(guiTheme);
+        }
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        if (leftPanel != null) {
+            leftPanel.applyTheme(guiTheme);
         }
 
         // Let the Look-and-Feel repaint every child component (headers, scroll-bars, etc.)
@@ -908,12 +897,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
      */
 
+    @Override
     public void dispose() {
         // Dispose of file panels to clean up their timers and listeners
         for (var fp : filePanels.values()) {
-            if (fp != null) {
-                fp.dispose();
-            }
+            fp.dispose();
         }
         filePanels.clear();
 
@@ -927,5 +915,44 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         diffNode = null;
         patch = null;
         selectedDelta = null;
+    }
+
+    @Override
+    public boolean hasUnsavedChanges() {
+        // Check if any file panel has unsaved changes
+        for (var fp : filePanels.values()) {
+            if (fp.isDocumentChanged()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if at least one side is editable (not read-only).
+     * Used by the main toolbar to decide whether undo/redo buttons should be shown.
+     */
+    public boolean atLeastOneSideEditable() {
+        return filePanels.values().stream()
+                         .anyMatch(fp -> {
+                             var doc = fp.getBufferDocument();
+                             return doc != null && !doc.isReadonly();
+                         });
+    }
+
+    /**
+     * Clear caches to free memory while keeping the panel functional.
+     * Used by sliding window memory management.
+     */
+    public void clearCaches() {
+        // Clear undo history
+        var undoManager = getUndoHandler();
+        undoManager.discardAllEdits();
+
+        // Clear file panel caches
+        for (var fp : filePanels.values()) {
+            fp.clearViewportCache();
+            fp.clearSearchCache();
+        }
     }
 }
