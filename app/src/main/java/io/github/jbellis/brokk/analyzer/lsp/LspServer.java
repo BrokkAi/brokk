@@ -267,9 +267,7 @@ public abstract class LspServer implements LspFileUtilities {
         } catch (Exception e) {
             logger.error("Error shutting down JDT LS process", e);
         } finally {
-            this.languageServer = null;
             this.serverProcess = null;
-            this.serverInitialized = null;
         }
     }
 
