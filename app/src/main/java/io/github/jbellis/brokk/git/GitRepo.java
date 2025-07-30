@@ -1906,6 +1906,67 @@ public class GitRepo implements Closeable, IGitRepo {
         return new ArrayList<>(commits);
     }
 
+    /* ----------  NEW: history including per-commit path  ---------- */
+
+    /** One commit in a file’s history together with the path the file had
+     *  inside that commit.
+     */
+    public record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
+
+    /**
+     * Like {@link #getFileHistory(ProjectFile)} but also returns, for each
+     * commit, the path the file had *in that commit* (following renames
+     * backwards).
+     *
+     * @param file the file (at its current path) whose history we want
+     */
+    public List<FileHistoryEntry> getFileHistoryWithPaths(ProjectFile file) throws GitAPIException
+    {
+        // 1. normal commit list, newest → oldest (already follows renames)
+        var commits = getFileHistory(file);
+
+        var results    = new ArrayList<FileHistoryEntry>(commits.size());
+        var currPath   = file;                     // path valid for current head
+        var currGitRel = toRepoRelativePath(currPath);
+
+        try (var revWalk = new RevWalk(repository);
+             var diffFmt = new DiffFormatter(new ByteArrayOutputStream()))
+        {
+            diffFmt.setRepository(repository);
+            diffFmt.setDetectRenames(true);
+
+            for (var commitInfo : commits)
+            {
+                // record current path for this commit
+                results.add(new FileHistoryEntry(commitInfo, currPath));
+
+                // prepare for next (older) commit
+                var commit = revWalk.parseCommit(ObjectId.fromString(commitInfo.id()));
+                if (commit.getParentCount() == 0) {
+                    // reached root – no parent to diff against
+                    continue;
+                }
+                var parent = revWalk.parseCommit(commit.getParent(0).getId());
+
+                var diffs = diffFmt.scan(parent.getTree(), commit.getTree());
+                for (var d : diffs) {
+                    if (d.getChangeType() == DiffEntry.ChangeType.RENAME &&
+                        d.getNewPath().equals(currGitRel))
+                    {
+                        // file was renamed in THIS commit; older commits use oldPath
+                        currGitRel = d.getOldPath();
+                        currPath   = toProjectFile(currGitRel);
+                        break;
+                    }
+                }
+            }
+        }
+        catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+        return results;
+    }
+
     /**
      * Get the URL of the specified remote (defaults to "origin")
      */

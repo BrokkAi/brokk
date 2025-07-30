@@ -19,17 +19,22 @@ public class GitHistoryTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel; // Parent panel to call back for Log tab interaction
+    private final GitPanel gitPanel;
     private final ProjectFile file;
+
     private JTable fileHistoryTable;
     private DefaultTableModel fileHistoryModel;
 
-    public GitHistoryTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, ProjectFile file) {
+    public GitHistoryTab(Chrome chrome,
+                         ContextManager contextManager,
+                         GitPanel gitPanel,
+                         ProjectFile file)
+    {
         super(new BorderLayout());
-        this.chrome = chrome;
-        this.contextManager = contextManager;
-        this.gitPanel = gitPanel;
-        this.file = file;
+        this.chrome          = chrome;
+        this.contextManager  = contextManager;
+        this.gitPanel        = gitPanel;
+        this.file            = file;
         buildHistoryTabUI();
         loadFileHistory();
     }
@@ -38,194 +43,193 @@ public class GitHistoryTab extends JPanel {
         return file.toString();
     }
 
+    /* -----------------------  UI construction  ----------------------- */
+
     private void buildHistoryTabUI()
     {
         fileHistoryModel = new DefaultTableModel(
-                new Object[]{"Message", "Author", "Date", "ID"}, 0
-        ) {
-            @Override public boolean isCellEditable(int row, int column) { return false; }
-            @Override public Class<?> getColumnClass(int columnIndex) { return String.class; }
+                new Object[]{"Message", "Author", "Date", "ID", "Path"}, 0)
+        {
+            @Override public boolean isCellEditable(int r, int c) { return false; }
+            @Override public Class<?> getColumnClass(int c) { return String.class; }
         };
 
         fileHistoryTable = new JTable(fileHistoryModel);
         fileHistoryTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         fileHistoryTable.setRowHeight(18);
 
-        // Hide the ID column
-        fileHistoryTable.getColumnModel().getColumn(3).setMinWidth(0);
-        fileHistoryTable.getColumnModel().getColumn(3).setMaxWidth(0);
-        fileHistoryTable.getColumnModel().getColumn(3).setWidth(0);
+        // Hide the “ID” and “Path” columns
+        for (int col : new int[]{3, 4}) {
+            fileHistoryTable.getColumnModel().getColumn(col).setMinWidth(0);
+            fileHistoryTable.getColumnModel().getColumn(col).setMaxWidth(0);
+            fileHistoryTable.getColumnModel().getColumn(col).setWidth(0);
+        }
 
-        // Context menu
-        JPopupMenu historyContextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(historyContextMenu);
+        /* -------- context menu -------- */
 
-        JMenuItem addToContextItem       = new JMenuItem("Capture Diff");
-        JMenuItem compareWithLocalItem   = new JMenuItem("Compare with Local");
-        JMenuItem viewFileAtRevisionItem = new JMenuItem("View File at Revision");
-        JMenuItem viewDiffItem           = new JMenuItem("View Diff");
-        JMenuItem viewInLogItem          = new JMenuItem("View in Log");
-        JMenuItem editFileItem           = new JMenuItem("Edit File");
+        var menu                  = new JPopupMenu();
+        chrome.themeManager.registerPopupMenu(menu);
 
-        historyContextMenu.add(addToContextItem);
-        historyContextMenu.add(editFileItem);
-        historyContextMenu.addSeparator();
-        historyContextMenu.add(viewInLogItem);
-        historyContextMenu.addSeparator();
-        historyContextMenu.add(viewFileAtRevisionItem);
-        historyContextMenu.add(viewDiffItem);
-        historyContextMenu.add(compareWithLocalItem);
+        var captureDiffItem       = new JMenuItem("Capture Diff");
+        var compareWithLocalItem  = new JMenuItem("Compare with Local");
+        var viewFileAtRevItem     = new JMenuItem("View File at Revision");
+        var viewDiffItem          = new JMenuItem("View Diff");
+        var viewInLogItem         = new JMenuItem("View in Log");
+        var editFileItem          = new JMenuItem("Edit File");
 
-        // Right-click => select row
-        historyContextMenu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
-            @Override
-            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+        menu.add(captureDiffItem);
+        menu.add(editFileItem);
+        menu.addSeparator();
+        menu.add(viewInLogItem);
+        menu.addSeparator();
+        menu.add(viewFileAtRevItem);
+        menu.add(viewDiffItem);
+        menu.add(compareWithLocalItem);
+
+        /* right-click selects row */
+        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
                 SwingUtilities.invokeLater(() -> {
-                    Point point = MouseInfo.getPointerInfo().getLocation();
-                    SwingUtilities.convertPointFromScreen(point, fileHistoryTable);
-                    int row = fileHistoryTable.rowAtPoint(point);
-                    if (row >= 0) {
-                        fileHistoryTable.setRowSelectionInterval(row, row);
-                    }
+                    var p = MouseInfo.getPointerInfo().getLocation();
+                    SwingUtilities.convertPointFromScreen(p, fileHistoryTable);
+                    int row = fileHistoryTable.rowAtPoint(p);
+                    if (row >= 0) fileHistoryTable.setRowSelectionInterval(row, row);
                 });
             }
             @Override public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
             @Override public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
         });
 
-        fileHistoryTable.setComponentPopupMenu(historyContextMenu);
+        fileHistoryTable.setComponentPopupMenu(menu);
 
-        // Enable/disable items based on selection
+        /* enable / disable menu items */
         fileHistoryTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                int selectedRowCount = fileHistoryTable.getSelectedRowCount();
-                boolean singleSelected = selectedRowCount == 1;
+            if (e.getValueIsAdjusting()) return;
+            boolean single = fileHistoryTable.getSelectedRowCount() == 1;
 
-                addToContextItem.setEnabled(singleSelected);
-                compareWithLocalItem.setEnabled(singleSelected);
-                viewFileAtRevisionItem.setEnabled(singleSelected);
-                viewDiffItem.setEnabled(singleSelected);
-                viewInLogItem.setEnabled(singleSelected);
+            captureDiffItem.setEnabled(single);
+            compareWithLocalItem.setEnabled(single);
+            viewFileAtRevItem.setEnabled(single);
+            viewDiffItem.setEnabled(single);
+            viewInLogItem.setEnabled(single);
 
-                // Edit File => only if not already in context
-                if (singleSelected) {
-                    var selectedFile = contextManager.toFile(getFilePath());
-                    editFileItem.setEnabled(!contextManager.getEditableFiles().contains(selectedFile));
-                } else {
-                    editFileItem.setEnabled(false);
-                }
+            if (single) {
+                var selFile = contextManager.toFile(getFilePath());
+                editFileItem.setEnabled(!contextManager.getEditableFiles().contains(selFile));
+            } else {
+                editFileItem.setEnabled(false);
             }
         });
 
-        // Double-click => show diff
+        /* double-click → show diff */
         fileHistoryTable.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getClickCount() == 2) {
-                    int row = fileHistoryTable.rowAtPoint(e.getPoint());
-                    if (row >= 0) {
-                        fileHistoryTable.setRowSelectionInterval(row, row);
-                        String commitId = (String) fileHistoryModel.getValueAt(row, 3);
-                        GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, file);
-                    }
-                }
+            @Override public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getClickCount() != 2) return;
+                int row = fileHistoryTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+
+                fileHistoryTable.setRowSelectionInterval(row, row);
+                var commitId = (String) fileHistoryModel.getValueAt(row, 3);
+                var histFile = (ProjectFile) fileHistoryModel.getValueAt(row, 4);
+                GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
             }
         });
 
-        // Menu actions:
-        addToContextItem.addActionListener(e -> {
+        /* ----- context-menu actions ----- */
+
+        captureDiffItem.addActionListener(e -> {
             int row = fileHistoryTable.getSelectedRow();
-            if (row >= 0) {
-                String commitId = (String) fileHistoryModel.getValueAt(row, 3);
-                GitUiUtil.addFileChangeToContext(contextManager, chrome, commitId, file);
-            }
+            if (row < 0) return;
+            var commitId = (String) fileHistoryModel.getValueAt(row, 3);
+            var histFile = (ProjectFile) fileHistoryModel.getValueAt(row, 4);
+            GitUiUtil.addFileChangeToContext(contextManager, chrome, commitId, histFile);
         });
 
-        viewFileAtRevisionItem.addActionListener(e -> {
+        viewFileAtRevItem.addActionListener(e -> {
             int row = fileHistoryTable.getSelectedRow();
-            if (row >= 0) {
-                String commitId = (String) fileHistoryTable.getValueAt(row, 3);
-                GitUiUtil.viewFileAtRevision(contextManager, chrome, commitId, getFilePath());
-            }
+            if (row < 0) return;
+            var commitId = (String) fileHistoryTable.getValueAt(row, 3);
+            var histFile = (ProjectFile) fileHistoryTable.getValueAt(row, 4);
+            GitUiUtil.viewFileAtRevision(contextManager, chrome, commitId, histFile.toString());
         });
 
         viewDiffItem.addActionListener(e -> {
             int row = fileHistoryTable.getSelectedRow();
-            if (row >= 0) {
-                String commitId = (String) fileHistoryTable.getValueAt(row, 3);
-                GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, file);
-            }
+            if (row < 0) return;
+            var commitId = (String) fileHistoryTable.getValueAt(row, 3);
+            var histFile = (ProjectFile) fileHistoryTable.getValueAt(row, 4);
+            GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
         });
 
         compareWithLocalItem.addActionListener(e -> {
             int row = fileHistoryTable.getSelectedRow();
-            if (row >= 0) {
-                String commitId = (String) fileHistoryTable.getValueAt(row, 3);
-                // Compare commit -> local
-                GitUiUtil.showDiffVsLocal(contextManager, chrome,
-                                          commitId, getFilePath(), /*useParent=*/ false);
-            }
+            if (row < 0) return;
+            var commitId = (String) fileHistoryTable.getValueAt(row, 3);
+            var histFile = (ProjectFile) fileHistoryTable.getValueAt(row, 4);
+            GitUiUtil.showDiffVsLocal(contextManager, chrome,
+                                      commitId, histFile.toString(), false);
         });
 
         viewInLogItem.addActionListener(e -> {
             int row = fileHistoryTable.getSelectedRow();
             if (row >= 0) {
-                String commitId = (String) fileHistoryTable.getValueAt(row, 3);
+                var commitId = (String) fileHistoryTable.getValueAt(row, 3);
                 gitPanel.showCommitInLogTab(commitId);
             }
         });
 
         editFileItem.addActionListener(e ->
-                                               GitUiUtil.editFile(contextManager, getFilePath())
-        );
+                GitUiUtil.editFile(contextManager, getFilePath()));
 
         add(new JScrollPane(fileHistoryTable), BorderLayout.CENTER);
     }
 
+    /* -----------------------  data loading  ----------------------- */
 
-    private void loadFileHistory() {
+    private void loadFileHistory()
+    {
         contextManager.submitBackgroundTask("Loading file history: " + file, () -> {
             try {
-                var repo = getRepo();
-                var history = repo.getFileHistory(file);
+                var history = getRepo().getFileHistoryWithPaths(file);
                 SwingUtilities.invokeLater(() -> {
                     fileHistoryModel.setRowCount(0);
                     if (history.isEmpty()) {
-                        fileHistoryModel.addRow(new Object[]{"No history found", "", "", ""});
+                        fileHistoryModel.addRow(
+                                new Object[]{"No history found", "", "", "", ""});
                         return;
                     }
 
-                    var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
-                    for (var commit : history) {
-                        var formattedDate = GitUiUtil.formatRelativeDate(commit.date(), today);
+                    var today = java.time.LocalDate.now(
+                            java.time.ZoneId.systemDefault());
+
+                    for (var entry : history) {
+                        var date = GitUiUtil.formatRelativeDate(
+                                entry.commit().date(), today);
                         fileHistoryModel.addRow(new Object[]{
-                                commit.message(),
-                                commit.author(),
-                                formattedDate,
-                                commit.id()
+                                entry.commit().message(),
+                                entry.commit().author(),
+                                date,
+                                entry.commit().id(),
+                                entry.path()
                         });
                     }
 
-                    // Now that data is loaded, adjust column widths
-                    TableUtils.fitColumnWidth(fileHistoryTable, 1); // author column
-                    TableUtils.fitColumnWidth(fileHistoryTable, 2); // date column
+                    TableUtils.fitColumnWidth(fileHistoryTable, 1);
+                    TableUtils.fitColumnWidth(fileHistoryTable, 2);
                 });
-            } catch (Exception e) {
-                logger.error("Error loading file history for: {}", file, e);
+            } catch (Exception ex) {
+                logger.error("Error loading file history for: {}", file, ex);
                 SwingUtilities.invokeLater(() -> {
                     fileHistoryModel.setRowCount(0);
                     fileHistoryModel.addRow(new Object[]{
-                            "Error loading history: " + e.getMessage(), "", "", ""
-                    });
+                            "Error loading history: " + ex.getMessage(),
+                            "", "", "", ""});
                 });
             }
             return null;
         });
     }
 
-    /**
-     * Returns the current GitRepo from ContextManager.
-     */
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
     }
