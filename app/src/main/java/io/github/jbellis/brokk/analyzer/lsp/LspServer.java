@@ -251,13 +251,21 @@ public abstract class LspServer implements LspFileUtilities {
                 languageServer.shutdown().get(5, TimeUnit.SECONDS);
                 languageServer.exit();
             }
+            logger.info("JDT LS client shut down successfully.");
+        } catch (Exception e) {
+            logger.error("Error shutting down JDT LS client", e);
+        } finally {
+            this.languageServer = null;
+            this.serverInitialized = null;
+        }
+        try {
             if (serverProcess != null) {
                 serverProcess.destroyForcibly();
                 serverProcess.waitFor(5, TimeUnit.SECONDS);
             }
-            logger.info("JDT LS shut down successfully.");
+            logger.info("JDT LS process shut down successfully.");
         } catch (Exception e) {
-            logger.error("Error shutting down JDT LS", e);
+            logger.error("Error shutting down JDT LS process", e);
         } finally {
             this.languageServer = null;
             this.serverProcess = null;
