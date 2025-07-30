@@ -121,8 +121,14 @@ public final class ClasspathHttpServer {
             } else {
                 var headers = exchange.getResponseHeaders();
                 headers.add("Content-Type", guessContentType(resourcePath));
-                // Add cache control for all static assets, including HTML
-                headers.add("Cache-Control", "public, max-age=31536000, immutable");
+                // Set cache control conditionally based on resource type
+                if (path.endsWith("/index.html")) {
+                    // Entry point must be re-validated on every visit
+                    headers.add("Cache-Control", "no-cache, max-age=0, must-revalidate");
+                } else {
+                    // Other static assets are assumed to be immutable
+                    headers.add("Cache-Control", "public, max-age=31536000, immutable");
+                }
                 exchange.sendResponseHeaders(200, 0);
                 in.transferTo(exchange.getResponseBody());
             }
