@@ -201,7 +201,7 @@ public class JdtAnalyzer implements LspAnalyzer {
         if (skeletons.isEmpty()) {
             return Optional.empty();
         } else {
-            return Optional.of(String.join("\n", skeletons));
+            return Optional.of(String.join(System.lineSeparator(), skeletons));
         }
     }
 

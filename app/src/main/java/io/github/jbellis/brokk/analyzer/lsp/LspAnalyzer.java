@@ -32,7 +32,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      */
     @NotNull
     String getLanguage();
-    
+
     @Override
     default boolean isCpg() {
         return false;
@@ -173,10 +173,11 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @NotNull Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        return LspAnalyzerHelper.getAllSymbolsInFile(getServer(), file.absPath())
+        return LspAnalyzerHelper.getWorkspaceSymbolsInFile(getServer(), file.absPath())
                 .thenApply(symbols ->
                         symbols.stream().map(this::codeUnitForWorkspaceSymbolOfType)
-                ).join()
+                )
+                .join()
                 .collect(Collectors.toSet());
     }
 
@@ -300,8 +301,8 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         final var uri = Path.of(URI.create(symbol.getLocation().getLeft().getUri()));
         final var projectFile = new ProjectFile(this.getProjectRoot(), this.getProjectRoot().relativize(uri));
         final var codeUnitKind = LspAnalyzerHelper.codeUnitForSymbolKind(symbol.getKind());
-        final var containerName =  Optional.ofNullable(symbol.getContainerName()).orElse("");
-        
+        final var containerName = Optional.ofNullable(symbol.getContainerName()).orElse("");
+
         final var lastDot = containerName.lastIndexOf('.');
         final String shortNamePrefix;
         if (lastDot > 0 && codeUnitKind != CodeUnitType.CLASS && codeUnitKind != CodeUnitType.MODULE) {
@@ -309,7 +310,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         } else {
             shortNamePrefix = "";
         }
-        
+
         return new CodeUnit(
                 projectFile,
                 codeUnitKind,

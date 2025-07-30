@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -179,8 +180,44 @@ public final class LspAnalyzerHelper {
             final var params = new DocumentSymbolParams(
                     new TextDocumentIdentifier(filePath.toUri().toString())
             );
-            return server.getTextDocumentService().documentSymbol(params).join();
-        });
+            return server.getTextDocumentService().documentSymbol(params);
+        }).join();
+    }
+
+    /**
+     * Gets a flat list of WorkspaceSymbols from a specific file.
+     */
+    @NotNull
+    public static CompletableFuture<List<WorkspaceSymbol>> getWorkspaceSymbolsInFile(
+            @NotNull LspServer sharedServer,
+            @NotNull Path filePath
+    ) {
+        // Call the original method to get the server's response
+        final var uri = filePath.toUri().toString();
+        return getSymbolsInFile(sharedServer, filePath).thenApply(eitherWorkspaceSymbols -> {
+                    final var documentSymbols = eitherWorkspaceSymbols
+                            .stream()
+                            .flatMap(either -> Optional.ofNullable(either.getRight()).stream())
+                            .toList();
+
+                    if (documentSymbols.isEmpty()) {
+                        return Collections.emptyList();
+                    } else if (documentSymbols.getFirst().getKind() == SymbolKind.Package && documentSymbols.size() > 1) {
+                        // Packages/Namespaces are sometimes siblings to the first class, instead of containers
+                        final var head = documentSymbols.getFirst();
+                        final var tail = documentSymbols.subList(1, documentSymbols.size());
+                        return tail
+                                .stream()
+                                .flatMap(documentSymbol -> documentSymbolsToWorkspaceSymbols(documentSymbol, uri, head.getName()).stream())
+                                .toList();
+                    } else {
+                        return documentSymbols
+                                .stream()
+                                .flatMap(documentSymbol -> documentSymbolsToWorkspaceSymbols(documentSymbol, uri, null).stream())
+                                .toList();
+                    }
+                }
+        );
     }
 
     @NotNull
@@ -193,6 +230,42 @@ public final class LspAnalyzerHelper {
                 documentSymbol.getKind(),
                 Either.forLeft(new Location(uriString, documentSymbol.getRange()))
         );
+    }
+
+    /**
+     * Helper to recursively convert a tree of DocumentSymbols to a flat list of WorkspaceSymbols.
+     * (This is the same helper from our previous conversation).
+     */
+    @NotNull
+    public static List<WorkspaceSymbol> documentSymbolsToWorkspaceSymbols(
+            @NotNull DocumentSymbol topLevelSymbol,
+            @NotNull String uriString,
+            @Nullable String initialParentName
+    ) {
+        List<WorkspaceSymbol> flatList = new ArrayList<>();
+        collectWorkspaceSymbols(Collections.singletonList(topLevelSymbol), uriString, initialParentName, flatList);
+        return flatList;
+    }
+
+    private static void collectWorkspaceSymbols(
+            @NotNull List<DocumentSymbol> symbols,
+            @NotNull String uriString,
+            @Nullable String parentName,
+            @NotNull List<WorkspaceSymbol> collection
+    ) {
+        for (DocumentSymbol docSymbol : symbols) {
+            WorkspaceSymbol workspaceSymbol = new WorkspaceSymbol(
+                    docSymbol.getName(),
+                    docSymbol.getKind(),
+                    Either.forLeft(new Location(uriString, docSymbol.getRange())),
+                    parentName
+            );
+            collection.add(workspaceSymbol);
+
+            if (docSymbol.getChildren() != null && !docSymbol.getChildren().isEmpty()) {
+                collectWorkspaceSymbols(docSymbol.getChildren(), uriString, docSymbol.getName(), collection);
+            }
+        }
     }
 
     /**
@@ -269,6 +342,7 @@ public final class LspAnalyzerHelper {
                                 findRangeInTree(Collections.singletonList(either.getRight()), position) : Optional.<Range>empty())
                         .flatMap(Optional::stream)
                         .findFirst()
+
         );
     }
 

@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 public final class JdtSkeletonHelper {
 
@@ -30,8 +31,8 @@ public final class JdtSkeletonHelper {
             @NotNull String fullSource,
             boolean headerOnly
     ) {
-        Path filePath = Paths.get(URI.create(classLocation.getUri()));
-        Position position = classLocation.getRange().getStart();
+        final Path filePath = Paths.get(URI.create(classLocation.getUri()));
+        final Position position = classLocation.getRange().getStart();
 
         // Get the full symbol tree for the file
         return LspAnalyzerHelper.getSymbolsInFile(sharedServer, filePath)
@@ -62,16 +63,19 @@ public final class JdtSkeletonHelper {
      * to fetch this via reading the source code.
      */
     private static void buildSkeleton(
-            DocumentSymbol symbol, 
-            StringBuilder sb, 
-            int indent, 
+            DocumentSymbol symbol,
+            StringBuilder sb,
+            int indent,
             String fullSource,
             boolean headerOnly
     ) {
         final String indentation = "  ".repeat(indent);
         final String snippet = LspAnalyzerHelper
                 .getSourceForRange(fullSource, symbol.getRange())
-                .replace("\\R", " "); // merge lines into one
+                .replaceAll("(?s)/\\*.*?\\*/", "") // Remove block comments
+                .replaceAll("//.*", "") // Remove line comments
+                .lines().map(String::trim)
+                .collect(Collectors.joining(" "));
 
         sb.append(indentation);
 
@@ -107,7 +111,7 @@ public final class JdtSkeletonHelper {
                         buildSkeleton(child, sb, indent + 1, fullSource, false);
                     }
                 }
-                
+
                 // If this is headers only, then add the omission notice
                 if (headerOnly) {
                     sb.append("  ".repeat(indent + 1)).append("[... methods not shown ...]\n");
@@ -127,7 +131,7 @@ public final class JdtSkeletonHelper {
             default -> sb.setLength(sb.length() - indentation.length());
         }
     }
-    
+
     private static String removeGeneric(final String className) {
         int genericIndex = className.indexOf('<');
         if (genericIndex != -1) {

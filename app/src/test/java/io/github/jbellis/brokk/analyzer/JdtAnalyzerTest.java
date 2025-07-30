@@ -28,6 +28,7 @@ public class JdtAnalyzerTest {
     @BeforeAll
     public static void setup() throws IOException {
         final var testPath = Path.of("src/test/resources/testcode-java");
+//        final var testPath = Path.of("/Users/dave/Workspace/BrokkAi/brokk");
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
         analyzer = new JdtAnalyzer(testPath, new HashSet<>());
     }
