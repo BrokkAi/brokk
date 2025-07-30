@@ -10,10 +10,10 @@ export default defineConfig({
         lib: {
             entry: 'src/worker/markdown.worker.ts',
             name: 'MarkdownWorker',
-            fileName: 'markdown.worker',
             formats: ['es']
         },
         outDir: 'public',
-        emptyOutDir: true
+        emptyOutDir: true,
+        manifest: true
     }
 })

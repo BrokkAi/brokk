@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"vite build -c vite.worker.config.mjs --watch\" \"vite\"",
+    "dev": "vite build -c vite.worker.config.mjs && vite dev",
     "build": "vite build -c vite.worker.config.mjs && vite build",
     "preview": "vite preview"
   },

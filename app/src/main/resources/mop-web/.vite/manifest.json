@@ -1,0 +1,319 @@
+{
+  "_markdown.worker-BT8z6Mnh.mjs": {
+    "file": "markdown.worker-BT8z6Mnh.mjs",
+    "name": "markdown.worker",
+    "dynamicImports": [
+      "node_modules/shiki/dist/langs/actionscript-3.mjs",
+      "node_modules/shiki/dist/langs/c.mjs",
+      "node_modules/shiki/dist/langs/clojure.mjs",
+      "node_modules/shiki/dist/langs/cpp.mjs",
+      "node_modules/shiki/dist/langs/csharp.mjs",
+      "node_modules/shiki/dist/langs/css.mjs",
+      "node_modules/shiki/dist/langs/csv.mjs",
+      "node_modules/shiki/dist/langs/d.mjs",
+      "node_modules/shiki/dist/langs/dart.mjs",
+      "node_modules/shiki/dist/langs/pascal.mjs",
+      "node_modules/shiki/dist/langs/dockerfile.mjs",
+      "node_modules/shiki/dist/langs/f90.mjs",
+      "node_modules/shiki/dist/langs/go.mjs",
+      "node_modules/shiki/dist/langs/groovy.mjs",
+      "node_modules/shiki/dist/langs/handlebars.mjs",
+      "node_modules/shiki/dist/langs/html.mjs",
+      "_properties-BjojwTZS.mjs",
+      "node_modules/shiki/dist/langs/jsonc.mjs",
+      "node_modules/shiki/dist/langs/kotlin.mjs",
+      "node_modules/shiki/dist/langs/latex.mjs",
+      "node_modules/shiki/dist/langs/less.mjs",
+      "node_modules/shiki/dist/langs/lisp.mjs",
+      "node_modules/shiki/dist/langs/lua.mjs",
+      "node_modules/shiki/dist/langs/makefile.mjs",
+      "node_modules/shiki/dist/langs/perl.mjs",
+      "node_modules/shiki/dist/langs/php.mjs",
+      "node_modules/shiki/dist/langs/proto.mjs",
+      "_properties-BjojwTZS.mjs",
+      "node_modules/shiki/dist/langs/ruby.mjs",
+      "node_modules/shiki/dist/langs/rust.mjs",
+      "node_modules/shiki/dist/langs/sas.mjs",
+      "node_modules/shiki/dist/langs/scala.mjs",
+      "node_modules/shiki/dist/langs/sql.mjs",
+      "node_modules/shiki/dist/langs/svelte.mjs",
+      "node_modules/shiki/dist/langs/tcl.mjs",
+      "node_modules/shiki/dist/langs/vb.mjs",
+      "node_modules/shiki/dist/langs/xml.mjs"
+    ]
+  },
+  "_properties-BjojwTZS.mjs": {
+    "file": "properties-BjojwTZS.mjs",
+    "name": "properties",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/actionscript-3.mjs": {
+    "file": "actionscript-3-DZzbMeqX.mjs",
+    "name": "actionscript-3",
+    "src": "node_modules/shiki/dist/langs/actionscript-3.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/c.mjs": {
+    "file": "c-eeMepfLm.mjs",
+    "name": "c",
+    "src": "node_modules/shiki/dist/langs/c.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/clojure.mjs": {
+    "file": "clojure-CXJfHrL3.mjs",
+    "name": "clojure",
+    "src": "node_modules/shiki/dist/langs/clojure.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/cpp.mjs": {
+    "file": "cpp-C_X65eGt.mjs",
+    "name": "cpp",
+    "src": "node_modules/shiki/dist/langs/cpp.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/c.mjs",
+      "node_modules/shiki/dist/langs/sql.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/csharp.mjs": {
+    "file": "csharp-DmxfTLWR.mjs",
+    "name": "csharp",
+    "src": "node_modules/shiki/dist/langs/csharp.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/css.mjs": {
+    "file": "css-CECN5uSL.mjs",
+    "name": "css",
+    "src": "node_modules/shiki/dist/langs/css.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/csv.mjs": {
+    "file": "csv-CmYOceLb.mjs",
+    "name": "csv",
+    "src": "node_modules/shiki/dist/langs/csv.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/d.mjs": {
+    "file": "d-CBagWSwH.mjs",
+    "name": "d",
+    "src": "node_modules/shiki/dist/langs/d.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/dart.mjs": {
+    "file": "dart-6ObCrKr9.mjs",
+    "name": "dart",
+    "src": "node_modules/shiki/dist/langs/dart.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/dockerfile.mjs": {
+    "file": "dockerfile-CsHqm9tx.mjs",
+    "name": "dockerfile",
+    "src": "node_modules/shiki/dist/langs/dockerfile.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/f90.mjs": {
+    "file": "f90-DPIT_jbP.mjs",
+    "name": "f90",
+    "src": "node_modules/shiki/dist/langs/f90.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/go.mjs": {
+    "file": "go-DG0xfxoJ.mjs",
+    "name": "go",
+    "src": "node_modules/shiki/dist/langs/go.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/groovy.mjs": {
+    "file": "groovy-CJQTphOW.mjs",
+    "name": "groovy",
+    "src": "node_modules/shiki/dist/langs/groovy.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/handlebars.mjs": {
+    "file": "handlebars-4ZgwPuEZ.mjs",
+    "name": "handlebars",
+    "src": "node_modules/shiki/dist/langs/handlebars.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/html.mjs",
+      "node_modules/shiki/dist/langs/css.mjs",
+      "_markdown.worker-BT8z6Mnh.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/html.mjs": {
+    "file": "html-D6qQWsiW.mjs",
+    "name": "html",
+    "src": "node_modules/shiki/dist/langs/html.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "_markdown.worker-BT8z6Mnh.mjs",
+      "node_modules/shiki/dist/langs/css.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/jsonc.mjs": {
+    "file": "jsonc-CHjZD8gR.mjs",
+    "name": "jsonc",
+    "src": "node_modules/shiki/dist/langs/jsonc.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/kotlin.mjs": {
+    "file": "kotlin-ByBMgTeR.mjs",
+    "name": "kotlin",
+    "src": "node_modules/shiki/dist/langs/kotlin.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/latex.mjs": {
+    "file": "latex-BouRLZ4D.mjs",
+    "name": "latex",
+    "src": "node_modules/shiki/dist/langs/latex.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/less.mjs": {
+    "file": "less-B1GLI2Di.mjs",
+    "name": "less",
+    "src": "node_modules/shiki/dist/langs/less.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/lisp.mjs": {
+    "file": "lisp-EVqT9Zhp.mjs",
+    "name": "lisp",
+    "src": "node_modules/shiki/dist/langs/lisp.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/lua.mjs": {
+    "file": "lua-CG3yDRXR.mjs",
+    "name": "lua",
+    "src": "node_modules/shiki/dist/langs/lua.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/c.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/makefile.mjs": {
+    "file": "makefile-CsMclxtr.mjs",
+    "name": "makefile",
+    "src": "node_modules/shiki/dist/langs/makefile.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/pascal.mjs": {
+    "file": "pascal-xy8pJNns.mjs",
+    "name": "pascal",
+    "src": "node_modules/shiki/dist/langs/pascal.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/perl.mjs": {
+    "file": "perl-DEeJyT5D.mjs",
+    "name": "perl",
+    "src": "node_modules/shiki/dist/langs/perl.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/html.mjs",
+      "node_modules/shiki/dist/langs/xml.mjs",
+      "node_modules/shiki/dist/langs/css.mjs",
+      "_markdown.worker-BT8z6Mnh.mjs",
+      "node_modules/shiki/dist/langs/sql.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/php.mjs": {
+    "file": "php-BDhS6sjn.mjs",
+    "name": "php",
+    "src": "node_modules/shiki/dist/langs/php.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/html.mjs",
+      "node_modules/shiki/dist/langs/xml.mjs",
+      "node_modules/shiki/dist/langs/sql.mjs",
+      "_markdown.worker-BT8z6Mnh.mjs",
+      "node_modules/shiki/dist/langs/css.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/proto.mjs": {
+    "file": "proto-MmCPeFAD.mjs",
+    "name": "proto",
+    "src": "node_modules/shiki/dist/langs/proto.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/ruby.mjs": {
+    "file": "ruby-BI-Nduom.mjs",
+    "name": "ruby",
+    "src": "node_modules/shiki/dist/langs/ruby.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/html.mjs",
+      "_markdown.worker-BT8z6Mnh.mjs",
+      "node_modules/shiki/dist/langs/css.mjs",
+      "node_modules/shiki/dist/langs/xml.mjs",
+      "node_modules/shiki/dist/langs/sql.mjs",
+      "node_modules/shiki/dist/langs/cpp.mjs",
+      "node_modules/shiki/dist/langs/c.mjs",
+      "node_modules/shiki/dist/langs/lua.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/rust.mjs": {
+    "file": "rust-CLzF9zIN.mjs",
+    "name": "rust",
+    "src": "node_modules/shiki/dist/langs/rust.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/sas.mjs": {
+    "file": "sas-BHuu9VN6.mjs",
+    "name": "sas",
+    "src": "node_modules/shiki/dist/langs/sas.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "node_modules/shiki/dist/langs/sql.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/scala.mjs": {
+    "file": "scala-D4grkFkl.mjs",
+    "name": "scala",
+    "src": "node_modules/shiki/dist/langs/scala.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/sql.mjs": {
+    "file": "sql-D4zFzHkM.mjs",
+    "name": "sql",
+    "src": "node_modules/shiki/dist/langs/sql.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/svelte.mjs": {
+    "file": "svelte-CSUHVaF9.mjs",
+    "name": "svelte",
+    "src": "node_modules/shiki/dist/langs/svelte.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "_markdown.worker-BT8z6Mnh.mjs",
+      "node_modules/shiki/dist/langs/css.mjs"
+    ]
+  },
+  "node_modules/shiki/dist/langs/tcl.mjs": {
+    "file": "tcl-DN7buRTF.mjs",
+    "name": "tcl",
+    "src": "node_modules/shiki/dist/langs/tcl.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/vb.mjs": {
+    "file": "vb-D8_c5-KN.mjs",
+    "name": "vb",
+    "src": "node_modules/shiki/dist/langs/vb.mjs",
+    "isDynamicEntry": true
+  },
+  "node_modules/shiki/dist/langs/xml.mjs": {
+    "file": "xml-D2dFBnAu.mjs",
+    "name": "xml",
+    "src": "node_modules/shiki/dist/langs/xml.mjs",
+    "isDynamicEntry": true,
+    "imports": [
+      "_markdown.worker-BT8z6Mnh.mjs"
+    ]
+  },
+  "src/worker/markdown.worker.ts": {
+    "file": "brokk-mop-frontend.mjs",
+    "name": "markdown.worker",
+    "src": "src/worker/markdown.worker.ts",
+    "isEntry": true,
+    "imports": [
+      "_markdown.worker-BT8z6Mnh.mjs"
+    ]
+  }
+}

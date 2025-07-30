@@ -1,7 +1,7 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
 import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
 
-const worker = new Worker('/markdown.worker.mjs', { type: 'module' });
+const worker = new Worker(__WORKER_URL__, { type: 'module' });
 
 /* outbound ---------------------------------------------------------- */
 export function pushChunk(text: string, seq: number) {
