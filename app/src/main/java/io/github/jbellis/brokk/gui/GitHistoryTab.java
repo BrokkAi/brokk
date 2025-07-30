@@ -43,8 +43,6 @@ public class GitHistoryTab extends JPanel {
         return file.toString();
     }
 
-    /* -----------------------  UI construction  ----------------------- */
-
     private void buildHistoryTabUI()
     {
         fileHistoryModel = new DefaultTableModel(
@@ -64,8 +62,6 @@ public class GitHistoryTab extends JPanel {
             fileHistoryTable.getColumnModel().getColumn(col).setMaxWidth(0);
             fileHistoryTable.getColumnModel().getColumn(col).setWidth(0);
         }
-
-        /* -------- context menu -------- */
 
         var menu                  = new JPopupMenu();
         chrome.themeManager.registerPopupMenu(menu);
@@ -121,7 +117,7 @@ public class GitHistoryTab extends JPanel {
             }
         });
 
-        /* double-click → show diff */
+        /* double-click => show diff */
         fileHistoryTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseClicked(java.awt.event.MouseEvent e) {
                 if (e.getClickCount() != 2) return;
@@ -134,8 +130,6 @@ public class GitHistoryTab extends JPanel {
                 GitUiUtil.showFileHistoryDiff(contextManager, chrome, commitId, histFile);
             }
         });
-
-        /* ----- context-menu actions ----- */
 
         captureDiffItem.addActionListener(e -> {
             int row = fileHistoryTable.getSelectedRow();
@@ -183,8 +177,6 @@ public class GitHistoryTab extends JPanel {
 
         add(new JScrollPane(fileHistoryTable), BorderLayout.CENTER);
     }
-
-    /* -----------------------  data loading  ----------------------- */
 
     private void loadFileHistory()
     {
