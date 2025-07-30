@@ -81,15 +81,15 @@ public class GitRepoFileHistoryTest {
         assertEquals(3, history.size(), "Should have 3 commits in history");
 
         // Most recent commit should use current name
-        assertEquals("renamed.txt", history.get(0).path().toString());
+        assertEquals(Path.of("renamed.txt"), history.get(0).path().getRelPath());
         assertEquals("Rename file", history.get(0).commit().message());
 
         // Middle commit should use original name (before rename)
-        assertEquals("original.txt", history.get(1).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(1).path().getRelPath());
         assertEquals("Modify file", history.get(1).commit().message());
 
         // Initial commit should use original name
-        assertEquals("original.txt", history.get(2).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(2).path().getRelPath());
         assertEquals("Initial commit", history.get(2).commit().message());
     }
 
@@ -126,15 +126,15 @@ public class GitRepoFileHistoryTest {
         assertEquals(3, history.size(), "Should have 3 commits in history");
 
         // Most recent: final.txt
-        assertEquals("final.txt", history.get(0).path().toString());
+        assertEquals(Path.of("final.txt"), history.get(0).path().getRelPath());
         assertEquals("Second rename", history.get(0).commit().message());
 
         // Middle: middle.txt
-        assertEquals("middle.txt", history.get(1).path().toString());
+        assertEquals(Path.of("middle.txt"), history.get(1).path().getRelPath());
         assertEquals("First rename", history.get(1).commit().message());
 
         // Oldest: original.txt
-        assertEquals("original.txt", history.get(2).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(2).path().getRelPath());
         assertEquals("Initial commit", history.get(2).commit().message());
     }
 
@@ -167,13 +167,13 @@ public class GitRepoFileHistoryTest {
         assertEquals(3, history.size(), "Should have 3 commits in history");
 
         // Verify the rename was detected and paths are correct
-        assertEquals("renamed.txt", history.get(0).path().toString());
+        assertEquals(Path.of("renamed.txt"), history.get(0).path().getRelPath());
         assertEquals("Rename file", history.get(0).commit().message());
 
-        assertEquals("original.txt", history.get(1).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(1).path().getRelPath());
         assertEquals("Modify original file", history.get(1).commit().message());
 
-        assertEquals("original.txt", history.get(2).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(2).path().getRelPath());
         assertEquals("Initial commit", history.get(2).commit().message());
     }
 
@@ -196,7 +196,7 @@ public class GitRepoFileHistoryTest {
 
         // All entries should have same path since no rename occurred
         for (var entry : history) {
-            assertEquals("original.txt", entry.path().toString(),
+            assertEquals(Path.of("original.txt"), entry.path().getRelPath(),
                         "All entries should have original path");
         }
     }
@@ -208,7 +208,7 @@ public class GitRepoFileHistoryTest {
         var history = repo.getFileHistoryWithPaths(currentFile);
 
         assertEquals(1, history.size(), "Should have 1 commit in history");
-        assertEquals("original.txt", history.get(0).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(0).path().getRelPath());
         assertEquals("Initial commit", history.get(0).commit().message());
     }
 
@@ -242,11 +242,11 @@ public class GitRepoFileHistoryTest {
         assertEquals(2, history.size(), "Should have 2 commits in history");
 
         // Most recent should be in subdirectory
-        assertEquals("subdir/moved.txt", history.get(0).path().toString());
+        assertEquals(Path.of("subdir", "moved.txt"), history.get(0).path().getRelPath());
         assertEquals("Move to subdirectory", history.get(0).commit().message());
 
         // Original should be at root
-        assertEquals("original.txt", history.get(1).path().toString());
+        assertEquals(Path.of("original.txt"), history.get(1).path().getRelPath());
         assertEquals("Initial commit", history.get(1).commit().message());
     }
 }
