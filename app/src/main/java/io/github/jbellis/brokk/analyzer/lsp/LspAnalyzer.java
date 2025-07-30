@@ -27,6 +27,12 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     @NotNull
     LspServer getServer();
 
+    /**
+     * @return the target programming language as per the LSP's setting specs, e.g., "java".
+     */
+    @NotNull
+    String getLanguage();
+    
     @Override
     default boolean isCpg() {
         return false;

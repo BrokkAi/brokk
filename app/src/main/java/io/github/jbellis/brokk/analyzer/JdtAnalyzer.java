@@ -12,10 +12,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
@@ -41,12 +38,12 @@ public class JdtAnalyzer implements LspAnalyzer {
         } else {
             JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
             this.sharedServer = SharedLspServer.getInstance();
-            this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions());
+            this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions(), getLanguage());
             this.sharedServer.refreshWorkspace().join();
             this.workspace = this.projectRoot.toUri().toString();
         }
     }
-    
+
     @Override
     public boolean isEmpty() {
         return false; // fixme: figure out a different way to test this
@@ -66,17 +63,34 @@ public class JdtAnalyzer implements LspAnalyzer {
     public @NotNull LspServer getServer() {
         return this.sharedServer;
     }
-    
+
+    @Override
+    public @NotNull String getLanguage() {
+        return "java";
+    }
+
     @Override
     public @NotNull Map<String, Object> getInitializationOptions() {
-        return Map.of(
-                "symbols", Map.of("includeSourceMethodDeclarations", true),
-                "configuration", Map.of("updateBuildConfiguration", "automatic"),
-                "import", Map.of(
-                        "maven", Map.of("wrapper", Map.of("enabled", true)),
-                        "gradle",Map.of("wrapper", Map.of("enabled", true))
-                )
-        );
+        final var options = new HashMap<String, Object>();
+        final var javaOptions = new HashMap<String, Object>();
+        final var server = new HashMap<String, Object>();
+        final var symbols = new HashMap<String, Object>();
+        final var configuration = new HashMap<String, Object>();
+        final var imporT = new HashMap<String, Object>();
+
+        server.put("launchMode", "Hybrid");
+        symbols.put("includeSourceMethodDeclarations", true);
+        configuration.put("updateBuildConfiguration", "automatic");
+        imporT.put("maven", Map.of("wrapper", Map.of("enabled", true)));
+        imporT.put("gradle", Map.of("wrapper", Map.of("enabled", true)));
+
+        javaOptions.put("server", server);
+        javaOptions.put("symbols", symbols);
+        javaOptions.put("configuration", configuration);
+        javaOptions.put("import", imporT);
+
+        options.put("java", javaOptions);
+        return options;
     }
 
     /**
@@ -155,7 +169,7 @@ public class JdtAnalyzer implements LspAnalyzer {
         // Add array brackets back if they were present
         return isArray ? shortName + "[]" : shortName;
     }
-    
+
     private Optional<String> getSkeleton(String fqName, boolean headerOnly) {
         final Set<String> skeletons = LspAnalyzerHelper.findTypesInWorkspace(fqName, workspace, sharedServer, false)
                 .thenApply(typeSymbols ->
@@ -203,6 +217,6 @@ public class JdtAnalyzer implements LspAnalyzer {
 
     @Override
     public void close() {
-        sharedServer.unregisterClient(this.projectRoot);
+        sharedServer.unregisterClient(this.projectRoot, getInitializationOptions(), getLanguage());
     }
 }

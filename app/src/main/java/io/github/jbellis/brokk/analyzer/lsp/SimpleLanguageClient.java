@@ -49,6 +49,11 @@ public final class SimpleLanguageClient implements LanguageClient {
         return null;
     }
 
+    @JsonNotification("language/eventNotification")
+    public void languageEvent(Object params) {
+        logger.info("Language Event {}", params);
+    }
+
     @Override
     public void logMessage(MessageParams message) {
         switch (message.getType()) {
@@ -60,7 +65,13 @@ public final class SimpleLanguageClient implements LanguageClient {
                 logger.error("[LSP-SERVER-LOG] {}", conciseMessage);
             }
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
-            case Info -> logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
+            case Info -> {
+                logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
+                if (message.getMessage().endsWith("build jobs finished")) {
+                    // This is a good way we can tell when indexing is done
+                    serverReadyLatch.countDown();
+                }
+            }
             default -> logger.debug("[LSP-SERVER-LOG] {}", message.getMessage());
         }
     }
@@ -70,17 +81,6 @@ public final class SimpleLanguageClient implements LanguageClient {
         final var kind = message.type();
         final var msg = message.message();
         logger.debug("[LSP-SERVER-STATUS] {}: {}", kind, msg);
-        // The logs below are various ways we can tell when indexing is done
-        switch (kind) {
-            case "Started" -> {
-                if (Objects.equals(msg, "Ready")) serverReadyLatch.countDown();
-            }
-            case "Starting" -> {
-                // e.g., 100% Starting Java Language Server
-                if (msg != null && msg.startsWith("100%") && msg.endsWith("Language Server"))
-                    serverReadyLatch.countDown();
-            }
-        }
     }
 
     @Override

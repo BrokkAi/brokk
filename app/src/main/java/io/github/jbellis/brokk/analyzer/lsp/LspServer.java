@@ -55,7 +55,7 @@ public abstract class LspServer implements LspFileUtilities {
                 // this.languageServer should be non-null here
                 assert this.languageServer != null;
                 try {
-                    if (!serverReadyLatch.await(5000, TimeUnit.MILLISECONDS)) {
+                    if (!serverReadyLatch.await(15, TimeUnit.SECONDS)) {
                         logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
                     }
                 } catch (InterruptedException e) {
@@ -257,32 +257,17 @@ public abstract class LspServer implements LspFileUtilities {
      * @param projectPath     The workspace path for the new client.
      * @param excludePatterns A set of glob patterns to exclude for this workspace.
      */
-    public synchronized void registerClient(Path projectPath, Set<String> excludePatterns, Map<String, Object> initializationOptions) throws IOException {
+    public synchronized void registerClient(Path projectPath, Set<String> excludePatterns, Map<String, Object> initializationOptions, String language) throws IOException {
         final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
-        
-        final var excludeRelPaths = new HashSet<String>();
-        excludePatterns.forEach(x -> {
-            if (x.startsWith(File.separator)) {
-                // Relativize the paths if necessary
-                excludeRelPaths.add("." + x);
-            } else {
-                excludeRelPaths.add(x);
-            }
-        });
-        excludeRelPaths.add("**/resources/**"); // Ignore resources files
-        
-        workspaceExclusions.put(projectPathAbsolute, excludeRelPaths);
+
+        workspaceExclusions.put(projectPathAbsolute, excludePatterns);
         if (clientCounter.getAndIncrement() == 0) {
-            final var options = new HashMap<>(initializationOptions);
-            final var exclusionParams = new HashMap<String, Object>();
-            excludeRelPaths.forEach(x -> exclusionParams.put(x, true));
-            options.put("files", Map.of("exclude", exclusionParams));
-            startServer(projectPathAbsolute, options);
+            startServer(projectPathAbsolute, initializationOptions);
         } else {
             addWorkspaceFolder(projectPathAbsolute);
         }
         activeWorkspaces.add(projectPathAbsolute);
-        updateServerConfiguration(); // Send combined configuration
+        updateServerConfiguration(initializationOptions, language); // Send combined configuration
         logger.debug("Registered workspace: {}. Active clients: {}", projectPathAbsolute, clientCounter.get());
     }
 
@@ -291,7 +276,7 @@ public abstract class LspServer implements LspFileUtilities {
      *
      * @param projectPath The workspace path of the client being closed.
      */
-    public synchronized void unregisterClient(Path projectPath) {
+    public synchronized void unregisterClient(Path projectPath, Map<String, Object> initializationOptions, String language) {
         final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
         removeWorkspaceFolder(projectPathAbsolute);
         activeWorkspaces.remove(projectPathAbsolute);
@@ -300,7 +285,7 @@ public abstract class LspServer implements LspFileUtilities {
         if (clientCounter.decrementAndGet() == 0) {
             shutdownServer();
         } else {
-            updateServerConfiguration(); // Update config after removal
+            updateServerConfiguration(initializationOptions, language); // Update config after removal
         }
     }
 
@@ -328,23 +313,28 @@ public abstract class LspServer implements LspFileUtilities {
     /**
      * Builds a combined configuration from all active workspaces and sends it to the server.
      */
-    private void updateServerConfiguration() {
+    @SuppressWarnings("unchecked")
+    private void updateServerConfiguration(Map<String, Object> initializationOptions, String language) {
         whenInitialized((server) -> {
             // Combine all exclusion patterns from all workspaces into one map
-            Map<String, Boolean> combinedExclusions = new HashMap<>();
-            for (Set<String> patterns : workspaceExclusions.values()) {
-                for (String pattern : patterns) {
-                    combinedExclusions.put(pattern, true);
+            final var combinedExclusions = new HashMap<String, Boolean>();
+            for (final Set<String> patterns : workspaceExclusions.values()) {
+                for (final var pattern : patterns) {
+                    if (pattern.startsWith(File.separator)) {
+                        // Relativize the paths if necessary
+                        combinedExclusions.put("." + pattern, true);
+                    } else {
+                        combinedExclusions.put(pattern, true);
+                    }
                 }
             }
-
-            // Build the settings structure that JDT LS expects
-            Map<String, Object> filesSettings = Map.of("exclude", combinedExclusions);
-            Map<String, Object> javaSettings = Map.of("files", filesSettings);
-            Map<String, Object> settings = Map.of("java", javaSettings);
+            
+            final var options = new HashMap<>(initializationOptions);
+            final var settings = (Map<String, Object>) options.getOrDefault(language, new HashMap<String, Object>());
+            settings.put("files", Map.of("exclude", combinedExclusions));
 
             // Send the didChangeConfiguration notification
-            DidChangeConfigurationParams params = new DidChangeConfigurationParams(settings);
+            final var params = new DidChangeConfigurationParams(options);
             server.getWorkspaceService().didChangeConfiguration(params);
             logger.debug("Updated server configuration with combined exclusions: {}", combinedExclusions.keySet());
         });
