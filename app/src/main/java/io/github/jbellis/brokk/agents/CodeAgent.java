@@ -81,9 +81,6 @@ public class CodeAgent {
         // Track changed files
         var changedFiles = new HashSet<ProjectFile>();
 
-        // Keep original workspace editable messages at the start of the task
-        var originalWorkspaceEditableMessages = CodePrompts.instance.getOriginalWorkspaceEditableMessages(contextManager);
-
         // Retry-loop state tracking
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
@@ -104,7 +101,7 @@ public class CodeAgent {
                                                                    parser,
                                                                    null);
 
-        var conversationState = new ConversationState(taskMessages, nextRequest, originalWorkspaceEditableMessages);
+        var conversationState = new ConversationState(taskMessages, nextRequest);
         var workspaceState = new EditState(blocks, 0, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
@@ -124,9 +121,7 @@ public class CodeAgent {
                                                                                  model,
                                                                                  parser,
                                                                                  loopContext.conversationState().taskMessages(),
-                                                                                 loopContext.conversationState().nextRequest(),
-                                                                                 loopContext.editState().changedFiles(),
-                                                                                 loopContext.conversationState().originalWorkspaceEditableMessages());
+                                                                                 loopContext.conversationState().nextRequest());
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
                     Optional.ofNullable(streamingResult.tokenUsage())
@@ -237,14 +232,13 @@ public class CodeAgent {
 
         // TODO smart parser selection -- tricky because we need the redaction in UAPD to work
         var parser = EditBlockConflictsParser.instance;
-        var editableMsg = CodePrompts.instance.getSingleFileEditableMessage(file);
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(instructions,
                                                                       CodePrompts.reminderForModel(contextManager.getService(), model),
                                                                       parser,
                                                                       file);
 
-        var conversationState = new ConversationState(new ArrayList<>(), initialRequest, editableMsg);
+        var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
@@ -262,8 +256,7 @@ public class CodeAgent {
                                                                          readOnlyMessages,
                                                                          loopContext.conversationState().taskMessages(),
                                                                          loopContext.conversationState().nextRequest(),
-                                                                         loopContext.editState().originalFileContents().keySet(),
-                                                                         editableMsg);
+                                                                         file);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
@@ -380,7 +373,7 @@ public class CodeAgent {
                 return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
             }
 
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.originalWorkspaceEditableMessages());
+            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
             // Add any newly parsed blocks before the error to the pending list for the next apply phase
             var nextPending = new ArrayList<>(ws.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
@@ -405,7 +398,7 @@ public class CodeAgent {
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());
             }
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.originalWorkspaceEditableMessages());
+            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
             var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
@@ -819,11 +812,8 @@ public class CodeAgent {
                 metrics.buildFailures++;
             }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
-            var newCs = new ConversationState(
-                    cs.taskMessages(),
-                    nextRequestForBuildFailure,
-                    cs.originalWorkspaceEditableMessages()
-            );
+            var newCs = new ConversationState(cs.taskMessages(),
+                                            nextRequestForBuildFailure);
             var newWs = ws.afterBuildFailure(latestBuildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(new LoopContext(newCs, newWs, loopContext.userGoal()));
@@ -884,7 +874,7 @@ public class CodeAgent {
                             .forEach(updatedChangedFiles::add);
 
                     UserMessage placeholderPrompt = new UserMessage("[Placeholder: Build errors will be inserted here by verifyPhase if build fails after this full file replacement]");
-                    csForStep = new ConversationState(cs.taskMessages(), placeholderPrompt, cs.originalWorkspaceEditableMessages());
+                    csForStep = new ConversationState(cs.taskMessages(), placeholderPrompt);
 
                     wsForStep = ws.afterFallbackSuccess(nextPendingBlocks, updatedChangedFiles, nextOriginalFileContents);
                     return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
@@ -894,7 +884,7 @@ public class CodeAgent {
                     }
                     String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount, contextManager);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
-                    csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.originalWorkspaceEditableMessages());
+                    csForStep = new ConversationState(cs.taskMessages(), retryRequest);
                     wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
                     report("Failed to apply %s block(s), asking LLM to retry".formatted(failedBlocks.size()));
                     return new Step.Retry(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
@@ -977,8 +967,7 @@ public class CodeAgent {
 
     record ConversationState(
             List<ChatMessage> taskMessages,
-            UserMessage nextRequest,
-            List<ChatMessage> originalWorkspaceEditableMessages
+            UserMessage nextRequest
     ) {}
 
     record EditState(

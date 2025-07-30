@@ -13,6 +13,7 @@ treesitter = "0.25.3"
 picocli = "4.7.7"
 maven-embedder = "3.9.6"
 maven-resolver = "1.9.20"
+dependency-analysis = "2.6.0"
 
 [libraries]
 # Scala
@@ -63,7 +64,6 @@ jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
 okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
 jspecify = "org.jspecify:jspecify:1.0.0"
 jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
-snakeyaml = "org.yaml:snakeyaml:2.3"
 jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
@@ -111,7 +111,7 @@ maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-res
 maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
 
 [bundles]
-joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-pysrc2cpg", "joern-cli", "joern-semanticcpg"]
+joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-cli", "joern-semanticcpg"]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
@@ -129,3 +129,4 @@ errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
 shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }
 buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
 spotless = { id = "com.diffplug.spotless", version = "6.25.0" }
+dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependency-analysis" }

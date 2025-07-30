@@ -109,6 +109,19 @@ After running tests, detailed reports are automatically generated:
 - `./gradlew :joern-analyzers:scalafmt` - Format Scala code
 - `./gradlew scalafmt` - Format all Scala code in project
 
+### Dependency Management
+
+The project uses the Gradle Dependency Analysis plugin to maintain clean dependencies:
+
+- `./gradlew buildHealth` - Run comprehensive dependency analysis
+- `./gradlew dependencies` - Show dependency tree with conflicts
+
+#### What the dependency analysis checks:
+- **Unused Dependencies**: Identifies dependencies that aren't actually used
+- **Dependency Conflicts**: Detects version conflicts between transitive dependencies
+- **Incorrect Configuration**: Finds dependencies in wrong configurations (e.g., runtime vs compile)
+The dependency analysis runs automatically in CI and will fail builds on critical dependency issues.
+
 ### Static Analysis
 
 #### ErrorProne (Java modules: analyzer-api, app)

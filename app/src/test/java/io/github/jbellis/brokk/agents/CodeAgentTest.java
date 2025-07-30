@@ -87,8 +87,7 @@ class CodeAgentTest {
     {
         var conversationState = new CodeAgent.ConversationState(
                 new ArrayList<>(taskMessages), // Modifiable copy
-                nextRequest,
-                List.of() // originalWorkspaceEditableMessages - empty for these tests
+                nextRequest
         );
         var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingBlocks), // Modifiable copy

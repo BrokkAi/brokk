@@ -436,8 +436,8 @@ public class BuildAgent {
     }
 
     private static String getBuildLintAllCommand(BuildDetails details) {
-        if (System.getenv("BRK_TESTSOME_CMD") != null) {
-            return System.getenv("BRK_TESTSOME_CMD");
+        if (System.getenv("BRK_TESTALL_CMD") != null) {
+            return System.getenv("BRK_TESTALL_CMD");
         }
         return details.buildLintCommand();
     }

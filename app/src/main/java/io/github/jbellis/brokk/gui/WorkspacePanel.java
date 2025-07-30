@@ -87,8 +87,8 @@ public class WorkspacePanel extends JPanel {
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
 
-            // Only add drop all action if workspace is editable and we're on the last history item
-            if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
+            // Only add drop all action if workspace is editable
+            if (panel.workspaceCurrentlyEditable) {
                 actions.add(WorkspaceAction.DROP_ALL.createAction(panel));
             }
 
@@ -1798,6 +1798,7 @@ public class WorkspacePanel extends JPanel {
                 return;
             }
             contextManager.dropAll();
+            contextManager.setSelectedContext(contextManager.topContext());
         } else {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
@@ -2081,7 +2082,6 @@ public class WorkspacePanel extends JPanel {
 
     private void refreshMenuState() {
         var editable = workspaceCurrentlyEditable;
-        var onLastHistoryItem = isOnLatestContext();
 
         for (var component : tablePopupMenu.getComponents()) {
             if (component instanceof JMenuItem mi) {
@@ -2089,10 +2089,10 @@ public class WorkspacePanel extends JPanel {
                 boolean dropAll = DROP_ALL_ACTION_CMD.equals(mi.getActionCommand());
 
                 if (dropAll) {
-                    // "Drop All" is only visible and enabled when workspace is editable and on last history item
-                    mi.setVisible(editable && onLastHistoryItem);
-                    mi.setEnabled(editable && onLastHistoryItem);
-                    mi.setToolTipText(editable && onLastHistoryItem ? null : READ_ONLY_TIP);
+                    // "Drop All" is always available
+                    mi.setVisible(true);
+                    mi.setEnabled(true);
+                    mi.setToolTipText(null);
                 } else if (copyAll) {
                     // "Copy All" is always enabled and visible
                     mi.setEnabled(true);
@@ -2109,7 +2109,7 @@ public class WorkspacePanel extends JPanel {
 
         // Also update the global drop all menu item
         if (dropAllMenuItem != null) {
-            dropAllMenuItem.setEnabled(editable && onLastHistoryItem);
+            dropAllMenuItem.setEnabled(true);
         }
     }
 }

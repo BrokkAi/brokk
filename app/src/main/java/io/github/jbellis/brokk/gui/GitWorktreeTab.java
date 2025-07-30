@@ -334,7 +334,40 @@ public class GitWorktreeTab extends JPanel {
             try {
                 IGitRepo repo = contextManager.getProject().getRepo();
                 if (repo instanceof GitRepo gitRepo) {
-                    List<IGitRepo.WorktreeInfo> worktrees = gitRepo.listWorktrees();
+                    var result = gitRepo.listWorktreesAndInvalid();
+                    var worktrees = result.worktrees();
+                    var invalidPaths = result.invalidPaths();
+
+                    if (!invalidPaths.isEmpty()) {
+                        final var dialogFuture = new java.util.concurrent.CompletableFuture<Integer>();
+                        SwingUtilities.invokeLater(() -> {
+                            String pathList = invalidPaths.stream()
+                                                          .map(Path::toString)
+                                                          .collect(Collectors.joining("\n- "));
+                            String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList +
+                                             "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
+                            int choice = chrome.showConfirmDialog(message, "Prune Stale Worktrees?",
+                                                                   JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                            dialogFuture.complete(choice);
+                        });
+
+                        int choice = dialogFuture.get();
+                        if (choice == JOptionPane.YES_OPTION) {
+                            contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
+                                try {
+                                    gitRepo.pruneWorktrees();
+                                    chrome.systemOutput("Successfully pruned stale worktrees.");
+                                    SwingUtilities.invokeLater(this::loadWorktrees); // Reload after prune
+                                } catch (Exception e) {
+                                    logger.error("Failed to prune stale worktrees", e);
+                                    chrome.toolError("Failed to prune stale worktrees: " + e.getMessage());
+                                }
+                                return null;
+                            });
+                            return null; // The prune task will trigger a reload, so we exit this one.
+                        }
+                    }
+
                     // Normalize the current project's root path for reliable comparison
                     Path currentProjectRoot = contextManager.getProject().getRoot().toRealPath();
 
@@ -343,7 +376,7 @@ public class GitWorktreeTab extends JPanel {
                         for (IGitRepo.WorktreeInfo wt : worktrees) {
                             String sessionTitle = MainProject.getActiveSessionTitle(wt.path())
                                     .orElse("(no session)");
-                            // wt.path() is already a real path from GitRepo.listWorktrees()
+                            // wt.path() is already a real path from GitRepo.listWorktreesAndInvalid()
                             boolean isActive = currentProjectRoot.equals(wt.path());
                             worktreeTableModel.addRow(new Object[]{
                                     isActive, // For the "✓" column
