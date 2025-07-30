@@ -133,8 +133,8 @@ public class AdaptiveThrottlingStrategy {
         int eventsPerSecond = calculateEventsPerSecond();
 
         // Determine if we should switch modes
-        boolean shouldUseFrameMode = false;
-        String reason = null;
+        var shouldUseFrameMode = false;
+        var reason = (String) null;
 
         // Check performance threshold
         if (currentMappingDuration > PerformanceConstants.ADAPTIVE_MODE_PERFORMANCE_THRESHOLD_MS) {
@@ -177,18 +177,12 @@ public class AdaptiveThrottlingStrategy {
 
     /**
      * Switch to a new throttling mode.
+     * The caller is responsible for acting on the mode change.
      */
     private void switchMode(ThrottlingMode newMode, String reason) {
         ThrottlingMode oldMode = currentMode;
         currentMode = newMode;
         lastModeSwitchTime = System.currentTimeMillis();
-
-        // Update global configuration
-        if (newMode == ThrottlingMode.IMMEDIATE) {
-            PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING = false;
-        } else {
-            PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING = true;
-        }
 
         logger.info("Adaptive throttling switched from {} to {}: {}",
                    oldMode.getDescription(), newMode.getDescription(), reason);
@@ -228,9 +222,6 @@ public class AdaptiveThrottlingStrategy {
         windowStartTime.set(System.currentTimeMillis());
         windowEventCount.set(0);
         lastModeSwitchTime = 0;
-
-        // Reset global configuration
-        PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING = false;
     }
 
     /**

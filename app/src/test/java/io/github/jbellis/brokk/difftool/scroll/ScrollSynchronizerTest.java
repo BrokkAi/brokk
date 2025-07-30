@@ -9,7 +9,6 @@ import org.junit.jupiter.api.DisplayName;
 
 import javax.swing.*;
 import java.awt.event.AdjustmentListener;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -383,17 +382,12 @@ class ScrollSynchronizerTest {
     // =================================================================
 
     /**
-     * Helper method to call the private approximateLineMapping method via reflection
+     * Helper method to test line mapping using LineMapper directly
      */
-    private int callApproximateLineMapping(Patch<String> patch, int line, boolean fromOriginal) throws Exception {
-        // Use the test constructor that skips UI initialization
-        var testSynchronizer = new ScrollSynchronizer(null, null, null, true);
-
-        Method method = ScrollSynchronizer.class.getDeclaredMethod("approximateLineMapping",
-                Patch.class, int.class, boolean.class);
-        method.setAccessible(true);
-
-        return (Integer) method.invoke(testSynchronizer, patch, line, fromOriginal);
+     private int callApproximateLineMapping(Patch<String> patch, int line, boolean fromOriginal) throws Exception {
+        // Use LineMapper directly instead of reflection
+        var lineMapper = new LineMapper();
+        return lineMapper.mapLine(patch, line, fromOriginal);
     }
 
 }

@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Timeout;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -296,14 +295,9 @@ class ScrollSynchronizationFixesTest {
     }
 
     private int callApproximateLineMapping(Patch<String> patch, int line, boolean fromOriginal) throws Exception {
-        Method method = ScrollSynchronizer.class.getDeclaredMethod(
-            "approximateLineMapping",
-            com.github.difflib.patch.Patch.class,
-            int.class,
-            boolean.class
-        );
-        method.setAccessible(true);
-        return (Integer) method.invoke(synchronizer, patch, line, fromOriginal);
+        // Use LineMapper directly instead of reflection
+        var lineMapper = new LineMapper();
+        return lineMapper.mapLine(patch, line, fromOriginal);
     }
 
     private int calculateExpectedMappingForEnhancedAlgorithm(int line, Patch<String> patch) {

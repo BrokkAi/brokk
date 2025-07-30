@@ -34,11 +34,8 @@ public class ScrollSynchronizer
     }
     private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
     private static final Logger performanceLogger = LogManager.getLogger("scroll.performance");
-    private static final Logger mappingLogger = LogManager.getLogger("scroll.mapping");
-
     // Debug mode configuration
     private static final boolean SCROLL_DEBUG_MODE = Boolean.getBoolean("brokk.scroll.debug");
-    private static final boolean MAPPING_DEBUG_MODE = Boolean.getBoolean("brokk.scroll.mapping.debug");
 
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanelLeft;
@@ -55,6 +52,14 @@ public class ScrollSynchronizer
     // Performance monitoring
     private final ScrollPerformanceMonitor performanceMonitor;
 
+    // Line mapping algorithms
+    private final LineMapper lineMapper;
+
+    // Reusable timers to avoid frequent instantiation
+    private final Timer programmaticScrollResetTimer;
+    private final Timer navigationResetTimer;
+    private final Timer enableSyncTimer;
+
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
         this.diffPanel = diffPanel;
@@ -66,6 +71,24 @@ public class ScrollSynchronizer
         this.frameThrottler = new ScrollFrameThrottler(PerformanceConstants.SCROLL_FRAME_RATE_MS);
         this.adaptiveStrategy = new AdaptiveThrottlingStrategy();
         this.performanceMonitor = new ScrollPerformanceMonitor();
+        this.lineMapper = new LineMapper();
+
+        // Initialize reusable timers
+        this.programmaticScrollResetTimer = new Timer(25, e -> syncState.setProgrammaticScroll(false));
+        this.programmaticScrollResetTimer.setRepeats(false);
+
+        this.navigationResetTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
+            // Reset navigation flags for both panels
+            filePanelLeft.setNavigatingToDiff(false);
+            filePanelRight.setNavigatingToDiff(false);
+        });
+        this.navigationResetTimer.setRepeats(false);
+
+        this.enableSyncTimer = new Timer(100, e -> {
+            logger.debug("Re-enabling scroll sync after navigation");
+            syncState.setProgrammaticScroll(false);
+        });
+        this.enableSyncTimer.setRepeats(false);
 
         init();
     }
@@ -85,6 +108,24 @@ public class ScrollSynchronizer
         this.frameThrottler = new ScrollFrameThrottler(PerformanceConstants.SCROLL_FRAME_RATE_MS);
         this.adaptiveStrategy = new AdaptiveThrottlingStrategy();
         this.performanceMonitor = new ScrollPerformanceMonitor();
+        this.lineMapper = new LineMapper();
+
+        // Initialize reusable timers
+        this.programmaticScrollResetTimer = new Timer(25, e -> syncState.setProgrammaticScroll(false));
+        this.programmaticScrollResetTimer.setRepeats(false);
+
+        this.navigationResetTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
+            // Reset navigation flags for both panels
+            filePanelLeft.setNavigatingToDiff(false);
+            filePanelRight.setNavigatingToDiff(false);
+        });
+        this.navigationResetTimer.setRepeats(false);
+
+        this.enableSyncTimer = new Timer(100, e -> {
+            logger.debug("Re-enabling scroll sync after navigation");
+            syncState.setProgrammaticScroll(false);
+        });
+        this.enableSyncTimer.setRepeats(false);
 
         // Skip init() if requested (for testing line mapping algorithm only)
         if (!skipInit) {
@@ -130,7 +171,7 @@ public class ScrollSynchronizer
                     lastScrollTime = currentTime;
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
-                    boolean leftScrolled = (e.getSource() == leftV);
+                    var leftScrolled = (e.getSource() == leftV);
 
                     // Skip if this is a programmatic scroll we initiated
                     if (syncState.isProgrammaticScroll()) {
@@ -163,9 +204,7 @@ public class ScrollSynchronizer
                         scroll(leftScrolled);
                     } finally {
                         // Optimized reset timing for better responsiveness
-                        Timer resetTimer = new Timer(25, evt -> syncState.setProgrammaticScroll(false));
-                        resetTimer.setRepeats(false);
-                        resetTimer.start();
+                        programmaticScrollResetTimer.restart();
                     }
                 }
             };
@@ -261,197 +300,13 @@ public class ScrollSynchronizer
 
     /**
      * Enhanced line mapping with O(log n) performance and improved accuracy.
-     * Uses binary search for fast delta lookup and corrects cumulative errors.
+     * Delegates to LineMapper for all algorithmic operations.
      */
     private int approximateLineMapping(com.github.difflib.patch.Patch<String> patch, int line, boolean fromOriginal)
     {
-        var deltas = patch.getDeltas();
-        if (deltas.isEmpty()) {
-            return line;
-        }
-
-        if (MAPPING_DEBUG_MODE) {
-            mappingLogger.debug("Enhanced line mapping start: line={}, fromOriginal={}, totalDeltas={}",
-                              line, fromOriginal, deltas.size());
-        }
-
-        // Use binary search to find the relevant deltas range - O(log n) performance
-        int relevantDeltaIndex = findRelevantDeltaIndex(deltas, line, fromOriginal);
-
-        // Apply cumulative offset correction for accuracy
-        int offset = calculateCumulativeOffset(deltas, relevantDeltaIndex, line, fromOriginal);
-
-        int result = line + offset;
-
-        // Apply smoothing for better visual continuity
-        result = applySmoothingCorrection(deltas, line, result, fromOriginal, relevantDeltaIndex);
-
-        if (MAPPING_DEBUG_MODE) {
-            mappingLogger.debug("Enhanced line mapping complete: {} -> {} (delta index: {}, offset: {})",
-                              line, result, relevantDeltaIndex, offset);
-        }
-
-        logMappingAccuracy(line, result, fromOriginal, relevantDeltaIndex + 1, deltas.size());
-        return result;
+        return lineMapper.mapLine(patch, line, fromOriginal);
     }
 
-    /**
-     * Binary search to find the most relevant delta for line mapping - O(log n).
-     * Returns the index of the last delta that affects the given line.
-     */
-    private int findRelevantDeltaIndex(java.util.List<AbstractDelta<String>> deltas, int line, boolean fromOriginal) {
-        int left = 0;
-        int right = deltas.size() - 1;
-        int relevantIndex = -1;
-
-        while (left <= right) {
-            int mid = left + (right - left) / 2;
-            var delta = deltas.get(mid);
-            var chunk = fromOriginal ? delta.getSource() : delta.getTarget();
-            int chunkStart = chunk.getPosition();
-
-            if (chunkStart <= line) {
-                relevantIndex = mid;
-                left = mid + 1;
-            } else {
-                right = mid - 1;
-            }
-        }
-
-        return relevantIndex;
-    }
-
-    /**
-     * Calculate cumulative offset with error correction.
-     * Fixes Problem 3: Cumulative mapping errors and delta utilization issues.
-     */
-    private int calculateCumulativeOffset(java.util.List<AbstractDelta<String>> deltas,
-                                        int relevantDeltaIndex, int line, boolean fromOriginal) {
-        if (relevantDeltaIndex < 0) {
-            return 0; // No relevant deltas affect this line
-        }
-
-        int offset = 0;
-        int processedDeltas = 0;
-
-        // Process only deltas up to and including the relevant index for accuracy
-        for (int i = 0; i <= relevantDeltaIndex; i++) {
-            var delta = deltas.get(i);
-            var source = delta.getSource();
-            var target = delta.getTarget();
-
-            if (fromOriginal) {
-                int srcEnd = source.getPosition() + source.size() - 1;
-
-                // If line is within this delta, calculate precise offset
-                if (line >= source.getPosition() && line <= srcEnd) {
-                    // Line is inside the delta - map to corresponding position in target
-                    int relativePos = line - source.getPosition();
-                    int targetSize = target.size();
-
-                    if (targetSize == 0) {
-                        // DELETE delta - map to target position
-                        return target.getPosition() - line;
-                    } else {
-                        // CHANGE or INSERT delta - interpolate position
-                        int mappedRelativePos = Math.min(relativePos, targetSize - 1);
-                        return target.getPosition() + mappedRelativePos - line;
-                    }
-                }
-
-                // Line is after this delta - accumulate offset
-                if (line > srcEnd) {
-                    offset += (target.size() - source.size());
-                    processedDeltas++;
-                }
-            } else {
-                // From revised side
-                int tgtEnd = target.getPosition() + target.size() - 1;
-
-                if (line >= target.getPosition() && line <= tgtEnd) {
-                    int relativePos = line - target.getPosition();
-                    int sourceSize = source.size();
-
-                    if (sourceSize == 0) {
-                        // INSERT delta - map to source position
-                        return source.getPosition() - line;
-                    } else {
-                        // CHANGE or DELETE delta - interpolate position
-                        int mappedRelativePos = Math.min(relativePos, sourceSize - 1);
-                        return source.getPosition() + mappedRelativePos - line;
-                    }
-                }
-
-                if (line > tgtEnd) {
-                    offset += (source.size() - target.size());
-                    processedDeltas++;
-                }
-            }
-        }
-
-        if (MAPPING_DEBUG_MODE) {
-            mappingLogger.debug("Cumulative offset calculation: processed {} deltas, total offset: {}",
-                              processedDeltas, offset);
-        }
-
-        return offset;
-    }
-
-    /**
-     * Apply smoothing correction to reduce visual discontinuities.
-     * Helps with Problem 1: Line mapping accuracy degradation.
-     */
-    private int applySmoothingCorrection(java.util.List<AbstractDelta<String>> deltas,
-                                       int originalLine, int mappedLine,
-                                       boolean fromOriginal, int relevantDeltaIndex) {
-        // For lines near delta boundaries, apply interpolation to smooth transitions
-        // Skip smoothing for simple INSERT/DELETE deltas in tests to maintain precision
-        if (relevantDeltaIndex >= 0 && relevantDeltaIndex < deltas.size()) {
-            var delta = deltas.get(relevantDeltaIndex);
-            var sourceChunk = delta.getSource();
-            var targetChunk = delta.getTarget();
-
-            // Skip smoothing for pure INSERT or DELETE deltas to maintain test precision
-            boolean isPureInsert = sourceChunk.size() == 0 && targetChunk.size() > 0;
-            boolean isPureDelete = sourceChunk.size() > 0 && targetChunk.size() == 0;
-            if (isPureInsert || isPureDelete) {
-                return mappedLine;
-            }
-
-            if (fromOriginal) {
-                int distanceFromDelta = originalLine - (sourceChunk.getPosition() + sourceChunk.size());
-                if (distanceFromDelta >= 0 && distanceFromDelta <= 5) {
-                    // Apply gentle interpolation for nearby lines
-                    double smoothingFactor = Math.max(0.1, 1.0 - (distanceFromDelta / 5.0));
-                    int targetLine = targetChunk.getPosition() + targetChunk.size();
-                    int smoothedResult = (int) (mappedLine * (1 - smoothingFactor) + targetLine * smoothingFactor);
-
-                    if (MAPPING_DEBUG_MODE) {
-                        mappingLogger.debug("Applied smoothing: {} -> {} (factor: {:.2f})",
-                                          mappedLine, smoothedResult, smoothingFactor);
-                    }
-
-                    return smoothedResult;
-                }
-            } else {
-                int distanceFromDelta = originalLine - (targetChunk.getPosition() + targetChunk.size());
-                if (distanceFromDelta >= 0 && distanceFromDelta <= 5) {
-                    double smoothingFactor = Math.max(0.1, 1.0 - (distanceFromDelta / 5.0));
-                    int sourceLine = sourceChunk.getPosition() + sourceChunk.size();
-                    int smoothedResult = (int) (mappedLine * (1 - smoothingFactor) + sourceLine * smoothingFactor);
-
-                    if (MAPPING_DEBUG_MODE) {
-                        mappingLogger.debug("Applied smoothing: {} -> {} (factor: {:.2f})",
-                                          mappedLine, smoothedResult, smoothingFactor);
-                    }
-
-                    return smoothedResult;
-                }
-            }
-        }
-
-        return mappedLine;
-    }
 
     /**
      * Determine which line is in the vertical center of the FilePanel's visible region.
@@ -547,7 +402,7 @@ public class ScrollSynchronizer
 
                 // Calculate if this scroll will be visually meaningful
                 int scrollDistance = Math.abs(finalY - currentPos.y);
-                boolean isVisuallyMeaningful = scrollDistance > 20; // More than 20 pixels difference
+                var isVisuallyMeaningful = scrollDistance > 20; // More than 20 pixels difference
 
                 logger.debug("scrollToLine: Moving viewport from ({}, {}) to ({}, {}) for line {} - distance: {}px, meaningful: {}",
                            currentPos.x, currentPos.y, p.x, p.y, line, scrollDistance, isVisuallyMeaningful);
@@ -569,18 +424,16 @@ public class ScrollSynchronizer
                 // Reset navigation flag after a minimal delay to allow highlighting to complete
                 // Only reset if we set it (for navigation/search modes)
                 if (mode == ScrollMode.NAVIGATION || mode == ScrollMode.SEARCH) {
-                    Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
-                        fp.setNavigatingToDiff(false);
-                    });
-                    resetNavTimer.setRepeats(false);
-                    resetNavTimer.start();
+                    navigationResetTimer.restart();
                 }
 
             } catch (BadLocationException ex) {
                 logger.error("scrollToLine error for line {}: {}", line, ex.getMessage());
                 // Only reset flag on error if we set it
                 if (mode == ScrollMode.NAVIGATION || mode == ScrollMode.SEARCH) {
-                    fp.setNavigatingToDiff(false);
+                    // Reset both panels immediately on error
+                    filePanelLeft.setNavigatingToDiff(false);
+                    filePanelRight.setNavigatingToDiff(false);
                 }
             }
         });
@@ -588,7 +441,7 @@ public class ScrollSynchronizer
 
     public void scrollToLineAndSync(FilePanel sourcePanel, int line)
     {
-        boolean leftSide = sourcePanel == filePanelLeft;
+        var leftSide = sourcePanel == filePanelLeft;
         // First, scroll the panel where the search originated using SEARCH mode for immediate highlighting
         scrollToLine(sourcePanel, line, ScrollMode.SEARCH);
 
@@ -666,12 +519,7 @@ public class ScrollSynchronizer
             logger.debug("Navigation: scrolled RIGHT panel to line {}", rightPanelScrollLine);
         } finally {
             // Re-enable scroll sync after a short delay to allow navigation to complete
-            Timer enableSyncTimer = new Timer(100, e -> {
-                logger.debug("Re-enabling scroll sync after navigation");
-                syncState.setProgrammaticScroll(false);
-            });
-            enableSyncTimer.setRepeats(false);
-            enableSyncTimer.start();
+            enableSyncTimer.restart();
         }
 
         // Trigger immediate redisplay on both panels to ensure highlights appear
@@ -841,6 +689,11 @@ public class ScrollSynchronizer
         // Dispose throttling utilities to stop any pending timers
         frameThrottler.dispose();
 
+        // Stop reusable timers
+        programmaticScrollResetTimer.stop();
+        navigationResetTimer.stop();
+        enableSyncTimer.stop();
+
         // Remove adjustment listeners
         if (horizontalAdjustmentListener != null) {
             var leftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
@@ -860,19 +713,6 @@ public class ScrollSynchronizer
 
         // Dispose performance monitor
         performanceMonitor.dispose();
-    }
-
-    /**
-     * Helper method to log mapping accuracy metrics.
-     */
-    private void logMappingAccuracy(int originalLine, int mappedLine, boolean fromOriginal,
-                                  int processedDeltas, int totalDeltas) {
-        if (performanceLogger.isDebugEnabled()) {
-            double deltaUtilization = totalDeltas > 0 ? (double) processedDeltas / totalDeltas : 0.0;
-            performanceLogger.debug("Mapping accuracy: line {} -> {} (direction: {}, deltas: {}/{}, utilization: {:.1f}%)",
-                                  originalLine, mappedLine, fromOriginal ? "orig->rev" : "rev->orig",
-                                  processedDeltas, totalDeltas, deltaUtilization * 100);
-        }
     }
 
     /**

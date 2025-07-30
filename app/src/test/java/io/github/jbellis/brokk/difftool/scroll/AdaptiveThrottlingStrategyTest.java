@@ -50,7 +50,6 @@ class AdaptiveThrottlingStrategyTest {
         strategy.initialize(complexLines, normalDeltas);
 
         assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, strategy.getCurrentMode());
-        assertTrue(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
 
         var metrics = strategy.getMetrics();
         assertEquals(complexLines, metrics.totalLines());
@@ -67,7 +66,6 @@ class AdaptiveThrottlingStrategyTest {
         strategy.initialize(normalLines, highDeltas);
 
         assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, strategy.getCurrentMode());
-        assertTrue(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
 
         var metrics = strategy.getMetrics();
         assertEquals(normalLines, metrics.totalLines());
@@ -92,7 +90,6 @@ class AdaptiveThrottlingStrategyTest {
         strategy.recordScrollEvent(slowMappingTime);
 
         assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, strategy.getCurrentMode());
-        assertTrue(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
     }
 
     @Test
@@ -158,12 +155,10 @@ class AdaptiveThrottlingStrategyTest {
         // Force frame-based mode
         strategy.forceMode(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, "Testing");
         assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, strategy.getCurrentMode());
-        assertTrue(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
 
         // Force back to immediate mode
         strategy.forceMode(AdaptiveThrottlingStrategy.ThrottlingMode.IMMEDIATE, "Testing");
         assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.IMMEDIATE, strategy.getCurrentMode());
-        assertFalse(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
     }
 
     @Test
@@ -259,31 +254,19 @@ class AdaptiveThrottlingStrategyTest {
     }
 
     @Test
-    @DisplayName("Global configuration state is correctly managed")
-    void testGlobalConfigurationState() {
-        // Save original adaptive setting
-        boolean originalAdaptive = PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING;
+    @DisplayName("Strategy internal state is correctly managed")
+    void testInternalStateManagement() {
+        // Force immediate mode
+        strategy.forceMode(AdaptiveThrottlingStrategy.ThrottlingMode.IMMEDIATE, "Test");
+        assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.IMMEDIATE, strategy.getCurrentMode());
 
-        try {
-            // Ensure clean start by disabling adaptive mode for this test
-            PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING = false;
-            strategy.reset();
+        // Force frame-based mode
+        strategy.forceMode(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, "Test");
+        assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, strategy.getCurrentMode());
 
-            // Force immediate mode
-            strategy.forceMode(AdaptiveThrottlingStrategy.ThrottlingMode.IMMEDIATE, "Test");
-            assertFalse(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
-
-            // Force frame-based mode
-            strategy.forceMode(AdaptiveThrottlingStrategy.ThrottlingMode.FRAME_BASED, "Test");
-            assertTrue(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
-
-            // Reset should clear frame-based and debouncing
-            strategy.reset();
-            assertFalse(PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING);
-            } finally {
-            // Restore original adaptive setting
-            PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING = originalAdaptive;
-        }
+        // Reset should restore immediate mode
+        strategy.reset();
+        assertEquals(AdaptiveThrottlingStrategy.ThrottlingMode.IMMEDIATE, strategy.getCurrentMode());
     }
 
     @Test

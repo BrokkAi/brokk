@@ -26,16 +26,17 @@ public final class ScrollFrameThrottler {
 
     private final AtomicInteger frameIntervalMs = new AtomicInteger(16); // Default 60fps
     private @Nullable Timer frameTimer;
-    private volatile @Nullable Runnable latestAction = null;
-    private volatile boolean hasEvent = false;
-    private volatile boolean frameActive = false;
+    private @Nullable Runnable latestAction = null;
+    private boolean hasEvent = false;
+    private boolean frameActive = false;
+    private boolean disposed = false;
     private final Object lock = new Object();
 
     // Performance metrics
     private final AtomicLong totalEvents = new AtomicLong(0);
     private final AtomicLong totalExecutions = new AtomicLong(0);
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
-    private volatile long frameStartTime = 0;
+    private long frameStartTime = 0;
 
     public ScrollFrameThrottler(int frameIntervalMs) {
         this.frameIntervalMs.set(frameIntervalMs);
@@ -50,6 +51,12 @@ public final class ScrollFrameThrottler {
         totalEvents.incrementAndGet();
 
         synchronized (lock) {
+            if (disposed) {
+                // Execute immediately but don't start framing
+                executeAction(action);
+                return;
+            }
+
             if (!frameActive) {
                 // Execute immediately and start framing
                 executeAction(action);
@@ -93,7 +100,9 @@ public final class ScrollFrameThrottler {
      * Checks if a frame is currently active (waiting for frame boundary).
      */
     public boolean isFrameActive() {
-        return frameActive;
+        synchronized (lock) {
+            return frameActive;
+        }
     }
 
     /**
@@ -163,7 +172,13 @@ public final class ScrollFrameThrottler {
      * Stops the throttler and cleans up resources.
      */
     public void dispose() {
-        cancel();
+        synchronized (lock) {
+            disposed = true;
+            stopFrameTimer();
+            latestAction = null;
+            hasEvent = false;
+            frameActive = false;
+        }
         logger.debug("Frame throttler disposed");
     }
 
