@@ -627,40 +627,43 @@ public class ScrollSynchronizer
         syncState.setProgrammaticScroll(true);
 
         try {
-            // Get the source line from the delta
+            // Get the source and target chunks from the delta
             var source = delta.getSource();
-            int sourceLine = source.getPosition();
-
-            logger.debug("Navigation: scrolling to source line {}", sourceLine);
-
-            // Scroll left panel to source line using NAVIGATION mode for full highlighting
-            logger.debug("Navigation: scrolling LEFT panel to source line {}", sourceLine);
-            scrollToLine(filePanelLeft, sourceLine, ScrollMode.NAVIGATION);
-
-            // For navigation, we want to scroll to the corresponding target of this specific delta
-            // Note: getTarget() returns a non-null Chunk, which may be empty for DELETE deltas.
             var target = delta.getTarget();
+
+            int sourceLine = source.getPosition();
             int targetLine = target.getPosition();
 
-            int rightPanelScrollLine = targetLine;
+            // Calculate chunk centers for better visual alignment
+            int sourceCenterLine = calculateChunkCenter(source);
+            int targetCenterLine = calculateChunkCenter(target);
+
+            logger.debug("Navigation: delta chunks - source: pos={} size={} center={}, target: pos={} size={} center={}",
+                       sourceLine, source.size(), sourceCenterLine, targetLine, target.size(), targetCenterLine);
+
+            // Scroll left panel to source chunk center for optimal alignment
+            scrollToLine(filePanelLeft, sourceCenterLine, ScrollMode.NAVIGATION);
+            logger.debug("Navigation: scrolled LEFT panel to source center line {}", sourceCenterLine);
+
+            // Determine the right panel scroll line with enhanced centering logic
+            int rightPanelScrollLine = targetCenterLine;
 
             if (target.size() > 0) {
-                logger.debug("Navigation: delta has target at line {}, scrolling RIGHT panel", targetLine);
+                logger.debug("Navigation: delta has target content, using center line {}", targetCenterLine);
             }
             else {
-                logger.debug("Navigation: DELETE delta, scrolling RIGHT panel to target position {}", targetLine);
-                // For DELETE deltas near the top, we need to ensure visible scrolling occurs
-                // If target position is very close to top, scroll to a line that provides better context
+                logger.debug("Navigation: DELETE delta, target position {}", targetLine);
+                // For DELETE deltas, use the target position but apply the same near-top adjustment
+                rightPanelScrollLine = targetLine;
                 if (targetLine <= 8) {
-                    rightPanelScrollLine = Math.max(targetLine + 3, 10); // Scroll a bit lower for better visibility
-                    logger.debug("Navigation: DELETE delta near top (line {}), adjusting scroll to line {} for better visibility",
-                               targetLine, rightPanelScrollLine);
+                    rightPanelScrollLine = Math.max(targetLine + 3, 10);
+                    logger.debug("Navigation: DELETE delta near top, adjusting scroll to line {} for better visibility", rightPanelScrollLine);
                 }
             }
 
             // Scroll right panel to the calculated line using NAVIGATION mode for full highlighting
-            logger.debug("Navigation: scrolling RIGHT panel to line {}", rightPanelScrollLine);
             scrollToLine(filePanelRight, rightPanelScrollLine, ScrollMode.NAVIGATION);
+            logger.debug("Navigation: scrolled RIGHT panel to line {}", rightPanelScrollLine);
         } finally {
             // Re-enable scroll sync after a short delay to allow navigation to complete
             Timer enableSyncTimer = new Timer(100, e -> {
@@ -675,9 +678,42 @@ public class ScrollSynchronizer
         filePanelLeft.reDisplay();
         filePanelRight.reDisplay();
 
-        logger.debug("showDelta completed - both panels scrolled");
+        logger.debug("showDelta completed - both panels scrolled with enhanced centering");
     }
 
+    /**
+     * Calculate the center line of a chunk for optimal visual alignment.
+     * Handles different chunk sizes and edge cases.
+     *
+     * @param chunk the source or target chunk from a delta
+     * @return the line number representing the visual center of the chunk
+     */
+    private int calculateChunkCenter(Chunk<String> chunk)
+    {
+        int position = chunk.getPosition();
+        int size = chunk.size();
+
+        if (size <= 0) {
+            // Empty chunk (typically for INSERT/DELETE operations)
+            return position;
+        }
+
+        if (size == 1) {
+            // Single line chunk - the line itself is the center
+            return position;
+        }
+
+        // Multi-line chunk - calculate the middle line
+        // For even-sized chunks, this will bias toward the earlier line
+        // (e.g., for a 4-line chunk, we use line 1 instead of line 2)
+        int centerOffset = (size - 1) / 2;
+        int centerLine = position + centerOffset;
+
+        logger.debug("Chunk center calculation: position={}, size={}, centerOffset={}, centerLine={}",
+                   position, size, centerOffset, centerLine);
+
+        return centerLine;
+    }
 
     /**
      * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.
