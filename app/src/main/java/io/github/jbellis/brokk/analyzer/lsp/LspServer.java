@@ -55,7 +55,8 @@ public abstract class LspServer implements LspFileUtilities {
                 // this.languageServer should be non-null here
                 assert this.languageServer != null;
                 try {
-                    if (!serverReadyLatch.await(15, TimeUnit.SECONDS)) {
+                    // Indexing generally completes within a couple of seconds, but larger projects need grace
+                    if (!serverReadyLatch.await(5, TimeUnit.MINUTES)) {
                         logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
                     }
                 } catch (InterruptedException e) {
@@ -120,25 +121,28 @@ public abstract class LspServer implements LspFileUtilities {
         logger.info("Sent didClose notification for {}", filePath);
     }
 
-    protected void startServer(Path initialWorkspace, Map<String, Object> initializationOptions) throws IOException {
+    protected void startServer(
+            Path initialWorkspace,
+            String language,
+            Path cache,
+            Map<String, Object> initializationOptions
+    ) throws IOException {
         logger.info("First client connected. Starting JDT Language Server...");
         final Path serverHome = unpackLspServer("jdt");
         final Path launcherJar = findFile(serverHome, "org.eclipse.equinox.launcher_");
         final Path configDir = findConfigDir(serverHome);
-        // TODO: Consider detecting a corrupt cache before destroying it
-        final Path cache = Path.of(System.getProperty("user.home"), ".brokk", ".jdt-ls-data").toAbsolutePath();
-        FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
+        final String maxHeap = getXmxAllocation();
 
-        ProcessBuilder pb = new ProcessBuilder(
+        final ProcessBuilder pb = new ProcessBuilder(
                 "java",
                 "-Declipse.application=org.eclipse.jdt.ls.core.id1",
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dlog.level=ALL",
-                "-Xmx1G",
+                maxHeap,
                 "--add-modules=ALL-SYSTEM",
-//                "--add-opens java.base/java.util=ALL-UNNAMED", // This crashes `LSPLauncher.createClientLauncher`
-//                "--add-opens java.base/java.lang=ALL-UNNAMED", // and are needed to open up some class files
+//                "--add-opens java.base/java.util=ALL-UNNAMED", // This crashes `LSPLauncher.createClientLauncher`.
+//                "--add-opens java.base/java.lang=ALL-UNNAMED", // These are recommended to open up some internal class files
                 "-noverify",
                 "-jar", launcherJar.toString(),
                 "-configuration", configDir.toString(),
@@ -149,7 +153,7 @@ public abstract class LspServer implements LspFileUtilities {
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
         final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
-                new SimpleLanguageClient(this.serverReadyLatch),
+                new SimpleLanguageClient(language, this.serverReadyLatch),
                 serverProcess.getInputStream(),
                 serverProcess.getOutputStream()
         );
@@ -183,6 +187,16 @@ public abstract class LspServer implements LspFileUtilities {
             logger.error("Server initialization failed", e.getCause());
             throw e; // Re-throw the exception
         }
+    }
+
+    /**
+     * This calculates and returns half of this progress' max memory allocation. This is so that if the client
+     * increases for larger projects, the LSP can also gain.
+     *
+     * @return half of this process' maximum memory allocation.
+     */
+    private String getXmxAllocation() {
+        return "-Xmx" + (Runtime.getRuntime().maxMemory() / (2 * 1024 * 1024)) + "M";
     }
 
     protected ClientCapabilities getCapabilities() {
@@ -252,17 +266,42 @@ public abstract class LspServer implements LspFileUtilities {
     }
 
     /**
+     * Returns the path for the cache where the LSP for a given language would be placed.
+     *
+     * @param language the target language of the LSP, e.g., java.
+     * @return the Path where the cache and logs would live.
+     */
+    public static Path getCacheForLsp(String language) {
+        final var cacheName = language + "-lsp"; // assuming we use one LSP per language
+        return Path.of(System.getProperty("user.home"), ".brokk", "cache", cacheName).toAbsolutePath();
+    }
+
+    /**
      * Registers a new client (JdtAnalyzer instance). Starts the server if this is the first client.
      *
      * @param projectPath     The workspace path for the new client.
      * @param excludePatterns A set of glob patterns to exclude for this workspace.
      */
-    public synchronized void registerClient(Path projectPath, Set<String> excludePatterns, Map<String, Object> initializationOptions, String language) throws IOException {
+    public synchronized void registerClient(
+            Path projectPath, Set<String> excludePatterns,
+            Map<String, Object> initializationOptions,
+            String language
+    ) throws IOException {
         final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
+        final Path cache = getCacheForLsp(language);
+        if (cache.getParent() != null && !Files.isDirectory(cache.getParent())) {
+            Files.createDirectories(cache.getParent());
+        }
 
         workspaceExclusions.put(projectPathAbsolute, excludePatterns);
         if (clientCounter.getAndIncrement() == 0) {
-            startServer(projectPathAbsolute, initializationOptions);
+            try {
+                startServer(projectPathAbsolute, language, cache, initializationOptions);
+            } catch (IOException e) {
+                logger.error("Error starting server, cache may be corrupt, retrying with fresh cache.", e);
+                FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
+                startServer(projectPathAbsolute, language, cache, initializationOptions);
+            }
         } else {
             addWorkspaceFolder(projectPathAbsolute);
         }
@@ -328,7 +367,7 @@ public abstract class LspServer implements LspFileUtilities {
                     }
                 }
             }
-            
+
             final var options = new HashMap<>(initializationOptions);
             final var settings = (Map<String, Object>) options.getOrDefault(language, new HashMap<String, Object>());
             settings.put("files", Map.of("exclude", combinedExclusions));

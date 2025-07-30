@@ -3,10 +3,12 @@ package io.github.jbellis.brokk.analyzer.lsp;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.services.LanguageClient;
+import org.eclipse.lsp4j.services.LanguageServer;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -16,8 +18,11 @@ public final class SimpleLanguageClient implements LanguageClient {
 
     private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
     private final CountDownLatch serverReadyLatch;
+    private final String language;
+    private final int ERROR_LOG_LINE_LIMIT = 4;
 
-    public SimpleLanguageClient(CountDownLatch serverReadyLatch) {
+    public SimpleLanguageClient(String language, CountDownLatch serverReadyLatch) {
+        this.language = language;
         this.serverReadyLatch = serverReadyLatch;
     }
 
@@ -58,11 +63,16 @@ public final class SimpleLanguageClient implements LanguageClient {
     public void logMessage(MessageParams message) {
         switch (message.getType()) {
             case Error -> {
-                // Avoid chained stack trace spam
-                final var conciseMessage = message.getMessage().lines()
-                        .takeWhile(line -> !line.startsWith("Caused by"))
-                        .collect(Collectors.joining(System.lineSeparator()));
-                logger.error("[LSP-SERVER-LOG] {}", conciseMessage);
+                var messageLines = message.getMessage().lines().toList();
+                // Avoid chained stack trace spam, these are recorded in the LSP logs elsewhere anyway
+                if (messageLines.size() > ERROR_LOG_LINE_LIMIT) {
+                    final var conciseMessageLines = new ArrayList<>(messageLines.stream().limit(ERROR_LOG_LINE_LIMIT).toList());
+                    final var cachePath = LspServer.getCacheForLsp(language);
+                    conciseMessageLines.add("See logs at '" + cachePath + "' for more details.");
+                    messageLines = conciseMessageLines;
+                }
+                final var messageBody = messageLines.stream().collect(Collectors.joining(System.lineSeparator()));
+                logger.error("[LSP-SERVER-LOG] {}", messageBody);
             }
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
             case Info -> {
