@@ -454,6 +454,7 @@ public class WorkspacePanel extends JPanel {
             JPanel panel = new JPanel();
             panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
             panel.setOpaque(true);
+            panel.setBorder(new EmptyBorder(2, 0, 2, 0));
 
             // Set colors based on selection
             if (isSelected) {
@@ -503,21 +504,17 @@ public class WorkspacePanel extends JPanel {
                 panel.add(badgeList);
             }
 
-            // Calculate preferred height
-            int preferredHeight = calculatePreferredHeight(panel);
-
-            // Set row height if different from current
-            if (table.getRowHeight(row) != preferredHeight) {
-                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
-            }
+            // Asynchronously update row height. By the time this runs, the panel will have its bounds set by the table,
+            // allowing doLayout() to correctly wrap the badges and calculate the true required height.
+            SwingUtilities.invokeLater(() -> {
+                if (!table.isShowing()) {
+                    return; // Avoid updates if the table is not visible
+                }
+                panel.doLayout();
+                TableUtils.setRowHeight(table, row, panel.getPreferredSize().height);
+            });
 
             return panel;
-        }
-
-        private int calculatePreferredHeight(JPanel panel) {
-            // Force layout to get accurate measurements
-            panel.doLayout();
-            return panel.getPreferredSize().height + 4; // Add small padding
         }
     }
 
@@ -846,6 +843,35 @@ public class WorkspacePanel extends JPanel {
 
                 e.consume();
             }
+        });
+
+        // Add a listener to handle column resizing, which affects row height for wrapped badges
+        contextTable.getColumnModel().addColumnModelListener(new javax.swing.event.TableColumnModelListener() {
+            @Override
+            public void columnAdded(javax.swing.event.TableColumnModelEvent e) {}
+
+            @Override
+            public void columnRemoved(javax.swing.event.TableColumnModelEvent e) {}
+
+            @Override
+            public void columnMoved(javax.swing.event.TableColumnModelEvent e) {}
+
+            @Override
+            public void columnMarginChanged(javax.swing.event.ChangeEvent e) {
+                // A column resize can change wrapping, which affects row height.
+                // To force re-calculation of row heights, we notify the table that all rows have been updated.
+                if (contextTable.isShowing()) {
+                    SwingUtilities.invokeLater(() -> {
+                        var model = (DefaultTableModel) contextTable.getModel();
+                        if (model.getRowCount() > 0) {
+                            model.fireTableRowsUpdated(0, model.getRowCount() - 1);
+                        }
+                    });
+                }
+            }
+
+            @Override
+            public void columnSelectionChanged(javax.swing.event.ListSelectionEvent e) {}
         });
 
         // Set selection mode to allow multiple selection
