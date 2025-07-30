@@ -55,10 +55,6 @@ public final class PerformanceConstants {
     // Navigation highlighting reset delay
     public static final int NAVIGATION_RESET_DELAY_MS = 30;
 
-    // Debug mode configuration
-    public static final boolean SCROLL_DEBUG_ENABLED = Boolean.getBoolean("brokk.scroll.debug");
-    public static final boolean MAPPING_DEBUG_ENABLED = Boolean.getBoolean("brokk.scroll.mapping.debug");
-    public static final boolean PERFORMANCE_MONITORING_ENABLED = Boolean.getBoolean("brokk.scroll.performance");
 
     // UI Configuration
     public static final int DEFAULT_EDITOR_TAB_SIZE = 4;
@@ -87,10 +83,9 @@ public final class PerformanceConstants {
         if (ENABLE_FRAME_BASED_THROTTLING) activeCount++;
 
         if (activeCount > 1) {
-            // Auto-resolve: prioritize adaptive throttling, then frame-based
+            // Auto-resolve: prioritize adaptive throttling
             if (ENABLE_ADAPTIVE_THROTTLING) {
                 ENABLE_FRAME_BASED_THROTTLING = false;
-            } else if (ENABLE_FRAME_BASED_THROTTLING) {
             }
             return true; // Configuration was changed
         }

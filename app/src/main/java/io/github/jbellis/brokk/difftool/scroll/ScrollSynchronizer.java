@@ -34,14 +34,11 @@ public class ScrollSynchronizer
     }
     private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
     private static final Logger performanceLogger = LogManager.getLogger("scroll.performance");
-    // Debug mode configuration
-    private static final boolean SCROLL_DEBUG_MODE = Boolean.getBoolean("brokk.scroll.debug");
 
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanelLeft;
     private final FilePanel filePanelRight;
 
-    private @Nullable AdjustmentListener horizontalAdjustmentListener;
     private @Nullable AdjustmentListener verticalAdjustmentListener;
 
     // State management and throttling utilities
@@ -234,9 +231,6 @@ public class ScrollSynchronizer
 
         // Additional check: don't scroll if either panel is typing
         if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
-            if (SCROLL_DEBUG_MODE) {
-                logger.debug("Scroll suppressed - panel actively typing");
-            }
             return;
         }
 
@@ -246,9 +240,6 @@ public class ScrollSynchronizer
 
         var patch = diffPanel.getPatch();
         if (patch == null) {
-            if (SCROLL_DEBUG_MODE) {
-                logger.debug("Scroll aborted - no patch available");
-            }
             return;
         }
 
@@ -260,11 +251,6 @@ public class ScrollSynchronizer
 
         // Which line is roughly in the center of fp1?
         int line = getCurrentLineCenter(fp1);
-
-        if (SCROLL_DEBUG_MODE) {
-            logger.debug("Scroll sync: {} panel, center line {}, {} deltas",
-                        leftScrolled ? "left" : "right", line, patch.getDeltas().size());
-        }
 
         // Attempt naive line mapping using deltas
         int mappedLine = approximateLineMapping(patch, line, leftScrolled);
@@ -281,11 +267,6 @@ public class ScrollSynchronizer
         if (mappingDuration > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
             performanceLogger.warn("Slow scroll mapping: {}ms for {} deltas, line {}->{}",
                                  mappingDuration, patch.getDeltas().size(), line, mappedLine);
-        }
-
-        if (SCROLL_DEBUG_MODE) {
-            logger.debug("Line mapping: {} -> {} ({}ms, {} deltas)",
-                        line, mappedLine, mappingDuration, patch.getDeltas().size());
         }
 
         // Use CONTINUOUS mode for regular scroll synchronization to avoid navigation overhead
@@ -333,20 +314,14 @@ public class ScrollSynchronizer
 
     public void scrollToLine(FilePanel fp, int line, ScrollMode mode)
     {
-        logger.debug("scrollToLine: Called for line {} with mode {} on panel {}", line, mode, fp.hashCode());
-
         var bd = fp.getBufferDocument();
         if (bd == null) {
-            logger.debug("scrollToLine: No buffer document available");
             return;
         }
         var offset = bd.getOffsetForLine(line);
         if (offset < 0) {
-            logger.debug("scrollToLine: Invalid offset {} for line {}", offset, line);
             return;
         }
-
-        logger.debug("scrollToLine: Line {} maps to offset {}", line, offset);
 
         // Only set navigation flag for explicit navigation or search, not continuous scrolling
         if (mode == ScrollMode.NAVIGATION || mode == ScrollMode.SEARCH) {
@@ -360,7 +335,6 @@ public class ScrollSynchronizer
                 var editor = fp.getEditor();
                 var rect = SwingUtil.modelToView(editor, offset);
                 if (rect == null) {
-                    logger.debug("scrollToLine: modelToView returned null for line {}, offset {}", line, offset);
                     return;
                 }
 
@@ -381,31 +355,18 @@ public class ScrollSynchronizer
                     // For lines very close to the top, ensure they're positioned optimally
                     // Instead of scrolling to 0, position the line at 1/3 from top for better visibility
                     finalY = Math.max(0, originalY - (viewportHeight / 3));
-                    logger.debug("scrollToLine: Line {} is near top, positioning at Y {} for optimal visibility (original: {})",
-                               line, finalY, originalY);
                 } else if (centeredY > maxY) {
                     // For lines very close to the bottom, scroll to the very bottom
                     finalY = maxY;
-                    logger.debug("scrollToLine: Line {} is near bottom, scrolling to maxY {}", line, maxY);
                 } else {
                     // For other lines, use normal centering with padding
                     finalY = Math.max(normalPadding, centeredY);
-                    logger.debug("scrollToLine: Line {} centered at Y position {} (original: {}, centered: {})",
-                               line, finalY, originalY, centeredY);
                 }
 
                 // Final bounds check (should rarely be needed now)
                 finalY = Math.max(0, Math.min(finalY, maxY));
 
-                var currentPos = viewport.getViewPosition();
                 var p = new Point(rect.x, finalY);
-
-                // Calculate if this scroll will be visually meaningful
-                int scrollDistance = Math.abs(finalY - currentPos.y);
-                var isVisuallyMeaningful = scrollDistance > 20; // More than 20 pixels difference
-
-                logger.debug("scrollToLine: Moving viewport from ({}, {}) to ({}, {}) for line {} - distance: {}px, meaningful: {}",
-                           currentPos.x, currentPos.y, p.x, p.y, line, scrollDistance, isVisuallyMeaningful);
 
                 // Set viewport position
                 viewport.setViewPosition(p);
@@ -601,8 +562,8 @@ public class ScrollSynchronizer
             syncAction.run();
         }
 
-        // Update performance metrics for throttling (using dummy values for now)
-        // Note: This tracks throttling events, not actual scroll performance
+        // Trigger any side effects that might be needed for UI updates
+        // Note: Full metrics are recorded in performScroll() with actual values
         performanceMonitor.recordScrollEvent(0, 0, 0, 0);
     }
 
@@ -654,11 +615,6 @@ public class ScrollSynchronizer
 
         // Initialize the strategy with these metrics
         adaptiveStrategy.initialize(totalLines, totalDeltas);
-
-        if (SCROLL_DEBUG_MODE) {
-            logger.debug("Adaptive throttling initialized: {} lines, {} deltas, mode: {}",
-                       totalLines, totalDeltas, adaptiveStrategy.getCurrentMode());
-        }
     }
 
     /**
@@ -695,13 +651,6 @@ public class ScrollSynchronizer
         enableSyncTimer.stop();
 
         // Remove adjustment listeners
-        if (horizontalAdjustmentListener != null) {
-            var leftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
-            var rightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
-            leftH.removeAdjustmentListener(horizontalAdjustmentListener);
-            rightH.removeAdjustmentListener(horizontalAdjustmentListener);
-            horizontalAdjustmentListener = null;
-        }
 
         if (verticalAdjustmentListener != null) {
             var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();

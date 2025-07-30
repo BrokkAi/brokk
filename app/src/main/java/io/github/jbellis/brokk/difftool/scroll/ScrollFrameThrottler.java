@@ -36,7 +36,6 @@ public final class ScrollFrameThrottler {
     private final AtomicLong totalEvents = new AtomicLong(0);
     private final AtomicLong totalExecutions = new AtomicLong(0);
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
-    private long frameStartTime = 0;
 
     public ScrollFrameThrottler(int frameIntervalMs) {
         this.frameIntervalMs.set(frameIntervalMs);
@@ -65,11 +64,6 @@ public final class ScrollFrameThrottler {
                 // Queue for frame-end execution
                 latestAction = action;
                 hasEvent = true;
-
-                if (logger.isTraceEnabled()) {
-                    logger.trace("Queued action for frame-end execution (frame active for {}ms)",
-                               System.currentTimeMillis() - frameStartTime);
-                }
             }
         }
     }
@@ -186,7 +180,6 @@ public final class ScrollFrameThrottler {
         assert Thread.holdsLock(lock);
 
         frameActive = true;
-        frameStartTime = System.currentTimeMillis();
 
         if (frameTimer != null) {
             frameTimer.stop();
@@ -195,10 +188,6 @@ public final class ScrollFrameThrottler {
         frameTimer = new Timer(frameIntervalMs.get(), this::onFrameEnd);
         frameTimer.setRepeats(false);
         frameTimer.start();
-
-        if (logger.isTraceEnabled()) {
-            logger.trace("Started frame timer for {}ms", frameIntervalMs.get());
-        }
     }
 
     private void stopFrameTimer() {
@@ -223,20 +212,9 @@ public final class ScrollFrameThrottler {
 
                 // Continue framing if we expect more events soon
                 startFrameTimer();
-
-                if (logger.isTraceEnabled()) {
-                    long frameDuration = System.currentTimeMillis() - frameStartTime;
-                    logger.trace("Frame completed after {}ms, continuing framing", frameDuration);
-                }
             } else {
                 // No pending events, stop framing
                 stopFrameTimer();
-
-                if (logger.isTraceEnabled()) {
-                    long totalFrameTime = System.currentTimeMillis() - frameStartTime;
-                    logger.trace("Frame completed after {}ms, stopping framing (no pending events)",
-                               totalFrameTime);
-                }
             }
         }
     }
@@ -246,10 +224,6 @@ public final class ScrollFrameThrottler {
             action.run();
             totalExecutions.incrementAndGet();
             lastExecutionTime.set(System.currentTimeMillis());
-
-            if (logger.isTraceEnabled()) {
-                logger.trace("Executed action: {}", action.getClass().getSimpleName());
-            }
         } catch (Exception e) {
             logger.error("Error executing throttled action", e);
         }

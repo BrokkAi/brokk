@@ -43,8 +43,6 @@ public class AdaptiveThrottlingStrategy {
 
     // Performance tracking
     private final AtomicLong lastMappingDuration = new AtomicLong(0);
-    private final AtomicInteger recentScrollEvents = new AtomicInteger(0);
-    private final AtomicLong lastEventTime = new AtomicLong(System.currentTimeMillis());
 
     // Sliding window for rapid scroll detection
     private static final long RAPID_SCROLL_WINDOW_MS = 1000; // 1 second window
@@ -75,14 +73,10 @@ public class AdaptiveThrottlingStrategy {
     private ThrottlingMode determineInitialMode() {
         // Check static complexity thresholds
         if (totalLines > PerformanceConstants.ADAPTIVE_MODE_LINE_THRESHOLD) {
-            logger.debug("File has {} lines (> {}), suggesting frame-based mode",
-                       totalLines, PerformanceConstants.ADAPTIVE_MODE_LINE_THRESHOLD);
             return ThrottlingMode.FRAME_BASED;
         }
 
         if (totalDeltas >= PerformanceConstants.ADAPTIVE_MODE_DELTA_THRESHOLD) {
-            logger.debug("File has {} deltas (>= {}), suggesting frame-based mode",
-                       totalDeltas, PerformanceConstants.ADAPTIVE_MODE_DELTA_THRESHOLD);
             return ThrottlingMode.FRAME_BASED;
         }
 
@@ -184,7 +178,7 @@ public class AdaptiveThrottlingStrategy {
         currentMode = newMode;
         lastModeSwitchTime = System.currentTimeMillis();
 
-        logger.info("Adaptive throttling switched from {} to {}: {}",
+        logger.debug("Adaptive throttling switched from {} to {}: {}",
                    oldMode.getDescription(), newMode.getDescription(), reason);
     }
 
@@ -217,8 +211,6 @@ public class AdaptiveThrottlingStrategy {
         totalLines = 0;
         totalDeltas = 0;
         lastMappingDuration.set(0);
-        recentScrollEvents.set(0);
-        lastEventTime.set(System.currentTimeMillis());
         windowStartTime.set(System.currentTimeMillis());
         windowEventCount.set(0);
         lastModeSwitchTime = 0;

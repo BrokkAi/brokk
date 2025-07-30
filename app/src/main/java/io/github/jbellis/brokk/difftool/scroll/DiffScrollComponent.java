@@ -415,9 +415,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                  }
             }
         } catch (BadLocationException ex) {
-            // Log error or handle gracefully
-            System.err.println("Error calculating view coordinates: " + ex.getMessage());
-            // Consider painting an error message or indicator
+            logger.error("Error calculating view coordinates: {}", ex.getMessage());
         }
     }
 

@@ -25,8 +25,6 @@ public final class LineMapper {
     private final AtomicLong totalMappings = new AtomicLong(0);
     private final AtomicLong totalMappingTimeNs = new AtomicLong(0);
 
-    // Debug mode flag (can be enabled for detailed logging)
-    private static final boolean MAPPING_DEBUG_MODE = Boolean.getBoolean("brokk.scroll.mapping.debug");
 
     /**
      * Maps a line number from one version of a file to the corresponding line in another version.
@@ -46,10 +44,6 @@ public final class LineMapper {
                 return line;
             }
 
-            if (MAPPING_DEBUG_MODE) {
-                logger.debug("Enhanced line mapping start: line={}, fromOriginal={}, totalDeltas={}",
-                           line, fromOriginal, deltas.size());
-            }
 
             // Use binary search to find the relevant deltas range - O(log n) performance
             int relevantDeltaIndex = findRelevantDeltaIndex(deltas, line, fromOriginal);
@@ -62,12 +56,6 @@ public final class LineMapper {
             // Apply smoothing for better visual continuity
             result = applySmoothingCorrection(deltas, line, result, fromOriginal, relevantDeltaIndex);
 
-            if (MAPPING_DEBUG_MODE) {
-                logger.debug("Enhanced line mapping complete: {} -> {} (delta index: {}, offset: {})",
-                           line, result, relevantDeltaIndex, offset);
-            }
-
-            logMappingAccuracy(line, result, fromOriginal, relevantDeltaIndex + 1, deltas.size());
             return result;
         } finally {
             totalMappingTimeNs.addAndGet(System.nanoTime() - startTime);
@@ -111,7 +99,6 @@ public final class LineMapper {
         }
 
         int offset = 0;
-        int processedDeltas = 0;
 
         // Process only deltas up to and including the relevant index for accuracy
         for (int i = 0; i <= relevantDeltaIndex; i++) {
@@ -141,7 +128,6 @@ public final class LineMapper {
                 // Line is after this delta - accumulate offset
                 if (line > srcEnd) {
                     offset += (target.size() - source.size());
-                    processedDeltas++;
                 }
             } else {
                 // From revised side
@@ -163,15 +149,10 @@ public final class LineMapper {
 
                 if (line > tgtEnd) {
                     offset += (source.size() - target.size());
-                    processedDeltas++;
                 }
             }
         }
 
-        if (MAPPING_DEBUG_MODE) {
-            logger.debug("Cumulative offset calculation: processed {} deltas, total offset: {}",
-                       processedDeltas, offset);
-        }
 
         return offset;
     }
@@ -205,10 +186,6 @@ public final class LineMapper {
                     int targetLine = targetChunk.getPosition() + targetChunk.size();
                     int smoothedResult = (int) (mappedLine * (1 - smoothingFactor) + targetLine * smoothingFactor);
 
-                    if (MAPPING_DEBUG_MODE) {
-                        logger.debug("Applied smoothing: {} -> {} (factor: {:.2f})",
-                                   mappedLine, smoothedResult, smoothingFactor);
-                    }
 
                     return smoothedResult;
                 }
@@ -219,10 +196,6 @@ public final class LineMapper {
                     int sourceLine = sourceChunk.getPosition() + sourceChunk.size();
                     int smoothedResult = (int) (mappedLine * (1 - smoothingFactor) + sourceLine * smoothingFactor);
 
-                    if (MAPPING_DEBUG_MODE) {
-                        logger.debug("Applied smoothing: {} -> {} (factor: {:.2f})",
-                                   mappedLine, smoothedResult, smoothingFactor);
-                    }
 
                     return smoothedResult;
                 }
@@ -251,15 +224,6 @@ public final class LineMapper {
         logger.debug("LineMapper performance metrics reset");
     }
 
-    private void logMappingAccuracy(int originalLine, int mappedLine, boolean fromOriginal,
-                                  int deltasProcessed, int totalDeltas) {
-        if (MAPPING_DEBUG_MODE) {
-            logger.debug("Line mapping accuracy: {}:{} -> {}:{} (processed {}/{} deltas)",
-                       fromOriginal ? "orig" : "rev", originalLine,
-                       fromOriginal ? "rev" : "orig", mappedLine,
-                       deltasProcessed, totalDeltas);
-        }
-    }
 
     /**
      * Performance metrics for line mapping operations.
