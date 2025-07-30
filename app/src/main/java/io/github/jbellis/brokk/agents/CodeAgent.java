@@ -122,8 +122,10 @@ public class CodeAgent {
                                                                                  parser,
                                                                                  loopContext.conversationState().taskMessages(),
                                                                                  loopContext.conversationState().nextRequest());
+                var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
+                    metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
                     Optional.ofNullable(streamingResult.tokenUsage())
                             .ifPresent(metrics::addTokens);
                     metrics.addApiRetries(streamingResult.retries());
@@ -138,7 +140,8 @@ public class CodeAgent {
             switch (requestOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Fatal(var details) -> stopDetails = details;
-                default -> throw new IllegalStateException("requestPhase returned unexpected Step type: " + requestOutcome.getClass());
+                default ->
+                        throw new IllegalStateException("requestPhase returned unexpected Step type: " + requestOutcome.getClass());
             }
             if (stopDetails != null) break; // If requestPhase was Fatal
 
@@ -179,7 +182,8 @@ public class CodeAgent {
                     continue;
                 }
                 case Step.Fatal(var details) -> stopDetails = details;
-                default -> throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
+                default ->
+                        throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
             }
             // awkward construction but maintains symmetry
             if (stopDetails != null) break;
@@ -213,19 +217,17 @@ public class CodeAgent {
      * {@link #runTask(String, boolean)} uses, but it stops after all SEARCH/REPLACE
      * blocks have been applied (no build verification is performed).
      *
-     * @param file            the file to edit
-     * @param instructions    user instructions describing the desired change
+     * @param file             the file to edit
+     * @param instructions     user instructions describing the desired change
      * @param readOnlyMessages conversation context that should be provided
      *                         to the LLM as read-only (e.g., other related
      *                         files, build output, etc.)
-     *
      * @return a {@link TaskResult} recording the conversation and the original
-     *         contents of all files that were changed
+     * contents of all files that were changed
      */
     public TaskResult runSingleFileEdit(ProjectFile file,
                                         String instructions,
-                                        List<ChatMessage> readOnlyMessages)
-    {
+                                        List<ChatMessage> readOnlyMessages) {
         // 0.  Setup: coder, parser, initial messages, and initial LoopContext
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
         coder.setOutput(io);
@@ -414,7 +416,7 @@ public class CodeAgent {
      * (those with empty beforeText). This ensures files exist on disk before
      * they are added to the context, preventing race conditions with UI updates.
      *
-     * @param blocks         Collection of SearchReplaceBlocks potentially containing new file creations
+     * @param blocks Collection of SearchReplaceBlocks potentially containing new file creations
      */
     @VisibleForTesting
     public List<ProjectFile> preCreateNewFiles(Collection<EditBlock.SearchReplaceBlock> blocks) {
@@ -464,8 +466,8 @@ public class CodeAgent {
      */
     private void attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
                                              String originalUserInput,
-                                             List<ChatMessage> taskMessages) throws EditStopException
-    {
+                                             List<ChatMessage> taskMessages,
+                                             @Nullable Metrics metrics) throws EditStopException {
         var failuresByFile = failedBlocks.stream()
                 .filter(fb -> fb.block().filename() != null)
                 .collect(Collectors.groupingBy(fb -> contextManager.toFile(fb.block().filename())));
@@ -488,7 +490,7 @@ public class CodeAgent {
                 var model = requireNonNull(contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT));
                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
                 coder.setOutput(io);
-                return executeReplace(file, coder, messages);
+                return executeReplace(file, coder, messages, metrics);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -542,11 +544,16 @@ public class CodeAgent {
     /**
      * @return an error message, or empty if successful
      */
-    public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages)
-            throws InterruptedException, IOException
-    {
+    public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages, @Nullable Metrics metrics)
+            throws InterruptedException, IOException {
         // Send request
+        var llmStartNanos = System.nanoTime();
         StreamingResult result = coder.sendRequest(messages, false);
+        if (metrics != null) {
+            metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
+            Optional.ofNullable(result.tokenUsage()).ifPresent(metrics::addTokens);
+            metrics.addApiRetries(result.retries());
+        }
 
         // Process response
         if (result.error() != null) {
@@ -609,8 +616,7 @@ public class CodeAgent {
      */
     public TaskResult runQuickTask(ProjectFile file,
                                    String oldText,
-                                   String instructions) throws InterruptedException
-    {
+                                   String instructions) throws InterruptedException {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
         coder.setOutput(io);
 
@@ -668,33 +674,34 @@ public class CodeAgent {
      */
     private static String formatBuildErrorsForLLM(String latestBuildError) {
         return """
-               The build failed with the following error:
-               
-               %s
-               
-               Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
-               
-               IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
-               do your best to explain the problem but DO NOT provide any edits.
-               Otherwise, provide the edits as usual.
-               """.stripIndent().formatted(latestBuildError);
+                The build failed with the following error:
+                
+                %s
+                
+                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
+                
+                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
+                do your best to explain the problem but DO NOT provide any edits.
+                Otherwise, provide the edits as usual.
+                """.stripIndent().formatted(latestBuildError);
     }
 
     /**
      * Generates a user message to ask the LLM to continue when a response appears to be cut off.
+     *
      * @param lastBlock The last successfully parsed block from the incomplete response.
      * @return A formatted string to be used as a UserMessage.
      */
     private static String getContinueFromLastBlockPrompt(EditBlock.SearchReplaceBlock lastBlock) {
         return """
-               It looks like we got cut off. The last block I successfully parsed was:
-               
-               <block>
-               %s
-               </block>
-               
-               Please continue from there (WITHOUT repeating that one).
-               """.stripIndent().formatted(lastBlock);
+                It looks like we got cut off. The last block I successfully parsed was:
+                
+                <block>
+                %s
+                </block>
+                
+                Please continue from there (WITHOUT repeating that one).
+                """.stripIndent().formatted(lastBlock);
     }
 
     static class EditStopException extends RuntimeException {
@@ -737,8 +744,7 @@ public class CodeAgent {
 
     private EditBlock.EditResult applyBlocksAndHandleErrors(List<EditBlock.SearchReplaceBlock> blocksToApply,
                                                             Set<ProjectFile> changedFilesCollector)
-            throws EditStopException, InterruptedException
-    {
+            throws EditStopException, InterruptedException {
         // Identify files referenced by blocks that are not already editable
         var filesToAdd = blocksToApply.stream()
                 .map(EditBlock.SearchReplaceBlock::filename)
@@ -813,7 +819,7 @@ public class CodeAgent {
             }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
             var newCs = new ConversationState(cs.taskMessages(),
-                                            nextRequestForBuildFailure);
+                                              nextRequestForBuildFailure);
             var newWs = ws.afterBuildFailure(latestBuildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(new LoopContext(newCs, newWs, loopContext.userGoal()));
@@ -862,7 +868,7 @@ public class CodeAgent {
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES_BEFORE_FALLBACK) {
                     report("Apply failure limit reached (%d), attempting full file replacement fallback.".formatted(updatedConsecutiveApplyFailures));
                     List<EditBlock.FailedBlock> blocksForFallback = List.copyOf(failedBlocks);
-                    attemptFullFileReplacements(blocksForFallback, currentLoopContext.userGoal(), cs.taskMessages());
+                    attemptFullFileReplacements(blocksForFallback, currentLoopContext.userGoal(), cs.taskMessages(), metrics);
                     // If attemptFullFileReplacements succeeds, it doesn't throw. If it fails, it throws EditStopException caught below.
                     report("Full file replacement fallback successful.");
 
@@ -943,15 +949,20 @@ public class CodeAgent {
             ConversationState conversationState,
             EditState editState,
             String userGoal
-    ) {}
+    ) {
+    }
 
     sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
         LoopContext loopContext();
 
         /** continue to the next phase */
-        record Continue(LoopContext loopContext) implements Step {}
+        record Continue(LoopContext loopContext) implements Step {
+        }
+
         /** this phase found a problem that it wants to send back to the llm */
-        record Retry(LoopContext loopContext) implements Step {}
+        record Retry(LoopContext loopContext) implements Step {
+        }
+
         /** fatal error, stop the task */
         record Fatal(TaskResult.StopDetails stopDetails) implements Step {
             public Fatal(TaskResult.StopReason stopReason) {
@@ -968,7 +979,8 @@ public class CodeAgent {
     record ConversationState(
             List<ChatMessage> taskMessages,
             UserMessage nextRequest
-    ) {}
+    ) {
+    }
 
     record EditState(
             // parsed but not yet applied
@@ -983,8 +995,7 @@ public class CodeAgent {
         /**
          * Returns a new WorkspaceState with updated pending blocks and parse failures.
          */
-        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures)
-        {
+        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(newPendingBlocks, newParseFailures, consecutiveApplyFailures,
                                  blocksAppliedWithoutBuild, lastBuildError, changedFiles, originalFileContents);
         }
@@ -992,8 +1003,7 @@ public class CodeAgent {
         /**
          * Returns a new WorkspaceState after a build failure, updating the error message.
          */
-        EditState afterBuildFailure(String newBuildError)
-        {
+        EditState afterBuildFailure(String newBuildError) {
             return new EditState(pendingBlocks, consecutiveParseFailures, consecutiveApplyFailures,
                                  0, newBuildError, changedFiles, originalFileContents);
         }
@@ -1002,8 +1012,7 @@ public class CodeAgent {
          * Returns a new WorkspaceState after applying blocks, updating relevant fields.
          */
         EditState afterApply(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newApplyFailures,
-                             int newBlocksApplied, Map<ProjectFile, String> newOriginalContents)
-        {
+                             int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
             return new EditState(newPendingBlocks, consecutiveParseFailures, newApplyFailures,
                                  newBlocksApplied, lastBuildError, changedFiles, newOriginalContents);
         }
@@ -1013,8 +1022,7 @@ public class CodeAgent {
          */
         EditState afterFallbackSuccess(List<EditBlock.SearchReplaceBlock> newPendingBlocks,
                                        Set<ProjectFile> updatedChangedFiles,
-                                       Map<ProjectFile, String> newOriginalContents)
-        {
+                                       Map<ProjectFile, String> newOriginalContents) {
             return new EditState(newPendingBlocks, consecutiveParseFailures, 0,
                                  1, lastBuildError, updatedChangedFiles, newOriginalContents);
         }
@@ -1024,6 +1032,7 @@ public class CodeAgent {
         private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
         final long startNanos = System.nanoTime();
+        long llmWaitNanos = 0;
         int totalInputTokens = 0;
         int totalCachedTokens = 0;
         int totalThinkingTokens = 0;
@@ -1032,8 +1041,8 @@ public class CodeAgent {
         int failedEditBlocks = 0;
         int parseRetries = 0;
         int buildFailures = 0;
-            int applyRetries = 0;
-            int apiRetries = 0;
+        int applyRetries = 0;
+        int apiRetries = 0;
 
         void addTokens(@Nullable Llm.RichTokenUsage usage) {
             if (usage == null) {
@@ -1053,7 +1062,8 @@ public class CodeAgent {
             var changedFilesList = changedFiles.stream().map(ProjectFile::toString).toList();
 
             var jsonMap = new LinkedHashMap<String, Object>();
-            jsonMap.put("elapsedMillis", Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+            jsonMap.put("totalMillis", Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
+            jsonMap.put("llmMillis", Duration.ofNanos(llmWaitNanos).toMillis());
             jsonMap.put("inputTokens", totalInputTokens);
             jsonMap.put("cachedInputTokens", totalCachedTokens);
             jsonMap.put("reasoningTokens", totalThinkingTokens);
