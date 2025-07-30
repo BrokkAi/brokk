@@ -39,12 +39,8 @@ public final class SimpleLanguageClient implements LanguageClient {
     public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
         // These diagnostics are the server reporting linting/compiler issues related to the code itself
         diagnostics.getDiagnostics().forEach(diagnostic -> {
-            if (Objects.equals(diagnostic.getSeverity(), DiagnosticSeverity.Error)) {
-                // Errors might be useful to understand if certain symbols are not resolved properly
-                logger.debug("[LSP-SERVER-DIAGNOSTICS] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
-            } else {
-                logger.trace("[LSP-SERVER-DIAGNOSTICS] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
-            }
+            // Errors might be useful to understand if certain symbols are not resolved properly
+            logger.trace("[LSP-SERVER-DIAGNOSTICS] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
         });
     }
 
