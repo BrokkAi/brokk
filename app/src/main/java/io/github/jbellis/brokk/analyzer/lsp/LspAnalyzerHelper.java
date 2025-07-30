@@ -517,10 +517,15 @@ public final class LspAnalyzerHelper {
         return LspAnalyzerHelper.getSymbolsInFile(sharedServer, filePath).thenApply(fileSymbols ->
                 fileSymbols.stream().map(fileSymbolsEither -> {
                     if (fileSymbolsEither.isRight()) {
-                        return LspAnalyzerHelper.findAllSymbolsInTree(Collections.singletonList(fileSymbolsEither.getRight()))
+                        final var currSymbol = fileSymbolsEither.getRight();
+                        final var allSymbols = new ArrayList<WorkspaceSymbol>();
+                        allSymbols.add(LspAnalyzerHelper.documentToWorkspaceSymbol(currSymbol, filePath.toUri().toString()));
+                        final var childSymbols = LspAnalyzerHelper.findAllSymbolsInTree(Collections.singletonList(currSymbol))
                                 .stream()
                                 .map(documentSymbol -> LspAnalyzerHelper.documentToWorkspaceSymbol(documentSymbol, filePath.toUri().toString()))
                                 .toList();
+                        allSymbols.addAll(childSymbols);
+                        return allSymbols;
                     } else {
                         // Find the symbol and map it to a new Location object with a precise range
                         return new ArrayList<WorkspaceSymbol>();
