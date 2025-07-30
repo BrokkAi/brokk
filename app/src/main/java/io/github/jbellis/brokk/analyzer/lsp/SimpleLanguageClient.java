@@ -67,7 +67,9 @@ public final class SimpleLanguageClient implements LanguageClient {
                 // Avoid chained stack trace spam, these are recorded in the LSP logs elsewhere anyway
                 if (messageLines.size() > ERROR_LOG_LINE_LIMIT) {
                     final var conciseMessageLines = new ArrayList<>(messageLines.stream().limit(ERROR_LOG_LINE_LIMIT).toList());
-                    final var cachePath = LspServer.getCacheForLsp(language);
+                    final var cachePath = LspServer.getCacheForLsp(language)
+                            .resolve(".metadata")
+                            .resolve(".log");
                     conciseMessageLines.add("See logs at '" + cachePath + "' for more details.");
                     messageLines = conciseMessageLines;
                 }
