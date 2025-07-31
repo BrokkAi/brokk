@@ -35,6 +35,8 @@ public abstract class LspServer implements LspFileUtilities {
     private CompletableFuture<Void> serverInitialized;
     @Nullable
     private ExecutorService lspExecutor;
+    @Nullable
+    private Thread shutdownHook;
 
     private final AtomicInteger clientCounter = new AtomicInteger(0);
     @NotNull
@@ -42,7 +44,7 @@ public abstract class LspServer implements LspFileUtilities {
     protected final Set<Path> activeWorkspaces = ConcurrentHashMap.newKeySet();
     private final Map<Path, Set<String>> workspaceExclusions = new ConcurrentHashMap<>();
     private final Map<String, CountDownLatch> workspaceReadyLatches = new ConcurrentHashMap<>();
-    
+
     @NotNull
     public Optional<CountDownLatch> getWorkspaceReadyLatch(String workspace) {
         return Optional.ofNullable(this.workspaceReadyLatches.get(workspace));
@@ -157,6 +159,15 @@ public abstract class LspServer implements LspFileUtilities {
                 "-data", cache.toString()
         );
         this.serverProcess = pb.start();
+        // In case the JVM doesn't shut down gracefully. If graceful shutdown is successful, this is removed. 
+        // See LspServer::shutdown
+        this.shutdownHook = new Thread(() -> {
+            logger.warn("LSP process could not close gracefully; destroying the LSP process forcibly.");
+            if (this.serverProcess != null && this.serverProcess.isAlive()) {
+                this.serverProcess.destroyForcibly();
+            }
+        });
+        Runtime.getRuntime().addShutdownHook(this.shutdownHook);
 
         // Create a dedicated thread pool for the LSP client
         this.lspExecutor = Executors.newFixedThreadPool(4, runnable -> {
@@ -268,9 +279,9 @@ public abstract class LspServer implements LspFileUtilities {
                 languageServer.shutdown().get(5, TimeUnit.SECONDS);
                 languageServer.exit();
             }
-            logger.info("JDT LS client shut down successfully.");
+            logger.info("LSP client shut down successfully.");
         } catch (Exception e) {
-            logger.error("Error shutting down JDT LS client", e);
+            logger.error("Error shutting down LSP client", e);
         } finally {
             this.languageServer = null;
             this.serverInitialized = null;
@@ -284,19 +295,26 @@ public abstract class LspServer implements LspFileUtilities {
             }
             logger.info("LSP Executor service shut down successfully.");
         } catch (Exception e) {
-            logger.error("Error shutting down JDT LS client", e);
+            logger.error("Error shutting down LSP client", e);
         } finally {
             this.languageServer = null;
             this.serverInitialized = null;
         }
         try {
             if (serverProcess != null && serverProcess.isAlive()) {
-                serverProcess.destroyForcibly();
-                serverProcess.waitFor(5, TimeUnit.SECONDS);
+                serverProcess.destroy();
+                if (!serverProcess.waitFor(5, TimeUnit.SECONDS)) {
+                    logger.warn("LSP process did not terminate in 5 seconds. Destroying forcibly.");
+                    serverProcess.destroyForcibly();
+                }
             }
-            logger.info("JDT LS process shut down successfully.");
+            if (this.shutdownHook != null) {
+                Runtime.getRuntime().removeShutdownHook(this.shutdownHook);
+                this.shutdownHook = null;
+            }
+            logger.info("LSP process shut down successfully.");
         } catch (Exception e) {
-            logger.error("Error shutting down JDT LS process", e);
+            logger.error("Error shutting down LSP process", e);
         } finally {
             this.serverProcess = null;
         }
@@ -353,15 +371,18 @@ public abstract class LspServer implements LspFileUtilities {
      * @param projectPath The workspace path of the client being closed.
      */
     public synchronized void unregisterClient(Path projectPath, Map<String, Object> initializationOptions, String language) {
-        final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
-        removeWorkspaceFolder(projectPathAbsolute);
-        activeWorkspaces.remove(projectPathAbsolute);
-        workspaceExclusions.remove(projectPathAbsolute);
-        logger.debug("Unregistered workspace: {}. Active clients: {}", projectPathAbsolute, clientCounter.get());
-        if (clientCounter.decrementAndGet() == 0) {
-            shutdownServer();
-        } else {
-            updateServerConfiguration(initializationOptions, language); // Update config after removal
+        try {
+            final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
+            removeWorkspaceFolder(projectPathAbsolute);
+            activeWorkspaces.remove(projectPathAbsolute);
+            workspaceExclusions.remove(projectPathAbsolute);
+            logger.debug("Unregistered workspace: {}. Active clients: {}", projectPathAbsolute, clientCounter.get());
+        } finally {
+            if (clientCounter.decrementAndGet() == 0) {
+                shutdownServer();
+            } else {
+                updateServerConfiguration(initializationOptions, language); // Update config after removal
+            }
         }
     }
 

@@ -30,7 +30,6 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     
     @NotNull
     default Optional<CountDownLatch> getWorkspaceReadyLatch(String workspace) {  
-        // fixme This is unfortunately configured per workspace, so we need some kind of map here.
         return this.getServer().getWorkspaceReadyLatch(workspace);
     }
 
