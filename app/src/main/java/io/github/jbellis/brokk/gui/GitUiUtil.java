@@ -14,6 +14,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
@@ -598,6 +599,10 @@ public final class GitUiUtil {
      */
     public static void capturePrDiffToContext(ContextManager cm, Chrome chrome, String prTitle, int prNumber, String prHeadSha, String prBaseSha, io.github.jbellis.brokk.git.GitRepo repo)
     {
+        capturePrDiffToContext(cm, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo, null);
+    }
+    public static void capturePrDiffToContext(ContextManager cm, Chrome chrome, String prTitle, int prNumber, String prHeadSha, String prBaseSha, io.github.jbellis.brokk.git.GitRepo repo, @Nullable List<String> fileFilter)
+    {
         cm.submitContextTask("Capturing diff for PR #" + prNumber, () -> {
             try {
                 String effectiveBaseSha = repo.getMergeBase(prHeadSha, prBaseSha);
@@ -606,13 +611,41 @@ public final class GitUiUtil {
                     effectiveBaseSha = prBaseSha;
                 }
 
-                String diff = repo.showDiff(prHeadSha, effectiveBaseSha);
-                if (diff.isEmpty()) {
-                    chrome.systemOutput(String.format("No differences found for PR #%d (head: %s, effective base: %s)", prNumber, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha)));
+                List<ProjectFile> allChangedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha);
+                List<ProjectFile> changedFiles;
+                if (fileFilter != null && !fileFilter.isEmpty()) {
+                    var fileFilterSet = new HashSet<>(fileFilter);
+                    changedFiles = allChangedFiles.stream()
+                                                  .filter(pf -> fileFilterSet.contains(pf.toString()))
+                                                  .toList();
+                } else {
+                    changedFiles = allChangedFiles;
+                }
+
+                if (changedFiles.isEmpty()) {
+                    chrome.systemOutput(String.format("No differences found for selected files in PR #%d", prNumber));
+                    return;
+                }
+                
+                final String finalBase = effectiveBaseSha;
+                var diffs = changedFiles.stream()
+                                        .map(file -> {
+                                            try {
+                                                // Assumes showFileDiff takes (new, old, file) which seems to be the convention from other calls.
+                                                return repo.showFileDiff(prHeadSha, finalBase, file);
+                                            } catch (Exception e) {
+                                                logger.warn("Could not get diff for file {} in PR #{}: {}", file, prNumber, e.getMessage());
+                                                return "";
+                                            }
+                                        })
+                                        .filter(s -> !s.isEmpty())
+                                        .collect(Collectors.joining());
+
+                if (diffs.isEmpty()) {
+                    chrome.systemOutput(String.format("No textual differences found for selected files in PR #%d", prNumber));
                     return;
                 }
 
-                List<ProjectFile> changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha);
                 String fileNamesSummary = formatFileList(changedFiles);
 
                 String description = String.format("Diff of PR #%d (%s): %s [HEAD: %s vs Base: %s]", prNumber, prTitle, fileNamesSummary, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha));
@@ -622,7 +655,7 @@ public final class GitUiUtil {
                     syntaxStyle = SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 }
 
-                var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(cm, diffs, description, syntaxStyle);
                 cm.addVirtualFragment(fragment);
                 chrome.systemOutput(String.format("Added diff for PR #%d (%s) to context", prNumber, prTitle));
 
