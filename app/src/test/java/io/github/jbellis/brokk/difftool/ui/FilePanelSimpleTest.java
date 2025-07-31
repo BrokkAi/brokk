@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.difftool.doc.InMemoryDocument;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
-import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -111,7 +110,7 @@ class FilePanelSimpleTest {
         assertTrue(doc.isChanged());
         
         // Write should complete without error (changed flag behavior may vary)
-        assertDoesNotThrow(() -> doc.write());
+        assertDoesNotThrow(doc::write);
     }
 
 

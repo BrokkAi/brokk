@@ -41,11 +41,6 @@ public final class PerformanceConstants {
     public static volatile boolean ENABLE_ADAPTIVE_THROTTLING = true; // Adaptive mode (default)
     public static volatile int SCROLL_FRAME_RATE_MS = 16; // 60fps default (configurable via UI)
 
-    // Frame rate presets for UI dropdown
-    public static final int FRAME_60FPS = 16;  // Gaming-smooth (recommended)
-    public static final int FRAME_30FPS = 33;  // Standard UI
-    public static final int FRAME_20FPS = 50;  // Conservative (equivalent to debounce delay)
-
     // Adaptive throttling thresholds
     public static final int ADAPTIVE_MODE_LINE_THRESHOLD = 1000; // Switch to frame mode for files > 1000 lines
     public static final int ADAPTIVE_MODE_DELTA_THRESHOLD = 50;  // Switch to frame mode for > 50 deltas
@@ -54,7 +49,6 @@ public final class PerformanceConstants {
 
     // Navigation highlighting reset delay
     public static final int NAVIGATION_RESET_DELAY_MS = 30;
-
 
     // UI Configuration
     public static final int DEFAULT_EDITOR_TAB_SIZE = 4;

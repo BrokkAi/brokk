@@ -677,6 +677,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel);
         this.bufferDiffPanel = cachedPanel;
 
+        // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
+        cachedPanel.resetAutoScrollFlag();
+
+        // Reset selectedDelta to first difference for consistent navigation behavior
+        cachedPanel.resetToFirstDifference();
+
         // Update scroll mode indicator for this file
         updateScrollModeIndicator();
 
@@ -1036,6 +1042,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     public void cachePanel(int fileIndex, BufferDiffPanel panel) {
         logger.debug("Navigation Step 4.5: File {} loading completed, caching panel", fileIndex);
+
+        // Reset auto-scroll flag for newly created panels
+        panel.resetAutoScrollFlag();
+
+        // Reset selectedDelta to first difference for consistent navigation behavior
+        panel.resetToFirstDifference();
 
         // Only cache if within current window
         if (panelCache.isInWindow(fileIndex)) {

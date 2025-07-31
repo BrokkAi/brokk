@@ -57,6 +57,7 @@ public class ScrollSynchronizer
     private final Timer navigationResetTimer;
     private final Timer enableSyncTimer;
 
+
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
         this.diffPanel = diffPanel;
@@ -82,7 +83,7 @@ public class ScrollSynchronizer
         this.navigationResetTimer.setRepeats(false);
 
         this.enableSyncTimer = new Timer(100, e -> {
-            logger.debug("Re-enabling scroll sync after navigation");
+            logger.trace("Re-enabling scroll sync after navigation");
             syncState.setProgrammaticScroll(false);
         });
         this.enableSyncTimer.setRepeats(false);
@@ -119,7 +120,7 @@ public class ScrollSynchronizer
         this.navigationResetTimer.setRepeats(false);
 
         this.enableSyncTimer = new Timer(100, e -> {
-            logger.debug("Re-enabling scroll sync after navigation");
+            logger.trace("Re-enabling scroll sync after navigation");
             syncState.setProgrammaticScroll(false);
         });
         this.enableSyncTimer.setRepeats(false);
@@ -314,6 +315,11 @@ public class ScrollSynchronizer
 
     public void scrollToLine(FilePanel fp, int line, ScrollMode mode)
     {
+        scrollToLineInternal(fp, line, mode);
+    }
+
+    private void scrollToLineInternal(FilePanel fp, int line, ScrollMode mode)
+    {
         var bd = fp.getBufferDocument();
         if (bd == null) {
             return;
@@ -388,6 +394,7 @@ public class ScrollSynchronizer
                     navigationResetTimer.restart();
                 }
 
+
             } catch (BadLocationException ex) {
                 logger.error("scrollToLine error for line {}: {}", line, ex.getMessage());
                 // Only reset flag on error if we set it
@@ -435,7 +442,7 @@ public class ScrollSynchronizer
      */
     public void showDelta(AbstractDelta<String> delta)
     {
-        logger.debug("showDelta called for delta at position {}", delta.getSource().getPosition());
+        logger.trace("showDelta called for delta at position {}", delta.getSource().getPosition());
 
         // Disable scroll sync during navigation to prevent feedback loops
         syncState.setProgrammaticScroll(true);
@@ -452,34 +459,33 @@ public class ScrollSynchronizer
             int sourceCenterLine = calculateChunkCenter(source);
             int targetCenterLine = calculateChunkCenter(target);
 
-            logger.debug("Navigation: delta chunks - source: pos={} size={} center={}, target: pos={} size={} center={}",
+            logger.trace("Navigation: delta chunks - source: pos={} size={} center={}, target: pos={} size={} center={}",
                        sourceLine, source.size(), sourceCenterLine, targetLine, target.size(), targetCenterLine);
-
-            // Scroll left panel to source chunk center for optimal alignment
-            scrollToLine(filePanelLeft, sourceCenterLine, ScrollMode.NAVIGATION);
-            logger.debug("Navigation: scrolled LEFT panel to source center line {}", sourceCenterLine);
 
             // Determine the right panel scroll line with enhanced centering logic
             int rightPanelScrollLine = targetCenterLine;
 
             if (target.size() > 0) {
-                logger.debug("Navigation: delta has target content, using center line {}", targetCenterLine);
+                logger.trace("Navigation: delta has target content, using center line {}", targetCenterLine);
             }
             else {
-                logger.debug("Navigation: DELETE delta, target position {}", targetLine);
+                logger.trace("Navigation: DELETE delta, target position {}", targetLine);
                 // For DELETE deltas, use the target position but apply the same near-top adjustment
                 rightPanelScrollLine = targetLine;
                 if (targetLine <= 8) {
                     rightPanelScrollLine = Math.max(targetLine + 3, 10);
-                    logger.debug("Navigation: DELETE delta near top, adjusting scroll to line {} for better visibility", rightPanelScrollLine);
+                    logger.trace("Navigation: DELETE delta near top, adjusting scroll to line {} for better visibility", rightPanelScrollLine);
                 }
             }
 
-            // Scroll right panel to the calculated line using NAVIGATION mode for full highlighting
+            // Scroll both panels
+            scrollToLine(filePanelLeft, sourceCenterLine, ScrollMode.NAVIGATION);
+            logger.trace("Navigation: scrolled LEFT panel to source center line {}", sourceCenterLine);
+
             scrollToLine(filePanelRight, rightPanelScrollLine, ScrollMode.NAVIGATION);
-            logger.debug("Navigation: scrolled RIGHT panel to line {}", rightPanelScrollLine);
+            logger.trace("Navigation: scrolled RIGHT panel to line {}", rightPanelScrollLine);
         } finally {
-            // Re-enable scroll sync after a short delay to allow navigation to complete
+            // Re-enable sync after a short delay to allow scroll operations to complete
             enableSyncTimer.restart();
         }
 
@@ -487,8 +493,9 @@ public class ScrollSynchronizer
         filePanelLeft.reDisplay();
         filePanelRight.reDisplay();
 
-        logger.debug("showDelta completed - both panels scrolled with enhanced centering");
+        logger.trace("showDelta completed - both panels scrolled with enhanced centering");
     }
+
 
     /**
      * Calculate the center line of a chunk for optimal visual alignment.
@@ -518,7 +525,7 @@ public class ScrollSynchronizer
         int centerOffset = (size - 1) / 2;
         int centerLine = position + centerOffset;
 
-        logger.debug("Chunk center calculation: position={}, size={}, centerOffset={}, centerLine={}",
+        logger.trace("Chunk center calculation: position={}, size={}, centerOffset={}, centerLine={}",
                    position, size, centerOffset, centerLine);
 
         return centerLine;
@@ -683,8 +690,8 @@ public class ScrollSynchronizer
         private final Timer metricsTimer;
 
         public ScrollPerformanceMonitor() {
-            // Log performance metrics every 30 seconds
-            this.metricsTimer = new Timer(30000, e -> logPerformanceMetrics());
+            // Log performance metrics every 5 minutes (less frequent)
+            this.metricsTimer = new Timer(300000, e -> logPerformanceMetrics());
             this.metricsTimer.setRepeats(true);
             this.metricsTimer.start();
         }
@@ -729,11 +736,14 @@ public class ScrollSynchronizer
 
         private void logPerformanceMetrics() {
             long events = totalScrollEvents.get();
-            if (events > 0) {
-                performanceLogger.info("Scroll Performance Metrics - Events: {}, Avg Duration: {:.1f}ms, " +
-                                     "Avg Deltas: {:.1f}, Max Duration: {}ms, Max Deltas: {}",
-                                     events, getAverageScrollTime(), getAverageDeltasPerEvent(),
-                                     getMaxMappingDuration(), getMaxDeltasInSingleEvent());
+            if (events > 10) { // Only log if there's been significant activity
+                double avgDuration = getAverageScrollTime();
+                long maxDuration = getMaxMappingDuration();
+                // Only log if there are performance concerns (slow average or max times)
+                if (avgDuration > 5.0 || maxDuration > 50) {
+                    performanceLogger.info("Scroll performance: {} events, avg {}ms, max {}ms",
+                                         events, String.format("%.1f", avgDuration), maxDuration);
+                }
             }
         }
 

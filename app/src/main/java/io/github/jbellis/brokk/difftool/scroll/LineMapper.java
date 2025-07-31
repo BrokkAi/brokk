@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicLong;
  * - O(log n) binary search for delta lookup
  * - Cumulative offset correction to prevent error accumulation
  * - Smoothing correction to reduce visual discontinuities
- *
  * The class is stateless and thread-safe, making it suitable for concurrent usage.
  */
 public final class LineMapper {
@@ -184,20 +183,14 @@ public final class LineMapper {
                     // Apply gentle interpolation for nearby lines
                     double smoothingFactor = Math.max(0.1, 1.0 - (distanceFromDelta / 5.0));
                     int targetLine = targetChunk.getPosition() + targetChunk.size();
-                    int smoothedResult = (int) (mappedLine * (1 - smoothingFactor) + targetLine * smoothingFactor);
-
-
-                    return smoothedResult;
+                    return (int) (mappedLine * (1 - smoothingFactor) + targetLine * smoothingFactor);
                 }
             } else {
                 int distanceFromDelta = originalLine - (targetChunk.getPosition() + targetChunk.size());
                 if (distanceFromDelta >= 0 && distanceFromDelta <= 5) {
                     double smoothingFactor = Math.max(0.1, 1.0 - (distanceFromDelta / 5.0));
                     int sourceLine = sourceChunk.getPosition() + sourceChunk.size();
-                    int smoothedResult = (int) (mappedLine * (1 - smoothingFactor) + sourceLine * smoothingFactor);
-
-
-                    return smoothedResult;
+                    return (int) (mappedLine * (1 - smoothingFactor) + sourceLine * smoothingFactor);
                 }
             }
         }

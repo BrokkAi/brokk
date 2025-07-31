@@ -91,7 +91,7 @@ class BufferDiffPanelAutoScrollTest {
 
         // Simulate the selectedDelta initialization logic from refreshDiffNode
         AbstractDelta<String> selectedDelta = null;
-        if (patch != null && !patch.getDeltas().isEmpty()) {
+        if (!patch.getDeltas().isEmpty()) {
             selectedDelta = patch.getDeltas().getFirst();
         }
 
@@ -228,7 +228,7 @@ class BufferDiffPanelAutoScrollTest {
 
         // Check characteristics that massive change detection would look for
         if (patch.getDeltas().size() == 1) {
-            var delta = patch.getDeltas().get(0);
+            var delta = patch.getDeltas().getFirst();
             boolean isMassive = delta.getSource().getPosition() <= 2 &&
                                (delta.getSource().size() > 20 || delta.getTarget().size() > 20);
             // Note: This test documents the expected behavior, actual result depends on diff algorithm
@@ -269,7 +269,7 @@ class BufferDiffPanelAutoScrollTest {
 
         // Should not be massive change (single line modification)
         if (patch.getDeltas().size() == 1) {
-            var delta = patch.getDeltas().get(0);
+            var delta = patch.getDeltas().getFirst();
             boolean isMassive = delta.getSource().getPosition() <= 2 &&
                                (delta.getSource().size() > 20 || delta.getTarget().size() > 20);
             assertFalse(isMassive, "Single line edit should not be massive change");

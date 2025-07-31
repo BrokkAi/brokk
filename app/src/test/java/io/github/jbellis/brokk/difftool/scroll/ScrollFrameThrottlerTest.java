@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -24,14 +23,12 @@ class ScrollFrameThrottlerTest {
     private ScrollFrameThrottler throttler;
     private List<Long> executionTimes;
     private AtomicInteger executionCount;
-    private AtomicLong startTime;
 
     @BeforeEach
     void setUp() {
         throttler = new ScrollFrameThrottler(50); // 50ms frames for predictable testing
         executionTimes = new ArrayList<>();
         executionCount = new AtomicInteger(0);
-        startTime = new AtomicLong(System.currentTimeMillis());
     }
 
     // =================================================================
@@ -55,8 +52,8 @@ class ScrollFrameThrottlerTest {
         assertTrue(latch.await(100, TimeUnit.MILLISECONDS), "First execution should complete quickly");
 
         assertEquals(1, executionCount.get(), "Should execute exactly once");
-        assertTrue(executionTimes.get(0) < 10,
-                  "First execution should be immediate (< 10ms), but was " + executionTimes.get(0) + "ms");
+        assertTrue(executionTimes.getFirst() < 10,
+                  "First execution should be immediate (< 10ms), but was " + executionTimes.getFirst() + "ms");
         assertTrue(throttler.isFrameActive(), "Frame should be active after first execution");
     }
 
@@ -124,7 +121,7 @@ class ScrollFrameThrottlerTest {
 
         // All executions should be at frame boundaries (except the first immediate one)
         if (executionTimes.size() > 1) {
-            long firstExecution = executionTimes.get(0);
+            long firstExecution = executionTimes.getFirst();
             assertTrue(firstExecution < 10, "First execution should be immediate");
 
             for (int i = 1; i < executionTimes.size(); i++) {
@@ -359,7 +356,7 @@ class ScrollFrameThrottlerTest {
 
         // Submit actions that would execute later
         for (int i = 0; i < 5; i++) {
-            throttler.submit(() -> execCount.incrementAndGet());
+            throttler.submit(execCount::incrementAndGet);
             Thread.sleep(2);
         }
 
@@ -383,7 +380,7 @@ class ScrollFrameThrottlerTest {
 
         // Submit some actions
         for (int i = 0; i < 3; i++) {
-            throttler.submit(() -> execCount.incrementAndGet());
+            throttler.submit(execCount::incrementAndGet);
         }
 
         assertTrue(throttler.isFrameActive(), "Frame should be active before dispose");
@@ -393,7 +390,7 @@ class ScrollFrameThrottlerTest {
         assertFalse(throttler.isFrameActive(), "Frame should be inactive after dispose");
 
         // Further submissions should still work (dispose doesn't break the throttler)
-        throttler.submit(() -> execCount.incrementAndGet());
+        throttler.submit(execCount::incrementAndGet);
 
         // But no framing should occur
         Thread.sleep(50);
