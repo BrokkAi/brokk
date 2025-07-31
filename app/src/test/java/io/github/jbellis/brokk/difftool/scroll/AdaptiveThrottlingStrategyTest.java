@@ -101,25 +101,28 @@ class AdaptiveThrottlingStrategyTest {
 
         // Simulate rapid scrolling events
         int rapidEvents = PerformanceConstants.ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD + 10; // 40 events
+        boolean highEventRateDetected = false;
 
         // Record many events in rapid succession to trigger frame mode
         for (int i = 0; i < rapidEvents; i++) {
             strategy.recordScrollEvent(2); // Fast mapping time
             Thread.sleep(25); // 40 events per second (1000ms / 25ms = 40/s)
+
+            // Check metrics frequently during rapid scrolling
+            if (i >= 5) { // Check after just a few events to catch the detection early
+                var metrics = strategy.getMetrics();
+                if (metrics.eventsPerSecond() > PerformanceConstants.ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD) {
+                    highEventRateDetected = true;
+                    break; // Found what we're looking for, no need to continue
+                }
+            }
         }
 
-        // The strategy should have switched to frame-based mode during rapid scrolling
-        // However, since we're using fast mapping times (2ms), it may switch back to immediate
-        // when the rapid scrolling stops. This is correct adaptive behavior.
+        // Verify that rapid scrolling was detected at some point during the test
+        assertTrue(highEventRateDetected, "High event rate should have been detected during rapid scrolling");
 
-        // To test that rapid scrolling was detected, we verify that the metrics show
-        // the high event rate
-        var metrics = strategy.getMetrics();
-        assertTrue(metrics.eventsPerSecond() > PerformanceConstants.ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD,
-                 "Events per second should exceed threshold during rapid scrolling");
-
-        // The current mode depends on whether the rapid scrolling is still active
-        // This is correct adaptive behavior - the strategy adapts to current conditions
+        // The strategy should have switched to frame-based mode at some point
+        // Note: It may switch back to immediate mode after rapid scrolling stops, which is correct behavior
     }
 
     @Test

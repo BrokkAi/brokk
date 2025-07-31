@@ -30,6 +30,7 @@ public final class ScrollFrameThrottler {
     private boolean hasEvent = false;
     private boolean frameActive = false;
     private boolean disposed = false;
+    private boolean cancelled = false;
     private final Object lock = new Object();
 
     // Performance metrics
@@ -50,9 +51,8 @@ public final class ScrollFrameThrottler {
         totalEvents.incrementAndGet();
 
         synchronized (lock) {
-            if (disposed) {
-                // Execute immediately but don't start framing
-                executeAction(action);
+            if (disposed || cancelled) {
+                // Don't execute anything if cancelled or disposed
                 return;
             }
 
@@ -151,6 +151,7 @@ public final class ScrollFrameThrottler {
      */
     public void cancel() {
         synchronized (lock) {
+            cancelled = true;
             stopFrameTimer();
             latestAction = null;
             hasEvent = false;
@@ -168,6 +169,7 @@ public final class ScrollFrameThrottler {
     public void dispose() {
         synchronized (lock) {
             disposed = true;
+            cancelled = true;
             stopFrameTimer();
             latestAction = null;
             hasEvent = false;
@@ -178,6 +180,11 @@ public final class ScrollFrameThrottler {
 
     private void startFrameTimer() {
         assert Thread.holdsLock(lock);
+
+        // Don't start timer if cancelled
+        if (cancelled) {
+            return;
+        }
 
         frameActive = true;
 
@@ -202,16 +209,28 @@ public final class ScrollFrameThrottler {
 
     private void onFrameEnd(ActionEvent e) {
         synchronized (lock) {
+            // Check if we've been cancelled or disposed
+            if (disposed || cancelled || !frameActive) {
+                return;
+            }
+
             if (hasEvent && latestAction != null) {
                 var actionToExecute = latestAction;
                 latestAction = null;
                 hasEvent = false;
 
+                // Double-check we haven't been cancelled while setting up the action
+                if (cancelled) {
+                    return;
+                }
+
                 // Execute the latest action
                 executeAction(actionToExecute);
 
-                // Continue framing if we expect more events soon
-                startFrameTimer();
+                // Continue framing if we expect more events soon and we're still active
+                if (frameActive && !cancelled) {
+                    startFrameTimer();
+                }
             } else {
                 // No pending events, stop framing
                 stopFrameTimer();

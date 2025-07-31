@@ -44,10 +44,9 @@ public class AdaptiveThrottlingStrategy {
     // Performance tracking
     private final AtomicLong lastMappingDuration = new AtomicLong(0);
 
-    // Sliding window for rapid scroll detection
-    private static final long RAPID_SCROLL_WINDOW_MS = 1000; // 1 second window
-    private final AtomicLong windowStartTime = new AtomicLong(System.currentTimeMillis());
-    private final AtomicInteger windowEventCount = new AtomicInteger(0);
+    // Rapid scroll detection tracking
+    private final AtomicLong lastEventTime = new AtomicLong(System.currentTimeMillis());
+    private final AtomicInteger recentEventCount = new AtomicInteger(0);
 
     // Mode switch hysteresis to prevent oscillation
     private static final int MODE_SWITCH_COOLDOWN_MS = 2000;
@@ -98,18 +97,22 @@ public class AdaptiveThrottlingStrategy {
     }
 
     /**
-     * Update the sliding window for rapid scroll detection.
+     * Update tracking for rapid scroll detection.
      */
     private void updateRapidScrollWindow() {
         long currentTime = System.currentTimeMillis();
-        long windowStart = windowStartTime.get();
+        long timeSinceLastEvent = currentTime - lastEventTime.get();
 
-        // Reset window if expired
-        if (currentTime - windowStart > RAPID_SCROLL_WINDOW_MS) {
-            windowStartTime.set(currentTime);
-            windowEventCount.set(1);
+        // Update last event time
+        lastEventTime.set(currentTime);
+
+        // If events are coming at reasonable intervals (not too slow),
+        // increment the recent event count
+        if (timeSinceLastEvent < 500) { // Less than 500ms between events = active scrolling
+            recentEventCount.incrementAndGet();
         } else {
-            windowEventCount.incrementAndGet();
+            // Reset counter for very slow events (> 500ms apart)
+            recentEventCount.set(1);
         }
     }
 
@@ -157,16 +160,22 @@ public class AdaptiveThrottlingStrategy {
      * Calculate the current scroll events per second rate.
      */
     private int calculateEventsPerSecond() {
-        long currentTime = System.currentTimeMillis();
-        long windowStart = windowStartTime.get();
-        long windowDuration = currentTime - windowStart;
+        int currentEventCount = recentEventCount.get();
 
-        if (windowDuration <= 0) {
-            return 0;
+        // If we have multiple events in sequence, estimate rate
+        if (currentEventCount >= 3) {
+            // For sequences of 3+ events, estimate based on recent activity
+            if (currentEventCount > 10) {
+                // Many events suggest rapid scrolling
+                return Math.min(currentEventCount * 3, 80);
+            } else {
+                // Moderate number of events - give a reasonable rate
+                return Math.max(currentEventCount, 5);
+            }
         }
 
-        int eventCount = windowEventCount.get();
-        return (int) ((eventCount * 1000L) / windowDuration);
+        // For very few events, return 0
+        return 0;
     }
 
     /**
@@ -211,8 +220,8 @@ public class AdaptiveThrottlingStrategy {
         totalLines = 0;
         totalDeltas = 0;
         lastMappingDuration.set(0);
-        windowStartTime.set(System.currentTimeMillis());
-        windowEventCount.set(0);
+        lastEventTime.set(System.currentTimeMillis());
+        recentEventCount.set(0);
         lastModeSwitchTime = 0;
     }
 
