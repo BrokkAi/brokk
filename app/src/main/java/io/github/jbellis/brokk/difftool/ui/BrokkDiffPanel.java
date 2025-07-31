@@ -4,6 +4,9 @@ import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import javax.swing.KeyStroke;
 
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 
@@ -187,6 +190,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         getTabbedPane().setFocusable(false);
         setLayout(new BorderLayout());
         KeyboardShortcutUtil.registerCloseEscapeShortcut(this, this::close);
+
+        // Register F7/Shift+F7 hotkeys for next/previous change navigation (IntelliJ style)
+        KeyboardShortcutUtil.registerGlobalShortcut(this,
+            KeyStroke.getKeyStroke(KeyEvent.VK_F7, 0),
+            "nextChange", this::navigateToNextChange);
+        KeyboardShortcutUtil.registerGlobalShortcut(this,
+            KeyStroke.getKeyStroke(KeyEvent.VK_F7, InputEvent.SHIFT_DOWN_MASK),
+            "previousChange", this::navigateToPreviousChange);
+
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
