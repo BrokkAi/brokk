@@ -26,8 +26,9 @@ public final class AdaptiveExecutor {
             // mechanism for controlling throughput.
             return new RateLimitedExecutor(100, tokensPerMinute);
         }
-        throw new IllegalStateException("Neither max_concurrent_requests nor tokens_per_minute defined for model "
-                                        + service.nameOf(model));
+//        throw new IllegalStateException("Neither max_concurrent_requests nor tokens_per_minute defined for model "
+//                                        + service.nameOf(model));
+        return Executors.newFixedThreadPool(10);
     }
 
     private AdaptiveExecutor() {
