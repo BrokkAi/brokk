@@ -81,17 +81,37 @@ public class ContextAgent {
     }
 
     /**
-     * Result record for context recommendation attempts.
+     * Result record for context recommendation attempts, including token usage of the LLM call (nullable).
      */
-    public record RecommendationResult(boolean success, List<ContextFragment> fragments, String reasoning) {
-        static final RecommendationResult FAILED_SINGLE_PASS = new RecommendationResult(false, List.of(), "Project too large to quickly determine context; try Deep Scan");
+    public record RecommendationResult(boolean success,
+                                       List<ContextFragment> fragments,
+                                       String reasoning,
+                                       @Nullable Llm.RichTokenUsage tokenUsage) 
+    {
+        static final RecommendationResult FAILED_SINGLE_PASS =
+                new RecommendationResult(false,
+                                         List.of(),
+                                         "Project too large to quickly determine context; try Deep Scan",
+                                         null);
+
+        public RecommendationResult(boolean success, List<ContextFragment> fragments, String reasoning) {
+            this(success, fragments, reasoning, null);
+        }
     }
 
     /**
      * Result record for the LLM tool call, holding recommended files, class names, and the LLM's reasoning.
      */
-    private record LlmRecommendation(List<ProjectFile> recommendedFiles, List<CodeUnit> recommendedClasses, String reasoning) {
-        static final LlmRecommendation EMPTY = new LlmRecommendation(List.of(), List.of(), "");
+    private record LlmRecommendation(List<ProjectFile> recommendedFiles,
+                                     List<CodeUnit> recommendedClasses,
+                                     String reasoning,
+                                     @Nullable Llm.RichTokenUsage tokenUsage) 
+    {
+        static final LlmRecommendation EMPTY = new LlmRecommendation(List.of(), List.of(), "", null);
+
+        public LlmRecommendation(List<ProjectFile> files, List<CodeUnit> classes, String reasoning) {
+            this(files, classes, reasoning, null);
+        }
     }
 
     /**
@@ -206,7 +226,7 @@ public class ContextAgent {
         var filenameResult = executeWithFilenamesOnly(allFiles, workspaceRepresentation);
         if (!filenameResult.success) {
             logGiveUp("filename list (too large for LLM pruning)");
-            return new RecommendationResult(false, List.of(), filenameResult.reasoning()); // Return failure with reasoning
+            return new RecommendationResult(false, List.of(), filenameResult.reasoning());
         }
 
         var prunedFiles = filenameResult.fragments.stream()
@@ -393,7 +413,19 @@ public class ContextAgent {
                 .filter(r -> !r.isBlank())
                 .collect(Collectors.joining("\n\n---\n\n"));
 
-        var finalRecommendation = new LlmRecommendation(mergedFiles, mergedClasses, mergedReasoning);
+        List<Llm.RichTokenUsage> usageList = recommendations.stream()
+                .map(LlmRecommendation::tokenUsage)
+                .filter(Objects::nonNull)
+                .toList();
+        Llm.RichTokenUsage mergedUsage = null;
+        if (!usageList.isEmpty()) {
+            int in = usageList.stream().mapToInt(Llm.RichTokenUsage::inputTokens).sum();
+            int cin = usageList.stream().mapToInt(Llm.RichTokenUsage::cachedInputTokens).sum();
+            int th = usageList.stream().mapToInt(Llm.RichTokenUsage::thinkingTokens).sum();
+            int out = usageList.stream().mapToInt(Llm.RichTokenUsage::outputTokens).sum();
+            mergedUsage = new Llm.RichTokenUsage(in, cin, th, out);
+        }
+        var finalRecommendation = new LlmRecommendation(mergedFiles, mergedClasses, mergedReasoning, mergedUsage);
         debug("Merged recommendations from all chunks. Files: {}, Classes: {}", finalRecommendation.recommendedFiles().size(), finalRecommendation.recommendedClasses().size());
 
         return finalRecommendation;
@@ -463,7 +495,7 @@ public class ContextAgent {
                          ContextFragment.getSummary(cm.topContext().allFragments()), combinedFragments);
         }
 
-        return new RecommendationResult(true, combinedFragments, reasoning);
+        return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
     }
 
     /**
@@ -592,6 +624,7 @@ public class ContextAgent {
 
         // *** Execute LLM call with required tool ***
         var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
+        var tokenUsage = result.tokenUsage();
         if (result.error() != null || result.isEmpty()) {
             var error = result.error();
 
@@ -662,7 +695,7 @@ public class ContextAgent {
 
         debug("Tool recommended files: {}", projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
         debug("Tool recommended classes: {}", projectClasses.stream().map(CodeUnit::identifier).collect(Collectors.joining(", ")));
-        return new LlmRecommendation(projectFiles, projectClasses, reasoning);
+        return new LlmRecommendation(projectFiles, projectClasses, reasoning, tokenUsage);
     }
 
     // --- Quick Scan (Simple Prompt) Recommendation ---
