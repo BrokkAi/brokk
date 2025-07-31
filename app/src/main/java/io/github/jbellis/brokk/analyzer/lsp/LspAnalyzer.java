@@ -12,6 +12,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 
 public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
@@ -26,6 +27,11 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @NotNull
     LspServer getServer();
+    
+    @NotNull
+    default CountDownLatch getWorkspaceReadyLatch() {  
+        return this.getServer().getWorkspaceReadyLatch();
+    }
 
     /**
      * @return the target programming language as per the LSP's setting specs, e.g., "java".

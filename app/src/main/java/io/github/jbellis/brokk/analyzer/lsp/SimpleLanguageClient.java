@@ -3,13 +3,11 @@ package io.github.jbellis.brokk.analyzer.lsp;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.services.LanguageClient;
-import org.eclipse.lsp4j.services.LanguageServer;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
@@ -18,12 +16,14 @@ public final class SimpleLanguageClient implements LanguageClient {
 
     private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
     private final CountDownLatch serverReadyLatch;
+    private final CountDownLatch workspaceReadyLatch;
     private final String language;
     private final int ERROR_LOG_LINE_LIMIT = 4;
 
-    public SimpleLanguageClient(String language, CountDownLatch serverReadyLatch) {
+    public SimpleLanguageClient(String language, CountDownLatch serverReadyLatch, CountDownLatch workspaceReadyLatch) {
         this.language = language;
         this.serverReadyLatch = serverReadyLatch;
+        this.workspaceReadyLatch = workspaceReadyLatch;
     }
 
     @Override
@@ -75,9 +75,13 @@ public final class SimpleLanguageClient implements LanguageClient {
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
             case Info -> {
                 logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
+
                 if (message.getMessage().endsWith("build jobs finished")) {
-                    // This is a good way we can tell when indexing is done
+                    // This is a good way we can tell when the server is ready
                     serverReadyLatch.countDown();
+                } else if (message.getMessage().contains("Updated workspace folders ")) {
+                    // This is a good way we can tell when indexing is done
+                    workspaceReadyLatch.countDown();
                 }
             }
             default -> logger.debug("[LSP-SERVER-LOG] {}", message.getMessage());

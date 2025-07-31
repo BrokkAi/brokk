@@ -75,7 +75,8 @@ public final class JdtSkeletonHelper {
                 .replaceAll("(?s)/\\*.*?\\*/", "") // Remove block comments
                 .replaceAll("//.*", "") // Remove line comments
                 .lines().map(String::trim)
-                .collect(Collectors.joining(" "));
+                .collect(Collectors.joining(" "))
+                .trim();
 
         sb.append(indentation);
 
@@ -127,7 +128,7 @@ public final class JdtSkeletonHelper {
                     sb.append(snippet).append("\n");
                 }
             }
-            case Field -> sb.append(snippet).append("\n");
+            case Field, Constant -> sb.append(snippet).append("\n");
             default -> sb.setLength(sb.length() - indentation.length());
         }
     }

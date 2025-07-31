@@ -13,6 +13,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
@@ -37,10 +38,20 @@ public class JdtAnalyzer implements LspAnalyzer {
             throw new FileNotFoundException("Project directory does not exist: " + projectRoot);
         } else {
             JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
+            this.workspace = this.projectRoot.toUri().toString();
             this.sharedServer = SharedLspServer.getInstance();
             this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions(), getLanguage());
             this.sharedServer.refreshWorkspace().join();
-            this.workspace = this.projectRoot.toUri().toString();
+            try {
+                // Indexing generally completes within a couple of seconds, but larger projects need grace
+                if (!this.getWorkspaceReadyLatch().await(5, TimeUnit.MINUTES)) {
+                    logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
+                } else {
+                    logger.debug("JDT LSP indexing complete. The analyzer ready.");
+                }
+            } catch (InterruptedException e) {
+                logger.debug("Interrupted while waiting for initialization, the server may not be properly indexed", e);
+            }
         }
     }
 

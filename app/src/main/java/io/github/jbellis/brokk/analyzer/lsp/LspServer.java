@@ -33,12 +33,21 @@ public abstract class LspServer implements LspFileUtilities {
     private LanguageServer languageServer;
     @Nullable
     private CompletableFuture<Void> serverInitialized;
+    @Nullable
+    private ExecutorService lspExecutor;
 
     private final AtomicInteger clientCounter = new AtomicInteger(0);
     @NotNull
     private CountDownLatch serverReadyLatch = new CountDownLatch(1);
+    @NotNull
+    private CountDownLatch workspaceReadyLatch = new CountDownLatch(1);
     protected final Set<Path> activeWorkspaces = ConcurrentHashMap.newKeySet();
     private final Map<Path, Set<String>> workspaceExclusions = new ConcurrentHashMap<>();
+    
+    @NotNull
+    public CountDownLatch getWorkspaceReadyLatch() {
+        return this.workspaceReadyLatch;
+    }
 
     /**
      * Executes a callback function asynchronously with the LanguageServer instance
@@ -56,8 +65,8 @@ public abstract class LspServer implements LspFileUtilities {
                 assert this.languageServer != null;
                 try {
                     // Indexing generally completes within a couple of seconds, but larger projects need grace
-                    if (!serverReadyLatch.await(5, TimeUnit.MINUTES)) {
-                        logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
+                    if (!serverReadyLatch.await(1, TimeUnit.MINUTES)) {
+                        logger.warn("Server is taking longer than expected to complete startup, continuing");
                     }
                 } catch (InterruptedException e) {
                     logger.debug("Interrupted while waiting for initialization, the server may not be properly indexed", e);
@@ -150,12 +159,22 @@ public abstract class LspServer implements LspFileUtilities {
         );
         this.serverProcess = pb.start();
 
+        // Create a dedicated thread pool for the LSP client
+        this.lspExecutor = Executors.newFixedThreadPool(4, runnable -> {
+            Thread thread = new Thread(runnable, language + "-lsp-client-thread");
+            thread.setDaemon(true);
+            return thread;
+        });
+
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
+        this.workspaceReadyLatch = new CountDownLatch(1);
         final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
-                new SimpleLanguageClient(language, this.serverReadyLatch),
+                new SimpleLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatch),
                 serverProcess.getInputStream(),
-                serverProcess.getOutputStream()
+                serverProcess.getOutputStream(),
+                this.lspExecutor,
+                wrapper -> wrapper
         );
         this.languageServer = launcher.getRemoteProxy();
         launcher.startListening();
@@ -259,7 +278,21 @@ public abstract class LspServer implements LspFileUtilities {
             this.serverInitialized = null;
         }
         try {
-            if (serverProcess != null) {
+            if (lspExecutor != null && !lspExecutor.isShutdown()) {
+                if (!lspExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    logger.warn("LSP Executor service tasks did not terminate in 5 seconds. Continuing to shutdown.");
+                }
+                lspExecutor.shutdown();
+            }
+            logger.info("LSP Executor service shut down successfully.");
+        } catch (Exception e) {
+            logger.error("Error shutting down JDT LS client", e);
+        } finally {
+            this.languageServer = null;
+            this.serverInitialized = null;
+        }
+        try {
+            if (serverProcess != null && serverProcess.isAlive()) {
                 serverProcess.destroyForcibly();
                 serverProcess.waitFor(5, TimeUnit.SECONDS);
             }
