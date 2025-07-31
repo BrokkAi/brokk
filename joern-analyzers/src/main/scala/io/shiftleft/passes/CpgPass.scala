@@ -83,7 +83,7 @@ abstract class ForkJoinParallelCpgPass[T <: AnyRef](cpg: Cpg, @nowarn outName: S
   // Override this to disable parallelism of passes. Useful for debugging.
   def isParallel: Boolean = true
 
-  override def createAndApply()(using pool: ForkJoinPool = ForkJoinPool.commonPool()): Unit = {
+  override def createAndApply()(using pool: ForkJoinPool): Unit = {
     baseLogger.info(s"Start of pass: $name")
     val nanosStart = System.nanoTime()
     var nParts     = 0
@@ -159,12 +159,6 @@ abstract class ForkJoinParallelCpgPass[T <: AnyRef](cpg: Cpg, @nowarn outName: S
     }
   }
 
-
-  @deprecated("Please use createAndApply")
-  override def createApplySerializeAndStore(serializedCpg: SerializedCpg, prefix: String = ""): Unit = {
-    createAndApply()
-  }
-
 }
 
 trait CpgPassBase {
@@ -172,10 +166,7 @@ trait CpgPassBase {
   protected def baseLogger: Logger = LoggerFactory.getLogger(getClass)
 
   def createAndApply()(using pool: ForkJoinPool): Unit
-
-  @deprecated("Please use createAndApply")
-  def createApplySerializeAndStore(serializedCpg: SerializedCpg, prefix: String = ""): Unit
-
+  
   /** Name of the pass. By default it is inferred from the name of the class, override if needed.
    */
   def name: String = getClass.getName

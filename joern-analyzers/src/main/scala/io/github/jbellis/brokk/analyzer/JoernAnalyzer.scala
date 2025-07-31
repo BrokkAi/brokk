@@ -17,9 +17,9 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.util
 import java.util.Optional
-import java.util.concurrent.{ConcurrentHashMap, ForkJoinPool, ForkJoinWorkerThread}
 import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.{ConcurrentHashMap, ForkJoinPool, ForkJoinWorkerThread}
 import java.util.regex.Pattern
 import scala.annotation.tailrec
 import scala.collection.concurrent.TrieMap
@@ -1329,7 +1329,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
 }
 
 object JoernAnalyzer {
-  
+
   /**
    * @return a thread factory that names the threads for a ForkJoinPool.
    */

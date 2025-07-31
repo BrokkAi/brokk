@@ -29,7 +29,7 @@ import scala.util.{Try, Using}
 trait CpgBuilder[R <: X2CpgConfig[R]] {
 
   protected val logger: Logger = LoggerFactory.getLogger(getClass)
-  
+
   /** The user-friendly string for the target language.
     */
   protected val language: String
