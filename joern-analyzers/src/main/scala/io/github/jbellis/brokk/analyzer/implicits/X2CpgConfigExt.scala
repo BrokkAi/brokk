@@ -7,6 +7,7 @@ import io.shiftleft.codepropertygraph.generated.Cpg
 
 import java.nio.file.Paths
 import java.util
+import java.util.concurrent.ForkJoinPool
 import scala.util.{Try, Using}
 
 object X2CpgConfigExt {
@@ -30,7 +31,7 @@ object X2CpgConfigExt {
       * @return
       *   this configuration.
       */
-    def build(maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using builder: CpgBuilder[R]): Try[R] =
+    def build(maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using builder: CpgBuilder[R], pool: ForkJoinPool): Try[R] =
       withNewOrExistingCpg { cpg =>
         builder.build(cpg, config, maybeFileChanges)
         config
@@ -46,7 +47,7 @@ object X2CpgConfigExt {
       * @return
       *   this configuration.
       */
-    def buildAndThrow(maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using builder: CpgBuilder[R]): R = {
+    def buildAndThrow(maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using builder: CpgBuilder[R], pool: ForkJoinPool): R = {
       build(maybeFileChanges).failed.foreach(e => throw e)
       config
     }
