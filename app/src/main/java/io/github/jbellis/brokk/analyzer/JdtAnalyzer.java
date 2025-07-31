@@ -44,10 +44,15 @@ public class JdtAnalyzer implements LspAnalyzer {
             this.sharedServer.refreshWorkspace().join();
             try {
                 // Indexing generally completes within a couple of seconds, but larger projects need grace
-                if (!this.getWorkspaceReadyLatch().await(5, TimeUnit.MINUTES)) {
-                    logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
+                final var maybeWorkspaceReadyLatch = this.getWorkspaceReadyLatch(this.workspace);
+                if (maybeWorkspaceReadyLatch.isEmpty()) {
+                    logger.warn("Could not find workspace latch for {}. Continuing...", this.workspace);
                 } else {
-                    logger.debug("JDT LSP indexing complete. The analyzer ready.");
+                    if (!maybeWorkspaceReadyLatch.get().await(5, TimeUnit.MINUTES)) {
+                        logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
+                    } else {
+                        logger.debug("JDT LSP indexing complete. The analyzer ready.");
+                    }
                 }
             } catch (InterruptedException e) {
                 logger.debug("Interrupted while waiting for initialization, the server may not be properly indexed", e);

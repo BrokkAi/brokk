@@ -39,14 +39,13 @@ public abstract class LspServer implements LspFileUtilities {
     private final AtomicInteger clientCounter = new AtomicInteger(0);
     @NotNull
     private CountDownLatch serverReadyLatch = new CountDownLatch(1);
-    @NotNull
-    private CountDownLatch workspaceReadyLatch = new CountDownLatch(1);
     protected final Set<Path> activeWorkspaces = ConcurrentHashMap.newKeySet();
     private final Map<Path, Set<String>> workspaceExclusions = new ConcurrentHashMap<>();
+    private final Map<String, CountDownLatch> workspaceReadyLatches = new ConcurrentHashMap<>();
     
     @NotNull
-    public CountDownLatch getWorkspaceReadyLatch() {
-        return this.workspaceReadyLatch;
+    public Optional<CountDownLatch> getWorkspaceReadyLatch(String workspace) {
+        return Optional.ofNullable(this.workspaceReadyLatches.get(workspace));
     }
 
     /**
@@ -168,9 +167,8 @@ public abstract class LspServer implements LspFileUtilities {
 
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
-        this.workspaceReadyLatch = new CountDownLatch(1);
         final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
-                new SimpleLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatch),
+                new SimpleLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches),
                 serverProcess.getInputStream(),
                 serverProcess.getOutputStream(),
                 this.lspExecutor,
@@ -370,7 +368,7 @@ public abstract class LspServer implements LspFileUtilities {
 
     private void addWorkspaceFolder(Path folderPath) {
         if (activeWorkspaces.contains(folderPath)) return;
-
+        workspaceReadyLatches.put(folderPath.toUri().toString(), new CountDownLatch(1));
         whenInitialized((server) -> {
             WorkspaceFolder newFolder = new WorkspaceFolder(folderPath.toUri().toString(), folderPath.getFileName().toString());
             WorkspaceFoldersChangeEvent event = new WorkspaceFoldersChangeEvent(List.of(newFolder), List.of());

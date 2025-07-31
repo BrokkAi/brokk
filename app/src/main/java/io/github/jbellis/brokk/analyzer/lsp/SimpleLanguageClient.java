@@ -7,7 +7,10 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
@@ -16,14 +19,17 @@ public final class SimpleLanguageClient implements LanguageClient {
 
     private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
     private final CountDownLatch serverReadyLatch;
-    private final CountDownLatch workspaceReadyLatch;
+    private final Map<String, CountDownLatch> workspaceReadyLatchMap;
     private final String language;
     private final int ERROR_LOG_LINE_LIMIT = 4;
 
-    public SimpleLanguageClient(String language, CountDownLatch serverReadyLatch, CountDownLatch workspaceReadyLatch) {
+    public SimpleLanguageClient(
+            String language,
+            CountDownLatch serverReadyLatch,
+            Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.language = language;
         this.serverReadyLatch = serverReadyLatch;
-        this.workspaceReadyLatch = workspaceReadyLatch;
+        this.workspaceReadyLatchMap = workspaceReadyLatchMap;
     }
 
     @Override
@@ -79,9 +85,19 @@ public final class SimpleLanguageClient implements LanguageClient {
                 if (message.getMessage().endsWith("build jobs finished")) {
                     // This is a good way we can tell when the server is ready
                     serverReadyLatch.countDown();
-                } else if (message.getMessage().contains("Updated workspace folders ")) {
-                    // This is a good way we can tell when indexing is done
-                    workspaceReadyLatch.countDown();
+                } else if (message.getMessage().lines().findFirst().orElse("").contains("Projects:")) {
+                    // The server gives a project dump when a workspace is added, and this is a good way we can tell
+                    // when indexing is done. We need to parse these, and countdown any workspaces featured, e.g.
+                    // 'brokk: /home/dave/Workspace/BrokkAi/brokk'
+                    message.getMessage()
+                            .lines()
+                            .map(s -> s.split(": "))
+                            .filter(arr -> arr.length == 2 && !arr[0].startsWith(" "))
+                            .forEach(arr -> {
+                                final var workspace = Path.of(arr[1].trim()).toUri().toString();
+                                Optional.ofNullable(workspaceReadyLatchMap.get(workspace))
+                                        .ifPresent(CountDownLatch::countDown);
+                            });
                 }
             }
             default -> logger.debug("[LSP-SERVER-LOG] {}", message.getMessage());
