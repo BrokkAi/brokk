@@ -25,6 +25,8 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
+import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -203,11 +205,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JButton btnPrevious = new JButton("Previous Change");
     private final JButton btnPreviousFile = new JButton("Previous File");
     private final JButton btnNextFile = new JButton("Next File");
+    private final JLabel scrollModeIndicatorLabel = new JLabel("Immediate"); // Initialize with default mode
     private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
     @Nullable private BufferDiffPanel bufferDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
         this.bufferDiffPanel = bufferDiffPanel;
+        updateScrollModeIndicator();
     }
 
     @Nullable
@@ -377,6 +381,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
+        // Style the scroll mode indicator
+        scrollModeIndicatorLabel.setFont(scrollModeIndicatorLabel.getFont().deriveFont(Font.ITALIC));
+        scrollModeIndicatorLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        scrollModeIndicatorLabel.setToolTipText("Current scroll throttling mode");
+
         btnNext.addActionListener(e -> navigateToNextChange());
         btnPrevious.addActionListener(e -> navigateToPreviousChange());
         btnUndo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doUndo));
@@ -386,6 +395,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // File navigation handlers
         btnPreviousFile.addActionListener(e -> previousFile());
         btnNextFile.addActionListener(e -> nextFile());
+
+
         captureDiffButton.addActionListener(e -> {
             var bufferPanel = getBufferDiffPanel();
             if (bufferPanel == null) {
@@ -469,7 +480,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(showBlankLineDiffsCheckBox);
 
-        // Add Capture Diff button to the right
+        toolBar.add(Box.createHorizontalStrut(5)); // Small spacing
+        toolBar.add(scrollModeIndicatorLabel);
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
         toolBar.add(captureDiffButton);
 
@@ -665,11 +677,24 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel);
         this.bufferDiffPanel = cachedPanel;
 
+        // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
+        cachedPanel.resetAutoScrollFlag();
+
+        // Reset selectedDelta to first difference for consistent navigation behavior
+        cachedPanel.resetToFirstDifference();
+
+        // Update scroll mode indicator for this file
+        updateScrollModeIndicator();
+
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
 
         // Ensure diff highlights are properly displayed after theme application
-        SwingUtilities.invokeLater(cachedPanel::diff);
+        SwingUtilities.invokeLater(() -> {
+            cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
+            // Update scroll mode indicator after diff is complete and panel is fully initialized
+            updateScrollModeIndicator();
+        });
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
@@ -753,20 +778,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
-                // Ask about unsaved changes
-                if (hasUnsavedChanges()) {
-                    var opt = contextManager.getIo().showConfirmDialog(
-                            "There are unsaved changes. Save before closing?",
-                            "Unsaved Changes",
-                            JOptionPane.YES_NO_CANCEL_OPTION,
-                            JOptionPane.WARNING_MESSAGE);
-                    if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
-                        frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-                        return;
-                    }
-                    if (opt == JOptionPane.YES_OPTION) {
-                        saveAll();
-                    }
+                if (!checkUnsavedChangesBeforeClose()) {
+                    frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+                    return;
                 }
                 contextManager.getProject().saveDiffWindowBounds(frame);
             }
@@ -854,6 +868,72 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         fileIndicatorLabel.setText(text);
     }
 
+    /**
+     * Update the scroll mode indicator based on the current throttling strategy.
+     */
+    private void updateScrollModeIndicator() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        if (bufferDiffPanel == null) {
+            scrollModeIndicatorLabel.setText("N/A");
+            scrollModeIndicatorLabel.setToolTipText("No file loaded");
+            return;
+        }
+
+        var synchronizer = bufferDiffPanel.getScrollSynchronizer();
+        if (synchronizer == null) {
+            // The BufferDiffPanel might not be fully initialized yet, retry later
+            SwingUtilities.invokeLater(() -> {
+                if (bufferDiffPanel != null) {
+                    var retrySync = bufferDiffPanel.getScrollSynchronizer();
+                    if (retrySync == null) {
+                        scrollModeIndicatorLabel.setText("N/A");
+                        scrollModeIndicatorLabel.setToolTipText("No scroll synchronizer available");
+                    } else {
+                        updateScrollModeIndicatorWithSync(retrySync);
+                    }
+                } else {
+                    scrollModeIndicatorLabel.setText("N/A");
+                    scrollModeIndicatorLabel.setToolTipText("No file loaded");
+                }
+            });
+            return;
+        }
+
+        updateScrollModeIndicatorWithSync(synchronizer);
+    }
+
+    /**
+     * Update the scroll mode indicator with a valid synchronizer.
+     */
+    private void updateScrollModeIndicatorWithSync(ScrollSynchronizer synchronizer) {
+        // Check which throttling mode is currently active
+        String modeText;
+        String tooltip;
+
+        if (PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
+            var metrics = synchronizer.getAdaptiveMetrics();
+            var currentMode = metrics.currentMode();
+            modeText = currentMode.name().charAt(0) + currentMode.name().substring(1).toLowerCase(java.util.Locale.ROOT);
+            tooltip = String.format("Adaptive mode: %s | %s",
+                                   currentMode.getDescription(),
+                                   metrics.getSummary());
+        } else if (PerformanceConstants.ENABLE_FRAME_BASED_THROTTLING) {
+            modeText = "Frame-based";
+            var throttlingMetrics = synchronizer.getThrottlingMetrics();
+            tooltip = String.format("Frame-based throttling | Efficiency: %.1f%% | %d events, %d executions",
+                                   throttlingMetrics.efficiency() * 100,
+                                   throttlingMetrics.totalEvents(),
+                                   throttlingMetrics.totalExecutions());
+        } else {
+            modeText = "Immediate";
+            tooltip = "Immediate execution - No throttling";
+        }
+
+        scrollModeIndicatorLabel.setText(modeText);
+        scrollModeIndicatorLabel.setToolTipText(tooltip);
+    }
+
     private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {
         var panel = getCurrentContentPanel();
         if (panel != null) {
@@ -918,10 +998,33 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void close() {
-        var window = SwingUtilities.getWindowAncestor(this);
-        if (window != null) {
-            window.dispose();
+        if (checkUnsavedChangesBeforeClose()) {
+            var window = SwingUtilities.getWindowAncestor(this);
+            if (window != null) {
+                window.dispose();
+            }
         }
+    }
+
+    /**
+     * Checks for unsaved changes and prompts user to save before closing.
+     * @return true if it's OK to close, false if user cancelled
+     */
+    private boolean checkUnsavedChangesBeforeClose() {
+        if (hasUnsavedChanges()) {
+            var opt = contextManager.getIo().showConfirmDialog(
+                    "There are unsaved changes. Save before closing?",
+                    "Unsaved Changes",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
+                return false; // Don't close
+            }
+            if (opt == JOptionPane.YES_OPTION) {
+                saveAll();
+            }
+        }
+        return true; // OK to close
     }
 
     /**
@@ -939,6 +1042,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     public void cachePanel(int fileIndex, BufferDiffPanel panel) {
         logger.debug("Navigation Step 4.5: File {} loading completed, caching panel", fileIndex);
+
+        // Reset auto-scroll flag for newly created panels
+        panel.resetAutoScrollFlag();
+
+        // Reset selectedDelta to first difference for consistent navigation behavior
+        panel.resetToFirstDifference();
 
         // Only cache if within current window
         if (panelCache.isInWindow(fileIndex)) {
