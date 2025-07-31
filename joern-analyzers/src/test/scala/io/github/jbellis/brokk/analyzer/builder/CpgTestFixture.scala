@@ -10,6 +10,7 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.nio.file.{Files, Path, Paths, StandardOpenOption}
+import java.util.concurrent.ForkJoinPool
 import scala.jdk.CollectionConverters.*
 
 trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers with Inside {
@@ -17,6 +18,7 @@ trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers with
   import CpgTestFixture.*
 
   protected implicit val callResolver: ICallResolver = NoResolve // resolves calls based on existing `CALL` edges
+  protected implicit val pool: ForkJoinPool = ForkJoinPool.commonPool()
 
   def project(config: R, code: String, path: String): MockProject[R] =
     MockProject(config, Set(CodeAndPath(code, path)))
@@ -83,7 +85,7 @@ object CpgTestFixture {
       * @return
       *   the resulting CPG.
       */
-    def buildAndOpen(using builder: CpgBuilder[R]): Cpg = {
+    def buildAndOpen(using builder: CpgBuilder[R], pool: ForkJoinPool): Cpg = {
       writeFiles
       config.build().failed.foreach(e => throw e)
       config.open

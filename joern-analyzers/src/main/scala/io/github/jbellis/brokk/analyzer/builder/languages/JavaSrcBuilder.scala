@@ -6,6 +6,7 @@ import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
 import io.joern.x2cpg.passes.frontend.{JavaConfigFileCreationPass, TypeNodePass}
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
+import java.util.concurrent.ForkJoinPool
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
@@ -17,7 +18,7 @@ object JavaSrcBuilder {
 
     override def sourceFileExtensions: Set[String] = JavaSrc2Cpg.sourceFileExtensions
 
-    override def createAst(cpg: Cpg, config: JavaSrcConfig): Try[Cpg] = Try {
+    override def createAst(cpg: Cpg, config: JavaSrcConfig)(using pool: ForkJoinPool): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
       val astCreationPass = new AstCreationPass(config, cpg)
       astCreationPass.createAndApply()

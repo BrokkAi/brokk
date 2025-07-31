@@ -10,6 +10,7 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 import java.nio.file.*
+import java.util.concurrent.ForkJoinPool
 import scala.jdk.CollectionConverters.*
 import scala.util.{Failure, Success, Try}
 
@@ -172,7 +173,7 @@ object IncrementalUtils {
       * @return
       *   this CPG.
       */
-    def removeStaleFiles(fileChanges: Seq[FileChange]): Cpg = {
+    def removeStaleFiles(fileChanges: Seq[FileChange])(using pool: ForkJoinPool): Cpg = {
       RemovedFilePass(cpg, fileChanges).createAndApply()
       cpg
     }
