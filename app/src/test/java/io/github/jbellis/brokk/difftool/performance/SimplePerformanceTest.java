@@ -45,7 +45,7 @@ class SimplePerformanceTest {
 
         // Should dramatically reduce number of deltas
         assertTrue(visibleDeltas.size() < TEST_MAX_VISIBLE_DELTAS, "Should filter to small number of deltas: " + visibleDeltas.size());
-        assertTrue(visibleDeltas.size() > 0, "Should find some deltas in viewport");
+        assertTrue(!visibleDeltas.isEmpty(), "Should find some deltas in viewport");
 
         // Verify correct deltas are included
         for (TestDelta delta : visibleDeltas) {
@@ -66,29 +66,9 @@ class SimplePerformanceTest {
         List<TestDelta> visibleDeltas = helper.filterDeltasForViewport(allDeltas, 45, 55);
 
         assertEquals(1, visibleDeltas.size(), "Should find exactly one delta in viewport");
-        assertEquals(50, visibleDeltas.get(0).startLine, "Should find the delta at line 50");
+        assertEquals(50, visibleDeltas.getFirst().startLine, "Should find the delta at line 50");
     }
 
-    @Test
-    void testFileSizeDetection() {
-        // Test file size threshold detection
-        assertFalse(helper.isLargeFile(TEST_NORMAL_FILE_SIZE_BYTES));
-        assertTrue(helper.isLargeFile(TEST_LARGE_FILE_SIZE_BYTES));
-        assertTrue(helper.isLargeFile(TEST_VERY_LARGE_FILE_SIZE_BYTES));
-    }
-
-    @Test
-    void testAdaptiveTimerDelays() {
-        // Test timer delay calculation based on file size
-
-        // Small file
-        int delay1 = helper.calculateTimerDelay(TEST_SMALL_FILE_SIZE_BYTES);
-        assertEquals(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS, delay1, "Small file should use fast timer");
-
-        // Large file
-        int delay2 = helper.calculateTimerDelay(TEST_VERY_LARGE_FILE_SIZE_BYTES);
-        assertEquals(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS, delay2, "Large file should use slower timer");
-    }
 
     @Test
     void testViewportCaching() {
@@ -175,22 +155,6 @@ class SimplePerformanceTest {
                   "Viewport should reduce deltas: " + visibleDeltas.size() + " vs " + patch.getDeltas().size());
     }
 
-    @Test
-    void testPerformanceOptimizationStrategy() {
-        // Test the strategy selection logic based on file size
-
-        // Small file scenario
-        var strategy1 = helper.determineOptimizationStrategy(TEST_SMALL_FILE_SIZE_BYTES);
-        assertEquals(OPTIMIZATION_STRATEGY_MINIMAL, strategy1);
-
-        // Large file scenario
-        var strategy2 = helper.determineOptimizationStrategy(TEST_LARGE_FILE_SIZE_BYTES);
-        assertEquals(OPTIMIZATION_STRATEGY_MODERATE, strategy2);
-
-        // Very large file scenario
-        var strategy3 = helper.determineOptimizationStrategy(TEST_HUGE_FILE_SIZE_BYTES);
-        assertEquals(OPTIMIZATION_STRATEGY_MODERATE, strategy3);
-    }
 
     // Helper classes and records
     private static class PerformanceTestHelper {

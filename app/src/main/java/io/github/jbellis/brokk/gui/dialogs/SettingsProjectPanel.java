@@ -1035,6 +1035,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (!currentAnalyzerLanguagesForDialog.equals(project.getAnalyzerLanguages())) {
             project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
             logger.debug("Applied Code Intelligence Languages: {}", currentAnalyzerLanguagesForDialog);
+            chrome.getContextManager().requestRebuild();
         }
 
         // Data Retention Tab

@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.cpg.CpgCache;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -95,7 +96,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new CSharpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new CSharpAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
@@ -134,8 +135,10 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            var cpgPath = getCpgPath(project);
-            return new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
+            return CpgCache.getOrCompute(project, this, () -> {
+                var cpgPath = getCpgPath(project);
+                return new JavaAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
+            });
         }
 
         @Override
@@ -267,7 +270,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new JavascriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new JavascriptAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
@@ -311,7 +314,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new PythonAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new PythonAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
@@ -468,8 +471,10 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            var cpgPath = getCpgPath(project);
-            return new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
+            return CpgCache.getOrCompute(project, this, () -> {
+                var cpgPath = getCpgPath(project);
+                return new CppAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
+            });
         }
 
         @Override
@@ -514,7 +519,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new GoAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new GoAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
@@ -554,7 +559,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new RustAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new RustAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
@@ -650,7 +655,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new PhpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new PhpAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
@@ -708,7 +713,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            var excludedDirStrings = project.loadBuildDetails().excludedDirectories();
+            var excludedDirStrings = project.getExcludedDirectories();
             var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
@@ -745,7 +750,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new TypescriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+            return new TypescriptAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override

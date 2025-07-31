@@ -12,11 +12,11 @@ import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.util.SlidingWindowCache;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -28,12 +28,11 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
  * It no longer depends on custom JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
+public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware, SlidingWindowCache.Disposable
 {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
@@ -72,6 +71,17 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     @Nullable
     private AbstractDelta<String> selectedDelta;
 
+    /**
+     * Ensures that the automatic centering of the first difference executes at
+     * most once per BufferDiffPanel lifecycle.
+     */
+    private volatile boolean initialAutoScrollDone = false;
+
+    /**
+     * Guards against concurrent auto-scroll attempts to prevent interference.
+     */
+    private volatile boolean autoScrollInProgress = false;
+
     private int selectedLine;
 
     /**
@@ -85,7 +95,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     */
     private void recalcDirty() {
             // Check if either side has unsaved changes (document changed since last save)
-            boolean newDirty = filePanels.values().stream().anyMatch(fp -> fp.isDocumentChanged());
+            boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
 
         if (dirtySinceOpen != newDirty) {
             dirtySinceOpen = newDirty;
@@ -148,7 +158,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         BufferDocumentIF leftDocument = bnLeft != null ? bnLeft.getDocument() : null;
         BufferDocumentIF rightDocument = bnRight != null ? bnRight.getDocument() : null;
 
-        // After calling diff() on JMDiffNode, we get patch from diffNode.getPatch():
+        // Calculate the diff to get the patch with actual differences
+        diffNode.diff();
         this.patch = diffNode.getPatch(); // new Patch or null
 
         // Initialize selectedDelta to first change for proper navigation button states
@@ -173,6 +184,22 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Initialize dirty flag - should be false since no edits have been made yet
         recalcDirty();
+
+        // Reset auto-scroll flag for new file/diff content to ensure fresh auto-scroll opportunity
+        initialAutoScrollDone = false;
+
+        // Auto-scroll to first difference when diff is opened, or to top when no differences
+        if (selectedDelta != null && scrollSynchronizer != null) {
+            // Check if auto-scroll should be skipped
+            boolean skipAutoScroll = shouldSkipAutoScroll();
+
+            if (!skipAutoScroll) {
+                logger.debug("Auto-scrolling to first difference at line {}", selectedDelta.getSource().getPosition());
+                SwingUtilities.invokeLater(this::scrollToFirstDifference);
+            }
+        } else if (scrollSynchronizer != null) {
+            scrollToTop();
+        }
     }
 
     /**
@@ -249,17 +276,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             fp.reDisplay();
         }
         mainPanel.repaint();
-    }
-
-    /**
-     * Refresh highlights for only the specified panel to reduce flickering.
-     */
-    public void reDisplayPanel(PanelSide side)
-    {
-        var fp = filePanels.get(side);
-        if (fp != null) {
-            fp.reDisplay();
-        }
     }
 
     public String getTitle()
@@ -453,6 +469,28 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         return selectedLine;
     }
 
+    /**
+     * Reset the auto-scroll flag to allow auto-scroll for file navigation.
+     * Called by BrokkDiffPanel when switching between files.
+     */
+    public void resetAutoScrollFlag()
+    {
+        initialAutoScrollDone = false;
+    }
+
+    /**
+     * Reset selectedDelta to first difference for consistent file navigation behavior.
+     * Ensures all file navigation goes to first diff regardless of caching.
+     */
+    public void resetToFirstDifference()
+    {
+        if (patch != null && !patch.getDeltas().isEmpty()) {
+            selectedDelta = patch.getDeltas().getFirst();
+        } else {
+            selectedDelta = null;
+        }
+    }
+
 
     /**
      * Type-safe method to get a file panel by side.
@@ -471,7 +509,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * @return the FilePanel for the specified side
      * @throws IllegalStateException if the panel is not initialized
      */
-    @NotNull
     public FilePanel requireFilePanel(PanelSide side)
     {
         var panel = filePanels.get(side);
@@ -492,10 +529,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     /**
      * Gets the currently selected file panel.
      */
-    @Nullable
     public FilePanel getSelectedFilePanel()
     {
-        return filePanels.get(selectedPanelSide);
+        return requireFilePanel(selectedPanelSide);
     }
 
     /**
@@ -574,6 +610,299 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (scrollSynchronizer != null) {
             scrollSynchronizer.showDelta(selectedDelta);
         }
+    }
+
+    /**
+     * Auto-scroll to the first difference when a diff is opened.
+     * Centers the first difference on both panels for optimal user experience.
+     */
+    private void scrollToFirstDifference()
+    {
+        if (selectedDelta == null || scrollSynchronizer == null) {
+            return;
+        }
+
+        if (initialAutoScrollDone) {
+            return;
+        }
+
+        if (autoScrollInProgress) {
+            logger.debug("Auto-scroll already in progress, skipping concurrent attempt");
+            return;
+        }
+
+        autoScrollInProgress = true;
+        // Use robust retry mechanism to handle UI timing issues
+        scheduleAutoScrollWithRetry();
+    }
+
+
+    /**
+     * Schedule auto-scroll with ComponentListener approach to handle UI timing issues.
+     */
+    private void scheduleAutoScrollWithRetry()
+    {
+        // Use a different approach: wait for components to become visible
+        SwingUtilities.invokeLater(this::executeAutoScrollWhenReady);
+    }
+
+    /**
+     * Execute auto-scroll when UI components are ready, using ComponentListener for reliable timing.
+     */
+    private void executeAutoScrollWhenReady()
+    {
+        // Re-check nulls for NullAway
+        if (selectedDelta == null || scrollSynchronizer == null) {
+            autoScrollInProgress = false;
+            return;
+        }
+
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel == null || rightPanel == null) {
+            autoScrollInProgress = false;
+            return;
+        }
+
+        var leftScrollPane = leftPanel.getScrollPane();
+        var rightScrollPane = rightPanel.getScrollPane();
+
+        // Check if components are ready immediately
+        if (areComponentsReady(leftScrollPane, rightScrollPane)) {
+            performAutoScroll();
+            return;
+        }
+
+        // Use ComponentListener to wait for visibility
+        var componentListener = new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentShown(java.awt.event.ComponentEvent e) {
+                if (areComponentsReady(leftScrollPane, rightScrollPane)) {
+                    performAutoScroll();
+                    // Remove listeners to prevent memory leaks
+                    leftScrollPane.removeComponentListener(this);
+                    rightScrollPane.removeComponentListener(this);
+                }
+            }
+        };
+
+        // Add listener to both scroll panes
+        leftScrollPane.addComponentListener(componentListener);
+        rightScrollPane.addComponentListener(componentListener);
+
+        // Safety timeout - if components don't become ready within 3 seconds, give up
+        javax.swing.Timer timeoutTimer = new javax.swing.Timer(3000, e -> {
+            leftScrollPane.removeComponentListener(componentListener);
+            rightScrollPane.removeComponentListener(componentListener);
+            // Reset the concurrency flag since we're giving up
+            autoScrollInProgress = false;
+        });
+        timeoutTimer.setRepeats(false);
+        timeoutTimer.start();
+    }
+
+    /**
+     * Check if scroll pane components are ready for auto-scroll.
+     */
+    private boolean areComponentsReady(javax.swing.JScrollPane leftScrollPane, javax.swing.JScrollPane rightScrollPane)
+    {
+        boolean leftReady = leftScrollPane.isDisplayable() && leftScrollPane.isShowing() &&
+                          leftScrollPane.getViewport().getSize().height > 0;
+        boolean rightReady = rightScrollPane.isDisplayable() && rightScrollPane.isShowing() &&
+                           rightScrollPane.getViewport().getSize().height > 0;
+        return leftReady && rightReady;
+    }
+
+    /**
+     * Perform the actual auto-scroll operation.
+     */
+    private void performAutoScroll()
+    {
+        try {
+            if (selectedDelta != null && scrollSynchronizer != null) {
+                initialAutoScrollDone = true;
+                scrollSynchronizer.showDelta(selectedDelta);
+            }
+        } finally {
+            // Always reset the flag to allow future auto-scroll attempts
+            autoScrollInProgress = false;
+        }
+    }
+
+    /**
+     * Scroll both panels to the top position (line 0).
+     * Used for files without differences to provide consistent starting position.
+     */
+    private void scrollToTop()
+    {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel != null && rightPanel != null) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    // Scroll both panels to position 0
+                    leftPanel.getEditor().setCaretPosition(0);
+                    rightPanel.getEditor().setCaretPosition(0);
+
+                    // Ensure the scroll position is at the top
+                    leftPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
+                    rightPanel.getScrollPane().getViewport().setViewPosition(new java.awt.Point(0, 0));
+
+                    logger.debug("scrollToTop: Successfully scrolled both panels to top");
+                } catch (Exception e) {
+                    logger.debug("scrollToTop: Error scrolling to top", e);
+                }
+            });
+        }
+    }
+
+    /**
+     * Determines whether auto-scroll should be skipped for this diff.
+     * Auto-scroll is skipped for:
+     * 1. File additions/deletions (one side ≤ 2 lines)
+     * 2. Massive changes (single large delta from beginning)
+     * 3. Pure INSERT/DELETE deltas with very asymmetric content (< 5 vs > 20 lines)
+     *
+     * @return true if auto-scroll should be skipped
+     */
+    private boolean shouldSkipAutoScroll()
+    {
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            return false;
+        }
+
+        // Primary check: file addition/deletion scenarios (one side essentially empty)
+        if (isFileAdditionOrDeletion()) {
+            logger.debug("Skipping auto-scroll: file addition/deletion detected");
+            return true;
+        }
+
+        // Check for massive single change covering most of the file
+        if (isMassiveFileChange()) {
+            logger.debug("Skipping auto-scroll: massive file change detected");
+            return true;
+        }
+
+        // Only skip pure INSERT/DELETE if BOTH conditions are met:
+        // 1. All deltas are pure INSERT/DELETE
+        // 2. AND one side is very asymmetric (< 5 lines vs > 20 lines)
+        boolean hasOnlyInsertDelete = patch.getDeltas().stream().allMatch(delta -> {
+            var sourceSize = delta.getSource().size();
+            var targetSize = delta.getTarget().size();
+            return sourceSize == 0 || targetSize == 0;
+        });
+
+        if (hasOnlyInsertDelete && isVeryAsymmetricContent()) {
+            logger.debug("Skipping auto-scroll: pure INSERT/DELETE with asymmetric content");
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Detects file addition or deletion by checking if one side is essentially empty.
+     * @return true if one side has very few lines (likely file addition/deletion)
+     */
+    private boolean isFileAdditionOrDeletion()
+    {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel == null || rightPanel == null) {
+            return false;
+        }
+
+        var leftDoc = leftPanel.getBufferDocument();
+        var rightDoc = rightPanel.getBufferDocument();
+
+        if (leftDoc == null || rightDoc == null) {
+            return false;
+        }
+
+        // Get line counts for both sides
+        int leftLines = leftDoc.getNumberOfLines();
+        int rightLines = rightDoc.getNumberOfLines();
+
+        // Be more conservative: only consider it file addition/deletion if one side is actually empty (0-1 lines)
+        // and the other side has substantial content (> 5 lines)
+        boolean leftEmpty = leftLines <= 1;
+        boolean rightEmpty = rightLines <= 1;
+        boolean leftSubstantial = leftLines > 5;
+        boolean rightSubstantial = rightLines > 5;
+
+        boolean isAdditionOrDeletion = (leftEmpty && rightSubstantial) || (rightEmpty && leftSubstantial);
+
+        if (isAdditionOrDeletion) {
+            logger.debug("File addition/deletion detected: left={} lines, right={} lines", leftLines, rightLines);
+        }
+
+        return isAdditionOrDeletion;
+    }
+
+    /**
+     * Detects massive changes that likely represent file restructuring.
+     * @return true if there's a single large delta covering most of the file
+     */
+    private boolean isMassiveFileChange()
+    {
+        if (patch == null || patch.getDeltas().size() != 1) {
+            return false;
+        }
+
+        var delta = patch.getDeltas().getFirst();
+
+        // Be more restrictive: consider it massive only if:
+        // 1. Change starts at the very beginning (position <= 1)
+        // 2. AND both source and target have very substantial content (> 50 lines)
+        // This catches whole-file replacements but not normal large edits
+        boolean isMassive = delta.getSource().getPosition() <= 1 &&
+               delta.getSource().size() > 50 && delta.getTarget().size() > 50;
+
+        if (isMassive) {
+            logger.debug("Massive file change detected: position={}, sourceSize={}, targetSize={}",
+                       delta.getSource().getPosition(), delta.getSource().size(), delta.getTarget().size());
+        }
+
+        return isMassive;
+    }
+
+    /**
+     * Detects very asymmetric content where one side is much smaller than the other.
+     * This helps distinguish between normal file modifications with INSERT/DELETE deltas
+     * vs actual file additions/deletions.
+     * @return true if one side has < 3 lines and the other has > 50 lines
+     */
+    private boolean isVeryAsymmetricContent()
+    {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+
+        if (leftPanel == null || rightPanel == null) {
+            return false;
+        }
+
+        var leftDoc = leftPanel.getBufferDocument();
+        var rightDoc = rightPanel.getBufferDocument();
+
+        if (leftDoc == null || rightDoc == null) {
+            return false;
+        }
+
+        int leftLines = leftDoc.getNumberOfLines();
+        int rightLines = rightDoc.getNumberOfLines();
+
+        // Very asymmetric if one side < 3 lines and other side > 50 lines
+        // This is much more restrictive to avoid blocking normal file diffs
+        boolean isAsymmetric = (leftLines < 3 && rightLines > 50) || (rightLines < 3 && leftLines > 50);
+
+        if (isAsymmetric) {
+            logger.debug("Very asymmetric content detected: left={} lines, right={} lines", leftLines, rightLines);
+        }
+
+        return isAsymmetric;
     }
 
     /**
@@ -696,13 +1025,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
             // Check if document is read-only before attempting to save
             if (doc.isReadonly()) {
-                logger.debug("Skipping save for read-only document: {}", doc.getName());
                 continue;
             }
 
             try {
                 doc.write();
-                logger.debug("Successfully saved file: {}", doc.getName());
             } catch (Exception ex) {
                 logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
                 mainPanel.getConsoleIO().systemNotify(
@@ -778,9 +1105,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         this.guiTheme = guiTheme;
 
         // Refresh RSyntax themes and highlights in each child FilePanel
-        for (FilePanel fp : filePanels.values()) {
-            // Note: fp.applyTheme() already calls reDisplay()
-            fp.applyTheme(guiTheme);
+        // Apply to RIGHT panel first so LEFT panel can inherit syntax style if needed
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        if (rightPanel != null) {
+            rightPanel.applyTheme(guiTheme);
+        }
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        if (leftPanel != null) {
+            leftPanel.applyTheme(guiTheme);
         }
 
         // Let the Look-and-Feel repaint every child component (headers, scroll-bars, etc.)
@@ -908,12 +1240,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
      */
 
+    @Override
     public void dispose() {
         // Dispose of file panels to clean up their timers and listeners
         for (var fp : filePanels.values()) {
-            if (fp != null) {
-                fp.dispose();
-            }
+            fp.dispose();
         }
         filePanels.clear();
 
@@ -927,5 +1258,44 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         diffNode = null;
         patch = null;
         selectedDelta = null;
+    }
+
+    @Override
+    public boolean hasUnsavedChanges() {
+        // Check if any file panel has unsaved changes
+        for (var fp : filePanels.values()) {
+            if (fp.isDocumentChanged()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns {@code true} if at least one side is editable (not read-only).
+     * Used by the main toolbar to decide whether undo/redo buttons should be shown.
+     */
+    public boolean atLeastOneSideEditable() {
+        return filePanels.values().stream()
+                         .anyMatch(fp -> {
+                             var doc = fp.getBufferDocument();
+                             return doc != null && !doc.isReadonly();
+                         });
+    }
+
+    /**
+     * Clear caches to free memory while keeping the panel functional.
+     * Used by sliding window memory management.
+     */
+    public void clearCaches() {
+        // Clear undo history
+        var undoManager = getUndoHandler();
+        undoManager.discardAllEdits();
+
+        // Clear file panel caches
+        for (var fp : filePanels.values()) {
+            fp.clearViewportCache();
+            fp.clearSearchCache();
+        }
     }
 }

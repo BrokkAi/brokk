@@ -17,5 +17,7 @@ if [[ -z "${jarfile:-}" ]]; then
   exit 1
 fi
 
-# Launch BrokkCli with all provided arguments.
-exec java -ea -cp "$jarfile" io.github.jbellis.brokk.cli.BrokkCli "$@"
+# Launch BrokkCli.
+# We use PGC because it's more space-efficient than the default G1,
+# and in cli mode we're not latency sensitive.
+exec java -ea -Xmx1G -XX:+UseParallelGC -cp "$jarfile" io.github.jbellis.brokk.cli.BrokkCli "$@"

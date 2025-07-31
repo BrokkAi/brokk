@@ -59,7 +59,6 @@ dependencies {
     // Utilities
     implementation(libs.bundles.ui)
     implementation(libs.java.diff.utils)
-    implementation(libs.snakeyaml)
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
     implementation(libs.picocli)

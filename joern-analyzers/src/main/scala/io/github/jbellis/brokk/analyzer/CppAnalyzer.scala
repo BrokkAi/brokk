@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory
 
 import java.nio.file.{Files, Path, Paths}
 import java.util.Optional
+import java.util.concurrent.ForkJoinPool
 import scala.collection.mutable
 import scala.io.Source
 import scala.util.matching.Regex
@@ -38,6 +39,8 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
   override def defaultConfig: CConfig = CppAnalyzer.defaultConfig
 
   override implicit val defaultBuilder: CpgBuilder[CConfig] = cBuilder
+
+  override protected val threadIdentifier = "cpp"
 
   // ---------------------------------------------------------------------
   // Language-specific helpers
@@ -847,12 +850,19 @@ object CppAnalyzer {
       Files.delete(cpgPath)
     logger.info(s"Creating  C/C++ CPG at '$cpgPath'")
 
-    defaultConfig
-      .withInputPath(absPath.toString)
-      .withOutputPath(cpgPath.toString)
-      .withIgnoredFiles(excludedFiles.asScala.toSeq)
-      .buildAndThrow()
-      .open
+    // Build the CPG. Since we are outside a JoernAnalyzer, we must provide a thread pool
+    implicit val pool: ForkJoinPool =
+      ForkJoinPool(Runtime.getRuntime.availableProcessors() - 1, JoernAnalyzer.threadFactory("java"), null, true)
+    try {
+      defaultConfig
+        .withInputPath(absPath.toString)
+        .withOutputPath(cpgPath.toString)
+        .withIgnoredFiles(excludedFiles.asScala.toSeq)
+        .buildAndThrow()
+        .open
+    } finally {
+      Try(pool.shutdown()).failed.foreach(e => logger.warn("Exception encountered while shutting down thread pool", e))
+    }
   }
 
 }

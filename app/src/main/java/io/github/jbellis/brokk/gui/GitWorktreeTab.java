@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class GitWorktreeTab extends JPanel {
@@ -333,7 +334,40 @@ public class GitWorktreeTab extends JPanel {
             try {
                 IGitRepo repo = contextManager.getProject().getRepo();
                 if (repo instanceof GitRepo gitRepo) {
-                    List<IGitRepo.WorktreeInfo> worktrees = gitRepo.listWorktrees();
+                    var result = gitRepo.listWorktreesAndInvalid();
+                    var worktrees = result.worktrees();
+                    var invalidPaths = result.invalidPaths();
+
+                    if (!invalidPaths.isEmpty()) {
+                        final var dialogFuture = new java.util.concurrent.CompletableFuture<Integer>();
+                        SwingUtilities.invokeLater(() -> {
+                            String pathList = invalidPaths.stream()
+                                                          .map(Path::toString)
+                                                          .collect(Collectors.joining("\n- "));
+                            String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList +
+                                             "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
+                            int choice = chrome.showConfirmDialog(message, "Prune Stale Worktrees?",
+                                                                   JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                            dialogFuture.complete(choice);
+                        });
+
+                        int choice = dialogFuture.get();
+                        if (choice == JOptionPane.YES_OPTION) {
+                            contextManager.submitBackgroundTask("Pruning stale worktrees", () -> {
+                                try {
+                                    gitRepo.pruneWorktrees();
+                                    chrome.systemOutput("Successfully pruned stale worktrees.");
+                                    SwingUtilities.invokeLater(this::loadWorktrees); // Reload after prune
+                                } catch (Exception e) {
+                                    logger.error("Failed to prune stale worktrees", e);
+                                    chrome.toolError("Failed to prune stale worktrees: " + e.getMessage());
+                                }
+                                return null;
+                            });
+                            return null; // The prune task will trigger a reload, so we exit this one.
+                        }
+                    }
+
                     // Normalize the current project's root path for reliable comparison
                     Path currentProjectRoot = contextManager.getProject().getRoot().toRealPath();
 
@@ -342,7 +376,7 @@ public class GitWorktreeTab extends JPanel {
                         for (IGitRepo.WorktreeInfo wt : worktrees) {
                             String sessionTitle = MainProject.getActiveSessionTitle(wt.path())
                                     .orElse("(no session)");
-                            // wt.path() is already a real path from GitRepo.listWorktrees()
+                            // wt.path() is already a real path from GitRepo.listWorktreesAndInvalid()
                             boolean isActive = currentProjectRoot.equals(wt.path());
                             worktreeTableModel.addRow(new Object[]{
                                     isActive, // For the "✓" column
@@ -666,6 +700,7 @@ public class GitWorktreeTab extends JPanel {
 
         contextManager.submitContextTask("Removing worktree(s)", () -> {
             boolean anyFailed = false;
+            boolean forceAll = false;
             for (Path worktreePath : pathsToRemove) {
                 if (worktreePath.equals(project.getRoot())) {
                     logger.warn("Skipping removal of main project path listed as worktree: {}", worktreePath);
@@ -677,22 +712,41 @@ public class GitWorktreeTab extends JPanel {
                 } catch (GitRepo.WorktreeNeedsForceException ne) {
                     logger.warn("Worktree {} removal needs force: {}", worktreePath, ne.getMessage());
 
+                    if (forceAll) {
+                        try {
+                            logger.debug("ForceAll active; attempting forced removal of worktree {}", worktreePath);
+                            attemptRemoveWorktree(repo, worktreePath, true);
+                        } catch (GitRepo.GitRepoException forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
+                            logger.error("Error during forced removal of worktree {}: {}", worktreePath, forceEx.getMessage(), forceEx);
+                            reportRemoveError(worktreePath, forceEx);
+                            anyFailed = true;
+                        }
+                        continue;
+                    }
+
                     final java.util.concurrent.CompletableFuture<Integer> dialogResultFuture = new java.util.concurrent.CompletableFuture<>();
                     SwingUtilities.invokeLater(() -> {
-                        int result = JOptionPane.showConfirmDialog(
+                        Object[] options = {"Yes", "Yes to All", "No"};
+                        int result = JOptionPane.showOptionDialog(
                                 GitWorktreeTab.this,
                                 "Removing worktree '" + worktreePath.getFileName() + "' requires force.\n" +
                                 ne.getMessage() + "\n" +
                                 "Do you want to force delete it?",
                                 "Force Worktree Removal",
-                                JOptionPane.YES_NO_OPTION,
-                                JOptionPane.WARNING_MESSAGE);
+                                JOptionPane.DEFAULT_OPTION,
+                                JOptionPane.WARNING_MESSAGE,
+                                null,
+                                options,
+                                options[0]);
                         dialogResultFuture.complete(result);
                     });
 
                     try {
                         int forceConfirm = dialogResultFuture.get(); // Block background thread for dialog result
-                        if (forceConfirm == JOptionPane.YES_OPTION) {
+                        if (forceConfirm == 0 || forceConfirm == 1) { // Yes or Yes to All
+                            if (forceConfirm == 1) {
+                                forceAll = true;
+                            }
                             try {
                                 logger.debug("Attempting forced removal of worktree {}", worktreePath);
                                 attemptRemoveWorktree(repo, worktreePath, true);

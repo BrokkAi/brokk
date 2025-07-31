@@ -103,21 +103,17 @@ public abstract class CodePrompts {
                                                        StreamingChatModel model,
                                                        EditBlockParser parser,
                                                        List<ChatMessage> taskMessages,
-                                                       UserMessage request,
-                                                       Set<ProjectFile> changedFiles,
-                                                       List<ChatMessage> originalWorkspaceEditableMessages)
+                                                       UserMessage request)
     throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
         var reminder = reminderForModel(cm.getService(), model);
 
         messages.add(systemMessage(cm, reminder));
-        messages.addAll(getWorkspaceReadOnlyMessages(cm.liveContext()));
-        messages.addAll(originalWorkspaceEditableMessages);
+        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
         messages.addAll(parser.exampleMessages());
         messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.addAll(taskMessages);
-        messages.addAll(getCurrentChangedFilesMessages(cm, changedFiles));
         messages.add(request);
 
         return messages;
@@ -128,8 +124,7 @@ public abstract class CodePrompts {
                                                              List<ChatMessage> readOnlyMessages,
                                                              List<ChatMessage> taskMessages,
                                                              UserMessage request,
-                                                             Set<ProjectFile> changedFiles,
-                                                             List<ChatMessage> originalWorkspaceEditableMessages)
+                                                             ProjectFile file)
     {
         var messages = new ArrayList<ChatMessage>();
 
@@ -144,10 +139,26 @@ public abstract class CodePrompts {
         messages.add(new SystemMessage(systemPrompt));
 
         messages.addAll(readOnlyMessages);
-        messages.addAll(originalWorkspaceEditableMessages);
+
+        try {
+            String editableText = """
+                                  <workspace_editable>
+                                  You are editing A SINGLE FILE in this Workspace.
+                                  This represents the current state of the file.
+                                  
+                                  <file path="%s">
+                                  %s
+                                  </file>
+                                  </workspace_editable>
+                                  """.stripIndent().formatted(file.toString(), file.read());
+            var editableUserMessage = new UserMessage(editableText);
+            messages.addAll(List.of(editableUserMessage, new AiMessage("Thank you for the editable context.")));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
         messages.addAll(parser.exampleMessages());
         messages.addAll(taskMessages);
-        messages.addAll(getSingleFileCurrentMessages(changedFiles));
         messages.add(request);
 
         return messages;
@@ -671,11 +682,7 @@ public abstract class CodePrompts {
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
     public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
-        var summaries = Streams.concat(ctx.getReadOnlyFragments(), ctx.getEditableFragments())
-                .map(ContextFragment::formatSummary)
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n"));
-
+        var summaries = ContextFragment.getSummary(ctx.getAllFragmentsInDisplayOrder());
         if (summaries.isEmpty()) {
             return List.of();
         }
@@ -690,118 +697,6 @@ public abstract class CodePrompts {
         return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
     }
 
-    /**
-     * Returns messages containing the original editable workspace content at the start of the task.
-     */
-    public final List<ChatMessage> getOriginalWorkspaceEditableMessages(IContextManager cm) {
-        var originalWorkspaceEditableContent = cm.liveContext().getEditableFragments()
-                .map(ContextFragment::format)
-                .collect(Collectors.joining("\n\n"))
-                .trim();
-
-        if (originalWorkspaceEditableContent.isEmpty()) {
-            return List.of();
-        }
-
-        String editableText = """
-                              <workspace_editable_original>
-                              Here are the EDITABLE files and code fragments in your Workspace.
-                              This is *the only context in the Workspace to which you should make changes*.
-                              This represents the ORIGINAL state before any modifications during this session.
-                              
-                              These files may be modified during the session! If they are changed, you will see
-                              their CURRENT versions in a separate section later in this conversation.
-                              
-                              %s
-                              </workspace_editable_original>
-                              """.stripIndent().formatted(originalWorkspaceEditableContent);
-
-        var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, getAiWorkspaceResponse());
-    }
-
-    private static @NotNull AiMessage getAiWorkspaceResponse() {
-        return new AiMessage("Thank you for the original editable Workspace state.\n\nIMPORTANT SYSTEM NOTE: I WILL NOW INJECT TWO EXAMPLES OF HYPOTHETICAL USER REQUESTS AND AI RESPONSES TO ILLUSTRATE PROPER *SEARCH/REPLACE* BLOCK GENERATION. MESSAGES AFTER THOSE WILL BE REAL.");
-    }
-
-    public List<ChatMessage> getSingleFileEditableMessage(ProjectFile file) {
-        try {
-            String editableText = """
-                                  <workspace_editable_original>
-                                  You are editing A SINGLE FILE in this Workspace.
-                                  This represents the ORIGINAL state before any modifications during this session.
-                                  
-                                  This file may be modified during the session! If it is changed, you will see
-                                  its CURRENT versions in a separate section later in this conversation.
-                                  
-                                  <file path="%s">
-                                  %s
-                                  </file>
-                                  </workspace_editable_original>
-                                  """.stripIndent().formatted(file.toString(), file.read());
-            var editableUserMessage = new UserMessage(editableText);
-            return List.of(editableUserMessage, getAiWorkspaceResponse());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    /**
-     * Returns messages containing the current state of files that have been changed during the task.
-     */
-    public final List<ChatMessage> getCurrentChangedFilesMessages(IContextManager cm, Set<ProjectFile> changedFiles) {
-        if (changedFiles.isEmpty()) {
-            return List.of();
-        }
-
-        var changedFilesText = cm.liveContext().getEditableFragments()
-                .filter(fragment -> changedFiles.contains(fragment.files().iterator().next()))
-                .map(ContextFragment::format)
-                .collect(Collectors.joining("\n\n"))
-                .trim();
-
-        String currentStateText = """
-                                 <workspace_editable_changed>
-                                 Here are the CURRENT versions of files that have been CREATED or MODIFIED during this session.
-                                 *Trust these as the true current contents of these files!*
-                                 
-                                 %s
-                                 </workspace_editable_changed>
-                                 """.stripIndent().formatted(changedFilesText);
-
-        var currentStateUserMessage = new UserMessage(currentStateText);
-        return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of modified files."));
-    }
-
-    /**
-     * Returns messages containing the current state of files that have been changed during the task.
-     */
-    public final List<ChatMessage> getSingleFileCurrentMessages(Set<ProjectFile> changedFiles) {
-        if (changedFiles.isEmpty()) {
-            return List.of();
-        }
-        assert changedFiles.size() == 1 : changedFiles;
-        var file = changedFiles.iterator().next();
-
-        String currentStateText = null;
-        try {
-            currentStateText = """
-                                     <workspace_editable_changed>
-                                     Here is the CURRENT versions of the file that you are editing.
-                                     *Trust this as the true current contents of this file!*
-                                     
-                                     <file path="%s">
-                                     %s
-                                     </file>
-                                     </workspace_editable_changed>
-                                     """.stripIndent().formatted(file, file.read());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        var currentStateUserMessage = new UserMessage(currentStateText);
-        return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of the file."));
-    }
 
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();

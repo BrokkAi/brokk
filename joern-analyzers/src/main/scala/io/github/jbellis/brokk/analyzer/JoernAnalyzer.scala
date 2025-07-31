@@ -17,7 +17,9 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.util
 import java.util.Optional
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ForkJoinPool.ForkJoinWorkerThreadFactory
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.{ConcurrentHashMap, ForkJoinPool, ForkJoinWorkerThread}
 import java.util.regex.Pattern
 import scala.annotation.tailrec
 import scala.collection.concurrent.TrieMap
@@ -50,6 +52,15 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
   // The default configuration and CPG builder for this analyzer
   protected def defaultConfig: R
   protected implicit val defaultBuilder: CpgBuilder[R]
+
+  /**
+   * A prefix to uniquely name the threads for the thread pools in this analyzer.
+   */
+  protected val threadIdentifier: String
+
+  private implicit val threadPool: ForkJoinPool =
+    ForkJoinPool(Runtime.getRuntime.availableProcessors() - 1, JoernAnalyzer.threadFactory(threadIdentifier), null, false)
+
 
   // implicits at the top, you will regret it otherwise
   protected implicit val ec: ExecutionContext        = ExecutionContext.global
@@ -1238,7 +1249,19 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     declarations.toSet.asJava
   }
 
-  override def close(): Unit = cpg.close()
+  override def close(): Unit = {
+    val graphPath = cpg.graph.storagePathMaybe.getOrElse(":memory:")
+    try {
+      cpg.close()
+    } catch {
+      case e: Exception => logger.warn(s"Exception occurred while closing CPG at: $graphPath", e)
+    }
+    try {
+      threadPool.shutdown()
+    } catch {
+      case e: Exception => logger.warn("Exception occurred while shutting down JoernAnalyzer thread pool", e)
+    }
+  }
 
   /** Returns the immediate children of the given CodeUnit based on Joern CPG analysis.
     *
@@ -1303,4 +1326,21 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
 
       // Functions, fields, etc. have no children
       case _ => java.util.List.of()
+}
+
+object JoernAnalyzer {
+
+  /**
+   * @return a thread factory that names the threads for a ForkJoinPool.
+   */
+  def threadFactory(threadIdentifier: String): ForkJoinWorkerThreadFactory = new ForkJoinWorkerThreadFactory {
+    private val threadNumber = new AtomicInteger(1)
+    private val namePrefix = s"$threadIdentifier-cpg-builder-thread-"
+
+    override def newThread(pool: ForkJoinPool): ForkJoinWorkerThread = {
+      val worker = ForkJoinPool.defaultForkJoinWorkerThreadFactory.newThread(pool)
+      worker.setName(namePrefix + threadNumber.getAndIncrement())
+      worker
+    }
+  }
 }

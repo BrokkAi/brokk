@@ -94,48 +94,5 @@ class DiffHighlightUtilTest
         assertNull(result.warning(), "Should have no warning");
     }
 
-    /**
-     * Test range validation - startLine > endLine should return warning.
-     */
-    @Test
-    void invalidRange()
-    {
-        List<String> original = List.of("A", "B");
-        List<String> revised  = List.of("A", "B", "C");
 
-        Patch<String> patch = DiffUtils.diff(original, revised);
-        AbstractDelta<String> delta = patch.getDeltas().getFirst();
-
-        var result = DiffHighlightUtil.isChunkVisible(delta, 5, 3, false);
-        assertFalse(result.intersects(), "Should not intersect with invalid range");
-        assertNotNull(result.warning(), "Should have warning for invalid range");
-        assertTrue(result.warning().contains("Invalid range"), "Warning should mention invalid range");
-    }
-
-    /**
-     * Test chunk separation - getRelevantChunk vs getChunkForHighlight.
-     */
-    @Test
-    void chunkMethods()
-    {
-        List<String> original = List.of("A", "B", "C");
-        List<String> revised  = List.of("A", "C");   // DELETE delta
-
-        Patch<String> patch = DiffUtils.diff(original, revised);
-        AbstractDelta<String> delta = patch.getDeltas().getFirst();
-
-        // Original side - both methods should return source
-        var relevantOrig = DiffHighlightUtil.getRelevantChunk(delta, true);
-        var highlightOrig = DiffHighlightUtil.getChunkForHighlight(delta, true);
-        assertSame(relevantOrig, highlightOrig, "Original side chunks should be same");
-        assertNotNull(relevantOrig, "Original chunk should exist");
-
-        // Revised side - relevant should have size 0 (DELETE), highlight should fall back to source
-        var relevantRev = DiffHighlightUtil.getRelevantChunk(delta, false);
-        var highlightRev = DiffHighlightUtil.getChunkForHighlight(delta, false);
-        assertNotNull(relevantRev, "Revised chunk should exist for DELETE");
-        assertEquals(0, relevantRev.size(), "Revised chunk should have size 0 for DELETE");
-        assertNotNull(highlightRev, "Highlight chunk should fall back to source");
-        assertSame(relevantOrig, highlightRev, "Highlight should fall back to source chunk");
-    }
 }

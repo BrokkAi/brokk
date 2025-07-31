@@ -374,13 +374,6 @@ public class OpenAiUtils {
         };
     }
 
-    public static Response<AiMessage> convertResponse(ChatResponse chatResponse) {
-        return Response.from(
-                chatResponse.aiMessage(),
-                chatResponse.metadata().tokenUsage(),
-                chatResponse.metadata().finishReason());
-    }
-
     public static void validate(ChatRequestParameters parameters) {
         if (parameters.topK() != null) {
             throw new UnsupportedFeatureException("'topK' parameter is not supported by OpenAI");

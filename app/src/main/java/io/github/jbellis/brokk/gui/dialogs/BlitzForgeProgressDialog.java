@@ -22,15 +22,16 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
+import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.TokenAware;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -43,6 +44,15 @@ import java.util.stream.Collectors;
 import static java.util.Objects.requireNonNull;
 
 public class BlitzForgeProgressDialog extends JDialog {
+
+    private final ContextManager cm;
+    private final StreamingChatModel model;
+    private final String instructions;
+    private final String action;
+    private final @Nullable Integer relatedK;
+    private final @Nullable String perFileCommandTemplate;
+    private final boolean includeWorkspace;
+    private final String contextFilter;
 
     public enum PostProcessingOption {NONE, ARCHITECT, ASK}
 
@@ -75,51 +85,6 @@ public class BlitzForgeProgressDialog extends JDialog {
     }
 
     /**
-     * Token-bucket rate limiter for models that expose only tokens_per_minute.
-     * Thread-safe; callers block in acquire() until they can spend the requested tokens.
-     */
-    private static final class TokenRateLimiter {
-        private final int capacity;
-        private double tokens;
-        private final double refillPerMs;
-        private long last;
-
-        private TokenRateLimiter(int tokensPerMinute) {
-            assert tokensPerMinute > 0;
-            this.capacity = tokensPerMinute;
-            this.tokens = tokensPerMinute;
-            this.refillPerMs = tokensPerMinute / 60_000.0;
-            this.last = System.currentTimeMillis();
-        }
-
-        public void acquire(int requested) throws InterruptedException {
-            if (requested <= 0) return;
-            synchronized (this) {
-                while (true) {
-                    refill();
-                    if (tokens >= requested) {
-                        tokens -= requested;
-                        return;
-                    }
-                    long sleep = (long) Math.ceil((requested - tokens) / refillPerMs);
-                    sleep = Math.max(sleep, 50);
-                    this.wait(sleep);
-                }
-            }
-        }
-
-        private void refill() {
-            long now = System.currentTimeMillis();
-            long elapsed = now - last;
-            if (elapsed > 0) {
-                tokens = Math.min(capacity, tokens + elapsed * refillPerMs);
-                last = now;
-                this.notifyAll();
-            }
-        }
-    }
-
-    /**
      * Helper method to compute file size in bytes; if unavailable, falls back to Long.MAX_VALUE to push it to the end.
      */
     private static long fileSize(ProjectFile file) {
@@ -134,17 +99,7 @@ public class BlitzForgeProgressDialog extends JDialog {
     /**
      * Encapsulates the per-file processing logic previously inlined in SwingWorker.
      */
-    private FileProcessingResult processSingleFile(ProjectFile file,
-                                                   ContextManager cm,
-                                                   StreamingChatModel model,
-                                                   String instructions,
-                                                   String action,
-                                                   boolean includeWorkspace,
-                                                   @Nullable Integer relatedK,
-                                                   @Nullable String perFileCommandTemplate,
-                                                   Context ctx,
-                                                   String contextFilter,
-                                                   @Nullable TokenRateLimiter rateLimiter) {
+    private FileProcessingResult processSingleFile(ProjectFile file, Context ctx) {
         var dialogConsoleIO = new DialogConsoleIO(this, file.toString());
         String errorMessage = null;
 
@@ -221,21 +176,6 @@ public class BlitzForgeProgressDialog extends JDialog {
             return new FileProcessingResult(file, errorMessage, dialogConsoleIO.getLlmOutput(), false);
         }
 
-        if (rateLimiter != null) {
-            int estimatedTokens = 0;
-            try {
-                estimatedTokens = Messages.getApproximateTokens(readOnlyMessages) + Messages.getApproximateTokens(file.read());
-            } catch (IOException e) {
-                return new FileProcessingResult(file, "Error reading file contents", "", false);
-            }
-            try {
-                rateLimiter.acquire(estimatedTokens);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                return new FileProcessingResult(file, "Interrupted while waiting for rate limiter", "", false);
-            }
-        }
-
         // run the task
         TaskResult result;
         if (action.equals("Ask")) {
@@ -296,6 +236,12 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     boolean buildFirst,
                                     String postProcessingInstructions) {
         super(chrome.getFrame(), "BlitzForge Progress", false);
+        this.instructions = instructions;
+        this.action = action;
+        this.relatedK = relatedK;
+        this.perFileCommandTemplate = perFileCommandTemplate;
+        this.includeWorkspace = includeWorkspace;
+        this.contextFilter = contextFilter;
         chrome.disableActionButtons();
         this.totalFiles = filesToProcess.size();
 
@@ -340,34 +286,19 @@ public class BlitzForgeProgressDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
 
         // set up executorService
-        var contextManager = chrome.getContextManager();
-        var service = contextManager.getService();
-        var model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
+        cm = chrome.getContextManager();
+        var service = cm.getService();
+        model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
 
-        @Nullable Integer maxConcurrentRequests = service.getMaxConcurrentRequests(model);
-        @Nullable Integer tokensPerMinute = service.getTokensPerMinute(model);
-
-        final TokenRateLimiter rateLimiter;
-        int poolSize;
-        if (maxConcurrentRequests != null) {
-            poolSize = Math.min(maxConcurrentRequests, Math.max(1, filesToProcess.size()));
-            rateLimiter = null;
-        } else if (tokensPerMinute != null) {
-            rateLimiter = new TokenRateLimiter(tokensPerMinute);
-            poolSize = 100;
-        } else {
-            throw new IllegalStateException("Neither max_concurrent_requests nor tokens_per_minute defined for model "
-                                            + service.nameOf(model));
-        }
-        executorService = Executors.newFixedThreadPool(poolSize);
+        executorService = AdaptiveExecutor.create(service, model, filesToProcess.size());
 
         worker = new SwingWorker<>() {
             @Override
             protected TaskResult doInBackground() {
-                var analyzerWrapper = contextManager.getAnalyzerWrapper();
+                var analyzerWrapper = cm.getAnalyzerWrapper();
                 analyzerWrapper.pause();
                 try {
-                    var frozenContext = contextManager.topContext();
+                    var frozenContext = cm.topContext();
                     List<FileProcessingResult> results = new ArrayList<>();
 
                     // ---- 1.  Sort by on-disk size, smallest first ----
@@ -382,17 +313,7 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                         // Process the very first file synchronously to warm up caches
                         if (!isCancelled()) {
-                            var firstResult = processSingleFile(sortedFiles.getFirst(),
-                                                                contextManager,
-                                                                model,
-                                                                instructions,
-                                                                action,
-                                                                includeWorkspace,
-                                                                relatedK,
-                                                                perFileCommandTemplate,
-                                                                frozenContext,
-                                                                contextFilter,
-                                                                rateLimiter);
+                            var firstResult = processSingleFile(sortedFiles.getFirst(), frozenContext);
                             processedFileCount.set(1); // Mark the first file as processed
                             // Publish result for the first file
                             publish(new ProgressData(processedFileCount.get(), firstResult.file().toString(), firstResult.errorMessage()));
@@ -403,7 +324,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                         // Early exit if user cancelled during first file processing
                         if (isCancelled()) {
                             var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
-                            return new TaskResult(contextManager, instructions, List.of(), new HashSet<>(filesToProcess), sd);
+                            return new TaskResult(cm, instructions, List.of(), new HashSet<>(filesToProcess), sd);
                         }
                     }
 
@@ -412,17 +333,30 @@ public class BlitzForgeProgressDialog extends JDialog {
                     // Skip files already processed synchronously (0 or 1 depending on warm-up)
                     sortedFiles.stream().skip(parallelStartIndex).forEach(file -> {
                         if (!isCancelled()) {
-                            completionService.submit(() -> processSingleFile(file,
-                                                                             contextManager,
-                                                                             model,
-                                                                             instructions,
-                                                                             action,
-                                                                             includeWorkspace,
-                                                                             relatedK,
-                                                                             perFileCommandTemplate,
-                                                                             frozenContext,
-                                                                             contextFilter,
-                                                                             rateLimiter));
+                            interface TokenAwareCallable extends Callable<FileProcessingResult>, TokenAware { }
+
+                            completionService.submit(new TokenAwareCallable() {
+                                @Override
+                                public int tokens() {
+                                    int tokens = 0;
+                                    try {
+                                        var readOnly = new ArrayList<ChatMessage>();
+                                        if (includeWorkspace) {
+                                            readOnly.addAll(CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
+                                            readOnly.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
+                                        }
+                                        tokens = Messages.getApproximateTokens(readOnly) + Messages.getApproximateTokens(file.read());
+                                    } catch (Exception e) {
+                                        logger.debug("Token estimation failed for {} – {}", file, e.toString());
+                                    }
+                                    return tokens;
+                                }
+
+                                @Override
+                                public FileProcessingResult call() {
+                                    return processSingleFile(file, frozenContext);
+                                }
+                            });
                         }
                     });
 
@@ -480,7 +414,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                         sd = new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
                     }
 
-                    return new TaskResult(contextManager, instructions, uiMessages, changedFilesSet, sd);
+                    return new TaskResult(cm, instructions, uiMessages, changedFilesSet, sd);
                 } finally {
                     executorService.shutdownNow();
                     analyzerWrapper.resume();
