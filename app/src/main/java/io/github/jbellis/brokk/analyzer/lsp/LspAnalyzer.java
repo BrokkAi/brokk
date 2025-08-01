@@ -314,16 +314,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         } else {
             name = symbol.getName();
         }
-
-//        final var lastDot = containerName.lastIndexOf('.');
-//        final String shortNamePrefix;
-//        if (lastDot > 0 && codeUnitKind != CodeUnitType.CLASS && codeUnitKind != CodeUnitType.MODULE) {
-//            shortNamePrefix = containerName.substring(lastDot + 1);
-//        } else {
-//            shortNamePrefix = "";
-//        }
-
-
+        
         return new CodeUnit(projectFile, codeUnitKind, containerName, name);
     }
 
