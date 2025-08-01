@@ -6,7 +6,9 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.util.Messages;
+import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.List;
 
 public interface IConsoleIO {
@@ -24,6 +26,10 @@ public interface IConsoleIO {
     }
 
     default int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        throw new UnsupportedOperationException();
+    }
+
+    default int showConfirmDialog(@Nullable JFrame frame, String message, String title, int optionType, int messageType) {
         throw new UnsupportedOperationException();
     }
 
@@ -65,9 +71,9 @@ public interface IConsoleIO {
      * wraps JOptionPane; messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
      */
     default void systemNotify(String message, String title, int messageType) {
-        systemOutput(message); 
+        systemOutput(message);
     }
-    
+
     default void showOutputSpinner(String message) {}
 
     default void hideOutputSpinner() {}
@@ -79,7 +85,7 @@ public interface IConsoleIO {
     default String getLlmOutputText() {
         throw new UnsupportedOperationException();
     }
-    
+
     default List<ChatMessage> getLlmRawMessages() {
         throw new UnsupportedOperationException();
     }

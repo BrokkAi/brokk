@@ -39,7 +39,6 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 import static java.util.Objects.requireNonNull;
 
-
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
@@ -580,7 +579,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void actionComplete() {
         SwingUtilities.invokeLater(() -> instructionsPanel.clearCommandResultText());
     }
-    
+
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage));
@@ -741,7 +740,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Add 5px gap below the top panel
         topPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
-    
+
         // Add components to content panel
         contentPanel.add(topPanel, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
@@ -1524,6 +1523,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        return showConfirmDialog(frame, message, title, optionType, messageType);
+    }
+
+    @Override
+    public int showConfirmDialog(@Nullable JFrame frame, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
         return JOptionPane.showConfirmDialog(frame, message, title, optionType, messageType);
     }
