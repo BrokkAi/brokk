@@ -4,7 +4,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.*;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -13,7 +12,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.ImageUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 
@@ -103,17 +101,26 @@ public abstract class CodePrompts {
                                                        StreamingChatModel model,
                                                        EditBlockParser parser,
                                                        List<ChatMessage> taskMessages,
-                                                       UserMessage request)
+                                                       UserMessage request,
+                                                       Set<ProjectFile> changedFiles)
     throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
         var reminder = reminderForModel(cm.getService(), model);
+        Context ctx = cm.liveContext();
 
         messages.add(systemMessage(cm, reminder));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
+        if (changedFiles.isEmpty()) {
+            messages.addAll(getWorkspaceContentsMessages(ctx));
+        } else {
+            messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
+        }
         messages.addAll(parser.exampleMessages());
-        messages.addAll(getHistoryMessages(cm.liveContext()));
+        messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
+        if (!changedFiles.isEmpty()) {
+            messages.addAll(getWorkspaceContentsMessages(List.of(), getWorkspaceEditableMessages(ctx)));
+        }
         messages.add(request);
 
         return messages;
@@ -620,6 +627,10 @@ public abstract class CodePrompts {
         var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
+        return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
+    }
+
+    private List<ChatMessage> getWorkspaceContentsMessages(Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
         // If both are empty and no related classes requested, return empty
         if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
             return List.of();
@@ -676,7 +687,7 @@ public abstract class CodePrompts {
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing the Workspace contents."));
     }
-    
+
     /**
      * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
