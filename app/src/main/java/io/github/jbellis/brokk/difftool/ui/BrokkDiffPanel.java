@@ -1047,7 +1047,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     private boolean checkUnsavedChangesBeforeClose() {
         if (hasUnsavedChanges()) {
+            var window = SwingUtilities.getWindowAncestor(this);
+            var parentFrame = (window instanceof JFrame jframe) ? jframe : null;
             var opt = contextManager.getIo().showConfirmDialog(
+                    parentFrame,
                     "There are unsaved changes. Save before closing?",
                     "Unsaved Changes",
                     JOptionPane.YES_NO_CANCEL_OPTION,
@@ -1058,6 +1061,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (opt == JOptionPane.YES_OPTION) {
                 saveAll();
             }
+            // For NO_OPTION, just continue to return true - caller will handle disposal
         }
         return true; // OK to close
     }
