@@ -89,6 +89,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      */
     private boolean dirtySinceOpen = false;
 
+
     /**
     * Recalculate dirty status by checking if any FilePanel has unsaved changes.
     * When the state changes, update tab title and toolbar buttons.
@@ -958,6 +959,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         var toOffset = fromDoc.getOffsetForLine(fromLine + size);
         if (toOffset < 0) return;
 
+        // Validate source document offsets
+        if (!validateOffsets(fromDoc, fromOffset, toOffset)) {
+            logger.warn("Invalid offset range in source document: {} to {} in document of length {}",
+                       fromOffset, toOffset, fromDoc.getDocument().getLength());
+            mainPanel.getConsoleIO().toolError("Cannot copy - invalid source document position", "Copy Error");
+            return;
+        }
+
         try {
             var fromPlainDoc = fromDoc.getDocument();
             var replacedText = fromPlainDoc.getText(fromOffset, toOffset - fromOffset);
@@ -968,6 +977,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             if (toFromOffset < 0) return;
             var toToOffset = toDoc.getOffsetForLine(toLine + toSize);
             if (toToOffset < 0) return;
+
+            // Validate target document offsets
+            if (!validateOffsets(toDoc, toFromOffset, toToOffset)) {
+                logger.warn("Invalid offset range in target document: {} to {} in document of length {}",
+                           toFromOffset, toToOffset, toDoc.getDocument().getLength());
+                mainPanel.getConsoleIO().toolError("Cannot copy - invalid target document position", "Copy Error");
+                return;
+            }
 
             var toEditor = toFilePanel.getEditor();
             toEditor.setSelectionStart(toFromOffset);
@@ -1019,6 +1036,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         if (fromOffset < 0) return;
         var toOffset = fromDoc.getOffsetForLine(fromLine + size);
         if (toOffset < 0) return;
+
+        // Validate document offsets for delete operation
+        if (!validateOffsets(fromDoc, fromOffset, toOffset)) {
+            logger.warn("Invalid offset range for delete operation: {} to {} in document of length {}",
+                       fromOffset, toOffset, fromDoc.getDocument().getLength());
+            mainPanel.getConsoleIO().toolError("Cannot delete - invalid document position", "Delete Error");
+            return;
+        }
 
         var toEditor = fromFilePanel.getEditor();
         toEditor.setSelectionStart(fromOffset);
@@ -1316,5 +1341,18 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             fp.clearViewportCache();
             fp.clearSearchCache();
         }
+    }
+
+    /**
+     * Validates that document offsets are within bounds to prevent document corruption.
+     * @param doc the document to validate against
+     * @param startOffset starting offset (inclusive)
+     * @param endOffset ending offset (exclusive)
+     * @return true if offsets are valid, false otherwise
+     */
+    private boolean validateOffsets(BufferDocumentIF doc, int startOffset, int endOffset) {
+        var plainDoc = doc.getDocument();
+        int docLength = plainDoc.getLength();
+        return startOffset >= 0 && endOffset >= startOffset && endOffset <= docLength;
     }
 }

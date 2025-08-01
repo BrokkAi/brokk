@@ -52,7 +52,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
 
     // SHIFT is sometimes used to append or do a different style of change
     // when the user clicks a triangle. (Optional usage)
-    boolean shift; // TODO: Consider making this private and controlled via methods
+    private boolean shift;
 
     // Tracks which delta the mouse is currently over
     @Nullable private AbstractDelta<?> currentlyHoveredDelta = null;
@@ -104,6 +104,24 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         this.drawCurves = drawCurves;
     }
 
+    /**
+     * Gets the current shift state for copy operations.
+     * @return true if shift mode is active, false otherwise
+     */
+    public boolean isShift()
+    {
+        return shift;
+    }
+
+    /**
+     * Sets the shift state for copy operations.
+     * @param shift true to enable shift mode, false to disable
+     */
+    public void setShift(boolean shift)
+    {
+        this.shift = shift;
+    }
+
     private void initSettings()
     {
         setDrawCurves(true);
@@ -128,8 +146,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
             @Override
             public void mouseClicked(MouseEvent me)
             {
-                // Check for shift key press (consider moving this to Command execution)
-                shift = (me.getModifiersEx() & InputEvent.SHIFT_DOWN_MASK) != 0;
+                // Check for shift key press and update shift state
+                setShift((me.getModifiersEx() & InputEvent.SHIFT_DOWN_MASK) != 0);
                 requestFocus();
                 // Execute a command if the user clicked inside a shape
                 executeCommand(me.getX(), me.getY());
@@ -636,7 +654,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         {
             diffPanel.setSelectedDelta(delta);
             // Use the source and target indexes provided during construction
-            diffPanel.runChange(sourcePanelIndex, targetPanelIndex, shift);
+            diffPanel.runChange(sourcePanelIndex, targetPanelIndex, isShift());
         }
     }
 
