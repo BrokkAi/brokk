@@ -394,14 +394,24 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         JPanel prFilesPanel = new JPanel(new BorderLayout());
         prFilesPanel.setBorder(BorderFactory.createTitledBorder("Changed Files"));
 
-        prFilesTableModel = new DefaultTableModel(new Object[]{"File"}, 0) {
+        prFilesTableModel = new DefaultTableModel(new Object[]{"", "File"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
+                if (column == 0) {
+                    var value = prFilesTableModel.getValueAt(row, 1);
+                    if (value instanceof String s) {
+                        return !s.startsWith("Error:") && !s.startsWith("No files changed");
+                    }
+                    return true;
+                }
                 return false;
             }
 
             @Override
             public Class<?> getColumnClass(int columnIndex) {
+                if (columnIndex == 0) {
+                    return Boolean.class;
+                }
                 return String.class;
             }
         };
@@ -413,7 +423,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 if (viewRow >= 0 && viewRow < getRowCount()) {
                     int modelRow = convertRowIndexToModel(viewRow);
                     if (modelRow >= 0 && modelRow < prFilesTableModel.getRowCount()) {
-                        Object cellValue = prFilesTableModel.getValueAt(modelRow, 0);
+                        Object cellValue = prFilesTableModel.getValueAt(modelRow, 1); // File path is in column 1
                         if (cellValue instanceof String s) {
                             return s;
                         }
@@ -425,7 +435,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prFilesTable.setTableHeader(null);
         prFilesTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         prFilesTable.setRowHeight(18);
-        prFilesTable.getColumnModel().getColumn(0).setPreferredWidth(400); // File
+        prFilesTable.getColumnModel().getColumn(0).setMaxWidth(30); // Checkbox column
+        prFilesTable.getColumnModel().getColumn(1).setPreferredWidth(400); // File
 
         ToolTipManager.sharedInstance().registerComponent(prFilesTable);
 
@@ -1332,13 +1343,39 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
 
 
-                GitUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
+                var selectedFilePaths = getSelectedFilePathsFromModel();
+                if (selectedFilePaths.isEmpty()) {
+                    chrome.toolError("No files selected to capture.", "Capture Diff");
+                    return;
+                }
+                GitUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo, selectedFilePaths);
 
             } catch (Exception ex) {
                 logger.error("Error capturing diff for PR #{}", pr.getNumber(), ex);
                 chrome.toolError("Unable to capture diff for PR #" + pr.getNumber() + ": " + ex.getMessage(), "Capture Diff Error");
             }
         });
+    }
+
+    private List<String> getSelectedFilePathsFromModel() {
+        var selectedFilePaths = new ArrayList<String>();
+        var model = (DefaultTableModel) prFilesTable.getModel();
+        for (int i = 0; i < model.getRowCount(); i++) {
+            if (Boolean.TRUE.equals(model.getValueAt(i, 0))) {
+                String displayText = (String) model.getValueAt(i, 1);
+                // The format is "fileName - full/path"
+                int separatorIndex = displayText.indexOf(" - ");
+                if (separatorIndex != -1) {
+                    String path = displayText.substring(separatorIndex + 3);
+                    selectedFilePaths.add(path);
+                } else if (!displayText.startsWith("Error:") && !displayText.startsWith("No files changed")) {
+                    // It could be an error message, which we don't want to add.
+                    // Or it could be a raw path without the "fileName - " prefix
+                    selectedFilePaths.add(displayText);
+                }
+            }
+        }
+        return selectedFilePaths;
     }
 
     private void viewFullPrDiff() {
@@ -1369,7 +1406,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     logger.warn("PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.", GitUiUtil.shortenCommitId(prBaseSha), prBaseFetchRef);
                 }
 
+                var selectedFilePaths = getSelectedFilePathsFromModel();
+                if (selectedFilePaths.isEmpty()) {
+                    chrome.toolError("No files selected to view.", "View Diff");
+                    return null;
+                }
+
                 List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                modifiedFiles.removeIf(mf -> !selectedFilePaths.contains(mf.file().toString()));
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify("No changes found in PR #" + pr.getNumber(), "Diff Info", JOptionPane.INFORMATION_MESSAGE);
@@ -1765,20 +1809,20 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     SwingUtilities.invokeLater(() -> {
                         // Only update if this PR is still selected
                         int selectedRow = prTable.getSelectedRow();
-                        if (selectedRow >= 0 && selectedRow < displayedPrs.size() && 
+                        if (selectedRow >= 0 && selectedRow < displayedPrs.size() &&
                             displayedPrs.get(selectedRow).getNumber() == pr.getNumber()) {
                             prFilesTableModel.setRowCount(0);
                             if (files == null || files.isEmpty()) {
-                                prFilesTableModel.addRow(new Object[]{"No files changed in this PR"});
+                                prFilesTableModel.addRow(new Object[]{false, "No files changed in this PR"});
                             } else {
                                 for (String file : files) {
                                     if (file.startsWith("Error:")) {
-                                        prFilesTableModel.addRow(new Object[]{file});
+                                        prFilesTableModel.addRow(new Object[]{false, file});
                                     } else {
                                         // Format as "<file name> - full file path"
                                         String fileName = file.substring(file.lastIndexOf('/') + 1);
                                         String displayText = fileName + " - " + file;
-                                        prFilesTableModel.addRow(new Object[]{displayText});
+                                        prFilesTableModel.addRow(new Object[]{true, displayText});
                                     }
                                 }
                             }
@@ -1836,18 +1880,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
             
             if (allChangedFiles.isEmpty()) {
-                prFilesTableModel.addRow(new Object[]{"No files changed in selected commits"});
+                prFilesTableModel.addRow(new Object[]{false, "No files changed in selected commits"});
             } else {
                 var sortedFiles = new ArrayList<>(allChangedFiles);
                 Collections.sort(sortedFiles);
                 for (String file : sortedFiles) {
                     if (file.startsWith("Error")) {
-                        prFilesTableModel.addRow(new Object[]{file});
+                        prFilesTableModel.addRow(new Object[]{false, file});
                     } else {
                         // Format as "<file name> - full file path"
                         String fileName = file.substring(file.lastIndexOf('/') + 1);
                         String displayText = fileName + " - " + file;
-                        prFilesTableModel.addRow(new Object[]{displayText});
+                        prFilesTableModel.addRow(new Object[]{true, displayText});
                     }
                 }
             }
