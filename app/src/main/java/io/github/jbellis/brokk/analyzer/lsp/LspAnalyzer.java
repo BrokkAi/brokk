@@ -51,10 +51,9 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default boolean isEmpty() {
-        // there are no easy ways to determine 'emptiness' without knowing names of indexed types or files names
-        return getWorkspaceReadyLatch(getWorkspace())
-                .stream()
-                .noneMatch(x -> x.getCount() == 0L);
+        // If no source files are determined either because none are applicable or analysis failed, this will be
+        // empty
+        return getSourceFiles().join().isEmpty();
     }
 
     /**
