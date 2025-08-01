@@ -27,9 +27,9 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @NotNull
     LspServer getServer();
-    
+
     @NotNull
-    default Optional<CountDownLatch> getWorkspaceReadyLatch(String workspace) {  
+    default Optional<CountDownLatch> getWorkspaceReadyLatch(String workspace) {
         return this.getServer().getWorkspaceReadyLatch(workspace);
     }
 
@@ -46,7 +46,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default boolean isEmpty() {
-        // This may not work until the build tool has completed building
+        // fixme: This may OOM the server. `getAllWorkspaceSymbols` should not be used.
         return LspAnalyzerHelper.getAllWorkspaceSymbols(getWorkspace(), getServer()).join().isEmpty();
     }
 
@@ -308,21 +308,23 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         final var projectFile = new ProjectFile(this.getProjectRoot(), this.getProjectRoot().relativize(uri));
         final var codeUnitKind = LspAnalyzerHelper.codeUnitForSymbolKind(symbol.getKind());
         final var containerName = Optional.ofNullable(symbol.getContainerName()).orElse("");
-
-        final var lastDot = containerName.lastIndexOf('.');
-        final String shortNamePrefix;
-        if (lastDot > 0 && codeUnitKind != CodeUnitType.CLASS && codeUnitKind != CodeUnitType.MODULE) {
-            shortNamePrefix = containerName.substring(lastDot + 1);
+        final String name;
+        if (LspAnalyzerHelper.METHOD_KINDS.contains(symbol.getKind())) {
+            name = resolveMethodName(symbol.getName());
         } else {
-            shortNamePrefix = "";
+            name = symbol.getName();
         }
 
-        return new CodeUnit(
-                projectFile,
-                codeUnitKind,
-                containerName,
-                shortNamePrefix + symbol.getName()
-        );
+//        final var lastDot = containerName.lastIndexOf('.');
+//        final String shortNamePrefix;
+//        if (lastDot > 0 && codeUnitKind != CodeUnitType.CLASS && codeUnitKind != CodeUnitType.MODULE) {
+//            shortNamePrefix = containerName.substring(lastDot + 1);
+//        } else {
+//            shortNamePrefix = "";
+//        }
+
+
+        return new CodeUnit(projectFile, codeUnitKind, containerName, name);
     }
 
 }

@@ -220,7 +220,7 @@ public abstract class LspServer implements LspFileUtilities {
         }
 
         this.serverInitialized = languageServer.initialize(params).thenApply(result -> {
-            logger.debug("LSP server initialized with result {}", result);
+            logger.debug("LSP server initialized with info {}", result.getServerInfo());
             if (this.languageServer != null) {
                 languageServer.initialized(new InitializedParams());
                 logger.info("LSP client Initialized ");

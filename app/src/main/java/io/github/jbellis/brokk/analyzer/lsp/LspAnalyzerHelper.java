@@ -208,12 +208,12 @@ public final class LspAnalyzerHelper {
                         final var tail = documentSymbols.subList(1, documentSymbols.size());
                         return tail
                                 .stream()
-                                .flatMap(documentSymbol -> documentSymbolsToWorkspaceSymbols(documentSymbol, uri, head.getName()).stream())
+                                .flatMap(documentSymbol -> documentSymbolsToWorkspaceSymbols(documentSymbol, uri, null, head.getKind(), head.getName()).stream())
                                 .toList();
                     } else {
                         return documentSymbols
                                 .stream()
-                                .flatMap(documentSymbol -> documentSymbolsToWorkspaceSymbols(documentSymbol, uri, null).stream())
+                                .flatMap(documentSymbol -> documentSymbolsToWorkspaceSymbols(documentSymbol, uri, null, null, null).stream())
                                 .toList();
                     }
                 }
@@ -240,10 +240,12 @@ public final class LspAnalyzerHelper {
     public static List<WorkspaceSymbol> documentSymbolsToWorkspaceSymbols(
             @NotNull DocumentSymbol topLevelSymbol,
             @NotNull String uriString,
-            @Nullable String initialParentName
+            @Nullable String initialParentName,
+            @Nullable SymbolKind initialParentKind,
+            @Nullable String initialParentModule
     ) {
         List<WorkspaceSymbol> flatList = new ArrayList<>();
-        collectWorkspaceSymbols(Collections.singletonList(topLevelSymbol), uriString, initialParentName, flatList);
+        collectWorkspaceSymbols(Collections.singletonList(topLevelSymbol), uriString, initialParentName, initialParentKind, initialParentModule, flatList);
         return flatList;
     }
 
@@ -251,19 +253,40 @@ public final class LspAnalyzerHelper {
             @NotNull List<DocumentSymbol> symbols,
             @NotNull String uriString,
             @Nullable String parentName,
+            @Nullable SymbolKind parentKind,
+            @Nullable String parentModule,
             @NotNull List<WorkspaceSymbol> collection
     ) {
-        for (DocumentSymbol docSymbol : symbols) {
-            WorkspaceSymbol workspaceSymbol = new WorkspaceSymbol(
-                    docSymbol.getName(),
+        for (final DocumentSymbol docSymbol : symbols) {
+            final String module;
+            if (parentModule != null) {
+                if (MODULE_KINDS.contains(parentKind)) {
+                    module = parentModule + "." + parentName;
+                } else {
+                    module = parentModule;
+                }
+            } else {
+                module = null;
+            }
+            
+            final String name;
+            if (parentKind != null && parentName != null && TYPE_KINDS.contains(parentKind)) {
+                // Nested types should be delimited like this for the CodeUnit
+                name = parentName + "." + docSymbol.getName();
+            } else {
+                name = docSymbol.getName();
+            }
+
+            final var workspaceSymbol = new WorkspaceSymbol(
+                    name,
                     docSymbol.getKind(),
                     Either.forLeft(new Location(uriString, docSymbol.getRange())),
-                    parentName
+                    Optional.ofNullable(module).orElse("")
             );
             collection.add(workspaceSymbol);
 
             if (docSymbol.getChildren() != null && !docSymbol.getChildren().isEmpty()) {
-                collectWorkspaceSymbols(docSymbol.getChildren(), uriString, docSymbol.getName(), collection);
+                collectWorkspaceSymbols(docSymbol.getChildren(), uriString, workspaceSymbol.getName(), docSymbol.getKind(), module, collection);
             }
         }
     }

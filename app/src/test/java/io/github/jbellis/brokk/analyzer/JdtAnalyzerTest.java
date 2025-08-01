@@ -312,14 +312,11 @@ public class JdtAnalyzerTest {
         final var expected = Set.of(
                 // Classes
                 CodeUnit.cls(file, "", "D"),
-                CodeUnit.cls(file, "", "D$DSub"),
-                CodeUnit.cls(file, "", "D$DSubStatic"),
+                CodeUnit.cls(file, "", "D.DSub"),
+                CodeUnit.cls(file, "", "D.DSubStatic"),
                 // Methods
                 CodeUnit.fn(file, "", "D.methodD1"),
                 CodeUnit.fn(file, "", "D.methodD2"),
-                CodeUnit.fn(file, "", "D.D"),
-                CodeUnit.fn(file, "", "D$DSubStatic.DSubStatic"),
-                CodeUnit.fn(file, "", "D$DSub.DSub"),
                 // Fields
                 CodeUnit.field(file, "", "D.field1"),
                 CodeUnit.field(file, "", "D.field2")
