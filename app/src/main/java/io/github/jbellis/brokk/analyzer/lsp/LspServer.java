@@ -181,7 +181,7 @@ public abstract class LspServer implements LspFileUtilities {
         Runtime.getRuntime().addShutdownHook(this.shutdownHook);
 
 
-        final Path errorLog = LspServer.getCacheForLsp(language).resolve("process-error.log");
+        final Path errorLog = LspServer.getCacheForLsp(language).resolve("error.log");
         pb.redirectError(errorLog.toFile());
         this.serverProcess = pb.start();
 

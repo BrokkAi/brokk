@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.ProjectWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
@@ -71,13 +70,13 @@ public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Liste
             delayNotificationsUntilCompleted.complete(null);
 
             // debug logging
-            var codeUnits = currentAnalyzer.getAllDeclarations();
-            var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
-            logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
+            final var numberOfCodeUnits = currentAnalyzer.getDeclarationsCount();
+            final var numberOfCodeFiles = currentAnalyzer.getCodeFilesCount();
+            logger.debug("Initial analyzer has {} declarations across {} files", numberOfCodeUnits, numberOfCodeFiles);
 
             // configure auto-refresh based on how long the first build took
             if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                handleFirstBuildRefreshSettings(codeUnits.size(), durationMs, project.getAnalyzerLanguages());
+                handleFirstBuildRefreshSettings(numberOfCodeUnits, durationMs, project.getAnalyzerLanguages());
             }
 
             return currentAnalyzer;

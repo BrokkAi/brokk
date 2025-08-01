@@ -1,6 +1,9 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
-import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.CallSite;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
 import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
@@ -8,7 +11,9 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -50,6 +55,69 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         return getWorkspaceReadyLatch(getWorkspace())
                 .stream()
                 .noneMatch(x -> x.getCount() == 0L);
+    }
+
+    /**
+     * The number of all top-level declarations in the project.
+     */
+    @Override
+    default int getDeclarationsCount() {
+        return getSourceFiles().join().size(); // fixme: Think of a clever way to do this
+    }
+
+    @SuppressWarnings("unchecked")
+    default CompletableFuture<List<Path>> getSourceFiles() {
+        // Ask the server for the list of source directories
+        getWorkspaceReadyLatch(getWorkspace()).ifPresent(latch -> {
+            try {
+                latch.await();
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for workspace to be ready.", e);
+            }
+        });
+        return getServer().query(server -> {
+            ExecuteCommandParams params = new ExecuteCommandParams(
+                    "java.project.listSourcePaths",
+                    // The command needs the URI of the project to operate on
+                    List.of(this.getProjectRoot().toUri().toString())
+            );
+            return server
+                    .getWorkspaceService()
+                    .executeCommand(params)
+                    .thenApply(result -> {
+                        final var responseBody = (Map<String, Object>) result;
+                        if (responseBody.containsKey("data")) {
+                            return (List<Map<String, String>>) responseBody.get("data");
+                        } else {
+                            return Collections.<Map<String, String>>emptyList();
+                        }
+                    });
+        }).thenApply(spmFuture -> {
+            List<Path> allFiles = new ArrayList<>();
+            // For each source directory returned by the server...
+            spmFuture.thenAccept(sourcePathMaps -> {
+                for (final Map<String, String> sourcePathMap : sourcePathMaps) {
+                    final Path sourceDir = Path.of(sourcePathMap.get("path"));
+                    try (final var walk = Files.walk(sourceDir)) {
+                        walk.filter(p -> !Files.isDirectory(p) && p.toString().endsWith(".java"))
+                                .forEach(allFiles::add);
+                    } catch (IOException e) {
+                        logger.error("Failed to walk source directory: {}", sourceDir, e);
+                    }
+                }
+            }).join();
+
+            return allFiles;
+        });
+    }
+
+    /**
+     * The number of code-related files, considering excluded directories are ignored
+     */
+    @Override
+    default long getCodeFilesCount() {
+
+        return getSourceFiles().join().size();
     }
 
     /**
@@ -316,7 +384,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         } else {
             name = symbol.getName();
         }
-        
+
         return new CodeUnit(projectFile, codeUnitKind, containerName, name);
     }
 

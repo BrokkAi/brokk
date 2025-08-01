@@ -101,6 +101,20 @@ public interface IAnalyzer {
     }
 
     /**
+     * The number of all top-level declarations in the project.
+     */
+    default int getDeclarationsCount() {
+        return getAllDeclarations().size();
+    }
+
+    /**
+     * The number of code-related files, considering excluded directories are ignored
+     */
+    default long getCodeFilesCount() {
+        return getAllDeclarations().stream().map(CodeUnit::source).distinct().count();
+    }
+
+    /**
      * Gets top-level declarations in a given file.
      */
     default Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
