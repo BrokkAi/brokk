@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.shadow)
     alias(libs.plugins.buildconfig)
     alias(libs.plugins.spotless)
+    alias(libs.plugins.javafx)
 }
 
 group = "io.github.jbellis"
@@ -25,6 +26,11 @@ application {
         "--add-modules=jdk.incubator.vector",  // Vector API support
         "-Dbrokk.devmode=true"  // Development mode flag
     )
+}
+
+javafx {
+    version = libs.versions.javafx.get()
+    modules = listOf("javafx.controls", "javafx.fxml", "javafx.swing", "javafx.web")
 }
 
 repositories {

@@ -263,26 +263,26 @@ public class MarkdownSearchDebugger {
         if (!debugEnabled) return;
 
         logger.debug("\n--- All blocks in document ---");
-        var blockCounter = new AtomicInteger(0);
+        // var blockCounter = new AtomicInteger(0);
 
-        for (int panelIdx = 0; panelIdx < panels.size(); panelIdx++) {
-            MarkdownOutputPanel panel = panels.get(panelIdx);
-            List<IncrementalBlockRenderer> renderers = panel.renderers().toList();
+//        for (int panelIdx = 0; panelIdx < panels.size(); panelIdx++) {
+//            MarkdownOutputPanel panel = panels.get(panelIdx);
+//            List<IncrementalBlockRenderer> renderers = panel.renderers().toList();
+//
+//            for (int rendererIdx = 0; rendererIdx < renderers.size(); rendererIdx++) {
+//                IncrementalBlockRenderer renderer = renderers.get(rendererIdx);
+//                JComponent rendererRoot = renderer.getRoot();
+//                Component[] componentsInRenderer = rendererRoot.getComponents();
+//
+//                // Recursively traverse all components
+//                for (int compIdx = 0; compIdx < componentsInRenderer.length; compIdx++) {
+//                    Component comp = componentsInRenderer[compIdx];
+//                    printComponentHierarchy(comp, panelIdx, rendererIdx, compIdx, 0, blockCounter);
+//                }
+//            }
+//        }
 
-            for (int rendererIdx = 0; rendererIdx < renderers.size(); rendererIdx++) {
-                IncrementalBlockRenderer renderer = renderers.get(rendererIdx);
-                JComponent rendererRoot = renderer.getRoot();
-                Component[] componentsInRenderer = rendererRoot.getComponents();
-
-                // Recursively traverse all components
-                for (int compIdx = 0; compIdx < componentsInRenderer.length; compIdx++) {
-                    Component comp = componentsInRenderer[compIdx];
-                    printComponentHierarchy(comp, panelIdx, rendererIdx, compIdx, 0, blockCounter);
-                }
-            }
-        }
-
-        logger.debug("Total blocks in document: {}", blockCounter.get());
+        // logger.debug("Total blocks in document: {}", blockCounter.get());
     }
 
     private void printComponentHierarchy(Component comp, int panelIdx, int rendererIdx, int compIdx, int depth, AtomicInteger blockCounter) {
