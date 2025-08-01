@@ -37,7 +37,11 @@ public class JdtAnalyzer implements LspAnalyzer {
         if (!this.projectRoot.toFile().exists()) {
             throw new FileNotFoundException("Project directory does not exist: " + projectRoot);
         } else {
-            JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
+            try {
+                JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
+            } catch (Exception e) {
+                logger.warn("Error validating and creating project build files for: {}. Attempting to continue.", projectRoot, e);
+            }
             this.workspace = this.projectRoot.toUri().toString();
             this.sharedServer = SharedLspServer.getInstance();
             this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions(), getLanguage());
