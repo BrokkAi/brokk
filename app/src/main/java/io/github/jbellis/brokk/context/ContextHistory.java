@@ -9,7 +9,10 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
@@ -30,10 +33,12 @@ public class ContextHistory {
     private static final int MAX_DEPTH = 100;
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
+    public record GitState(String commitHash, @Nullable String diff) {}
 
     private final Deque<Context> history = new ArrayDeque<>();
     private final Deque<Context> redo   = new ArrayDeque<>();
     private final List<ResetEdge> resetEdges = new ArrayList<>();
+    private final Map<UUID, GitState> gitStates = new HashMap<>();
     private Context liveContext;
 
     /** UI-selection; never {@code null} once an initial context is set. */
@@ -48,15 +53,20 @@ public class ContextHistory {
     }
 
     public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of());
+        this(contexts, List.of(), Map.of());
     }
 
-    public ContextHistory(List<Context> frozenContexts, List<ResetEdge> resetEdges) {
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
+        this(contexts, resetEdges, Map.of());
+    }
+
+    public ContextHistory(List<Context> frozenContexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
         if (frozenContexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
         history.addAll(frozenContexts);
         this.resetEdges.addAll(resetEdges);
+        this.gitStates.putAll(gitStates);
         this.liveContext = Context.unfreeze(castNonNull(history.peekLast()));
         selected = history.peekLast();
     }
@@ -209,6 +219,7 @@ public class ContextHistory {
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
+            gitStates.remove(removed.id());
             var historyIds = history.stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
@@ -233,6 +244,18 @@ public class ContextHistory {
 
     public synchronized List<ResetEdge> getResetEdges() {
         return List.copyOf(resetEdges);
+    }
+
+    public synchronized void addGitState(UUID contextId, GitState gitState) {
+        gitStates.put(contextId, gitState);
+    }
+
+    public synchronized Optional<GitState> getGitState(UUID contextId) {
+        return Optional.ofNullable(gitStates.get(contextId));
+    }
+
+    public synchronized Map<UUID, GitState> getGitStates() {
+        return Map.copyOf(gitStates);
     }
 
     /**
