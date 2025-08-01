@@ -26,6 +26,7 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import io.github.jbellis.brokk.ThinkTagInterceptor;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.util.LogDescription;
@@ -168,7 +169,7 @@ public class Llm {
             }
         };
 
-        model.chat(request, new StreamingChatResponseHandler() {
+        var rawHandler = new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String token) {
                 ifNotCancelled.accept(() -> {
@@ -181,12 +182,12 @@ public class Llm {
 
             @Override
             public void onReasoningResponse(String reasoningContent) {
-              ifNotCancelled.accept(() -> {
-                accumulatedTextBuilder.append(reasoningContent);
-                if (echo) {
-                  io.llmOutput(reasoningContent, ChatMessageType.AI);
-                }
-              });
+                ifNotCancelled.accept(() -> {
+                    accumulatedTextBuilder.append(reasoningContent);
+                    if (echo) {
+                        io.llmOutput(reasoningContent, ChatMessageType.AI);
+                    }
+                });
             }
 
             @Override
@@ -221,7 +222,12 @@ public class Llm {
                     latch.countDown();
                 });
             }
-        });
+        };
+
+        var finalHandler = contextManager.getService().usesThinkTags(model)
+                           ? new ThinkTagInterceptor(rawHandler)
+                           : rawHandler;
+        model.chat(request, finalHandler);
 
         try {
             if (!latch.await(Service.LLM_MAX_RESPONSE_TIME, TimeUnit.SECONDS)) {

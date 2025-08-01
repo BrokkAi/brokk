@@ -4,6 +4,9 @@ import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
+import javax.swing.KeyStroke;
 
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 
@@ -187,10 +190,34 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         getTabbedPane().setFocusable(false);
         setLayout(new BorderLayout());
         KeyboardShortcutUtil.registerCloseEscapeShortcut(this, this::close);
+
+        // Register F7/Shift+F7 hotkeys for next/previous change navigation (IntelliJ style)
+        KeyboardShortcutUtil.registerGlobalShortcut(this,
+            KeyStroke.getKeyStroke(KeyEvent.VK_F7, 0),
+            "nextChange", this::navigateToNextChange);
+        KeyboardShortcutUtil.registerGlobalShortcut(this,
+            KeyStroke.getKeyStroke(KeyEvent.VK_F7, InputEvent.SHIFT_DOWN_MASK),
+            "previousChange", this::navigateToPreviousChange);
+
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
         add(getTabbedPane(), BorderLayout.CENTER);
+
+        // Add component listener to handle window resize events after navigation
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                // Only perform layout reset if needed after navigation
+                if (needsLayoutReset) {
+                    needsLayoutReset = false; // Clear flag
+                    var currentPanel = getBufferDiffPanel();
+                    if (currentPanel != null) {
+                        resetLayoutHierarchy(currentPanel);
+                    }
+                }
+            }
+        });
     }
 
     public JButton getBtnUndo() {
@@ -207,6 +234,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JButton btnNextFile = new JButton("Next File");
     private final JLabel scrollModeIndicatorLabel = new JLabel("Immediate"); // Initialize with default mode
     private final JLabel fileIndicatorLabel = new JLabel(""); // Initialize
+
+    // Flag to track when layout hierarchy needs reset after navigation
+    private volatile boolean needsLayoutReset = false;
+
     @Nullable private BufferDiffPanel bufferDiffPanel;
 
     public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
@@ -689,6 +720,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
 
+        // Re-establish component resize listeners and set flag for layout reset on next resize
+        cachedPanel.refreshComponentListeners();
+        needsLayoutReset = true;
+
         // Ensure diff highlights are properly displayed after theme application
         SwingUtilities.invokeLater(() -> {
             cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
@@ -1168,6 +1203,30 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         System.gc();
 
         logger.debug("Window cleanup complete: {}", panelCache.getWindowInfo());
+    }
+
+    /**
+     * Reset layout hierarchy to fix broken container relationships after file navigation.
+     * This rebuilds the BorderLayout relationships to restore proper resize behavior.
+     */
+    private void resetLayoutHierarchy(BufferDiffPanel currentPanel) {
+        // Remove and re-add tabbedPane to reset BorderLayout relationships
+        remove(getTabbedPane());
+        invalidate();
+        add(getTabbedPane(), java.awt.BorderLayout.CENTER);
+        revalidate();
+
+        // Ensure child components are properly updated
+        SwingUtilities.invokeLater(() -> {
+            getTabbedPane().revalidate();
+            currentPanel.revalidate();
+
+            // Refresh scroll synchronizer to maintain diff alignment
+            var synchronizer = currentPanel.getScrollSynchronizer();
+            if (synchronizer != null) {
+                synchronizer.invalidateViewportCacheForBothPanels();
+            }
+        });
     }
 
     /**

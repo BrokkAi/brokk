@@ -229,28 +229,34 @@ public class BuildAgent {
                                        Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
                                        Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
                                        configurations unless they are the only ones available.
-                                       
+
                                        Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
                                        as necessary, to determine the information needed by `reportBuildDetails`.
-                                       
-                                       For the `testSomeCommand` parameter, use Mustache templating with either {{classes}} or {{files}} lists.
+
+                                       When selecting build or test commands, prefer flags or sub-commands that minimise console output (for example, Maven -q, Gradle --quiet, npm test --silent, sbt -error).
+                                       Avoid verbose flags such as --info, --debug, or -X unless they are strictly required for correct operation.
+
                                        The lists are DecoratedCollection instances, so you get first/last/index/value fields.
                                        Examples:
-                                       
+
                                        | Build tool        | One-liner a user could write
                                        | ----------------- | ------------------------------------------------------------------------
-                                       | **SBT**           | `sbt "testOnly{{#classes}} {{value}}{{/classes}}"`
-                                       | **Maven**         | `mvn test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
-                                       | **Gradle**        | `gradle test{{#classes}} --tests {{value}}{{/classes}}`
+                                       | **SBT**           | `sbt -error "testOnly{{#classes}} {{value}}{{/classes}}"`
+                                       | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
+                                       | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
                                        | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
                                        | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
                                        | **pytest**        | `pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
                                        | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
-                                       
+
+                                       Prefer the repository-local *wrapper script* when it exists in the project root (e.g. `./gradlew`, `./mvnw`).
+                                       Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
+
+
                                        A baseline set of excluded directories has been established from build conventions and .gitignore.
                                        When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
                                        you identify that should be excluded from code intelligence, beyond this baseline.
-                                       
+
                                        Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                                        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
                                        """.stripIndent()));
@@ -386,11 +392,11 @@ public class BuildAgent {
         return cm.submitBackgroundTask("Determine build verification command",
                                        () -> determineVerificationCommand(cm));
     }
-    
+
     public static String getBuildLintSomeCommand(IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
         // Determine if template is files-based or classes-based
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") == null
-                                  ? details.testSomeCommand() 
+                                  ? details.testSomeCommand()
                                   : System.getenv("BRK_TESTSOME_CMD");
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}");

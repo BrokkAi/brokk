@@ -357,6 +357,30 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
+     * Re-establish component resize listeners after file navigation.
+     * This ensures resize events are properly handled after tab operations.
+     */
+    public void refreshComponentListeners() {
+        // Remove existing listeners to avoid duplicates
+        var listeners = getComponentListeners();
+        for (var listener : listeners) {
+            removeComponentListener(listener);
+        }
+
+        // Re-add resize listener for scroll synchronization
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    if (scrollSynchronizer != null) {
+                        scrollSynchronizer.invalidateViewportCacheForBothPanels();
+                    }
+                });
+            }
+        });
+    }
+
+    /**
      * Build the top row that holds search bars.
      */
     public JPanel activateBarDialog(String columns)

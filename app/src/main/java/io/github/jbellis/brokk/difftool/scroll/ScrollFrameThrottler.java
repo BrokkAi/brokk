@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import java.awt.event.ActionEvent;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -156,6 +157,18 @@ public final class ScrollFrameThrottler {
             latestAction = null;
             hasEvent = false;
             frameActive = false;
+        }
+
+        // Ensure any pending EDT operations complete before returning
+        // This prevents race conditions where timer callbacks might still execute
+        if (!SwingUtilities.isEventDispatchThread()) {
+            try {
+                SwingUtilities.invokeAndWait(() -> {
+                    // Empty runnable just to ensure EDT has processed any pending timer events
+                });
+            } catch (Exception e) {
+                logger.warn("Failed to synchronize with EDT during cancel", e);
+            }
         }
 
         if (logger.isDebugEnabled()) {

@@ -9,15 +9,48 @@ set -euo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LIB_DIR="$SCRIPT_DIR/app/build/libs"
 
-# Pick the newest brokk*.jar in LIB_DIR.
-jarfile="$(ls -t "$LIB_DIR"/brokk*.jar 2>/dev/null | head -n 1 || true)"
-
-if [[ -z "${jarfile:-}" ]]; then
+# Ensure at least one brokk*.jar exists so that the classpath wildcard will resolve
+if ! ls "$LIB_DIR"/brokk*.jar &>/dev/null; then
   echo "Error: No brokk*.jar found in $LIB_DIR" >&2
   exit 1
 fi
 
+# Include every jar in the build directory on the classpath
+CLASSPATH="$LIB_DIR/*"
+
 # Launch BrokkCli.
 # We use PGC because it's more space-efficient than the default G1,
 # and in cli mode we're not latency sensitive.
-exec java -ea -Xmx1G -XX:+UseParallelGC -cp "$jarfile" io.github.jbellis.brokk.cli.BrokkCli "$@"
+# Split out any -X* or -D* flags into JVM_ARGS, rest into APP_ARGS
+declare -a JVM_ARGS=()
+declare -a APP_ARGS=()
+for arg in "$@"; do
+  if [[ $arg == -X* || $arg == -D* ]]; then
+    JVM_ARGS+=("$arg")
+  else
+    APP_ARGS+=("$arg")
+  fi
+done
+
+# Build the final JVM argument list, adding a default -Xmx1G unless the caller
+# already supplied an explicit -Xmx option.
+declare -a EFFECTIVE_JVM_ARGS=("-ea" "-XX:+UseParallelGC")
+xmx_specified=false
+for arg in "${JVM_ARGS[@]-}"; do
+  if [[ $arg == -Xmx* ]]; then
+    xmx_specified=true
+    break
+  fi
+done
+if ! $xmx_specified; then
+  EFFECTIVE_JVM_ARGS+=("-Xmx1G")
+fi
+# Append any user-supplied JVM args (which may include their own -Xmx)
+EFFECTIVE_JVM_ARGS+=(${JVM_ARGS[@]+"${JVM_ARGS[@]}"})
+
+# Launch BrokkCli with the JVM flags first, then classpath, then app args
+exec java \
+     "${EFFECTIVE_JVM_ARGS[@]}" \
+     -cp "$CLASSPATH" \
+     io.github.jbellis.brokk.cli.BrokkCli \
+     "${APP_ARGS[@]-}"

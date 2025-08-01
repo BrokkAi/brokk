@@ -92,7 +92,7 @@ public class Service {
             logger.warn("Location not found for model name {}, cannot get prices.", modelName);
             return new ModelPricing(List.of());
         }
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, cannot get prices.", location);
             return new ModelPricing(List.of());
@@ -559,7 +559,7 @@ public class Service {
      * Returns a default value if the information is not available.
      */
     private int getMaxOutputTokens(String location) {
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_output_tokens")) {
             logger.warn("max_output_tokens not found for model location: {}", location);
             return 8192;
@@ -575,7 +575,7 @@ public class Service {
      */
     public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
             return 65536;
@@ -591,7 +591,7 @@ public class Service {
      */
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_concurrent_requests")) {
             return null;
         }
@@ -604,7 +604,7 @@ public class Service {
      */
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("tokens_per_minute")) {
             return null;
         }
@@ -621,7 +621,7 @@ public class Service {
             logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
             return false;
         }
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
             return false;
@@ -640,7 +640,7 @@ public class Service {
     }
 
     private boolean supportsReasoningEffortInternal(String location) {
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming no reasoning effort support.", location);
             return false;
@@ -662,7 +662,7 @@ public class Service {
      * @return True if the model info contains `"supports_reasoning": true`, false otherwise.
      */
     private boolean supportsReasoning(String location) {
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.trace("Model info not found for location {}, assuming no reasoning support.", location);
             return false;
@@ -737,7 +737,7 @@ public class Service {
 
     public boolean supportsJsonSchema(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
 
         if (location.contains("gemini")) {
             // buildToolCallsSchema can't build a valid properties map for `arguments` without `oneOf` schema support.
@@ -765,7 +765,7 @@ public class Service {
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
 
         // first check litellm metadata
         if (info == null) {
@@ -780,6 +780,15 @@ public class Service {
 
         // gemini and grok-3 support function calling but not parallel calls
         return location.contains("grok-3");
+    }
+
+    private @Nullable Map<String, Object> getModelInfo(String location) {
+        try {
+            return modelInfoMap.get(location);
+        } catch (NullPointerException e) {
+            // ImmutableMap throws NPE when key does not exist
+            return null;
+        }
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
@@ -845,6 +854,23 @@ public class Service {
     }
 
     /**
+     * Checks if the model uses <think> tags for reasoning instead of a separate channel.
+     *
+     * @param model The model instance to check.
+     * @return True if the model info contains `"uses_think_tags": true`, false otherwise.
+     */
+    public boolean usesThinkTags(StreamingChatModel model) {
+        var location = model.defaultRequestParameters().modelName();
+        var info = getModelInfo(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming no think-tag usage.", location);
+            return false;
+        }
+        var v = info.get("uses_think_tags");
+        return v instanceof Boolean b && b;
+    }
+
+    /**
      * Checks if the model supports vision (image) inputs based on its metadata.
      *
      * @param model The model instance to check.
@@ -852,7 +878,7 @@ public class Service {
      */
     public boolean supportsVision(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming no vision support.", location);
             return false;
