@@ -46,8 +46,10 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default boolean isEmpty() {
-        // fixme: This may OOM the server. `getAllWorkspaceSymbols` should not be used.
-        return LspAnalyzerHelper.getAllWorkspaceSymbols(getWorkspace(), getServer()).join().isEmpty();
+        // there are no easy ways to determine 'emptiness' without knowing names of indexed types or files names
+        return getWorkspaceReadyLatch(getWorkspace())
+                .stream()
+                .noneMatch(x -> x.getCount() == 0L);
     }
 
     /**

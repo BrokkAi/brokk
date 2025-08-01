@@ -260,7 +260,7 @@ public final class LspAnalyzerHelper {
         for (final DocumentSymbol docSymbol : symbols) {
             final String module;
             if (parentModule != null) {
-                if (MODULE_KINDS.contains(parentKind)) {
+                if (parentName != null && MODULE_KINDS.contains(parentKind)) {
                     module = parentModule + "." + parentName;
                 } else {
                     module = parentModule;
@@ -409,8 +409,8 @@ public final class LspAnalyzerHelper {
      * @return A CompletableFuture that will be completed with a list of symbols
      * found only within this instance's project path.
      */
-    @NotNull
-    public static CompletableFuture<List<? extends WorkspaceSymbol>> findSymbolsInWorkspace(
+    
+    public static @NotNull CompletableFuture<List<? extends WorkspaceSymbol>> findSymbolsInWorkspace(
             @NotNull String symbolName,
             @NotNull String workspace,
             @NotNull LspServer sharedServer) {
@@ -420,23 +420,28 @@ public final class LspAnalyzerHelper {
                 );
 
         return allSymbolsFuture.thenApply(futureEither ->
-                futureEither.thenApply(either -> {
-                    if (either.isLeft()) {
-                        // Case 1: Server sent the DEPRECATED type. Convert to the new type and filter.
-                        return either.getLeft().stream()
-                                .map(LspAnalyzerHelper::toWorkspaceSymbol)
-                                .filter(symbol -> LspAnalyzerHelper.getUriStringFromLocation(symbol.getLocation()).startsWith(workspace))
-                                .collect(Collectors.toList());
-                    } else if (either.isRight()) {
-                        // Case 2: Server sent the MODERN type. Just filter.
-                        return either.getRight().stream()
-                                .filter(symbol -> LspAnalyzerHelper.getUriStringFromLocation(symbol.getLocation()).startsWith(workspace))
-                                .collect(Collectors.toList());
-                    } else {
-                        return new ArrayList<WorkspaceSymbol>();
-                    }
-                }).join()
+                futureEither.thenApply(symbols -> eitherSymbolsToWorkspaceSymbols(symbols, workspace)).join()
         );
+    }
+    
+    private static @NotNull List<WorkspaceSymbol> eitherSymbolsToWorkspaceSymbols(
+            @NotNull Either<List<? extends SymbolInformation>, List<? extends WorkspaceSymbol>> eitherSymbols,
+            @Nullable String workspaceFilter
+    ) {
+        if (eitherSymbols.isLeft()) {
+            // Case 1: Server sent the DEPRECATED type. Convert to the new type and filter.
+            return eitherSymbols.getLeft().stream()
+                    .map(LspAnalyzerHelper::toWorkspaceSymbol)
+                    .filter(symbol -> Optional.ofNullable(workspaceFilter).map(s -> LspAnalyzerHelper.getUriStringFromLocation(symbol.getLocation()).startsWith(s)).orElse(true))
+                    .collect(Collectors.toList());
+        } else if (eitherSymbols.isRight()) {
+            // Case 2: Server sent the MODERN type. Just filter.
+            return eitherSymbols.getRight().stream()
+                    .filter(symbol -> Optional.ofNullable(workspaceFilter).map(s -> LspAnalyzerHelper.getUriStringFromLocation(symbol.getLocation()).startsWith(s)).orElse(true))
+                    .collect(Collectors.toList());
+        } else {
+            return new ArrayList<>();
+        }
     }
 
     /**
@@ -602,34 +607,5 @@ public final class LspAnalyzerHelper {
         // Relies on indexes, so shouldn't be too expensive
         return findSymbolsInWorkspace("*", workspace, sharedServer);
     }
-
-    /**
-     * Gets all symbols that the server has indexed for this specific workspace for a specific file.
-     *
-     * @return A CompletableFuture that will be completed with a list of all indexed symbols.
-     */
-    public static CompletableFuture<List<? extends WorkspaceSymbol>> getAllSymbolsInFile(
-            @NotNull LspServer sharedServer, @NotNull Path filePath
-    ) {
-        return LspAnalyzerHelper.getSymbolsInFile(sharedServer, filePath).thenApply(fileSymbols ->
-                fileSymbols.stream().map(fileSymbolsEither -> {
-                    if (fileSymbolsEither.isRight()) {
-                        final var currSymbol = fileSymbolsEither.getRight();
-                        final var allSymbols = new ArrayList<WorkspaceSymbol>();
-                        allSymbols.add(LspAnalyzerHelper.documentToWorkspaceSymbol(currSymbol, filePath.toUri().toString()));
-                        final var childSymbols = LspAnalyzerHelper.findAllSymbolsInTree(Collections.singletonList(currSymbol))
-                                .stream()
-                                .map(documentSymbol -> LspAnalyzerHelper.documentToWorkspaceSymbol(documentSymbol, filePath.toUri().toString()))
-                                .toList();
-                        allSymbols.addAll(childSymbols);
-                        return allSymbols;
-                    } else {
-                        // Find the symbol and map it to a new Location object with a precise range
-                        return new ArrayList<WorkspaceSymbol>();
-                    }
-                }).flatMap(Collection::stream).toList()
-        );
-    }
-
 
 }

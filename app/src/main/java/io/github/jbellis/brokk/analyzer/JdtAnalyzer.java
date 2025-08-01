@@ -61,11 +61,6 @@ public class JdtAnalyzer implements LspAnalyzer {
     }
 
     @Override
-    public boolean isEmpty() {
-        return false; // fixme: figure out a different way to test this
-    }
-
-    @Override
     public @NotNull Path getProjectRoot() {
         return this.projectRoot;
     }
