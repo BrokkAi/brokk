@@ -637,7 +637,6 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
             diffPanel.setSelectedDelta(delta);
             // Use the source and target indexes provided during construction
             diffPanel.runChange(sourcePanelIndex, targetPanelIndex, shift);
-            diffPanel.doSave(); // Consider if save should always happen here
         }
     }
 
@@ -666,8 +665,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
             // Determine the 'other' panel index (assuming only two panels 0 and 1)
             int otherPanelIndex = (panelIndexToDeleteFrom == 0) ? 1 : 0;
             // Run delete operation targeting the specified panel
-            diffPanel.runDelete(panelIndexToDeleteFrom, otherPanelIndex); // runDelete might need adjustment
-            diffPanel.doSave(); // Consider if save should always happen here
+            diffPanel.runDelete(panelIndexToDeleteFrom, otherPanelIndex);
         }
     }
 

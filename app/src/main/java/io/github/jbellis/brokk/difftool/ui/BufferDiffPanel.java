@@ -981,11 +981,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
                 toEditor.getDocument().insertString(toToOffset, replacedText, null);
             }
 
-            // Remove this delta so we can't click it again
-            if (patch != null) {
-                patch.getDeltas().remove(delta);
-            }
-
             setSelectedDelta(null);
             setSelectedLine(sourceChunk.getPosition());
 
@@ -993,7 +988,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             reDisplay();
             mainPanel.refreshTabTitle(this);
         } catch (BadLocationException ex) {
-            throw new RuntimeException("Error applying change operation", ex);
+            logger.error("Invalid document location during copy operation: fromLine={}, fromOffset={}, toOffset={}",
+                        fromLine, fromOffset, toOffset, ex);
+            mainPanel.getConsoleIO().toolError(
+                "Could not apply change due to document inconsistency. Please refresh the diff view.",
+                "Copy Operation Error");
+            return;
         }
     }
 
@@ -1024,11 +1024,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         toEditor.setSelectionStart(fromOffset);
         toEditor.setSelectionEnd(toOffset);
         toEditor.replaceSelection("");
-
-        // Remove the just-used delta
-        if (patch != null) {
-            patch.getDeltas().remove(delta);
-        }
 
         setSelectedDelta(null);
         setSelectedLine(chunk.getPosition());
