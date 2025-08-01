@@ -141,24 +141,35 @@ public abstract class LspServer implements LspFileUtilities {
         final Path serverHome = unpackLspServer("jdt");
         final Path launcherJar = findFile(serverHome, "org.eclipse.equinox.launcher_");
         final Path configDir = findConfigDir(serverHome);
-        final String maxHeap = getXmxAllocation();
 
         final ProcessBuilder pb = new ProcessBuilder(
                 "java",
+                // Java module system args for compatibility
+                "--add-modules=ALL-SYSTEM",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/sun.nio.fs=ALL-UNNAMED",
+                // Eclipse/OSGi launchers
                 "-Declipse.application=org.eclipse.jdt.ls.core.id1",
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dlog.level=ALL",
-                maxHeap,
-                "--add-modules=ALL-SYSTEM",
-//                "--add-opens java.base/java.util=ALL-UNNAMED", // This crashes `LSPLauncher.createClientLauncher`.
-//                "--add-opens java.base/java.lang=ALL-UNNAMED", // These are recommended to open up some internal class files
-                "-noverify",
+                // JDT LSP arguments
+                "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
+                "-DDetectVMInstallsJob.disabled=true",
+                // Memory arguments
+                "-Xmx2g",
+                "-Xms100m",
+                "-XX:+UseParallelGC",
+                "-XX:GCTimeRatio=4",
+                "-XX:AdaptiveSizePolicyWeight=90",
+                "-XX:+UseStringDeduplication",
+                "-Dsun.zip.disableMemoryMapping=true",
+                // Running the JAR
                 "-jar", launcherJar.toString(),
                 "-configuration", configDir.toString(),
                 "-data", cache.toString()
         );
-        this.serverProcess = pb.start();
         // In case the JVM doesn't shut down gracefully. If graceful shutdown is successful, this is removed. 
         // See LspServer::shutdown
         this.shutdownHook = new Thread(() -> {
@@ -168,6 +179,11 @@ public abstract class LspServer implements LspFileUtilities {
             }
         });
         Runtime.getRuntime().addShutdownHook(this.shutdownHook);
+
+
+        final Path errorLog = LspServer.getCacheForLsp(language).resolve("process-error.log");
+        pb.redirectError(errorLog.toFile());
+        this.serverProcess = pb.start();
 
         // Create a dedicated thread pool for the LSP client
         this.lspExecutor = Executors.newFixedThreadPool(4, runnable -> {
@@ -188,7 +204,7 @@ public abstract class LspServer implements LspFileUtilities {
         this.languageServer = launcher.getRemoteProxy();
         launcher.startListening();
 
-        InitializeParams params = new InitializeParams();
+        final var params = new InitializeParams();
         params.setProcessId((int) ProcessHandle.current().pid());
         params.setWorkspaceFolders(List.of(new WorkspaceFolder(initialWorkspace.toUri().toString(), initialWorkspace.getFileName().toString())));
         params.setClientInfo(new ClientInfo("Brokk", BuildInfo.version));
@@ -198,13 +214,20 @@ public abstract class LspServer implements LspFileUtilities {
         logger.trace("Setting JDT capabilities {}", capabilities);
         params.setCapabilities(capabilities);
 
-        this.serverInitialized = languageServer.initialize(params).thenRun(() -> {
+        if (!this.serverProcess.isAlive()) {
+            throw new IOException("LSP process failed shortly after starting with exit code " + 
+                    this.serverProcess.exitValue() + ". See " + errorLog.toAbsolutePath() + " for more details.");
+        }
+
+        this.serverInitialized = languageServer.initialize(params).thenApply(result -> {
+            logger.debug("LSP server initialized with result {}", result);
             if (this.languageServer != null) {
                 languageServer.initialized(new InitializedParams());
-                logger.info("JDT LS Initialized");
+                logger.info("LSP client Initialized ");
             } else {
-                throw new IllegalStateException("JDT LS could not be initialized.");
+                throw new IllegalStateException("LSP could not be initialized.");
             }
+            return null; // complete the future
         });
 
         try {
@@ -212,19 +235,9 @@ public abstract class LspServer implements LspFileUtilities {
             addWorkspaceFolder(initialWorkspace);
             logger.debug("Server initialization confirmed with initial workspace: {}", initialWorkspace);
         } catch (CompletionException e) {
-            logger.error("Server initialization failed", e.getCause());
+            logger.error("Server initialization failed", e);
             throw e; // Re-throw the exception
         }
-    }
-
-    /**
-     * This calculates and returns half of this progress' max memory allocation. This is so that if the client
-     * increases for larger projects, the LSP can also gain.
-     *
-     * @return half of this process' maximum memory allocation.
-     */
-    private String getXmxAllocation() {
-        return "-Xmx" + (Runtime.getRuntime().maxMemory() / (2 * 1024 * 1024)) + "M";
     }
 
     protected ClientCapabilities getCapabilities() {

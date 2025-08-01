@@ -95,7 +95,7 @@ public class JdtAnalyzer implements LspAnalyzer {
         final var imporT = new HashMap<String, Object>();
 
         server.put("launchMode", "Hybrid");
-        symbols.put("includeSourceMethodDeclarations", true);
+        symbols.put("includeSourceMethodDeclarations", false); // for performance
         configuration.put("updateBuildConfiguration", "automatic");
         imporT.put("maven", Map.of("wrapper", Map.of("enabled", true)));
         imporT.put("gradle", Map.of("wrapper", Map.of("enabled", true)));
