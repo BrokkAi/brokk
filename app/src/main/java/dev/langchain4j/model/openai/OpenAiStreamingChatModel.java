@@ -8,7 +8,6 @@ import static dev.langchain4j.model.openai.internal.OpenAiUtils.DEFAULT_OPENAI_U
 import static dev.langchain4j.model.openai.internal.OpenAiUtils.DEFAULT_USER_AGENT;
 import static dev.langchain4j.model.openai.internal.OpenAiUtils.fromOpenAiResponseFormat;
 import static dev.langchain4j.model.openai.internal.OpenAiUtils.toOpenAiChatRequest;
-import static dev.langchain4j.model.openai.internal.OpenAiUtils.validate;
 import static java.time.Duration.ofSeconds;
 
 import java.time.Duration;
@@ -21,8 +20,6 @@ import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
-import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.internal.OpenAiClient;
@@ -60,43 +57,32 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .customHeaders(builder.customHeaders)
                 .build();
 
-        ChatRequestParameters commonParameters;
-        if (builder.defaultRequestParameters != null) {
-            validate(builder.defaultRequestParameters);
-            commonParameters = builder.defaultRequestParameters;
-        } else {
-            commonParameters = DefaultChatRequestParameters.EMPTY;
-        }
-
-        OpenAiChatRequestParameters openAiParameters;
-        if (builder.defaultRequestParameters instanceof OpenAiChatRequestParameters openAiChatRequestParameters) {
-            openAiParameters = openAiChatRequestParameters;
-        } else {
-            openAiParameters = OpenAiChatRequestParameters.EMPTY;
-        }
+        OpenAiChatRequestParameters defaultParameters = builder.defaultRequestParameters == null
+                ? OpenAiChatRequestParameters.EMPTY
+                : builder.defaultRequestParameters;
 
         this.defaultRequestParameters = OpenAiChatRequestParameters.builder()
                 // common parameters
-                .modelName(getOrDefault(builder.modelName, commonParameters.modelName()))
-                .temperature(getOrDefault(builder.temperature, commonParameters.temperature()))
-                .topP(getOrDefault(builder.topP, commonParameters.topP()))
-                .frequencyPenalty(getOrDefault(builder.frequencyPenalty, commonParameters.frequencyPenalty()))
-                .presencePenalty(getOrDefault(builder.presencePenalty, commonParameters.presencePenalty()))
-                .maxOutputTokens(getOrDefault(builder.maxTokens, commonParameters.maxOutputTokens()))
-                .stopSequences(getOrDefault(builder.stop, commonParameters.stopSequences()))
-                .toolSpecifications(commonParameters.toolSpecifications())
-                .toolChoice(commonParameters.toolChoice())
-                .responseFormat(getOrDefault(fromOpenAiResponseFormat(builder.responseFormat), commonParameters.responseFormat()))
+                .modelName(getOrDefault(builder.modelName, defaultParameters.modelName()))
+                .temperature(getOrDefault(builder.temperature, defaultParameters.temperature()))
+                .topP(getOrDefault(builder.topP, defaultParameters.topP()))
+                .frequencyPenalty(getOrDefault(builder.frequencyPenalty, defaultParameters.frequencyPenalty()))
+                .presencePenalty(getOrDefault(builder.presencePenalty, defaultParameters.presencePenalty()))
+                .maxOutputTokens(getOrDefault(builder.maxTokens, defaultParameters.maxOutputTokens()))
+                .stopSequences(getOrDefault(builder.stop, defaultParameters.stopSequences()))
+                .toolSpecifications(defaultParameters.toolSpecifications())
+                .toolChoice(defaultParameters.toolChoice())
+                .responseFormat(getOrDefault(fromOpenAiResponseFormat(builder.responseFormat), defaultParameters.responseFormat()))
                 // OpenAI-specific parameters
-                .maxCompletionTokens(getOrDefault(builder.maxCompletionTokens, openAiParameters.maxCompletionTokens()))
-                .logitBias(getOrDefault(builder.logitBias, openAiParameters.logitBias()))
-                .parallelToolCalls(getOrDefault(builder.parallelToolCalls, openAiParameters.parallelToolCalls()))
-                .seed(getOrDefault(builder.seed, openAiParameters.seed()))
-                .user(getOrDefault(builder.user, openAiParameters.user()))
-                .store(getOrDefault(builder.store, openAiParameters.store()))
-                .metadata(getOrDefault(builder.metadata, openAiParameters.metadata()))
-                .serviceTier(getOrDefault(builder.serviceTier, openAiParameters.serviceTier()))
-                .reasoningEffort(openAiParameters.reasoningEffort())
+                .maxCompletionTokens(getOrDefault(builder.maxCompletionTokens, defaultParameters.maxCompletionTokens()))
+                .logitBias(getOrDefault(builder.logitBias, defaultParameters.logitBias()))
+                .parallelToolCalls(getOrDefault(builder.parallelToolCalls, defaultParameters.parallelToolCalls()))
+                .seed(getOrDefault(builder.seed, defaultParameters.seed()))
+                .user(getOrDefault(builder.user, defaultParameters.user()))
+                .store(getOrDefault(builder.store, defaultParameters.store()))
+                .metadata(getOrDefault(builder.metadata, defaultParameters.metadata()))
+                .serviceTier(getOrDefault(builder.serviceTier, defaultParameters.serviceTier()))
+                .reasoningEffort(defaultParameters.reasoningEffort())
                 .build();
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
@@ -111,7 +97,6 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
     public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
 
         OpenAiChatRequestParameters parameters = (OpenAiChatRequestParameters) chatRequest.parameters();
-        validate(parameters);
 
         ChatCompletionRequest openAiRequest =
                 toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema)
@@ -200,7 +185,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private String organizationId;
         private String projectId;
 
-        private ChatRequestParameters defaultRequestParameters;
+        private OpenAiChatRequestParameters defaultRequestParameters;
         private String modelName;
         private Double temperature;
         private Double topP;
@@ -234,12 +219,12 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         }
 
         /**
-         * Sets default common {@link ChatRequestParameters} or OpenAI-specific {@link OpenAiChatRequestParameters}.
+         * Sets default common {@link OpenAiChatRequestParameters} or OpenAI-specific {@link OpenAiChatRequestParameters}.
          * <br>
          * When a parameter is set via an individual builder method (e.g., {@link #modelName(String)}),
-         * its value takes precedence over the same parameter set via {@link ChatRequestParameters}.
+         * its value takes precedence over the same parameter set via {@link OpenAiChatRequestParameters}.
          */
-        public OpenAiStreamingChatModelBuilder defaultRequestParameters(ChatRequestParameters parameters) {
+        public OpenAiStreamingChatModelBuilder defaultRequestParameters(OpenAiChatRequestParameters parameters) {
             this.defaultRequestParameters = parameters;
             return this;
         }
