@@ -260,7 +260,7 @@ public class Service {
         var qm = getModel("gemini-2.0-flash", ReasoningLevel.DEFAULT);
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
+        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, OpenAiChatRequestParameters.builder().temperature(0.0));
         quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
@@ -677,7 +677,7 @@ public class Service {
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
     @Nullable
-    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable Double temperature) {
+    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
         @Nullable String location = modelLocations.get(modelName);
         logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
@@ -686,6 +686,9 @@ public class Service {
             return null;
         }
 
+        // default request parameters
+        var params = OpenAiChatRequestParameters.builder();
+
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
         String baseUrl = MainProject.getProxyUrl();
@@ -693,30 +696,30 @@ public class Service {
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
-                .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
+        params = params.maxOutputTokens(getMaxOutputTokens(location));
 
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
-                var kp = parseKey(MainProject.getBrokkKey());
-                builder = builder
-                        .apiKey(kp.token())
-                        .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
-                        .user(kp.userId().toString());
-            } else {
-                // Non-Brokk proxy
-                builder = builder.apiKey("dummy-key");
-            }
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+            var kp = parseKey(MainProject.getBrokkKey());
+            builder = builder
+                    .apiKey(kp.token())
+                    .customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
+            params = params.user(kp.userId().toString());
+        } else {
+            // Non-Brokk proxy
+            builder = builder.apiKey("dummy-key");
+        }
+            
+        params = params.modelName(location);
 
-        builder = builder.modelName(location);
-
-        // default request parameters
-        var params = OpenAiChatRequestParameters.builder()
-                .temperature(temperature);
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
         if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
                 params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
+        }
+        if (parametersOverride != null) {
+            params = params.overrideWith(parametersOverride.build());
         }
         builder.defaultRequestParameters(params.build());
 
