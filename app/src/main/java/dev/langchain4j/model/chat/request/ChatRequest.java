@@ -10,16 +10,17 @@ import java.util.Objects;
 
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 
 public class ChatRequest {
 
     private final List<ChatMessage> messages;
-    private final ChatRequestParameters parameters;
+    private final OpenAiChatRequestParameters parameters;
 
     protected ChatRequest(Builder builder) {
         this.messages = copy(ensureNotEmpty(builder.messages, "messages"));
 
-        DefaultChatRequestParameters.Builder<?> parametersBuilder = ChatRequestParameters.builder();
+        OpenAiChatRequestParameters.Builder parametersBuilder = OpenAiChatRequestParameters.builder();
 
         if (builder.modelName != null) {
             validate(builder, "modelName");
@@ -32,10 +33,6 @@ public class ChatRequest {
         if (builder.topP != null) {
             validate(builder, "topP");
             parametersBuilder.topP(builder.topP);
-        }
-        if (builder.topK != null) {
-            validate(builder, "topK");
-            parametersBuilder.topK(builder.topK);
         }
         if (builder.frequencyPenalty != null) {
             validate(builder, "frequencyPenalty");
@@ -77,7 +74,7 @@ public class ChatRequest {
         return messages;
     }
 
-    public ChatRequestParameters parameters() {
+    public OpenAiChatRequestParameters parameters() {
         return parameters;
     }
 
@@ -91,10 +88,6 @@ public class ChatRequest {
 
     public Double topP() {
         return parameters.topP();
-    }
-
-    public Integer topK() {
-        return parameters.topK();
     }
 
     public Double frequencyPenalty() {
@@ -157,12 +150,11 @@ public class ChatRequest {
     public static class Builder {
 
         private List<ChatMessage> messages;
-        private ChatRequestParameters parameters;
+        private OpenAiChatRequestParameters parameters;
 
         private String modelName;
         private Double temperature;
         private Double topP;
-        private Integer topK;
         private Double frequencyPenalty;
         private Double presencePenalty;
         private Integer maxOutputTokens;
@@ -187,7 +179,7 @@ public class ChatRequest {
             return messages(asList(messages));
         }
 
-        public Builder parameters(ChatRequestParameters parameters) {
+        public Builder parameters(OpenAiChatRequestParameters parameters) {
             this.parameters = parameters;
             return this;
         }
@@ -204,11 +196,6 @@ public class ChatRequest {
 
         public Builder topP(Double topP) {
             this.topP = topP;
-            return this;
-        }
-
-        public Builder topK(Integer topK) {
-            this.topK = topK;
             return this;
         }
 

@@ -11,7 +11,6 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -26,7 +25,6 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
-import io.github.jbellis.brokk.ThinkTagInterceptor;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.util.LogDescription;
@@ -745,7 +743,7 @@ public class Llm {
         // Simple request builder for JSON output format
         Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
                 .messages(attemptMessages)
-                .parameters(ChatRequestParameters.builder()
+                .parameters(OpenAiChatRequestParameters.builder()
                                     .responseFormat(ResponseFormat.builder()
                                                             .type(ResponseFormatType.JSON)
                                                             .build())
