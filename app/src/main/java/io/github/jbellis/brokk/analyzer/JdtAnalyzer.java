@@ -13,7 +13,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
@@ -96,7 +95,7 @@ public class JdtAnalyzer implements LspAnalyzer {
         final var imporT = new HashMap<String, Object>();
 
         server.put("launchMode", "Hybrid");
-        symbols.put("includeSourceMethodDeclarations", false); // for performance
+        symbols.put("includeSourceMethodDeclarations", true); // we need this for method search
         configuration.put("updateBuildConfiguration", "automatic");
         imporT.put("maven", Map.of("wrapper", Map.of("enabled", true)));
         imporT.put("gradle", Map.of("wrapper", Map.of("enabled", true)));

@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
@@ -153,6 +154,83 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         return !LspAnalyzerHelper.findTypesInWorkspace(className, getWorkspace(), getServer()).join().isEmpty();
     }
 
+    /**
+     * The server's search is optimized for speed and interactive use, not complex regex patterns. It supports:
+     * <ul>
+     *     <li>Fuzzy/Substring Matching: A query like "Buffer" will match StringBuffer and BufferedReader.</li>
+     *     <li>CamelCase Matching: A query like "RBE" will match ReadOnlyBufferException.</li>
+     *     <li>* (asterisk) matches any sequence of characters.</li>
+     *     <li>? (question mark) matches any single character.</li>
+     * </ul>
+     * Thus, we need to "sanitize" more complex operations otherwise these will be interpreted literally by the server.
+     *
+     * @param pattern the given search pattern.
+     * @return any matching {@link CodeUnit}s.
+     */
+    @Override
+    default @NotNull List<CodeUnit> searchDefinitions(@Nullable String pattern) {
+        if (pattern == null || pattern.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // A set of complex regex characters to be replaced by a broad wildcard.
+        final String cleanedPattern = sanitizeRegexToSimpleWildcard(pattern);
+
+        // Add a wildcard at the start so that method name matches will work by ignoring expected container prefixes
+        final String finalPattern;
+        if (cleanedPattern.startsWith("*")) {
+            finalPattern = cleanedPattern;
+        } else {
+            finalPattern = "*" + cleanedPattern;
+        }
+
+        return searchDefinitionsImpl(pattern, finalPattern, null);
+    }
+
+    /**
+     * Sanitizes a Java regular expression into a simpler wildcard pattern
+     * compatible with the LSP symbol search.
+     *
+     * @param pattern The input regular expression.
+     * @return A simplified string with wildcards (* and ?).
+     */
+    private static @NotNull String sanitizeRegexToSimpleWildcard(@NotNull String pattern) {
+        final String complexRegexChars = "[\\|\\[\\]\\(\\)\\{\\}\\^\\$\\+\\\\]";
+
+        // Handle the most common patterns directly.
+        // Replace any remaining complex regex syntax with a broad wildcard.
+        // Collapse multiple consecutive wildcards into a single one.
+        return pattern
+                // Handle the most common patterns directly.
+                .replace(".*", "*")
+                .replace(".", "?")
+                // Replace any remaining complex regex syntax with a broad wildcard.
+                .replaceAll(complexRegexChars, "*")
+                // Collapse multiple consecutive wildcards into a single one.
+                .replaceAll("\\*+", "*")
+                .replaceAll("\\?+", "?");
+    }
+
+    @Override
+    default @NotNull List<CodeUnit> searchDefinitionsImpl(
+            @NotNull String originalPattern,
+            @Nullable String fallbackPattern,
+            @Nullable Pattern compiledPattern
+    ) {
+        final CompletableFuture<List<? extends WorkspaceSymbol>> searchRequest;
+        if (fallbackPattern != null) {
+            searchRequest = LspAnalyzerHelper.findSymbolsInWorkspace(fallbackPattern, getWorkspace(), getServer());
+        } else if (compiledPattern != null) {
+            searchRequest = LspAnalyzerHelper.findSymbolsInWorkspace(originalPattern, getWorkspace(), getServer());
+        } else {
+            searchRequest = CompletableFuture.completedFuture(Collections.emptyList());
+        }
+
+        return searchRequest.thenApply(symbols ->
+                symbols.stream().map(this::codeUnitForWorkspaceSymbol).toList()
+        ).join();
+    }
+
     @Override
     default @Nullable String getClassSource(@NotNull String classFullName) {
         final var futureTypeSymbols = LspAnalyzerHelper
@@ -241,7 +319,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                         symbols.
                                 stream()
                                 .filter(s -> LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind()))
-                                .map(this::codeUnitForWorkspaceSymbolOfType)
+                                .map(this::codeUnitForWorkspaceSymbol)
                 ).join()
                 .toList();
     }
@@ -250,7 +328,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     default @NotNull Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
         return LspAnalyzerHelper.getWorkspaceSymbolsInFile(getServer(), file.absPath())
                 .thenApply(symbols ->
-                        symbols.stream().map(this::codeUnitForWorkspaceSymbolOfType)
+                        symbols.stream().map(this::codeUnitForWorkspaceSymbol)
                 )
                 .join()
                 .collect(Collectors.toSet());
@@ -372,7 +450,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         return newCallSite;
     }
 
-    default CodeUnit codeUnitForWorkspaceSymbolOfType(WorkspaceSymbol symbol) {
+    default CodeUnit codeUnitForWorkspaceSymbol(WorkspaceSymbol symbol) {
         final var uri = Path.of(URI.create(symbol.getLocation().getLeft().getUri()));
         final var projectFile = new ProjectFile(this.getProjectRoot(), this.getProjectRoot().relativize(uri));
         final var codeUnitKind = LspAnalyzerHelper.codeUnitForSymbolKind(symbol.getKind());
