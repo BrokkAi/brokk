@@ -91,17 +91,22 @@ public class JdtAnalyzer implements LspAnalyzer {
         final var javaOptions = new HashMap<String, Object>();
         final var server = new HashMap<String, Object>();
         final var symbols = new HashMap<String, Object>();
+        final var references = new HashMap<String, Object>();
         final var configuration = new HashMap<String, Object>();
         final var imporT = new HashMap<String, Object>();
 
         server.put("launchMode", "Hybrid");
-        symbols.put("includeSourceMethodDeclarations", true); // we need this for method search
+        // Include method declarations from source files in symbol search.
+        symbols.put("includeSourceMethodDeclarations", true);
+        // include getter, setter and builder/constructor when finding references.
+        references.put("includeAccessors", true);
         configuration.put("updateBuildConfiguration", "automatic");
         imporT.put("maven", Map.of("wrapper", Map.of("enabled", true)));
         imporT.put("gradle", Map.of("wrapper", Map.of("enabled", true)));
 
         javaOptions.put("server", server);
         javaOptions.put("symbols", symbols);
+        javaOptions.put("references", references);
         javaOptions.put("configuration", configuration);
         javaOptions.put("import", imporT);
 

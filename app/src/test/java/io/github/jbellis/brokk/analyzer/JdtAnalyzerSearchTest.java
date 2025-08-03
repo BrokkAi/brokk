@@ -171,8 +171,8 @@ public class JdtAnalyzerSearchTest {
         var innerFqNames = innerSymbols.stream()
                 .map(CodeUnit::fqName)
                 .collect(Collectors.toSet());
-        assertTrue(innerFqNames.contains("A.AInner"), "Should find nested class 'A$AInner'");
-        assertTrue(innerFqNames.contains("A.AInner.InnerInner"), "Should find deeply nested class 'A$AInner$AInnerInner'");
+        assertTrue(innerFqNames.contains("A.AInner"), "Should find nested class 'A.AInner'");
+        assertTrue(innerFqNames.contains("A.AInner.AInnerInner"), "Should find deeply nested class 'A.AInner.AInnerInner'");
     }
 
     @Test

@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
+import org.apache.commons.lang3.StringUtils;
 import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -177,12 +178,16 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         // A set of complex regex characters to be replaced by a broad wildcard.
         final String cleanedPattern = sanitizeRegexToSimpleWildcard(pattern);
 
-        // Add a wildcard at the start so that method name matches will work by ignoring expected container prefixes
+        // Add surrounding wildcards so that name matches will work by ignoring expected container prefixes and 
+        // signatures
         final String finalPattern;
-        if (cleanedPattern.startsWith("*")) {
+        if (cleanedPattern.startsWith("*") && cleanedPattern.endsWith("*")) {
             finalPattern = cleanedPattern;
         } else {
-            finalPattern = "*" + cleanedPattern;
+            // Assume there may be wildcards on either side instead of creating a super long if-else chain, and strip 
+            // these to avoid adding duplicates.
+            final var tmpPattern = StringUtils.stripStart(StringUtils.stripEnd(cleanedPattern, "*"), "*");
+            finalPattern = "*" + tmpPattern + "*";
         }
 
         return searchDefinitionsImpl(pattern, finalPattern, null);
