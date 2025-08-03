@@ -169,6 +169,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      */
     @Override
     default @NotNull List<CodeUnit> searchDefinitions(@Nullable String pattern) {
+        // fixme: We need to handle fields somehow, do we scan workspace code if this lookup is empty?
         if (pattern == null || pattern.isEmpty()) {
             return Collections.emptyList();
         }
@@ -185,6 +186,34 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         }
 
         return searchDefinitionsImpl(pattern, finalPattern, null);
+    }
+
+    @Override
+    default @NotNull Optional<CodeUnit> getDefinition(@Nullable String fqName) {
+        if (fqName == null) {
+            return Optional.empty();
+        } else {
+            final var exactMatch = searchDefinitionsImpl(fqName, fqName, null)
+                    .stream()
+                    .filter(cu -> LspAnalyzerHelper.simpleOrFullMatch(cu, fqName))
+                    .findFirst();
+            if (exactMatch.isPresent()) {
+                return exactMatch;
+            } else {
+                // Method names need to be separated from their types in the LSP search, which may require this fallback
+                // logic
+                return LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName)
+                        .flatMap(qualifiedMethod -> {
+                            final var methodName = qualifiedMethod.methodName();
+                            return searchDefinitionsImpl(methodName, methodName, null)
+                                    .stream()
+                                    .filter(cu -> LspAnalyzerHelper.simpleOrFullMatch(cu, fqName))
+                                    .findFirst();
+                        })
+                        .stream()
+                        .findFirst();
+            }
+        }
     }
 
     /**

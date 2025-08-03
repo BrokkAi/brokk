@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
 import org.eclipse.lsp4j.*;
@@ -480,6 +481,10 @@ public final class LspAnalyzerHelper {
     public static boolean simpleOrFullMatch(@NotNull WorkspaceSymbol symbol, @NotNull String simpleOrFullName) {
         final String symbolFullName = symbol.getContainerName() + "." + symbol.getName();
         return symbol.getName().equals(simpleOrFullName) || symbolFullName.equals(simpleOrFullName);
+    }
+
+    public static boolean simpleOrFullMatch(@NotNull CodeUnit unit, @NotNull String simpleOrFullName) {
+        return unit.shortName().equals(simpleOrFullName) || unit.fqName().equals(simpleOrFullName);
     }
 
     /**
