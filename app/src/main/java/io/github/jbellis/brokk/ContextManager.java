@@ -1533,7 +1533,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private void ensureBuildDetailsAsync() {
         if (project.hasBuildDetails()) {
-            logger.trace("Using existing build details");
+            logger.debug("Using existing build details");
             return;
         }
 

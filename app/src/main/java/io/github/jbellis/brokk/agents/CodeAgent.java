@@ -47,6 +47,9 @@ public class CodeAgent {
     private static final int MAX_PARSE_ATTEMPTS = 3;
     @VisibleForTesting
     static final int MAX_APPLY_FAILURES_BEFORE_FALLBACK = 3;
+    /** maximum consecutive build failures before giving up */
+    @VisibleForTesting
+    static final int MAX_BUILD_FAILURES = 5;
 
     final IContextManager contextManager;
     private final StreamingChatModel model;
@@ -102,7 +105,8 @@ public class CodeAgent {
                                                                    null);
 
         var conversationState = new ConversationState(taskMessages, nextRequest);
-        var workspaceState = new EditState(blocks, 0, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+        var workspaceState = new EditState(blocks, 0, applyFailures, 0,
+                                           blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
@@ -241,7 +245,8 @@ public class CodeAgent {
                                                                       file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0,
+                                      "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
@@ -817,6 +822,14 @@ public class CodeAgent {
             if (metrics != null) {
                 metrics.buildFailures++;
             }
+
+            int newBuildFailures = ws.consecutiveBuildFailures() + 1;
+            if (newBuildFailures >= MAX_BUILD_FAILURES) {
+                reportComplete("Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR,
+                                                                 "Build failed %d consecutive times:\n%s"
+                                                                         .formatted(newBuildFailures, latestBuildError)));
+            }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
             var newCs = new ConversationState(cs.taskMessages(),
                                               nextRequestForBuildFailure);
@@ -987,6 +1000,7 @@ public class CodeAgent {
             List<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
+            int consecutiveBuildFailures,
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
@@ -997,6 +1011,7 @@ public class CodeAgent {
          */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(newPendingBlocks, newParseFailures, consecutiveApplyFailures,
+                                 consecutiveBuildFailures,
                                  blocksAppliedWithoutBuild, lastBuildError, changedFiles, originalFileContents);
         }
 
@@ -1005,6 +1020,7 @@ public class CodeAgent {
          */
         EditState afterBuildFailure(String newBuildError) {
             return new EditState(pendingBlocks, consecutiveParseFailures, consecutiveApplyFailures,
+                                 consecutiveBuildFailures + 1,
                                  0, newBuildError, changedFiles, originalFileContents);
         }
 
@@ -1014,6 +1030,7 @@ public class CodeAgent {
         EditState afterApply(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newApplyFailures,
                              int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
             return new EditState(newPendingBlocks, consecutiveParseFailures, newApplyFailures,
+                                 consecutiveBuildFailures,
                                  newBlocksApplied, lastBuildError, changedFiles, newOriginalContents);
         }
 
@@ -1024,6 +1041,7 @@ public class CodeAgent {
                                        Set<ProjectFile> updatedChangedFiles,
                                        Map<ProjectFile, String> newOriginalContents) {
             return new EditState(newPendingBlocks, consecutiveParseFailures, 0,
+                                 consecutiveBuildFailures,
                                  1, lastBuildError, updatedChangedFiles, newOriginalContents);
         }
     }

@@ -38,12 +38,10 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.UnsupportedFeatureException;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.openai.OpenAiTokenUsage.InputTokensDetails;
@@ -66,7 +64,6 @@ import dev.langchain4j.model.openai.internal.shared.CompletionTokensDetails;
 import dev.langchain4j.model.openai.internal.shared.PromptTokensDetails;
 import dev.langchain4j.model.openai.internal.shared.Usage;
 import dev.langchain4j.model.output.FinishReason;
-import dev.langchain4j.model.output.Response;
 
 @SuppressWarnings("deprecation")
 public class OpenAiUtils {
@@ -372,12 +369,6 @@ public class OpenAiUtils {
             case AUTO -> ToolChoiceMode.AUTO;
             case REQUIRED -> ToolChoiceMode.REQUIRED;
         };
-    }
-
-    public static void validate(ChatRequestParameters parameters) {
-        if (parameters.topK() != null) {
-            throw new UnsupportedFeatureException("'topK' parameter is not supported by OpenAI");
-        }
     }
 
     public static ResponseFormat fromOpenAiResponseFormat(String responseFormat) {

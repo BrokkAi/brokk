@@ -91,12 +91,13 @@ class CodeAgentTest {
         );
         var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingBlocks), // Modifiable copy
-                0,
-                0,
+                0,  // consecutiveParseFailures
+                0,  // consecutiveApplyFailures
+                0,  // consecutiveBuildFailures (new)
                 blocksAppliedWithoutBuild,
-                "",
+                "", // lastBuildError
                 new HashSet<>(), // changedFiles
-                new HashMap<>() // originalFileContents
+                new HashMap<>()  // originalFileContents
         );
         return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
     }
@@ -242,6 +243,7 @@ class CodeAgentTest {
                 new CodeAgent.EditState(List.of(nonMatchingBlock), // re-add the block
                                         currentContext.editState().consecutiveParseFailures(),
                                         currentContext.editState().consecutiveApplyFailures(),
+                                        currentContext.editState().consecutiveBuildFailures(),  // new
                                         currentContext.editState().blocksAppliedWithoutBuild(),
                                         currentContext.editState().lastBuildError(),
                                         currentContext.editState().changedFiles(),
@@ -261,6 +263,7 @@ class CodeAgentTest {
             new CodeAgent.EditState(List.of(nonMatchingBlock),
                                     currentContext.editState().consecutiveParseFailures(),
                                     currentContext.editState().consecutiveApplyFailures(),
+                                    currentContext.editState().consecutiveBuildFailures(),  // new
                                     currentContext.editState().blocksAppliedWithoutBuild(),
                                     currentContext.editState().lastBuildError(),
                                     currentContext.editState().changedFiles(),
@@ -379,6 +382,7 @@ class CodeAgentTest {
                         List.of(), // pending blocks are empty
                         retryStep.loopContext().editState().consecutiveParseFailures(),
                         retryStep.loopContext().editState().consecutiveApplyFailures(),
+                        retryStep.loopContext().editState().consecutiveBuildFailures(),  // new
                         1, // Simulate one new fix was applied to pass the guard in verifyPhase
                         retryStep.loopContext().editState().lastBuildError(),
                         retryStep.loopContext().editState().changedFiles(),

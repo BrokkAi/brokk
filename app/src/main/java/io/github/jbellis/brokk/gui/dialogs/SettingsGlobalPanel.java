@@ -18,6 +18,8 @@ import javax.swing.plaf.basic.BasicComboPopup;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
+import javax.swing.table.TableRowSorter;
+import java.util.Comparator;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
@@ -328,6 +330,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         quickModelsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         quickModelsTable.setRowHeight(quickModelsTable.getRowHeight() + 4);
 
+        // Enable sorting by clicking on column headers
+        var sorter = new TableRowSorter<>(quickModelsTableModel);
+        // Sort the Reasoning column using enum ordinal to preserve natural order
+        sorter.setComparator(2, Comparator.comparingInt(Service.ReasoningLevel::ordinal));
+        quickModelsTable.setRowSorter(sorter);
+
         TableColumn aliasColumn = quickModelsTable.getColumnModel().getColumn(0);
         aliasColumn.setPreferredWidth(100);
 
@@ -354,10 +362,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
             String defaultModel = availableModelNames.length > 0 ? availableModelNames[0] : "";
             quickModelsTableModel.addFavorite(new Service.FavoriteModel("new-alias", defaultModel, Service.ReasoningLevel.DEFAULT));
-            int newRowIndex = quickModelsTableModel.getRowCount() - 1;
-            quickModelsTable.setRowSelectionInterval(newRowIndex, newRowIndex);
-            quickModelsTable.scrollRectToVisible(quickModelsTable.getCellRect(newRowIndex, 0, true));
-            quickModelsTable.editCellAt(newRowIndex, 0);
+            int modelRowIndex = quickModelsTableModel.getRowCount() - 1;
+            int viewRowIndex  = quickModelsTable.convertRowIndexToView(modelRowIndex);
+            quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
+            quickModelsTable.scrollRectToVisible(quickModelsTable.getCellRect(viewRowIndex, 0, true));
+            quickModelsTable.editCellAt(viewRowIndex, 0);
             Component editorComponent = quickModelsTable.getEditorComponent();
             if (editorComponent != null) {
                 editorComponent.requestFocusInWindow();
@@ -365,14 +374,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         });
 
         removeButton.addActionListener(e -> {
-            int selectedRow = quickModelsTable.getSelectedRow();
-            if (selectedRow != -1) {
-                if (quickModelsTable.isEditing()) {
-                    quickModelsTable.getCellEditor().stopCellEditing();
-                }
-                quickModelsTableModel.removeFavorite(selectedRow);
-            }
-        });
+    int viewRow = quickModelsTable.getSelectedRow();
+    if (viewRow != -1) {
+        if (quickModelsTable.isEditing()) {
+            quickModelsTable.getCellEditor().stopCellEditing();
+        }
+        int modelRow = quickModelsTable.convertRowIndexToModel(viewRow);
+        quickModelsTableModel.removeFavorite(modelRow);
+    }
+});
 
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
@@ -878,7 +888,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         public ReasoningCellRenderer(Service service) { this.models = service; }
         @Override public Component getTableCellRendererComponent(JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            String modelName = (String) table.getModel().getValueAt(row, 1);
+        int modelRow   = table.convertRowIndexToModel(row);
+        String modelName = (String) table.getModel().getValueAt(modelRow, 1);
             if (modelName != null && !models.supportsReasoningEffort(modelName)) {
                 label.setText("Off"); label.setEnabled(false); label.setToolTipText("Reasoning effort not supported by " + modelName);
             } else if (value instanceof Service.ReasoningLevel level) {
@@ -903,7 +914,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             super(comboBox); this.comboBox = comboBox; this.models = service; this.table = table; setClickCountToStart(1);
         }
         @Override public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-            String modelName = (String) table.getModel().getValueAt(row, 1);
+            int modelRow   = table.convertRowIndexToModel(row);
+            String modelName = (String) table.getModel().getValueAt(modelRow, 1);
             boolean supportsReasoning = modelName != null && models.supportsReasoningEffort(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
             editorComponent.setEnabled(supportsReasoning); comboBox.setEnabled(supportsReasoning);
@@ -925,7 +937,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
         @Override public boolean isCellEditable(java.util.EventObject anEvent) {
             int editingRow = table.getEditingRow();
-            if (editingRow != -1) { String modelName = (String) table.getModel().getValueAt(editingRow, 1); return modelName != null && models.supportsReasoningEffort(modelName); }
+            if (editingRow != -1) {
+                int modelRow  = table.convertRowIndexToModel(editingRow);
+                String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+                return modelName != null && models.supportsReasoningEffort(modelName);
+            }
             return super.isCellEditable(anEvent);
         }
         @Override public Object getCellEditorValue() { return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT; }

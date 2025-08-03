@@ -101,6 +101,8 @@ public final class MainProject extends AbstractProject {
     public static final String BROKK_PROXY_URL = "https://proxy.brokk.ai";
     public static final String LOCALHOST_PROXY_URL = "http://localhost:4000";
     public static final String STAGING_PROXY_URL = "https://staging.brokk.ai";
+    public static final String BROKK_SERVICE_URL = "https://app.brokk.ai";
+    public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
@@ -732,6 +734,14 @@ public final class MainProject extends AbstractProject {
             case BROKK -> BROKK_PROXY_URL;
             case LOCALHOST -> LOCALHOST_PROXY_URL;
             case STAGING -> STAGING_PROXY_URL;
+        };
+    }
+
+    public static String getServiceUrl() {
+        return switch (getProxySetting()) {
+            case BROKK -> BROKK_SERVICE_URL;
+            case LOCALHOST -> BROKK_SERVICE_URL;
+            case STAGING -> STAGING_SERVICE_URL;
         };
     }
 
