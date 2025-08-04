@@ -101,17 +101,12 @@ public interface IAnalyzer {
     }
 
     /**
-     * The number of all top-level declarations in the project.
+     * The metrics around the codebase as determined by the analyzer.
      */
-    default int getDeclarationsCount() {
-        return getAllDeclarations().size();
-    }
-
-    /**
-     * The number of code-related files, considering excluded directories are ignored
-     */
-    default long getCodeFilesCount() {
-        return getAllDeclarations().stream().map(CodeUnit::source).distinct().count();
+    default CodeBaseMetrics getMetrics() {
+        final var declarations = getAllDeclarations();
+        final var codeUnits = declarations.stream().map(CodeUnit::source).distinct();
+        return new CodeBaseMetrics((int) codeUnits.count(), declarations.size());
     }
 
     /**
@@ -140,9 +135,9 @@ public interface IAnalyzer {
     /**
      * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided
      * pattern as follows:
-     *     val preparedPattern =
-     *       if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"
-     *     val ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
+     * val preparedPattern =
+     * if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"
+     * val ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
      */
     default List<CodeUnit> searchDefinitions(String pattern) {
         // Validate pattern
@@ -181,12 +176,12 @@ public interface IAnalyzer {
         // Default implementation using getAllDeclarations
         if (fallbackPattern != null) {
             return getAllDeclarations().stream()
-                                      .filter(cu -> cu.fqName().toLowerCase().contains(fallbackPattern))
-                                      .toList();
+                    .filter(cu -> cu.fqName().toLowerCase().contains(fallbackPattern))
+                    .toList();
         } else {
             return getAllDeclarations().stream()
-                                      .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                                      .toList();
+                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .toList();
         }
     }
 
@@ -215,7 +210,9 @@ public interface IAnalyzer {
      * @see #getSymbols(Set) for how this method is used in symbol collection
      */
     @NotNull
-    default List<CodeUnit> directChildren(CodeUnit cu) { return List.of(); }
+    default List<CodeUnit> directChildren(CodeUnit cu) {
+        return List.of();
+    }
 
     /**
      * Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set.
@@ -239,7 +236,7 @@ public interface IAnalyzer {
 
     /**
      * Gets a set of relevant symbol names (classes, methods, fields) defined within the given source CodeUnits.
-     *
+     * <p>
      * Almost all String representations in the Analyzer are fully-qualified, but these are not! In CodeUnit
      * terms, this returns identifiers -- just the symbol name itself, no class or package hierarchy.
      *
@@ -248,7 +245,7 @@ public interface IAnalyzer {
      */
     default Set<String> getSymbols(Set<CodeUnit> sources) {
         var visited = new HashSet<CodeUnit>();
-        var work    = new ArrayDeque<>(sources);
+        var work = new ArrayDeque<>(sources);
         var symbols = new HashSet<String>(); // Use regular HashSet for better performance
 
         while (!work.isEmpty()) {
@@ -269,7 +266,7 @@ public interface IAnalyzer {
      * The {@code paramNames} list contains the *parameter variable names* (not types).
      * If there is only a single match, or exactly one match with matching param names, return it.
      * Otherwise throw {@code SymbolNotFoundException} or {@code SymbolAmbiguousException}.
-     *
+     * <p>
      * TODO this should return an Optional
      */
     default FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
@@ -295,5 +292,6 @@ public interface IAnalyzer {
     /**
      * Container for a function’s location and current source text.
      */
-    record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {}
+    record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {
+    }
 }

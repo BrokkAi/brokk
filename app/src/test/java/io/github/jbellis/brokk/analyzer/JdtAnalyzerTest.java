@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -539,6 +540,24 @@ public class JdtAnalyzerTest {
         final var location = analyzer.getFunctionLocation("B.B", Collections.emptyList());
         assertTrue(location.startLine() > 0 && location.endLine() > 0);
         assertTrue(location.code().contains("public B()"), "Constructor code:\n" + location.code());
+    }
+
+    @Test
+    public void getMembersInClassTest() {
+        final var members = analyzer.getMembersInClass("D");
+        final var maybeFile = analyzer.getFileFor("D");
+        assertTrue(maybeFile.isPresent());
+        final var file = maybeFile.get();
+
+        final var expected = Stream.of(
+                // Methods
+                CodeUnit.fn(file, "", "D.methodD1"),
+                CodeUnit.fn(file, "", "D.methodD2"),
+                // Fields
+                CodeUnit.field(file, "", "D.field1"),
+                CodeUnit.field(file, "", "D.field2")
+        ).sorted().toList();
+        assertEquals(expected, members);
     }
     
 }

@@ -2,9 +2,9 @@ package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.ProjectWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,11 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -63,20 +59,19 @@ public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Liste
             watchService.start(delayNotificationsUntilCompleted);
 
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
-            long start =  System.currentTimeMillis();
+            long start = System.currentTimeMillis();
             currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
-            
+
             delayNotificationsUntilCompleted.complete(null);
 
             // debug logging
-            final var numberOfCodeUnits = currentAnalyzer.getDeclarationsCount();
-            final var numberOfCodeFiles = currentAnalyzer.getCodeFilesCount();
-            logger.debug("Initial analyzer has {} declarations across {} files", numberOfCodeUnits, numberOfCodeFiles);
+            final var metrics = currentAnalyzer.getMetrics();
+            logger.debug("Initial analyzer has {} declarations across {} files", metrics.numberOfDeclarations(), metrics.numberOfCodeUnits());
 
             // configure auto-refresh based on how long the first build took
             if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                handleFirstBuildRefreshSettings(numberOfCodeUnits, durationMs, project.getAnalyzerLanguages());
+                handleFirstBuildRefreshSettings(metrics.numberOfCodeUnits(), durationMs, project.getAnalyzerLanguages());
             }
 
             return currentAnalyzer;
@@ -240,8 +235,7 @@ public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Liste
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild
                 && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL
-                && !externalRebuildRequested)
-        {
+                && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
@@ -333,11 +327,10 @@ public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Liste
     /**
      * Determine whether the cached analyzer for the given language is stale relative to
      * its tracked source files and any user-requested rebuilds.
-     *
+     * <p>
      * The caller guarantees that {@code analyzerPath} is non-null and exists.
      */
-    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles)
-    {
+    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles) {
         // An explicit external rebuild request always wins.
         if (externalRebuildRequested) {
             return true;

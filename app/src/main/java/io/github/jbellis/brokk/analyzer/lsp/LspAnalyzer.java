@@ -58,14 +58,6 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         return getSourceFiles().join().isEmpty();
     }
 
-    /**
-     * The number of all top-level declarations in the project.
-     */
-    @Override
-    default int getDeclarationsCount() {
-        return getSourceFiles().join().size(); // fixme: Think of a clever way to do this
-    }
-
     @SuppressWarnings("unchecked")
     default CompletableFuture<List<Path>> getSourceFiles() {
         // Ask the server for the list of source directories
@@ -116,9 +108,12 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      * The number of code-related files, considering excluded directories are ignored
      */
     @Override
-    default long getCodeFilesCount() {
-
-        return getSourceFiles().join().size();
+    default CodeBaseMetrics getMetrics() {
+        final var sourceFiles = getSourceFiles().join();
+        return new CodeBaseMetrics(
+                sourceFiles.size(),
+                sourceFiles.size() // an approximation to be fast
+        );
     }
 
     /**
@@ -734,6 +729,22 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         }
         contextStack.poll(); // Backtrack
         return Optional.empty();
+    }
+
+    @Override
+    default @NotNull List<CodeUnit> getMembersInClass(@NotNull String fqClass) {
+        return getFileFor(fqClass).map(this::getDeclarationsInFile)
+                .stream()
+                .flatMap(Set::stream)
+                .filter(codeUnit -> !codeUnit.isClass())
+                .sorted()
+                .toList();
+    }
+
+    @Override
+    default @NotNull List<CodeUnit> directChildren(CodeUnit cu) {
+        // TODO: Implement
+        return IAnalyzer.super.directChildren(cu);
     }
 
 }
