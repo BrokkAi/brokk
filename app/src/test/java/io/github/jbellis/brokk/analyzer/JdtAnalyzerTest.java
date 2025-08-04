@@ -2,8 +2,8 @@ package io.github.jbellis.brokk.analyzer;
 
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -303,10 +303,94 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void declarationsInPackagedFileTest() {
+        final var file = new ProjectFile(analyzer.getProjectRoot(), "Packaged.java");
+        final var declarations = analyzer.getDeclarationsInFile(file);
+        final var expected = Set.of(
+                // Class
+                CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
+                // Method
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar"),
+                // Constructor
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.<init>")
+                // No fields in Packaged.java
+        );
+        assertEquals(expected, declarations)
+    }
+
+    @Test
+    public void getUsesMethodExistingTest() {
+        final var symbol = "A.method2";
+        final var usages = analyzer.getUses(symbol);
+
+        // Expect references in B.callsIntoA() because it calls a.method2("test")
+        final var actualMethodRefs = usages.stream().filter(CodeUnit::isFunction).map(CodeUnit::fqName).collect(Collectors.toSet());
+        final var actualRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(Set.of("B.callsIntoA", "AnonymousUsage$1.run"), actualRefs);
+    }
+
+    @Test
+    public void getUsesMethodNonexistentTest() {
+        final var symbol = "A.noSuchMethod:java.lang.String()";
+        final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));
+        assertTrue(ex.getMessage().contains("not found as a method, field, or class"));
+    }
+
+    @Test
+    public void getUsesFieldExistingTest() {
+        final var symbol = "D.field1"; // fully qualified field name
+        final var usages = analyzer.getUses(symbol);
+
+        final var actualRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(Set.of("D.methodD2", "E.dMethod"), actualRefs);
+    }
+
+    @Test
+    public void getUsesFieldNonexistentTest() {
+        final var symbol = "D.notAField";
+        final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));
+        assertTrue(ex.getMessage().contains("not found"));
+    }
+
+    @Test
+    public void getUsesClassBasicTest() {
+        // “A” has no static members, but it is used as a local type in B.callsIntoA and D.methodD1
+        final var symbol = "A";
+        final var usages = analyzer.getUses(symbol);
+
+        // References to A include both function references and local variable references
+        final var foundRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Get the usages of each type
+        final var functionRefs = usages.stream().filter(CodeUnit::isFunction).map(CodeUnit::fqName).collect(Collectors.toSet());
+        final var fieldRefs = usages.stream().filter(cu -> !cu.isFunction() && !cu.isClass()).map(CodeUnit::fqName).collect(Collectors.toSet());
+        final var classRefs = usages.stream().filter(CodeUnit::isClass).map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // There should be function usages in these methods
+        assertEquals(Set.of("B.callsIntoA", "D.methodD1", "AnonymousUsage$1.run"), functionRefs);
+
+        // Ensure we have the correct usage types with our refactored implementation
+        final var all = new HashSet<String>();
+        all.addAll(functionRefs);
+        all.addAll(fieldRefs);
+        all.addAll(classRefs);
+        assertEquals(foundRefs, all);
+    }
+
+    @Test
+    public void getUsesClassNonexistentTest() {
+        final var symbol = "NoSuchClass";
+        final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));
+        assertTrue(
+                ex.getMessage().contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class")
+        );
+    }
+
+    @Test
     public void getDeclarationsInFileTest() {
-        final var maybeFile =  analyzer.getFileFor("D");
+        final var maybeFile = analyzer.getFileFor("D");
         assertTrue(maybeFile.isPresent());
-        final var file         = maybeFile.get();
+        final var file = maybeFile.get();
         final var classes = analyzer.getDeclarationsInFile(file);
 
         final var expected = Set.of(
@@ -322,6 +406,38 @@ public class JdtAnalyzerTest {
                 CodeUnit.field(file, "", "D.field2")
         );
         assertEquals(expected, classes);
+    }
+
+    @Test
+    public void testGetDefinitionForClass() {
+        var classDDef = analyzer.getDefinition("D");
+        assertTrue(classDDef.isPresent(), "Should find definition for class 'D'");
+        assertEquals("D", classDDef.get().fqName());
+        assertTrue(classDDef.get().isClass());
+    }
+
+    @Test
+    public void testGetDefinitionForMethod() {
+        var method1Def = analyzer.getDefinition("A.method1");
+        assertTrue(method1Def.isPresent(), "Should find definition for method 'A.method1'");
+        assertEquals("A.method1", method1Def.get().fqName());
+        assertTrue(method1Def.get().isFunction());
+    }
+
+    @Test
+    @Disabled("JDT LSP does not index field symbols")
+    public void testGetDefinitionForField() {
+        var field1Def = analyzer.getDefinition("D.field1");
+        assertTrue(field1Def.isPresent(), "Should find definition for field 'D.field1'");
+        assertEquals("D.field1", field1Def.get().fqName());
+        assertFalse(field1Def.get().isClass());
+        assertFalse(field1Def.get().isFunction());
+    }
+
+    @Test
+    public void testGetDefinitionNonExistent() {
+        var nonExistentDef = analyzer.getDefinition("NonExistentSymbol");
+        assertFalse(nonExistentDef.isPresent(), "Should not find definition for non-existent symbol");
     }
 
 }

@@ -210,35 +210,4 @@ public class JdtAnalyzerSearchTest {
         assertTrue(method2Names1.contains("A.method2"), "Should find 'A.method2'");
     }
 
-    @Test
-    public void testGetDefinitionForClass() {
-        var classDDef = analyzer.getDefinition("D");
-        assertTrue(classDDef.isPresent(), "Should find definition for class 'D'");
-        assertEquals("D", classDDef.get().fqName());
-        assertTrue(classDDef.get().isClass());
-    }
-
-    @Test
-    public void testGetDefinitionForMethod() {
-        var method1Def = analyzer.getDefinition("A.method1");
-        assertTrue(method1Def.isPresent(), "Should find definition for method 'A.method1'");
-        assertEquals("A.method1", method1Def.get().fqName());
-        assertTrue(method1Def.get().isFunction());
-    }
-
-    @Test
-    @Disabled("JDT LSP does not index field symbols")
-    public void testGetDefinitionForField() {
-        var field1Def = analyzer.getDefinition("D.field1");
-        assertTrue(field1Def.isPresent(), "Should find definition for field 'D.field1'");
-        assertEquals("D.field1", field1Def.get().fqName());
-        assertFalse(field1Def.get().isClass());
-        assertFalse(field1Def.get().isFunction());
-    }
-
-    @Test
-    public void testGetDefinitionNonExistent() {
-        var nonExistentDef = analyzer.getDefinition("NonExistentSymbol");
-        assertFalse(nonExistentDef.isPresent(), "Should not find definition for non-existent symbol");
-    }
 }
