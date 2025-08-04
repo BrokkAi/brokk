@@ -443,9 +443,10 @@ public final class LspAnalyzerHelper {
     }
 
     public static boolean isPositionInRange(Range range, Position position) {
-        if (position.getLine() == range.getStart().getLine() && position.getCharacter() <= range.getEnd().getCharacter() ) {
+        if (position.getLine() == range.getStart().getLine() && position.getCharacter() <= range.getEnd().getCharacter()) {
             return true;
-        } if (position.getLine() < range.getStart().getLine() || position.getLine() > range.getEnd().getLine()) {
+        }
+        if (position.getLine() < range.getStart().getLine() || position.getLine() > range.getEnd().getLine()) {
             return false;
         } else if (position.getLine() == range.getStart().getLine() && position.getCharacter() < range.getStart().getCharacter()) {
             return false;
@@ -773,5 +774,28 @@ public final class LspAnalyzerHelper {
         return (aStart.getLine() < bStart.getLine() || (aStart.getLine() == bStart.getLine() && aStart.getCharacter() <= bStart.getCharacter())) &&
                 (aEnd.getLine() > bEnd.getLine() || (aEnd.getLine() == bEnd.getLine() && aEnd.getCharacter() >= bEnd.getCharacter()));
     }
+
+    public static @NotNull CompletableFuture<List<WorkspaceSymbol>> getDirectChildren(
+            @NotNull CodeUnit codeUnit,
+            @NotNull LspServer sharedServer
+    ) {
+        // We can only find children of container types like classes and modules.
+        if (!codeUnit.isClass() || !codeUnit.isModule()) {
+            return CompletableFuture.completedFuture(Collections.emptyList());
+        }
+
+        final Path filePath = codeUnit.source().absPath();
+
+        // Get all symbols in the file.
+        return getWorkspaceSymbolsInFile(sharedServer, filePath).thenApply(allSymbols ->
+                // Filter the list to find symbols whose container is the class we're interested in.
+                allSymbols.stream()
+                        .filter(symbol ->
+                                codeUnit.shortName().equals(symbol.getContainerName())
+                        )
+                        .collect(Collectors.toList())
+        );
+    }
+
 
 }

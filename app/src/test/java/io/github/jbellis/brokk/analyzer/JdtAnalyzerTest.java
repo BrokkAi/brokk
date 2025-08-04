@@ -559,5 +559,42 @@ public class JdtAnalyzerTest {
         ).sorted().toList();
         assertEquals(expected, members);
     }
+
+    @Test
+    public void getDirectClassChildren() {
+        final var maybeClassD = analyzer.getDefinition("D");
+        assertTrue(maybeClassD.isPresent());
+        final var maybeFile = analyzer.getFileFor("D");
+        assertTrue(maybeFile.isPresent());
+
+        final var children = analyzer.directChildren(maybeClassD.get());
+        final var file = maybeFile.get();
+
+        final var expected = Stream.of(
+                // Methods
+                CodeUnit.fn(file, "", "D.methodD1"),
+                CodeUnit.fn(file, "", "D.methodD2"),
+                // Fields
+                CodeUnit.field(file, "", "D.field1"),
+                CodeUnit.field(file, "", "D.field2")
+        ).sorted().toList();
+        assertEquals(expected, children);
+    }
+
+    @Test
+    public void getDirectPackageChildren() {
+        final var maybeClassFoo = analyzer.getDefinition("io.github.jbellis.brokk");
+        assertTrue(maybeClassFoo.isPresent());
+        final var maybeFile = analyzer.getFileFor("Foo");
+        assertTrue(maybeFile.isPresent());
+
+        final var children = analyzer.directChildren(maybeClassFoo.get());
+        final var file = maybeFile.get();
+
+        final var expected = Stream.of(
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo")
+        ).toList();
+        assertEquals(expected, children);
+    }
     
 }

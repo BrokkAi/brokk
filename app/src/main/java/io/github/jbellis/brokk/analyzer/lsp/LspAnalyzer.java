@@ -742,9 +742,10 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     }
 
     @Override
-    default @NotNull List<CodeUnit> directChildren(CodeUnit cu) {
-        // TODO: Implement
-        return IAnalyzer.super.directChildren(cu);
+    default @NotNull List<CodeUnit> directChildren(@NotNull CodeUnit cu) {
+        return LspAnalyzerHelper.getDirectChildren(cu, getServer())
+                .thenApply(children -> children.stream().map(this::codeUnitForWorkspaceSymbol).toList())
+                .join();
     }
 
 }
