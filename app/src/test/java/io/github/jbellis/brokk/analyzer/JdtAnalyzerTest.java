@@ -303,6 +303,28 @@ public class JdtAnalyzerTest {
     }
 
     @Test
+    public void getDeclarationsInFileTest() {
+        final var maybeFile = analyzer.getFileFor("D");
+        assertTrue(maybeFile.isPresent());
+        final var file = maybeFile.get();
+        final var classes = analyzer.getDeclarationsInFile(file);
+
+        final var expected = Set.of(
+                // Classes
+                CodeUnit.cls(file, "", "D"),
+                CodeUnit.cls(file, "", "D.DSub"),
+                CodeUnit.cls(file, "", "D.DSubStatic"),
+                // Methods
+                CodeUnit.fn(file, "", "D.methodD1"),
+                CodeUnit.fn(file, "", "D.methodD2"),
+                // Fields
+                CodeUnit.field(file, "", "D.field1"),
+                CodeUnit.field(file, "", "D.field2")
+        );
+        assertEquals(expected, classes);
+    }
+
+    @Test
     public void declarationsInPackagedFileTest() {
         final var file = new ProjectFile(analyzer.getProjectRoot(), "Packaged.java");
         final var declarations = analyzer.getDeclarationsInFile(file);
@@ -392,28 +414,6 @@ public class JdtAnalyzerTest {
     }
 
     @Test
-    public void getDeclarationsInFileTest() {
-        final var maybeFile = analyzer.getFileFor("D");
-        assertTrue(maybeFile.isPresent());
-        final var file = maybeFile.get();
-        final var classes = analyzer.getDeclarationsInFile(file);
-
-        final var expected = Set.of(
-                // Classes
-                CodeUnit.cls(file, "", "D"),
-                CodeUnit.cls(file, "", "D.DSub"),
-                CodeUnit.cls(file, "", "D.DSubStatic"),
-                // Methods
-                CodeUnit.fn(file, "", "D.methodD1"),
-                CodeUnit.fn(file, "", "D.methodD2"),
-                // Fields
-                CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2")
-        );
-        assertEquals(expected, classes);
-    }
-
-    @Test
     public void testGetDefinitionForClass() {
         var classDDef = analyzer.getDefinition("D");
         assertTrue(classDDef.isPresent(), "Should find definition for class 'D'");
@@ -443,6 +443,44 @@ public class JdtAnalyzerTest {
     public void testGetDefinitionNonExistent() {
         var nonExistentDef = analyzer.getDefinition("NonExistentSymbol");
         assertFalse(nonExistentDef.isPresent(), "Should not find definition for non-existent symbol");
+    }
+
+    @Test
+    public void getUsesClassWithStaticMembersTest() {
+        final var symbol = "E";
+        final var usages = analyzer.getUses(symbol);
+
+        final var refs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        // Now includes field reference UseE.e as a FIELD type
+        // fixme: does not include fields in the initial source for the query
+        assertEquals(Set.of("UseE.some", "UseE.e"), refs);
+    }
+
+    @Test
+    public void getUsesClassInheritanceTest() {
+        final var symbol = "BaseClass";
+        final var usages = analyzer.getUses(symbol);
+
+        final var refs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Get references by type
+        final var classRefs = usages.stream().filter(CodeUnit::isClass).map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        // Create an error message capturing actual usages
+        final var errorMsg = "Expected XExtendsY to be a usage of BaseClass. Actual usages: " + String.join(", ", refs);
+
+        // XExtendsY should show up in the results because it extends BaseClass
+        assertTrue(refs.stream().anyMatch(name -> name.contains("XExtendsY")), errorMsg);
+
+        // Verify that XExtendsY is specifically a CLASS type reference
+        final var classErrorMsg = "Expected XExtendsY to be a CLASS type usage. Class references: " + String.join(", ", classRefs);
+        assertTrue(classRefs.stream().anyMatch(name -> name.contains("XExtendsY")), classErrorMsg);
+
+        // New test: Methods returning BaseClass should be included (e.g. MethodReturner.getBase)
+        assertTrue(
+                refs.stream().anyMatch(name -> name.contains("MethodReturner.getBase")),
+                "Expected MethodReturner.getBase to be included in BaseClass usages"
+        );
     }
 
 }
