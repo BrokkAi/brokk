@@ -1,9 +1,12 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,12 +19,29 @@ import java.util.stream.Collectors;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class JdtAnalyzerSearchTest {
+    
+    private static Logger logger = LoggerFactory.getLogger(JdtAnalyzerSearchTest.class);
     private static JdtAnalyzer analyzer;
+    private static IProject testProject;
 
     @BeforeAll
     public static void setup() throws IOException {
-        var javaTestProject = createTestProject("testcode-java", Language.JAVA);
-        analyzer = new JdtAnalyzer(javaTestProject.getRoot(), Collections.emptySet());
+        testProject = createTestProject("testcode-java", Language.JAVA);
+        analyzer = new JdtAnalyzer(testProject.getRoot(), Collections.emptySet());
+    }
+    
+    @AfterAll
+    public static void tearDown() {
+        try {
+            analyzer.close();
+        } catch (Exception e) {
+            logger.error("Exception encountered while closing analyzer at the end of testing", e);
+        }
+        try {
+            testProject.close();
+        } catch (Exception e) {
+            logger.error("Exception encountered while closing the test project at the end of testing", e);
+        }
     }
 
     private static IProject createTestProject(String subDir, Language lang) {
