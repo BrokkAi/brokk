@@ -1,5 +1,5 @@
 public class D {
-    public int field1;
+    public static int field1;
     private String field2;
     
     public void methodD1() {
