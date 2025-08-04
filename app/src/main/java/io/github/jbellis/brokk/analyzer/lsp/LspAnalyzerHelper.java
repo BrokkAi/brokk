@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.analyzer.lsp;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
-import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
+import io.github.jbellis.brokk.analyzer.lsp.domain.SymbolContext;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.messages.Either;
 import org.jetbrains.annotations.NotNull;
@@ -162,6 +162,57 @@ public final class LspAnalyzerHelper {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Converts a WorkspaceSymbol into its more detailed DocumentSymbol counterpart.
+     *
+     * @param workspaceSymbol The WorkspaceSymbol to resolve.
+     * @return A CompletableFuture that will resolve to the corresponding DocumentSymbol, if found.
+     */
+    public static @NotNull CompletableFuture<Optional<DocumentSymbol>> getDocumentSymbol(@NotNull WorkspaceSymbol workspaceSymbol, @NotNull LspServer sharedServer) {
+        if (workspaceSymbol.getLocation().isRight()) {
+            // We need a full Location with a Range, not just a URI.
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+        final Location location = workspaceSymbol.getLocation().getLeft();
+        final Path filePath = Paths.get(URI.create(location.getUri()));
+        final Position position = location.getRange().getStart();
+
+        // Get the full symbol tree for the file.
+        return getSymbolsInFile(sharedServer, filePath)
+                .thenApply(eithers -> eithers
+                        .stream()
+                        .flatMap(either -> {
+                            if (either.isLeft()) {
+                                return Optional.<DocumentSymbol>empty().stream();
+                            }
+                            // Search the tree for the symbol at the given position.
+                            return findSymbolInTree(Collections.singletonList(either.getRight()), position).stream();
+                        }).findFirst());
+    }
+
+    /**
+     * Given a workspace symbol for a method, returns the snippet of the declaration line.
+     *
+     * @param symbol the method workspace symbol.
+     * @return the method declaration as a single line with no comments.
+     */
+    public static @NotNull Optional<String> getSourceFromMethodSymbol(@NotNull WorkspaceSymbol symbol, @NotNull LspServer sharedServer) {
+        return getDocumentSymbol(symbol, sharedServer).join().flatMap(docSymbol ->
+                getSourceForSymbol(symbol).map(source ->
+                        getSourceFromMethodRange(source, docSymbol.getRange())
+                )
+        );
+    }
+
+    public static @NotNull String getSourceFromMethodRange(@NotNull String fullSource, @NotNull Range range) {
+        return getSourceForRange(fullSource, range)
+                .replaceAll("(?s)/\\*.*?\\*/", "") // Remove block comments
+                .replaceAll("//.*", "") // Remove line comments
+                .lines().map(String::trim)
+                .collect(Collectors.joining(" "))
+                .trim();
     }
 
     /**
@@ -340,7 +391,7 @@ public final class LspAnalyzerHelper {
                 return Optional.of(symbol);
             }
             if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                Optional<DocumentSymbol> found = findSymbolInTree(symbol.getChildren(), position);
+                final Optional<DocumentSymbol> found = findSymbolInTree(symbol.getChildren(), position);
                 if (found.isPresent()) {
                     return found;
                 }
@@ -392,7 +443,9 @@ public final class LspAnalyzerHelper {
     }
 
     public static boolean isPositionInRange(Range range, Position position) {
-        if (position.getLine() < range.getStart().getLine() || position.getLine() > range.getEnd().getLine()) {
+        if (position.getLine() == range.getStart().getLine() && position.getCharacter() <= range.getEnd().getCharacter() ) {
+            return true;
+        } if (position.getLine() < range.getStart().getLine() || position.getLine() > range.getEnd().getLine()) {
             return false;
         } else if (position.getLine() == range.getStart().getLine() && position.getCharacter() < range.getStart().getCharacter()) {
             return false;
@@ -463,7 +516,7 @@ public final class LspAnalyzerHelper {
      * @return a qualified method record if successful, an empty result otherwise.
      */
     @NotNull
-    public static Optional<QualifiedMethod> determineMethodName(
+    public static Optional<SymbolContext> determineMethodName(
             @NotNull String methodFullName, @NotNull Function<String, String> resolveMethodName
     ) {
         final String cleanedName = resolveMethodName.apply(methodFullName);
@@ -471,15 +524,25 @@ public final class LspAnalyzerHelper {
         if (lastIndex != -1) {
             final String className = cleanedName.substring(0, lastIndex);
             final String methodName = cleanedName.substring(lastIndex + 1);
-            return Optional.of(new QualifiedMethod(className, methodName));
+            return Optional.of(new SymbolContext(className, methodName));
         } else {
             return Optional.empty();
         }
     }
 
     public static boolean simpleOrFullMatch(@NotNull WorkspaceSymbol symbol, @NotNull String simpleOrFullName) {
-        final String symbolFullName = symbol.getContainerName() + "." + symbol.getName();
+        final String symbolFullName = symbol.getContainerName() == null || symbol.getContainerName().isEmpty() ?
+                symbol.getName()
+                : symbol.getContainerName() + "." + symbol.getName();
         return symbol.getName().equals(simpleOrFullName) || symbolFullName.equals(simpleOrFullName);
+    }
+
+    public static boolean simpleOrFullMatch(@NotNull WorkspaceSymbol symbol, @NotNull String simpleOrFullName, Function<String, String> resolveMethodName) {
+        final var name = resolveMethodName.apply(symbol.getName());
+        final String symbolFullName = symbol.getContainerName() == null || symbol.getContainerName().isEmpty() ?
+                name
+                : symbol.getContainerName() + "." + name;
+        return name.equals(simpleOrFullName) || symbolFullName.equals(simpleOrFullName);
     }
 
     public static boolean simpleOrFullMatch(@NotNull CodeUnit unit, @NotNull String simpleOrFullName) {
@@ -590,7 +653,14 @@ public final class LspAnalyzerHelper {
                                             resolveMethodName
                                     )
                                     .stream()
-                                    .map(documentSymbol -> LspAnalyzerHelper.documentToWorkspaceSymbol(documentSymbol, uriString))
+                                    .map(documentSymbol -> {
+                                                final var workspaceSymbol = LspAnalyzerHelper.documentToWorkspaceSymbol(documentSymbol, uriString);
+                                                final var containerFullName = classLocation.getContainerName() == null || classLocation.getContainerName().isEmpty() ?
+                                                        classLocation.getName() : classLocation.getContainerName() + "." + classLocation.getName();
+                                                workspaceSymbol.setContainerName(containerFullName);
+                                                return workspaceSymbol;
+                                            }
+                                    )
                                     .toList();
                         } else {
                             // Find the symbol and map it to a new Location object with a precise range

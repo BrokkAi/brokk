@@ -15,7 +15,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 public final class JdtSkeletonHelper {
 
@@ -70,13 +69,7 @@ public final class JdtSkeletonHelper {
             boolean headerOnly
     ) {
         final String indentation = "  ".repeat(indent);
-        final String snippet = LspAnalyzerHelper
-                .getSourceForRange(fullSource, symbol.getRange())
-                .replaceAll("(?s)/\\*.*?\\*/", "") // Remove block comments
-                .replaceAll("//.*", "") // Remove line comments
-                .lines().map(String::trim)
-                .collect(Collectors.joining(" "))
-                .trim();
+        final String snippet = LspAnalyzerHelper.getSourceFromMethodRange(fullSource, symbol.getRange());
 
         sb.append(indentation);
 

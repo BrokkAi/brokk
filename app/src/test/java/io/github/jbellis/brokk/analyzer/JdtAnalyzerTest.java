@@ -28,7 +28,6 @@ public class JdtAnalyzerTest {
     @BeforeAll
     public static void setup() throws IOException {
         final var testPath = Path.of("src/test/resources/testcode-java");
-//        final var testPath = Path.of("/Users/dave/Workspace/BrokkAi/brokk");
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
         analyzer = new JdtAnalyzer(testPath, new HashSet<>());
     }
@@ -230,7 +229,7 @@ public class JdtAnalyzerTest {
         final var expected = """
                 public class D {
                   public D() {...}
-                  public int field1;
+                  public static int field1;
                   private String field2;
                   public void methodD1() {...}
                   public void methodD2() {...}
@@ -253,7 +252,7 @@ public class JdtAnalyzerTest {
 
         final var expected = """
                 public class D {
-                  public int field1;
+                  public static int field1;
                   private String field2;
                   [... methods not shown ...]
                 }
@@ -483,4 +482,63 @@ public class JdtAnalyzerTest {
         );
     }
 
+
+    @Test
+    public void getFunctionLocationSingleMatchTest() {
+        // This method has exactly one parameter (String input) and so exactly one matching overload
+        final var location = analyzer.getFunctionLocation("A.method2", List.of("input"));
+        assertTrue(location.startLine() > 0, "Start line should be positive");
+        assertTrue(location.endLine() >= location.startLine(), "End line should not precede start line");
+        assertTrue(
+                location.code().contains("public String method2(String input)"),
+                "Method code should contain signature for 'method2(String)'; got:\n" + location.code()
+        );
+    }
+
+    @Test
+    public void getFunctionLocationMissingParamTest() {
+        // "A.method2" has two overloads, but neither takes zero parameters
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> analyzer.getFunctionLocation("A.method2", Collections.emptyList())
+        );
+    }
+
+    @Test
+    public void getFunctionLocationMissingPackageTest() {
+        final var location = analyzer.getFunctionLocation("Foo.bar", Collections.emptyList());
+        assertTrue(location.startLine() > 0, "Start line should be positive");
+        assertTrue(location.endLine() >= location.startLine(), "End line should not precede start line");
+        assertTrue(
+                location.code().contains("public void bar()"),
+                "Method code should contain signature for 'bar()'; got:\n" + location.code()
+        );
+    }
+
+    @Test
+    public void getFunctionLocationParamMismatchTest() {
+        // "A.method2" has overloads, but none with param name "bogusParam"
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> analyzer.getFunctionLocation("A.method2", List.of("bogusParam"))
+        );
+    }
+
+    @Test
+    public void getFunctionLocationNoSuchMethodTest() {
+        // "A.noSuchMethod" does not exist at all
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> analyzer.getFunctionLocation("A.noSuchMethod", Collections.emptyList())
+        );
+    }
+
+    @Test
+    public void getFunctionLocationConstructorTest() {
+        // "B.<init>" is a constructor with no params
+        final var location = analyzer.getFunctionLocation("B.B", Collections.emptyList());
+        assertTrue(location.startLine() > 0 && location.endLine() > 0);
+        assertTrue(location.code().contains("public B()"), "Constructor code:\n" + location.code());
+    }
+    
 }

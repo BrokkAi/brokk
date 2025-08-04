@@ -1,10 +1,8 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
-import io.github.jbellis.brokk.analyzer.CallSite;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.analyzer.lsp.domain.QualifiedMethod;
+import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.lsp.domain.SymbolContext;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.lsp4j.*;
 import org.jetbrains.annotations.NotNull;
@@ -197,7 +195,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         } else {
             final var workspace = getWorkspace();
             final var server = getServer();
-
+            // launch both requests at the same time
             final CompletableFuture<List<? extends WorkspaceSymbol>> exactMatchFuture =
                     LspAnalyzerHelper.findSymbolsInWorkspace(fqName, workspace, server)
                             .thenApply(workspaceSymbols -> workspaceSymbols
@@ -211,9 +209,12 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                             .stream()
                             .map(qualifiedMethod -> {
                                 final var methodName = qualifiedMethod.methodName();
-                                return LspAnalyzerHelper.findSymbolsInWorkspace(methodName, workspace, server)
+                                final var containerName = qualifiedMethod.containerFullName();
+                                return LspAnalyzerHelper.findMethodSymbol(containerName, methodName, workspace, server, this::resolveMethodName)
                                         .thenApply(workspaceSymbols -> workspaceSymbols.stream()
-                                                .filter(symbol -> LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName))
+                                                .filter(symbol ->
+                                                        LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName, this::resolveMethodName)
+                                                )
                                                 .toList()
                                         );
                             });
@@ -311,13 +312,96 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                         .flatMap(CompletableFuture::join)
                         .toList()
                 ).join();
-        
+
         if (usages.isEmpty()) {
             final var reason = "Symbol '" + fqName + "' (resolved: '" + resolveMethodName(fqName) + "') not found as a method, field, or class";
             throw new IllegalArgumentException(reason);
         } else {
             return usages;
         }
+    }
+
+    /**
+     * Locates the source file and line range for the given fully-qualified method name.
+     * The {@code paramNames} list contains the *parameter variable names* (not types).
+     * If there is only a single match, or exactly one match with matching param names, return it.
+     * Otherwise, throw {@code SymbolNotFoundException} or {@code SymbolAmbiguousException}.
+     *
+     * @param fqMethodName the fully qualified method name.
+     * @param paramNames   the parameter names to differentiate the function from overloaded variants.
+     * @return the function's location.
+     * @throws SymbolNotFoundException if no function could be found with the given parameters.
+     */
+    @Override
+    default @NotNull FunctionLocation getFunctionLocation(@NotNull String fqMethodName, @NotNull List<String> paramNames) {
+        final var methodMatches = getDefinitionsInWorkspace(fqMethodName).stream()
+                .filter(symbol ->
+                        LspAnalyzerHelper.METHOD_KINDS.contains(symbol.getKind())
+                ).toList();
+
+        final var matches = new HashSet<FunctionLocation>();
+
+        for (final WorkspaceSymbol overload : methodMatches) {
+            // getRight won't give us the Range object
+            if (!overload.getLocation().isLeft()) {
+                continue;
+            }
+            // For each overload, get its full signature from the source.
+            final var uri = LspAnalyzerHelper.getUriStringFromLocation(overload.getLocation());
+            final var maybeSnippet = LspAnalyzerHelper.getSourceFromMethodSymbol(overload, getServer());
+            if (maybeSnippet.isPresent()) {
+                final var signatureSnippet = maybeSnippet.get();
+                // Extract the parameter list string.
+                final int openParen = signatureSnippet.indexOf('(');
+                final int closeParen = signatureSnippet.indexOf(')');
+
+                if (openParen != -1 && closeParen > openParen) {
+                    final String paramListString = signatureSnippet.substring(openParen + 1, closeParen);
+
+                    // Parse the names from the string.
+                    final List<String> actualParamNames = getParameterNamesFromString(paramListString);
+
+                    // If the parsed names match the expected names, we've found our method.
+                    if (methodMatches.size() == 1 || actualParamNames.equals(paramNames)) {
+                        final Path filePath = Paths.get(URI.create(uri));
+                        final Range range = overload.getLocation().getLeft().getRange();
+                        final var projectFile = new ProjectFile(getProjectRoot(), getProjectRoot().relativize(filePath));
+                        matches.add(new FunctionLocation(projectFile, range.getStart().getLine(), range.getEnd().getLine(), signatureSnippet));
+                    }
+                }
+            }
+        }
+        if (matches.size() > 1) {
+            // if more than one match is found, this is ambiguous
+            final var reason = matches.size() + " methods found in " + fqMethodName + " matching provided parameter names [" + String.join(", ", paramNames) + "]";
+            throw new SymbolAmbiguousException(reason);
+        } else if (matches.isEmpty()) {
+            // if nothing found, bail
+            final var reason = "No methods found in " + fqMethodName + " matching provided parameter names [" + String.join(", ", paramNames) + "]";
+            throw new SymbolNotFoundException(reason);
+        } else {
+            return matches.iterator().next();
+        }
+    }
+
+    /**
+     * A helper to parse a list of parameter names from a declaration string.
+     *
+     * @param parameterString e.g., "String input, int otherInput"
+     * @return A list of names, e.g., ["input", "otherInput"]
+     */
+    private List<String> getParameterNamesFromString(String parameterString) {
+        if (parameterString == null || parameterString.isBlank()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(parameterString.split(","))
+                .map(String::strip)
+                .map(param -> {
+                    List<String> parts = Splitter.on(Pattern.compile("\\s+")).splitToList(param);
+                    // The last part is the name (e.g., from "String input")
+                    return parts.getLast();
+                })
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -338,14 +422,26 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                         final var classCleanedName = classFullName.replace('$', '.');
                         if (classCleanedName.contains(".")) {
                             final var parentContainer = classCleanedName.substring(0, classCleanedName.lastIndexOf('.'));
-                            return LspAnalyzerHelper.findTypesInWorkspace(parentContainer, getWorkspace(), getServer())
+                            final var matches = LspAnalyzerHelper.findTypesInWorkspace(parentContainer, getWorkspace(), getServer())
                                     .join()
                                     .stream()
+                                    .toList();
+                            final var fallbackExactMatches = matches.stream()
+                                    .filter(s -> LspAnalyzerHelper.simpleOrFullMatch(s, classCleanedName))
                                     .map(LspAnalyzerHelper::getSourceForSymbol)
                                     .flatMap(Optional::stream)
                                     .distinct()
-                                    .findFirst()
-                                    .orElse(null);
+                                    .findFirst();
+                            if (fallbackExactMatches.isPresent()) {
+                                return fallbackExactMatches.get();
+                            } else {
+                                return matches.stream()
+                                        .map(LspAnalyzerHelper::getSourceForSymbol)
+                                        .flatMap(Optional::stream)
+                                        .distinct()
+                                        .findFirst()
+                                        .orElse(null);
+                            }
                         } else {
                             return null;
                         }
@@ -437,7 +533,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @NotNull Map<String, List<CallSite>> getCallgraphTo(@NotNull String methodName, int depth) {
-        final Optional<QualifiedMethod> methodNameInfo = LspAnalyzerHelper.determineMethodName(methodName, this::resolveMethodName);
+        final Optional<SymbolContext> methodNameInfo = LspAnalyzerHelper.determineMethodName(methodName, this::resolveMethodName);
         if (methodNameInfo.isPresent()) {
             final String className = methodNameInfo.get().containerFullName();
             final String name = methodNameInfo.get().methodName();
@@ -470,7 +566,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @NotNull Map<String, List<CallSite>> getCallgraphFrom(@NotNull String methodName, int depth) {
-        final Optional<QualifiedMethod> methodNameInfo = LspAnalyzerHelper.determineMethodName(methodName, this::resolveMethodName);
+        final Optional<SymbolContext> methodNameInfo = LspAnalyzerHelper.determineMethodName(methodName, this::resolveMethodName);
         if (methodNameInfo.isPresent()) {
             final String className = methodNameInfo.get().containerFullName();
             final String name = methodNameInfo.get().methodName();
@@ -602,17 +698,17 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     /**
      * Recursively searches a symbol tree to find the containing class and method for a given range.
      */
-    private Optional<QualifiedMethod> findParentContext(List<DocumentSymbol> symbols, Range targetRange) {
+    private Optional<SymbolContext> findParentContext(List<DocumentSymbol> symbols, Range targetRange) {
         final Deque<DocumentSymbol> contextStack = new ArrayDeque<>();
         return findParentContextRecursive(symbols, targetRange, contextStack);
     }
 
-    private Optional<QualifiedMethod> findParentContextRecursive(List<DocumentSymbol> symbols, Range targetRange, Deque<DocumentSymbol> contextStack) {
+    private Optional<SymbolContext> findParentContextRecursive(List<DocumentSymbol> symbols, Range targetRange, Deque<DocumentSymbol> contextStack) {
         for (final DocumentSymbol symbol : symbols) {
             if (LspAnalyzerHelper.isRangeContained(symbol.getRange(), targetRange)) {
                 contextStack.push(symbol);
                 if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                    Optional<QualifiedMethod> found = findParentContextRecursive(symbol.getChildren(), targetRange, contextStack);
+                    Optional<SymbolContext> found = findParentContextRecursive(symbol.getChildren(), targetRange, contextStack);
                     if (found.isPresent()) {
                         return found;
                     }
@@ -633,7 +729,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                     }
                 }
                 contextStack.pop();
-                return (className != null && methodName != null) ? Optional.of(new QualifiedMethod(className, methodName)) : Optional.empty();
+                return (className != null && methodName != null) ? Optional.of(new SymbolContext(className, methodName)) : Optional.empty();
             }
         }
         contextStack.poll(); // Backtrack
