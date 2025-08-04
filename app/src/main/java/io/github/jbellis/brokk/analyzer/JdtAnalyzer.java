@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
+import org.eclipse.lsp4j.SymbolKind;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -13,6 +14,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class JdtAnalyzer implements LspAnalyzer {
@@ -234,6 +236,26 @@ public class JdtAnalyzer implements LspAnalyzer {
     @Override
     public Optional<String> getSkeletonHeader(String className) {
         return getSkeleton(className, true);
+    }
+
+    // A regex to match anonymous class instantiation patterns from symbol names.
+    private static final Pattern ANONYMOUS_CLASS_PATTERN = Pattern.compile(
+            "(?s)^new\\s+[\\w.]+(?:<.*?>)?\\s*\\(.*\\)\\s*\\{.*\\}.*",
+            Pattern.DOTALL
+    );
+
+    @Override
+    public boolean isAnonymousClass(@NotNull SymbolKind kind, @NotNull String name) {
+        if (kind == SymbolKind.Class || kind == SymbolKind.Method) {
+            if (name.isEmpty()) {
+                return true;
+            }
+            // Check for the "new Type() {...}" pattern
+            if (!name.startsWith("new ")) return false; // a cheap short-circuit
+            else return ANONYMOUS_CLASS_PATTERN.matcher(name).matches();
+        } else {
+            return false;
+        }
     }
 
     @Override

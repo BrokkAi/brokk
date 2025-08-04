@@ -310,12 +310,10 @@ public class JdtAnalyzerTest {
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
                 // Method
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar"),
-                // Constructor
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.<init>")
+                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar")
                 // No fields in Packaged.java
         );
-        assertEquals(expected, declarations)
+        assertEquals(expected, declarations);
     }
 
     @Test
@@ -324,9 +322,8 @@ public class JdtAnalyzerTest {
         final var usages = analyzer.getUses(symbol);
 
         // Expect references in B.callsIntoA() because it calls a.method2("test")
-        final var actualMethodRefs = usages.stream().filter(CodeUnit::isFunction).map(CodeUnit::fqName).collect(Collectors.toSet());
         final var actualRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertEquals(Set.of("B.callsIntoA", "AnonymousUsage$1.run"), actualRefs);
+        assertEquals(Set.of("B.callsIntoA", "AnonymousUsage.foo$anon$5:12"), actualRefs);
     }
 
     @Test

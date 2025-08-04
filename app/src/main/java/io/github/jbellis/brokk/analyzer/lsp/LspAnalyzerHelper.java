@@ -176,13 +176,13 @@ public final class LspAnalyzerHelper {
             @NotNull LspServer sharedServer,
             @NotNull Path filePath
     ) {
-        logger.info("Querying for document symbols in {}", filePath);
+        logger.debug("Querying for document symbols in {}", filePath);
         return sharedServer.query(server -> {
             final var params = new DocumentSymbolParams(
                     new TextDocumentIdentifier(filePath.toUri().toString())
             );
-            return server.getTextDocumentService().documentSymbol(params);
-        }).join();
+            return server.getTextDocumentService().documentSymbol(params).join();
+        });
     }
 
     /**
@@ -269,7 +269,7 @@ public final class LspAnalyzerHelper {
             } else {
                 module = null;
             }
-            
+
             final String name;
             if (parentKind != null && parentName != null && TYPE_KINDS.contains(parentKind)) {
                 // Nested types should be delimited like this for the CodeUnit
@@ -410,7 +410,6 @@ public final class LspAnalyzerHelper {
      * @return A CompletableFuture that will be completed with a list of symbols
      * found only within this instance's project path.
      */
-    
     public static @NotNull CompletableFuture<List<? extends WorkspaceSymbol>> findSymbolsInWorkspace(
             @NotNull String symbolName,
             @NotNull String workspace,
@@ -424,7 +423,7 @@ public final class LspAnalyzerHelper {
                 futureEither.thenApply(symbols -> eitherSymbolsToWorkspaceSymbols(symbols, workspace)).join()
         );
     }
-    
+
     private static @NotNull List<WorkspaceSymbol> eitherSymbolsToWorkspaceSymbols(
             @NotNull Either<List<? extends SymbolInformation>, List<? extends WorkspaceSymbol>> eitherSymbols,
             @Nullable String workspaceFilter
@@ -611,6 +610,98 @@ public final class LspAnalyzerHelper {
         // An empty query string "" tells the server to return all symbols. 
         // Relies on indexes, so shouldn't be too expensive
         return findSymbolsInWorkspace("*", workspace, sharedServer);
+    }
+
+    /**
+     * Given a symbol's location, finds usages.
+     *
+     * @param symbolLocation the symbol's location.
+     * @param sharedServer   the LSP server.
+     * @return locations of other usages.
+     */
+    public static CompletableFuture<List<? extends Location>> findUsages(
+            @NotNull Location symbolLocation,
+            @NotNull LspServer sharedServer
+    ) {
+        return sharedServer.query(server -> {
+            final var params = new ReferenceParams();
+            params.setTextDocument(new TextDocumentIdentifier(symbolLocation.getUri()));
+            params.setPosition(symbolLocation.getRange().getStart());
+
+            // We typically don't want the original declaration included in the usage list.
+            params.setContext(new ReferenceContext(false));
+
+            return server.getTextDocumentService().references(params).join();
+        });
+    }
+
+    /**
+     * Finds all usages of a symbol and resolves them into rich WorkspaceSymbol objects.
+     *
+     * @param symbolLocation The location of the symbol's definition.
+     * @return A CompletableFuture that will resolve with a list of WorkspaceSymbols for each usage.
+     */
+    public static @NotNull CompletableFuture<List<WorkspaceSymbol>> findUsageSymbols(
+            @NotNull Location symbolLocation,
+            @NotNull LspServer sharedServer
+    ) {
+        // Get all the usage locations first.
+        return findUsages(symbolLocation, sharedServer).thenCompose(locations -> {
+            // For each location, start an async task to find the specific symbol at that location.
+            final List<CompletableFuture<Optional<WorkspaceSymbol>>> symbolFutures = locations.stream()
+                    .map(location -> findSymbolAtLocation(location, sharedServer))
+                    .toList();
+
+            // Wait for all the individual lookups to complete.
+            return CompletableFuture.allOf(symbolFutures.toArray(new CompletableFuture[0]))
+                    .thenApply(v -> symbolFutures.stream()
+                            .map(CompletableFuture::join) // Get the result from each future
+                            .filter(Optional::isPresent)   // Filter out any that weren't found
+                            .map(Optional::get)
+                            .collect(Collectors.toList())
+                    );
+        });
+    }
+
+    /**
+     * Finds the specific WorkspaceSymbol that occupies a given Location in a file.
+     *
+     * @param location The location of the usage.
+     * @return A CompletableFuture that resolves to the specific WorkspaceSymbol at that location.
+     */
+    private static @NotNull CompletableFuture<Optional<WorkspaceSymbol>> findSymbolAtLocation(
+            @NotNull Location location,
+            @NotNull LspServer sharedServer
+    ) {
+        final var filePath = Paths.get(URI.create(location.getUri()));
+
+        // Get all symbols in the file where the usage occurred.
+        return getWorkspaceSymbolsInFile(sharedServer, filePath).thenApply(symbols ->
+                // Find the smallest symbol that completely contains the usage's range.
+                symbols.stream()
+                        .filter(symbol -> isRangeContained(symbol.getLocation().getLeft().getRange(), location.getRange()))
+                        .min((s1, s2) -> {
+                            // Heuristic to find the most specific (smallest) symbol containing the range
+                            Range r1 = s1.getLocation().getLeft().getRange();
+                            Range r2 = s2.getLocation().getLeft().getRange();
+                            int size1 = (r1.getEnd().getLine() - r1.getStart().getLine());
+                            int size2 = (r2.getEnd().getLine() - r2.getStart().getLine());
+                            return Integer.compare(size1, size2);
+                        })
+        );
+    }
+
+    /**
+     * Helper to check if range B is contained within range A.
+     */
+    public static boolean isRangeContained(Range a, Range b) {
+        final Position aStart = a.getStart();
+        final Position aEnd = a.getEnd();
+        final Position bStart = b.getStart();
+        final Position bEnd = b.getEnd();
+
+        return (aStart.getLine() < bStart.getLine() || (aStart.getLine() == bStart.getLine() && aStart.getCharacter() <= bStart.getCharacter())) &&
+                (aEnd.getLine() > bEnd.getLine() || (aEnd.getLine() == bEnd.getLine() && aEnd.getCharacter() >= bEnd.getCharacter()));
     }
 
 }

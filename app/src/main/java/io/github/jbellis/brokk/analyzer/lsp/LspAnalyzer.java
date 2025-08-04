@@ -16,11 +16,13 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
@@ -177,47 +179,69 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
         // A set of complex regex characters to be replaced by a broad wildcard.
         final String cleanedPattern = sanitizeRegexToSimpleWildcard(pattern);
-
-        // Add surrounding wildcards so that name matches will work by ignoring expected container prefixes and 
-        // signatures
-        final String finalPattern;
-        if (cleanedPattern.startsWith("*") && cleanedPattern.endsWith("*")) {
-            finalPattern = cleanedPattern;
-        } else {
-            // Assume there may be wildcards on either side instead of creating a super long if-else chain, and strip 
-            // these to avoid adding duplicates.
-            final var tmpPattern = StringUtils.stripStart(StringUtils.stripEnd(cleanedPattern, "*"), "*");
-            finalPattern = "*" + tmpPattern + "*";
-        }
+        final String finalPattern = ensureSurroundingWildcards(cleanedPattern);
 
         return searchDefinitionsImpl(pattern, finalPattern, null);
     }
 
     @Override
     default @NotNull Optional<CodeUnit> getDefinition(@Nullable String fqName) {
+        return getDefinitionsInWorkspace(fqName).stream().map(this::codeUnitForWorkspaceSymbol).findFirst();
+    }
+
+    private List<? extends WorkspaceSymbol> getDefinitionsInWorkspace(
+            @Nullable String fqName
+    ) {
         if (fqName == null) {
-            return Optional.empty();
+            return Collections.emptyList();
         } else {
-            final var exactMatch = searchDefinitionsImpl(fqName, fqName, null)
-                    .stream()
-                    .filter(cu -> LspAnalyzerHelper.simpleOrFullMatch(cu, fqName))
-                    .findFirst();
-            if (exactMatch.isPresent()) {
+            final var workspace = getWorkspace();
+            final var server = getServer();
+
+            final CompletableFuture<List<? extends WorkspaceSymbol>> exactMatchFuture =
+                    LspAnalyzerHelper.findSymbolsInWorkspace(fqName, workspace, server)
+                            .thenApply(workspaceSymbols -> workspaceSymbols
+                                    .stream()
+                                    .filter(symbol ->
+                                            LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName))
+                                    .toList()
+                            );
+            final Stream<CompletableFuture<List<? extends WorkspaceSymbol>>> fallbackFuture =
+                    LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName)
+                            .stream()
+                            .map(qualifiedMethod -> {
+                                final var methodName = qualifiedMethod.methodName();
+                                return LspAnalyzerHelper.findSymbolsInWorkspace(methodName, workspace, server)
+                                        .thenApply(workspaceSymbols -> workspaceSymbols.stream()
+                                                .filter(symbol -> LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName))
+                                                .toList()
+                                        );
+                            });
+
+            final var exactMatch = exactMatchFuture.join();
+            if (!exactMatch.isEmpty()) {
+                fallbackFuture.forEach(x -> x.cancel(true));
                 return exactMatch;
             } else {
-                // Method names need to be separated from their types in the LSP search, which may require this fallback
-                // logic
-                return LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName)
-                        .flatMap(qualifiedMethod -> {
-                            final var methodName = qualifiedMethod.methodName();
-                            return searchDefinitionsImpl(methodName, methodName, null)
-                                    .stream()
-                                    .filter(cu -> LspAnalyzerHelper.simpleOrFullMatch(cu, fqName))
-                                    .findFirst();
-                        })
-                        .stream()
-                        .findFirst();
+                return fallbackFuture.flatMap(x -> x.join().stream()).toList();
             }
+        }
+    }
+
+    /**
+     * Add surrounding wildcards so that name matches will work by ignoring expected container prefixes and signatures.
+     *
+     * @param pattern a pattern which may or may not be surrounded by wildcard (*) characters.
+     * @return the given pattern surrounded by wildcard characters.
+     */
+    private static @NotNull String ensureSurroundingWildcards(@NotNull String pattern) {
+        if (pattern.startsWith("*") && pattern.endsWith("*")) {
+            return pattern;
+        } else {
+            // Assume there may be wildcards on either side instead of creating a super long if-else chain, and strip
+            // these to avoid adding duplicates.
+            final var tmpPattern = StringUtils.stripStart(StringUtils.stripEnd(pattern, "*"), "*");
+            return "*" + tmpPattern + "*";
         }
     }
 
@@ -263,6 +287,29 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         return searchRequest.thenApply(symbols ->
                 symbols.stream().map(this::codeUnitForWorkspaceSymbol).toList()
         ).join();
+    }
+
+    @Override
+    default List<CodeUnit> getUses(@Nullable String fqName) {
+        if (fqName == null || fqName.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final var definitions = getDefinitionsInWorkspace(fqName);
+        final var usagesFutures = definitions.stream()
+                .flatMap(symbol -> {
+                    if (symbol.getLocation().isLeft()) return Optional.of(symbol.getLocation().getLeft()).stream();
+                    else return Optional.<Location>empty().stream();
+                }).map(location ->
+                        LspAnalyzerHelper.findUsageSymbols(location, getServer())
+                                .thenApply(usages -> usages.stream().map(this::codeUnitForWorkspaceSymbol))
+                ).toList();
+        return CompletableFuture.allOf(usagesFutures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> usagesFutures
+                        .stream()
+                        .flatMap(CompletableFuture::join)
+                        .toList()
+                ).join();
     }
 
     @Override
@@ -491,12 +538,98 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         final var containerName = Optional.ofNullable(symbol.getContainerName()).orElse("");
         final String name;
         if (LspAnalyzerHelper.METHOD_KINDS.contains(symbol.getKind())) {
-            name = resolveMethodName(symbol.getName());
+            final var tmpName = resolveMethodName(symbol.getName());
+            if (isAnonymousClass(symbol.getKind(), symbol.getName()) && symbol.getLocation().isLeft()) {
+                name = getAnonymousName(symbol.getLocation().getLeft()).orElse(tmpName);
+            } else {
+                name = tmpName;
+            }
         } else {
             name = symbol.getName();
         }
 
         return new CodeUnit(projectFile, codeUnitKind, containerName, name);
+    }
+
+    /**
+     * Heuristically checks if the symbol refers to an anonymous class.
+     *
+     * @param kind the symbol kind.
+     * @param name the given symbol's name.
+     * @return true if this is likely an anonymous class, false if otherwise.
+     */
+    boolean isAnonymousClass(@NotNull SymbolKind kind, @NotNull String name);
+
+    /**
+     * Generates a more informative, bytecode-style name for an anonymous class or lambda symbol.
+     *
+     * @param lambdaLocation The location of the anonymous class or lambda symbol.
+     * @return The generated name (e.g., "MyClass.myMethod$anon$42:20") if the location is valid.
+     */
+    default Optional<String> getAnonymousName(Location lambdaLocation) {
+        final Path filePath = Paths.get(URI.create(lambdaLocation.getUri()));
+
+        return LspAnalyzerHelper.getSymbolsInFile(getServer(), filePath).thenApply(eithers ->
+                eithers.stream()
+                        .flatMap(either -> {
+                            if (either.isLeft()) {
+                                return Optional.<String>empty().stream();
+                            }
+                            // Find the parent class and method for the anonymous symbol's location
+                            return findParentContext(
+                                    Collections.singletonList(either.getRight()),
+                                    lambdaLocation.getRange()
+                            ).map(context -> String.format(
+                                    // Construct the name using Class.Method$anon$LineNumber:ColumnNumber
+                                    "%s.%s$anon$%d:%d",
+                                    context.containerFullName(),
+                                    context.methodName(),
+                                    lambdaLocation.getRange().getStart().getLine(),
+                                    lambdaLocation.getRange().getStart().getCharacter()
+                            )).stream();
+                        }).findFirst()
+        ).join();
+    }
+
+    /**
+     * Recursively searches a symbol tree to find the containing class and method for a given range.
+     */
+    private Optional<QualifiedMethod> findParentContext(List<DocumentSymbol> symbols, Range targetRange) {
+        final Deque<DocumentSymbol> contextStack = new ArrayDeque<>();
+        return findParentContextRecursive(symbols, targetRange, contextStack);
+    }
+
+    private Optional<QualifiedMethod> findParentContextRecursive(List<DocumentSymbol> symbols, Range targetRange, Deque<DocumentSymbol> contextStack) {
+        for (final DocumentSymbol symbol : symbols) {
+            if (LspAnalyzerHelper.isRangeContained(symbol.getRange(), targetRange)) {
+                contextStack.push(symbol);
+                if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                    Optional<QualifiedMethod> found = findParentContextRecursive(symbol.getChildren(), targetRange, contextStack);
+                    if (found.isPresent()) {
+                        return found;
+                    }
+                }
+                // We've reached the deepest containing symbol. Now build the context.
+                String className = null;
+                String methodName = null;
+                for (final DocumentSymbol s : contextStack) {
+                    if (className == null && LspAnalyzerHelper.TYPE_KINDS.contains(s.getKind())) {
+                        if (isAnonymousClass(s.getKind(), s.getName())) {
+                            methodName = null; // invalidate method name, keep traversing up
+                        } else {
+                            className = resolveMethodName(s.getName());
+                        }
+                    }
+                    if (methodName == null && LspAnalyzerHelper.METHOD_KINDS.contains(s.getKind())) {
+                        methodName = resolveMethodName(s.getName());
+                    }
+                }
+                contextStack.pop();
+                return (className != null && methodName != null) ? Optional.of(new QualifiedMethod(className, methodName)) : Optional.empty();
+            }
+        }
+        contextStack.poll(); // Backtrack
+        return Optional.empty();
     }
 
 }
