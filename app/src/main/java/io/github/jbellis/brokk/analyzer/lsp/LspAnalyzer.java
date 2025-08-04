@@ -290,9 +290,10 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     }
 
     @Override
-    default List<CodeUnit> getUses(@Nullable String fqName) {
+    default @NotNull List<CodeUnit> getUses(@Nullable String fqName) {
         if (fqName == null || fqName.isEmpty()) {
-            return Collections.emptyList();
+            final var reason = "Symbol '" + fqName + "' not found as a method, field, or class";
+            throw new IllegalArgumentException(reason);
         }
 
         final var definitions = getDefinitionsInWorkspace(fqName);
@@ -304,12 +305,19 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                         LspAnalyzerHelper.findUsageSymbols(location, getServer())
                                 .thenApply(usages -> usages.stream().map(this::codeUnitForWorkspaceSymbol))
                 ).toList();
-        return CompletableFuture.allOf(usagesFutures.toArray(new CompletableFuture[0]))
+        final var usages = CompletableFuture.allOf(usagesFutures.toArray(new CompletableFuture[0]))
                 .thenApply(v -> usagesFutures
                         .stream()
                         .flatMap(CompletableFuture::join)
                         .toList()
                 ).join();
+        
+        if (usages.isEmpty()) {
+            final var reason = "Symbol '" + fqName + "' (resolved: '" + resolveMethodName(fqName) + "') not found as a method, field, or class";
+            throw new IllegalArgumentException(reason);
+        } else {
+            return usages;
+        }
     }
 
     @Override
