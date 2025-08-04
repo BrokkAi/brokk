@@ -23,7 +23,6 @@ scala-library = { module = "org.scala-lang:scala3-library_3", version.ref = "sca
 joern-x2cpg = { module = "io.joern:x2cpg_3", version.ref = "joern" }
 joern-c2cpg = { module = "io.joern:c2cpg_3", version.ref = "joern" }
 joern-javasrc2cpg = { module = "io.joern:javasrc2cpg_3", version.ref = "joern" }
-joern-pysrc2cpg = { module = "io.joern:pysrc2cpg_3", version.ref = "joern" }
 joern-cli = { module = "io.joern:joern-cli_3", version.ref = "joern" }
 joern-semanticcpg = { module = "io.joern:semanticcpg_3", version.ref = "joern" }
 
@@ -33,6 +32,7 @@ log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", ver
 
 # Jackson
 jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+jackson-annotations = { module = "com.fasterxml.jackson.core:jackson-annotations", version.ref = "jackson" }
 
 # Testing
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -45,11 +45,10 @@ junit-platform-commons = "org.junit.platform:junit-platform-commons:1.10.0"
 scalatest-core = { module = "org.scalatest:scalatest_3", version.ref = "scalatest" }
 scalatest-junit4 = { module = "org.scalatestplus:junit-4-13_3", version = "3.2.18.0" }
 scalatest-junit5 = { module = "org.scalatestplus:junit-5-10_3", version = "3.2.18.0" }
-jupiter-interface = "com.github.sbt.junit:jupiter-interface:0.13.3"
+jupiter-iface = "com.github.sbt.junit:jupiter-interface:0.13.3"
 
 # Static Analysis
 nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
-jsr305 = "com.google.code.findbugs:jsr305:3.0.2"
 checker-qual = "org.checkerframework:checker-qual:3.49.3"
 checker-util = "org.checkerframework:checker-util:3.49.3"
 dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"

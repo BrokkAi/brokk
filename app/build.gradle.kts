@@ -87,7 +87,7 @@ dependencies {
     // Testing
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.bundles.junit)
-    testImplementation("com.github.sbt.junit:jupiter-interface:0.13.3")
+    testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
     testCompileOnly(libs.bundles.joern)
 
@@ -95,7 +95,6 @@ dependencies {
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
     "errorprone"(libs.nullaway)
     "errorprone"(libs.dataflow.errorprone)
-    compileOnly(libs.jsr305)
     compileOnly(libs.checker.qual)
 }
 

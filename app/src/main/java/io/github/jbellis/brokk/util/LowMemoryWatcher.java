@@ -8,7 +8,6 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.util.containers.WeakList;
 import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +60,7 @@ public final class LowMemoryWatcher {
      * low memory notification functionality is needed. As soon as it's garbage-collected, the runnable won't receive any further notifications.
      */
     @Contract(pure = true) // to avoid ignoring the result
-    public static LowMemoryWatcher register(@NotNull Runnable runnable, @NotNull LowMemoryWatcherType notificationType) {
+    public static LowMemoryWatcher register(Runnable runnable, LowMemoryWatcherType notificationType) {
         return new LowMemoryWatcher(runnable, notificationType);
     }
 
@@ -76,11 +75,11 @@ public final class LowMemoryWatcher {
      * low memory notification functionality is needed. As soon as it's garbage-collected, the runnable won't receive any further notifications.
      */
     @Contract(pure = true) // to avoid ignoring the result
-    public static LowMemoryWatcher register(@NotNull Runnable runnable) {
+    public static LowMemoryWatcher register(Runnable runnable) {
         return new LowMemoryWatcher(runnable, LowMemoryWatcherType.ALWAYS);
     }
 
-    private LowMemoryWatcher(@NotNull Runnable runnable, @NotNull LowMemoryWatcherType type) {
+    private LowMemoryWatcher(Runnable runnable, LowMemoryWatcherType type) {
         myRunnable = runnable;
         myType = type;
         ourListeners.add(this);

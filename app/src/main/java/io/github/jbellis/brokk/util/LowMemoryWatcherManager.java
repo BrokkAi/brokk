@@ -7,11 +7,10 @@
 package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.IConsoleIO;
-import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import javax.management.Notification;
 import javax.management.NotificationEmitter;
 import javax.management.NotificationListener;
@@ -41,7 +40,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
     private final Future<?> myMemoryPoolMXBeansFuture;
     private final Consumer<Boolean> myJanitor = new Consumer<>() {
         @Override
-        public void accept(@NotNull Boolean afterGc) {
+        public void accept(Boolean afterGc) {
             // Clearing `mySubmitted` before all listeners are called, to avoid data races when a listener is added in the middle of execution
             // and is lost. This may, however, cause listeners to execute more than once (potentially even in parallel).
             synchronized (myJanitor) {
@@ -54,7 +53,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
     // A list of strong references to low memory watchers.
     private final List<LowMemoryWatcher> lowMemoryWatcherRefs = new ArrayList<>();
 
-    public LowMemoryWatcherManager(@NotNull ExecutorService backendExecutorService) {
+    public LowMemoryWatcherManager(ExecutorService backendExecutorService) {
         myExecutorService = backendExecutorService;
         myMemoryPoolMXBeansFuture = initializeMXBeanListenersLater(backendExecutorService);
         lastGcTime.set(getMajorGcTime());
@@ -66,7 +65,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
      *
      * @param runnable the action to run on a low-memory event.
      */
-    public void registerWithStrongReference(@NotNull Runnable runnable, @NotNull LowMemoryWatcher.LowMemoryWatcherType notificationType) {
+    public void registerWithStrongReference(Runnable runnable, LowMemoryWatcher.LowMemoryWatcherType notificationType) {
         final var reference = LowMemoryWatcher.register(runnable, notificationType);
         lowMemoryWatcherRefs.add(reference);
     }
@@ -84,7 +83,6 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
      *
      * @return the current maximum heap size in a human-readable MB string.
      */
-    @NotNull
     public static String formatBytes(long memoryInBytes) {
         return NumberFormat.getInstance().format(memoryInBytes / (1024 * 1024)) + " MB";
     }
@@ -98,7 +96,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
         return 0;
     }
 
-    private @NotNull Future<?> initializeMXBeanListenersLater(@NotNull ExecutorService backendExecutorService) {
+    private Future<?> initializeMXBeanListenersLater(ExecutorService backendExecutorService) {
         // do it in the other thread to get it out of the way during startup
         return backendExecutorService.submit(new Runnable() {
             @Override
