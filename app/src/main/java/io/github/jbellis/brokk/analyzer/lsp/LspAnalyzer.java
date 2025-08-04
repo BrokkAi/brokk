@@ -703,7 +703,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             if (LspAnalyzerHelper.isRangeContained(symbol.getRange(), targetRange)) {
                 contextStack.push(symbol);
                 if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                    Optional<SymbolContext> found = findParentContextRecursive(symbol.getChildren(), targetRange, contextStack);
+                    final Optional<SymbolContext> found = findParentContextRecursive(symbol.getChildren(), targetRange, contextStack);
                     if (found.isPresent()) {
                         return found;
                     }
@@ -744,7 +744,11 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     @Override
     default @NotNull List<CodeUnit> directChildren(@NotNull CodeUnit cu) {
         return LspAnalyzerHelper.getDirectChildren(cu, getServer())
-                .thenApply(children -> children.stream().map(this::codeUnitForWorkspaceSymbol).toList())
+                .thenApply(children -> children.stream()
+                        .map(this::codeUnitForWorkspaceSymbol)
+                        .sorted()
+                        .toList()
+                )
                 .join();
     }
 

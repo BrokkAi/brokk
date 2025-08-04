@@ -753,10 +753,10 @@ public final class LspAnalyzerHelper {
                         .filter(symbol -> isRangeContained(symbol.getLocation().getLeft().getRange(), location.getRange()))
                         .min((s1, s2) -> {
                             // Heuristic to find the most specific (smallest) symbol containing the range
-                            Range r1 = s1.getLocation().getLeft().getRange();
-                            Range r2 = s2.getLocation().getLeft().getRange();
-                            int size1 = (r1.getEnd().getLine() - r1.getStart().getLine());
-                            int size2 = (r2.getEnd().getLine() - r2.getStart().getLine());
+                            final Range r1 = s1.getLocation().getLeft().getRange();
+                            final Range r2 = s2.getLocation().getLeft().getRange();
+                            final int size1 = (r1.getEnd().getLine() - r1.getStart().getLine());
+                            final int size2 = (r2.getEnd().getLine() - r2.getStart().getLine());
                             return Integer.compare(size1, size2);
                         })
         );
@@ -780,7 +780,7 @@ public final class LspAnalyzerHelper {
             @NotNull LspServer sharedServer
     ) {
         // We can only find children of container types like classes and modules.
-        if (!codeUnit.isClass() || !codeUnit.isModule()) {
+        if (!codeUnit.isClass() && !codeUnit.isModule()) {
             return CompletableFuture.completedFuture(Collections.emptyList());
         }
 
@@ -791,7 +791,7 @@ public final class LspAnalyzerHelper {
                 // Filter the list to find symbols whose container is the class we're interested in.
                 allSymbols.stream()
                         .filter(symbol ->
-                                codeUnit.shortName().equals(symbol.getContainerName())
+                                symbol.getName().startsWith(codeUnit.shortName() + ".")
                         )
                         .collect(Collectors.toList())
         );
