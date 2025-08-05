@@ -24,6 +24,13 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -942,6 +949,42 @@ public class CodeAgent {
             return "";
         }
 
+        // Enforce single-build execution when requested
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (!noConcurrentBuilds) {
+            return runVerificationCommand(verificationCommand);
+        }
+
+        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
+        try {
+            Files.createDirectories(lockDir);
+        } catch (IOException e) {
+            logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
+            return runVerificationCommand(verificationCommand);
+        }
+
+        var projectName = contextManager.getProject().getRoot().getFileName().toString();
+        Path lockFile = lockDir.resolve(projectName + ".lock");
+
+        try (FileChannel channel = FileChannel.open(lockFile,
+                                                    StandardOpenOption.CREATE,
+                                                    StandardOpenOption.WRITE);
+             FileLock lock = channel.lock())
+        {
+            logger.debug("Acquired build lock {}", lockFile);
+            return runVerificationCommand(verificationCommand);
+        } catch (IOException ioe) {
+            logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
+            return runVerificationCommand(verificationCommand);
+        }
+    }
+    
+    /**
+     * Executes the given verification command, streaming output back to the console.
+     * Returns an empty string on success, or the combined error/output when the
+     * command exits non-zero.
+     */
+    private String runVerificationCommand(String verificationCommand) throws InterruptedException {
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
         io.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
         try {
@@ -957,7 +1000,7 @@ public class CodeAgent {
             return e.getMessage() + "\n\n" + e.getOutput();
         }
     }
-
+    
     record LoopContext(
             ConversationState conversationState,
             EditState editState,

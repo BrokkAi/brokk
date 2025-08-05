@@ -72,6 +72,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     // Track when typing state was last set to detect stuck states
     private volatile long lastTypingStateChange = System.currentTimeMillis();
 
+
     // Navigation state to ensure highlights appear when scrolling to diffs
     private final AtomicBoolean isNavigatingToDiff = new AtomicBoolean(false);
 
@@ -506,6 +507,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return isActivelyTyping.get();
     }
 
+
     /**
      * Force reset typing state - used for recovery from stuck states
      */
@@ -832,7 +834,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         boolean isUserEdit = de.getDocumentEvent() != null ||
                             (de.getStartLine() != -1 && de.getNumberOfLines() > 0);
 
-        if (isUserEdit) {
+        // Check if this is a programmatic change by consulting the scroll synchronizer
+        boolean isProgrammaticChange = false;
+        var scrollSync = diffPanel.getScrollSynchronizer();
+        if (scrollSync != null) {
+            isProgrammaticChange = scrollSync.isProgrammaticScroll();
+        }
+
+        if (isUserEdit && !isProgrammaticChange) {
             boolean wasTyping = isActivelyTyping.getAndSet(true);
             if (!wasTyping) {
                 lastTypingStateChange = System.currentTimeMillis();
@@ -1148,20 +1157,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     copyTextFallback(sourceDoc, destinationDoc);
                 }
             } else if (eventType == DocumentEvent.EventType.REMOVE) {
-                // Remove the same range from the destination document
-                if (offset < destinationDoc.getLength() && offset + length <= destinationDoc.getLength()) {
-                    destinationDoc.remove(offset, length);
-                } else {
-                    // Range is invalid, use fallback to resync
-                    copyTextFallback(sourceDoc, destinationDoc);
-                }
+                // Always use fallback for REMOVE operations to prevent any synchronization issues
+                // This is simpler and more reliable than trying to handle edge cases with incremental removal
+                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
                 // For change events, always use fallback to ensure consistency
-                copyTextFallback(sourceDoc, destinationDoc);
+                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error
-            copyTextFallback(sourceDoc, destinationDoc);
+            BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
         }
     }
 
@@ -1170,8 +1175,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * This preserves the original behavior but should only be used as a last resort.
      */
     private static void copyTextFallback(Document src, Document dst) {
+        // Only perform fallback if documents are significantly out of sync
         try {
-            // Only perform fallback if documents are significantly out of sync
             String srcText = src.getText(0, src.getLength());
             String dstText = dst.getText(0, dst.getLength());
 
@@ -1180,9 +1185,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 return;
             }
 
-            // If documents differ significantly, perform full copy as last resort
-            dst.remove(0, dst.getLength());
-            dst.insertString(0, srcText, null);
+            BufferDiffPanel.synchronizeDocuments(src, dst);
         } catch (BadLocationException e) {
             throw new RuntimeException("Document mirroring fallback failed", e);
         }

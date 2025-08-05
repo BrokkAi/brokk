@@ -21,6 +21,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -276,6 +278,35 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             fp.reDisplay();
         }
         mainPanel.repaint();
+    }
+
+    /**
+     * Synchronizes the content of a source Document to a destination Document.
+     * This is a fallback mechanism to ensure documents are identical.
+     *
+     * @param srcDoc the source document
+     * @param dstDoc the destination document
+     */
+    public static void synchronizeDocuments(Document srcDoc, Document dstDoc)
+    {
+        if (srcDoc != dstDoc) { // copy only when different
+            try {
+                var len = srcDoc.getLength();
+                var text = srcDoc.getText(0, len);
+                dstDoc.remove(0, dstDoc.getLength());
+                dstDoc.insertString(0, text, null);
+            } catch (BadLocationException ex) {
+                throw new RuntimeException("Failed to synchronize documents", ex);
+            }
+        }
+    }
+
+    /**
+     * Synchronizes the BufferDocument's underlying document with the editor's document.
+     * This ensures both documents contain identical content after text modifications.
+     */
+    private void synchronizeDocuments(JTextComponent editor, BufferDocumentIF bufferDoc) {
+        synchronizeDocuments(editor.getDocument(), bufferDoc.getDocument());
     }
 
     public String getTitle()
@@ -929,6 +960,35 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return isAsymmetric;
     }
 
+    @FunctionalInterface
+    private interface DocumentMutation {
+        void perform() throws BadLocationException;
+    }
+
+    private void applyDelta(AbstractDelta<String> delta, BufferDocumentIF changedDoc, JTextComponent changedEditor, DocumentMutation mutation) {
+        assert SwingUtilities.isEventDispatchThread();
+        try {
+            if (scrollSynchronizer != null) {
+                try (var ignored = scrollSynchronizer.programmaticSection()) {
+                    mutation.perform();
+                }
+            } else {
+                mutation.perform();
+            }
+
+            if (patch != null) {
+                patch.getDeltas().remove(delta);
+            }
+
+            synchronizeDocuments(changedEditor, changedDoc);
+            changedDoc.getLines(); // rebuild internal cache
+            diff(false); // recalc patch & refresh UI without auto-scrolling
+            mainPanel.refreshTabTitle(this);
+        } catch (Exception ex) {
+            throw new RuntimeException("Error applying delta operation", ex);
+        }
+    }
+
     /**
      * The "change" operation from left->right or right->left.
      * We replicate the old logic, then remove the used delta from the patch
@@ -936,6 +996,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      */
     public void runChange(int fromPanelIndex, int toPanelIndex, boolean shift)
     {
+        assert SwingUtilities.isEventDispatchThread();
         var delta = getSelectedDelta();
         if (delta == null) return;
 
@@ -943,11 +1004,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         var toFilePanel = getFilePanel(toPanelIndex);
         if (fromFilePanel == null || toFilePanel == null) return;
 
+        var destinationViewport = toFilePanel.getScrollPane().getViewport();
+        var originalViewPosition = destinationViewport.getViewPosition();
+
         var fromDoc = fromFilePanel.getBufferDocument();
         var toDoc = toFilePanel.getBufferDocument();
         if (fromDoc == null || toDoc == null) return;
 
-        // Decide which side is "source" vs "target" chunk
         var sourceChunk = (fromPanelIndex < toPanelIndex) ? delta.getSource() : delta.getTarget();
         var targetChunk = (fromPanelIndex < toPanelIndex) ? delta.getTarget() : delta.getSource();
 
@@ -958,7 +1021,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         var toOffset = fromDoc.getOffsetForLine(fromLine + size);
         if (toOffset < 0) return;
 
-        try {
+        var toEditor = toFilePanel.getEditor();
+        applyDelta(delta, toDoc, toEditor, () -> {
             var fromPlainDoc = fromDoc.getDocument();
             var replacedText = fromPlainDoc.getText(fromOffset, toOffset - fromOffset);
 
@@ -969,32 +1033,20 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             var toToOffset = toDoc.getOffsetForLine(toLine + toSize);
             if (toToOffset < 0) return;
 
-            var toEditor = toFilePanel.getEditor();
             toEditor.setSelectionStart(toFromOffset);
             toEditor.setSelectionEnd(toToOffset);
 
-            // SHIFT -> Insert after the existing chunk
             if (!shift) {
                 toEditor.replaceSelection(replacedText);
             } else {
-                // Insert at the end, effectively appending
                 toEditor.getDocument().insertString(toToOffset, replacedText, null);
             }
 
-            // Remove this delta so we can't click it again
-            if (patch != null) {
-                patch.getDeltas().remove(delta);
-            }
-
-            setSelectedDelta(null);
-            setSelectedLine(sourceChunk.getPosition());
-
-            // Re-display so the chunk disappears immediately
-            reDisplay();
-            mainPanel.refreshTabTitle(this);
-        } catch (BadLocationException ex) {
-            throw new RuntimeException("Error applying change operation", ex);
-        }
+            SwingUtilities.invokeLater(() -> {
+                toEditor.setCaretPosition(toFromOffset);
+                destinationViewport.setViewPosition(originalViewPosition);
+            });
+        });
     }
 
     /**
@@ -1002,6 +1054,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Afterward, remove the delta so it doesn't stay clickable.
      */
     public void runDelete(int fromPanelIndex, int toPanelIndex) {
+        assert SwingUtilities.isEventDispatchThread();
         var delta = getSelectedDelta();
         if (delta == null) return;
 
@@ -1020,22 +1073,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         var toOffset = fromDoc.getOffsetForLine(fromLine + size);
         if (toOffset < 0) return;
 
-        var toEditor = fromFilePanel.getEditor();
-        toEditor.setSelectionStart(fromOffset);
-        toEditor.setSelectionEnd(toOffset);
-        toEditor.replaceSelection("");
-
-        // Remove the just-used delta
-        if (patch != null) {
-            patch.getDeltas().remove(delta);
-        }
-
-        setSelectedDelta(null);
-        setSelectedLine(chunk.getPosition());
-
-        // Refresh so the UI doesn't show that chunk anymore
-        reDisplay();
-        mainPanel.refreshTabTitle(this);
+        var editor = fromFilePanel.getEditor();
+        applyDelta(delta, fromDoc, editor, () -> {
+            editor.setSelectionStart(fromOffset);
+            editor.setSelectionEnd(toOffset);
+            editor.replaceSelection("");
+            editor.setCaretPosition(fromOffset);
+        });
     }
 
     /**

@@ -9,6 +9,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
+import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ResponseFormat;
@@ -199,7 +200,7 @@ public class Llm {
                         }
                         // I think this isn't supposed to happen, but seeing it when litellm throws back a 400.
                         // Fake an exception so the caller can treat it like other errors
-                        var ex = new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)");
+                        var ex = new LitellmException("(no further information, the response was null; check litellm logs)");
                         logger.debug(ex);
                         errorRef.set(ex);
                     } else {
@@ -270,6 +271,12 @@ public class Llm {
             io.llmOutput("\n", ChatMessageType.AI);
         }
         return StreamingResult.fromResponse(response, null);
+    }
+
+    private static class LitellmException extends LangChain4jException {
+        public LitellmException(String message) {
+            super(message);
+        }
     }
 
     private static String formatTokensUsage(ChatResponse response) {
