@@ -4,25 +4,14 @@ import io.github.jbellis.brokk.IProject;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
-    @Nullable
-    private final ThreadLocal<TSQuery> packageQuery;
-
     public JavaTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
         super(project, Language.JAVA, excludedFiles);
-        this.packageQuery = ThreadLocal.withInitial(() -> {
-            try {
-                return new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-            } catch (RuntimeException e) {
-                // Log and rethrow to indicate a critical setup error for this thread's query.
-                log.error("Failed to compile packageQuery for GoAnalyzer ThreadLocal", e);
-                throw e;
-            }
-        });
     }
 
     @Override
@@ -46,15 +35,14 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
             "type", // return type field name
             "type_parameters", // type parameters field name
             Map.of( // capture configuration
-                    "definition.class", SkeletonType.CLASS_LIKE,
-                    "definition.interface", SkeletonType.CLASS_LIKE,
-                    "definition.enum", SkeletonType.CLASS_LIKE,
-                    "definition.record", SkeletonType.CLASS_LIKE,
-                    "definition.annotation", SkeletonType.CLASS_LIKE, // for @interface
-                    "definition.method", SkeletonType.FUNCTION_LIKE,
-                    "definition.constructor", SkeletonType.FUNCTION_LIKE,
-                    "definition.field", SkeletonType.FIELD_LIKE,
-                    "definition.enum.constant", SkeletonType.FIELD_LIKE
+                    "class.definition", SkeletonType.CLASS_LIKE,
+                    "interface.definition", SkeletonType.CLASS_LIKE,
+                    "enum.definition", SkeletonType.CLASS_LIKE,
+                    "record.definition", SkeletonType.CLASS_LIKE,
+                    "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
+                    "method.definition", SkeletonType.FUNCTION_LIKE,
+                    "constructor.definition", SkeletonType.FUNCTION_LIKE,
+                    "field.definition", SkeletonType.FIELD_LIKE
             ),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
@@ -67,7 +55,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected CodeUnit createCodeUnit(ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final String fqName = classChain + "." + simpleName;
+        final String fqName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
         var type = switch (skeletonType) {
@@ -86,49 +74,29 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        TSQuery currentPackageQuery;
-        if (this.packageQuery != null) { // Check if JavaTreeSitterAnalyzer constructor has initialized the ThreadLocal field
-            currentPackageQuery = this.packageQuery.get();
-        } else {
-            // This block executes if determinePackageName is called during TreeSitterAnalyzer's constructor,
-            // before this.packageQuery (ThreadLocal) is initialized in JavaTreeSitterAnalyzer's constructor.
-            log.trace("JavaTreeSitterAnalyzer.determinePackageName: packageQuery ThreadLocal is null, creating temporary query for file {}", file);
-            try {
-                currentPackageQuery = new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
-            } catch (RuntimeException e) {
-                log.error("Failed to compile temporary package query for GoAnalyzer in determinePackageName for file {}: {}", file, e.getMessage(), e);
-                return ""; // Cannot proceed without the query
-            }
-        }
-        TSQueryCursor cursor = new TSQueryCursor();
-        try {
-            cursor.exec(currentPackageQuery, rootNode);
-            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+        // C# namespaces are determined by traversing up from the definition node
+        // to find enclosing namespace_declaration nodes.
+        // The 'file' parameter is not used here as namespace is derived from AST content.
+        java.util.List<String> namespaceParts = new java.util.ArrayList<>();
+        TSNode current = definitionNode.getParent();
 
-            if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with name "name"
-                    if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
-                        TSNode nameNode = capture.getNode();
-                        if (nameNode != null && !nameNode.isNull()) {
-                            return textSlice(nameNode, src).trim();
-                        }
-                    }
+        while (current != null && !current.isNull() && !current.equals(rootNode)) {
+            if ("package.declaration".equals(current.getType())) {
+                TSNode nameNode = current.getChildByFieldName("name");
+                if (nameNode != null && !nameNode.isNull()) {
+                    String nsPart = textSlice(nameNode, src);
+                    namespaceParts.add(nsPart);
                 }
-            } else {
-                log.warn("No package declaration found in Go file: {}", file);
             }
-        } catch (Exception e) {
-            log.error("Error while determining package name for Go file {}: {}", file, e.getMessage(), e);
+            current = current.getParent();
         }
-        // TSQueryCursor does not appear to have a close() method or implement AutoCloseable.
-        // Assuming its resources are managed by GC or when its associated TSQuery/TSTree are GC'd.
-        return ""; // Default if no package name found or an error occurs
+        Collections.reverse(namespaceParts);
+        return String.join(".", namespaceParts);
     }
 
     @Override
     protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
-        return assembleClassSignature(classNode, src, exportPrefix, signatureText, baseIndent);
+        return signatureText + " {";
     }
 
     @Override
