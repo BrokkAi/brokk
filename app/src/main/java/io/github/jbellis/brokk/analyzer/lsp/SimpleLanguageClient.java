@@ -76,6 +76,13 @@ public final class SimpleLanguageClient implements LanguageClient {
                     messageLines = conciseMessageLines;
                 }
                 final var messageBody = messageLines.stream().collect(Collectors.joining(System.lineSeparator()));
+                
+                // There is the possibility that the message indicates a complete failure, we should countdown the
+                // latches to unblock the clients
+                if (messageBody.contains("Failed to import projects")) {
+                    workspaceReadyLatchMap.values().forEach(CountDownLatch::countDown);
+                }
+                
                 logger.error("[LSP-SERVER-LOG] {}", messageBody);
             }
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());

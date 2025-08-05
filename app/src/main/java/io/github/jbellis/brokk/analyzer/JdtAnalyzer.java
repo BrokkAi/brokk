@@ -25,6 +25,7 @@ public class JdtAnalyzer implements LspAnalyzer {
     private final String workspace;
     @NotNull
     private final SharedLspServer sharedServer;
+    private boolean useEclipseBuildFiles = false;
 
     /**
      * Creates an analyzer for a specific project workspace.
@@ -39,7 +40,7 @@ public class JdtAnalyzer implements LspAnalyzer {
             throw new FileNotFoundException("Project directory does not exist: " + projectRoot);
         } else {
             try {
-                JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
+                useEclipseBuildFiles = JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
             } catch (Exception e) {
                 logger.warn("Error validating and creating project build files for: {}. Attempting to continue.", projectRoot, e);
             }
@@ -55,11 +56,6 @@ public class JdtAnalyzer implements LspAnalyzer {
                 } else {
                     maybeWorkspaceReadyLatch.get().await();
                     logger.debug("JDT LSP indexing complete. The analyzer ready.");
-//                    if (!maybeWorkspaceReadyLatch.get().await(5, TimeUnit.MINUTES)) {
-//                        logger.warn("Server is taking longer than expected to complete indexing, continuing with partial indexes.");
-//                    } else {
-//                        logger.debug("JDT LSP indexing complete. The analyzer ready.");
-//                    }
                 }
             } catch (InterruptedException e) {
                 logger.debug("Interrupted while waiting for initialization, the server may not be properly indexed", e);
@@ -103,8 +99,14 @@ public class JdtAnalyzer implements LspAnalyzer {
         // include getter, setter and builder/constructor when finding references.
         references.put("includeAccessors", true);
         configuration.put("updateBuildConfiguration", "automatic");
-        imporT.put("maven", Map.of("wrapper", Map.of("enabled", true)));
-        imporT.put("gradle", Map.of("wrapper", Map.of("enabled", true)));
+        if (this.useEclipseBuildFiles) {
+            imporT.put("maven", Map.of("enabled", false));
+            imporT.put("gradle", Map.of("enabled", false));
+        } else {
+            imporT.put("maven", Map.of("enabled", true, "wrapper", Map.of("enabled", true)));
+            imporT.put("gradle", Map.of("enabled", true, "wrapper", Map.of("enabled", true)));
+        }
+
 
         javaOptions.put("server", server);
         javaOptions.put("symbols", symbols);
