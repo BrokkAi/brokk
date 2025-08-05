@@ -76,14 +76,18 @@ public final class SimpleLanguageClient implements LanguageClient {
                     messageLines = conciseMessageLines;
                 }
                 final var messageBody = messageLines.stream().collect(Collectors.joining(System.lineSeparator()));
+
+                logger.error("[LSP-SERVER-LOG] {}", messageBody);
                 
                 // There is the possibility that the message indicates a complete failure, we should countdown the
                 // latches to unblock the clients
                 if (messageBody.contains("Failed to import projects")) {
-                    workspaceReadyLatchMap.values().forEach(CountDownLatch::countDown);
+                    logger.warn("Failed to import projects, counting down all latches");
+                    workspaceReadyLatchMap.forEach((workspace, latch) -> {
+                        logger.debug("Marking {} as ready", workspace);
+                        latch.countDown();
+                    });
                 }
-                
-                logger.error("[LSP-SERVER-LOG] {}", messageBody);
             }
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
             case Info -> {
@@ -103,7 +107,10 @@ public final class SimpleLanguageClient implements LanguageClient {
                             .forEach(arr -> {
                                 final var workspace = Path.of(arr[1].trim()).toUri().toString();
                                 Optional.ofNullable(workspaceReadyLatchMap.get(workspace))
-                                        .ifPresent(CountDownLatch::countDown);
+                                        .ifPresent(latch -> {
+                                            logger.info("Marking {} as ready", workspace);
+                                            latch.countDown();
+                                        });
                             });
                 }
             }
