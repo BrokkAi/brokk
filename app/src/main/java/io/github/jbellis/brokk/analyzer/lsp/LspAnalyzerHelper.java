@@ -86,7 +86,7 @@ public final class LspAnalyzerHelper {
     public static Optional<String> getSourceForUriString(@NotNull String uriString) {
         try {
             final Path filePath = Paths.get(new URI(uriString));
-            return Optional.of(Files.readString(filePath));
+            return Optional.of(Files.readString(filePath)).filter(source -> !source.isBlank());
         } catch (IOException | URISyntaxException e) {
             logger.error("Failed to read source for URI '{}'", uriString, e);
             return Optional.empty();
@@ -105,6 +105,7 @@ public final class LspAnalyzerHelper {
             final String targetFile = isIncoming ? callSite.getUri() : originalMethod.getUri();
             final Path filePath = Paths.get(new URI(targetFile));
             return Optional.of(Files.readString(filePath))
+                    .filter(source -> !source.isBlank())
                     .map(source -> {
                         if (ranges.isEmpty()) {
                             return getSourceForRange(source, callSite.getSelectionRange());
@@ -140,28 +141,33 @@ public final class LspAnalyzerHelper {
      */
     @NotNull
     public static String getSourceForRange(@NotNull String fileContent, @NotNull Range range) {
-        String[] lines = fileContent.split("\\R", -1); // Split by any line break
-        int startLine = range.getStart().getLine();
-        int endLine = range.getEnd().getLine();
-        int startChar = range.getStart().getCharacter();
-        int endChar = range.getEnd().getCharacter();
+        final String[] lines = fileContent.split("\\R", -1); // Split by any line break
+        if (lines.length > 0) {
+            final int startLine = range.getStart().getLine();
+            final int endLine = range.getEnd().getLine();
+            final int startChar = range.getStart().getCharacter();
+            final int endChar = range.getEnd().getCharacter();
 
-        if (startLine == endLine) {
-            return lines[startLine].substring(startChar, endChar);
+            if (startLine == endLine) {
+                return lines[startLine].substring(startChar, endChar);
+            }
+
+            final StringBuilder sb = new StringBuilder();
+            sb.append(lines[startLine].substring(startChar)).append(System.lineSeparator());
+
+            for (int i = startLine + 1; i < endLine; i++) {
+                sb.append(lines[i]).append(System.lineSeparator());
+            }
+
+            if (endChar > 0) {
+                sb.append(lines[endLine], 0, endChar);
+            }
+
+            return sb.toString();
+        } else {
+            logger.error("Empty file content given, cannot extract source for range {}", range);
+            return fileContent;
         }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(lines[startLine].substring(startChar)).append(System.lineSeparator());
-
-        for (int i = startLine + 1; i < endLine; i++) {
-            sb.append(lines[i]).append(System.lineSeparator());
-        }
-
-        if (endChar > 0) {
-            sb.append(lines[endLine], 0, endChar);
-        }
-
-        return sb.toString();
     }
 
     /**

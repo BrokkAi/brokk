@@ -98,7 +98,7 @@ public final class JdtSkeletonHelper {
                 }
 
                 // Build skeletons for all explicit members.
-                for (DocumentSymbol child : children) {
+                for (final DocumentSymbol child : children) {
                     if (headerOnly && LspAnalyzerHelper.FIELD_KINDS.contains(child.getKind())) {
                         buildSkeleton(child, sb, indent + 1, fullSource, true);
                     } else if (!headerOnly) {

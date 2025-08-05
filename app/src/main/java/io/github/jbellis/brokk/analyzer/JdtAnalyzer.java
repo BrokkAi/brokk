@@ -206,11 +206,11 @@ public class JdtAnalyzer implements LspAnalyzer {
                                         return Optional.<String>empty();
                                     } else {
                                         final String fullSource = fullSourceOpt.get();
-                                        final var eitherLocation = typeSymbol.getLocation();
-                                        if (eitherLocation.isLeft()) {
+                                        final var eitherLocationForType = typeSymbol.getLocation();
+                                        if (eitherLocationForType.isLeft()) {
                                             return JdtSkeletonHelper.getSymbolSkeleton(
                                                     sharedServer,
-                                                    eitherLocation.getLeft(),
+                                                    eitherLocationForType.getLeft(),
                                                     fullSource,
                                                     headerOnly
                                             ).join();
