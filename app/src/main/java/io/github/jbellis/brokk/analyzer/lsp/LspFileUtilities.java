@@ -14,9 +14,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.stream.Stream;
 
-public interface LspFileUtilities {
+public final class LspFileUtilities {
 
-    default Path findFile(Path dir, String partialName) throws IOException {
+    public static Path findFile(Path dir, String partialName) throws IOException {
         try (Stream<Path> stream = Files.walk(dir)) {
             return stream
                     .filter(p -> p.getFileName().toString().contains(partialName) && p.toString().endsWith(".jar"))
@@ -31,7 +31,7 @@ public interface LspFileUtilities {
      * @return The path to the temporary directory where the server was unpacked.
      * @throws IOException If the resource is not found or an error occurs during extraction.
      */
-    default Path unpackLspServer(String name) throws IOException {
+    public static Path unpackLspServer(String name) throws IOException {
         final var tempDir = Files.createTempDirectory(name + "-ls-unpacked-");
         tempDir.toFile().deleteOnExit(); // Clean up on JVM exit
 
@@ -63,7 +63,7 @@ public interface LspFileUtilities {
     }
 
     @NotNull
-    default Path findConfigDir(@NotNull Path dir) throws IOException {
+    public static Path findConfigDir(@NotNull Path dir) throws IOException {
         final String osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
         final String osArch = System.getProperty("os.arch").toLowerCase(Locale.ROOT);
 

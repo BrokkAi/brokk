@@ -23,7 +23,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-public abstract class LspServer implements LspFileUtilities {
+public abstract class LspServer {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
@@ -138,9 +138,9 @@ public abstract class LspServer implements LspFileUtilities {
             Map<String, Object> initializationOptions
     ) throws IOException {
         logger.info("First client connected. Starting JDT Language Server...");
-        final Path serverHome = unpackLspServer("jdt");
-        final Path launcherJar = findFile(serverHome, "org.eclipse.equinox.launcher_");
-        final Path configDir = findConfigDir(serverHome);
+        final Path serverHome = LspFileUtilities.unpackLspServer("jdt");
+        final Path launcherJar = LspFileUtilities.findFile(serverHome, "org.eclipse.equinox.launcher_");
+        final Path configDir = LspFileUtilities.findConfigDir(serverHome);
 
         final ProcessBuilder pb = new ProcessBuilder(
                 "java",
