@@ -85,6 +85,7 @@ bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
 # TreeSitter
 treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
+treesitter-java = "io.github.bonede:tree-sitter-java:0.23.4"
 treesitter-csharp = "io.github.bonede:tree-sitter-c-sharp:0.23.1"
 treesitter-go = "io.github.bonede:tree-sitter-go:0.23.3"
 treesitter-javascript = "io.github.bonede:tree-sitter-javascript:0.23.1"
@@ -114,7 +115,7 @@ scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
 ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-ssh", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+treesitter = ["treesitter-core", "treesitter-java", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 
 [plugins]
