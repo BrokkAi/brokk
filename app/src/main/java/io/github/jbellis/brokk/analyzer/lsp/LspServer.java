@@ -186,11 +186,9 @@ public abstract class LspServer {
         this.serverProcess = pb.start();
 
         // Create a dedicated thread pool for the LSP client
-        this.lspExecutor = Executors.newFixedThreadPool(4, runnable -> {
-            Thread thread = new Thread(runnable, language + "-lsp-client-thread");
-            thread.setDaemon(true);
-            return thread;
-        });
+        this.lspExecutor = Executors.newFixedThreadPool(4, runnable ->
+                new Thread(runnable, language + "-lsp-client-thread")
+        );
 
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
@@ -215,7 +213,7 @@ public abstract class LspServer {
         params.setCapabilities(capabilities);
 
         if (!this.serverProcess.isAlive()) {
-            throw new IOException("LSP process failed shortly after starting with exit code " + 
+            throw new IOException("LSP process failed shortly after starting with exit code " +
                     this.serverProcess.exitValue() + ". See " + errorLog.toAbsolutePath() + " for more details.");
         }
 
@@ -356,6 +354,7 @@ public abstract class LspServer {
             String language
     ) throws IOException {
         final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
+        logger.debug("Attempting to registered workspace: {}. Active clients: {}", projectPathAbsolute, clientCounter.get());
         final Path cache = getCacheForLsp(language);
         if (cache.getParent() != null && !Files.isDirectory(cache.getParent())) {
             Files.createDirectories(cache.getParent());
@@ -384,13 +383,14 @@ public abstract class LspServer {
      * @param projectPath The workspace path of the client being closed.
      */
     public synchronized void unregisterClient(Path projectPath, Map<String, Object> initializationOptions, String language) {
+        final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
+        logger.debug("Attempting to unregister workspace: {}. Active clients: {}", projectPathAbsolute, clientCounter.get());
         try {
-            final var projectPathAbsolute = projectPath.toAbsolutePath().normalize();
             removeWorkspaceFolder(projectPathAbsolute);
-            activeWorkspaces.remove(projectPathAbsolute);
-            workspaceExclusions.remove(projectPathAbsolute);
             logger.debug("Unregistered workspace: {}. Active clients: {}", projectPathAbsolute, clientCounter.get());
         } finally {
+            activeWorkspaces.remove(projectPathAbsolute);
+            workspaceExclusions.remove(projectPathAbsolute);
             if (clientCounter.decrementAndGet() == 0) {
                 shutdownServer();
             } else {
