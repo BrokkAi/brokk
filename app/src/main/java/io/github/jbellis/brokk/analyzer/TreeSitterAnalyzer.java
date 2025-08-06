@@ -393,6 +393,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 .stream()
                 .filter(child -> !headerOnly || (!child.isFunction() && !child.isClass()))
                 .toList();
+        final var functionLikeKidsCount = childrenByParent
+                .getOrDefault(cu, List.of())
+                .stream()
+                .filter(CodeUnit::isFunction)
+                .count();
         // Only add children and closer if the CU can have them (e.g. class, or function that can nest)
         // For simplicity now, always check for children. Specific languages might refine this.
         if (!kids.isEmpty() || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
@@ -400,7 +405,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             for (CodeUnit kid : kids) {
                 reconstructSkeletonRecursive(kid, childIndent, headerOnly, sb);
             }
-            if (cu.isClass() && headerOnly) {
+            if (headerOnly && cu.isClass() && functionLikeKidsCount > 0) {
                 sb.append(childIndent)
                         .append("[... methods not shown ...]")
                         .append("\n");
