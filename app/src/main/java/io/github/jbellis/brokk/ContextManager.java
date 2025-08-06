@@ -147,6 +147,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
 
+    // BuildAgent task tracking for cancellation
+    private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -1249,6 +1252,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void close() {
+        // Cancel BuildAgent task if still running
+        if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
+            logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
+            buildAgentFuture.cancel(true);
+        }
+
         userActionExecutor.shutdown();
         contextActionExecutor.shutdown();
         lowMemoryWatcherManager.close();
@@ -1577,24 +1586,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Ensures build details are loaded or inferred using BuildAgent if necessary.
      * Runs asynchronously in the background.
      */
-    private void ensureBuildDetailsAsync() {
+    private synchronized void ensureBuildDetailsAsync() {
         if (project.hasBuildDetails()) {
             logger.debug("Using existing build details");
             return;
         }
 
+        // Check if a BuildAgent task is already in progress
+        if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
+            logger.debug("BuildAgent task already in progress, skipping");
+            return;
+        }
+
         // No details found, run the BuildAgent asynchronously
-        submitBackgroundTask("Inferring build details", () -> {
+        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
             io.systemOutput("Inferring project build details");
+
+            // Check if task was cancelled before starting
+            if (Thread.currentThread().isInterrupted()) {
+                logger.debug("BuildAgent task cancelled before execution");
+                return BuildDetails.EMPTY;
+            }
+
             BuildAgent agent = new BuildAgent(project, getLlm(getSearchModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
+            } catch (InterruptedException e) {
+                logger.debug("BuildAgent execution interrupted");
+                Thread.currentThread().interrupt();
+                return BuildDetails.EMPTY;
             } catch (Exception e) {
                 var msg = "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: " + e.getMessage();
                 logger.error(msg, e);
                 io.toolError(msg, "Build Information Agent failed");
                 inferredDetails = BuildDetails.EMPTY;
+            }
+
+            // Check if task was cancelled after execution
+            if (Thread.currentThread().isInterrupted()) {
+                logger.debug("BuildAgent task cancelled after execution, not saving results");
+                return BuildDetails.EMPTY;
             }
 
             project.saveBuildDetails(inferredDetails);
