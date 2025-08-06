@@ -21,9 +21,17 @@
 (interface_declaration
   name: (identifier) @interface.name) @interface.definition
 
+; Record declarations
+(record_declaration
+  name: (identifier) @record.name) @record.definition
+
 ; Method declarations
 (method_declaration
   name: (identifier) @method.name) @method.definition
+
+; Constructor declarations
+(constructor_declaration
+  name: (identifier) @constructor.name) @constructor.definition
 
 ; Field declarations
 (field_declaration

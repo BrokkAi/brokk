@@ -13,24 +13,9 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayDeque; // Added import
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
-
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -56,23 +41,27 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private final Language language;
     protected final Set<String> normalizedExcludedFiles;
 
-    /** Stores information about a definition found by a query match, including associated modifier keywords and decorators. */
-    protected record DefinitionInfoRecord(String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {}
+    /**
+     * Stores information about a definition found by a query match, including associated modifier keywords and decorators.
+     */
+    protected record DefinitionInfoRecord(String primaryCaptureName, String simpleName, List<String> modifierKeywords,
+                                          List<TSNode> decoratorNodes) {
+    }
 
 
     protected record LanguageSyntaxProfile(
-        Set<String> classLikeNodeTypes,
-        Set<String> functionLikeNodeTypes,
-        Set<String> fieldLikeNodeTypes,
-        Set<String> decoratorNodeTypes,
-        String identifierFieldName,
-        String bodyFieldName,
-        String parametersFieldName,
-        String returnTypeFieldName,
-        String typeParametersFieldName, // For generics on type aliases, classes, functions etc.
-        Map<String, SkeletonType> captureConfiguration,
-        String asyncKeywordNodeType,
-        Set<String> modifierNodeTypes
+            Set<String> classLikeNodeTypes,
+            Set<String> functionLikeNodeTypes,
+            Set<String> fieldLikeNodeTypes,
+            Set<String> decoratorNodeTypes,
+            String identifierFieldName,
+            String bodyFieldName,
+            String parametersFieldName,
+            String returnTypeFieldName,
+            String typeParametersFieldName, // For generics on type aliases, classes, functions etc.
+            Map<String, SkeletonType> captureConfiguration,
+            String asyncKeywordNodeType,
+            Set<String> modifierNodeTypes
     ) {
         public LanguageSyntaxProfile {
             Objects.requireNonNull(classLikeNodeTypes);
@@ -90,14 +79,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
     }
 
-    public record Range(int startByte, int endByte, int startLine, int endLine) {}
+    public record Range(int startByte, int endByte, int startLine, int endLine) {
+    }
 
     private record FileAnalysisResult(List<CodeUnit> topLevelCUs,
                                       Map<CodeUnit, List<CodeUnit>> children,
                                       Map<CodeUnit, List<String>> signatures,
                                       Map<CodeUnit, List<Range>> sourceRanges,
                                       List<String> importStatements // Added for module-level imports
-                                      ) {}
+    ) {
+    }
 
     /* ---------- constructor ---------- */
     protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
@@ -130,7 +121,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // Debug log using SLF4J
         log.debug("Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
-                 this.language, getQueryResource());
+                this.language, getQueryResource());
 
 
         var validExtensions = this.language.getExtensions();
@@ -206,7 +197,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                             }));
 
                             log.trace("Processed file {}: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
-                                      pf, analysisResult.topLevelCUs().size(), analysisResult.signatures().size(), analysisResult.children().size(), analysisResult.sourceRanges().size());
+                                    pf, analysisResult.topLevelCUs().size(), analysisResult.signatures().size(), analysisResult.children().size(), analysisResult.sourceRanges().size());
                         } else {
                             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
                         }
@@ -226,7 +217,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     /* ---------- Helper methods for accessing CodeUnits ---------- */
-    /**  All CodeUnits we know about (top-level + children). */
+
+    /**
+     * All CodeUnits we know about (top-level + children).
+     */
     private Stream<CodeUnit> allCodeUnits() {
         // Stream top-level declarations
         Stream<CodeUnit> topLevelStream = topLevelDeclarations.values().stream().flatMap(Collection::stream);
@@ -240,45 +234,51 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return Stream.of(topLevelStream, parentStream, childrenStream).flatMap(s -> s);
     }
 
-    /**  De-duplicate and materialise into a List once. */
+    /**
+     * De-duplicate and materialise into a List once.
+     */
     private List<CodeUnit> uniqueCodeUnitList() {
         return allCodeUnits().distinct().toList();
     }
 
     /* ---------- IAnalyzer ---------- */
-    @Override public boolean isEmpty() { return topLevelDeclarations.isEmpty() && signatures.isEmpty() && childrenByParent.isEmpty() && sourceRanges.isEmpty(); }
+    @Override
+    public boolean isEmpty() {
+        return topLevelDeclarations.isEmpty() && signatures.isEmpty() && childrenByParent.isEmpty() && sourceRanges.isEmpty();
+    }
 
-    @Override public boolean isCpg() { return false; }
+    @Override
+    public boolean isCpg() {
+        return false;
+    }
 
     @Override
     public Optional<String> getSkeletonHeader(String fqName) {
-        return getSkeleton(fqName).map(s ->
-            s.lines().findFirst().orElse("").stripTrailing()
-        );
+        return getSkeletonImpl(fqName, true);
     }
 
     @Override
     public List<CodeUnit> getMembersInClass(String fqClass) {
         Optional<CodeUnit> parent = uniqueCodeUnitList().stream()
-                                                        .filter(cu -> cu.fqName().equals(fqClass) && cu.isClass())
-                                                        .findFirst();
+                .filter(cu -> cu.fqName().equals(fqClass) && cu.isClass())
+                .findFirst();
         return parent.map(p -> List.copyOf(childrenByParent.getOrDefault(p, List.of())))
-                     .orElse(List.of());
+                .orElse(List.of());
     }
 
     @Override
     public Optional<ProjectFile> getFileFor(String fqName) {
         return uniqueCodeUnitList().stream()
-                                   .filter(cu -> cu.fqName().equals(fqName))
-                                   .map(CodeUnit::source)
-                                   .findFirst();
+                .filter(cu -> cu.fqName().equals(fqName))
+                .map(CodeUnit::source)
+                .findFirst();
     }
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
         return uniqueCodeUnitList().stream()
-                                   .filter(cu -> cu.fqName().equals(fqName))
-                                   .findFirst();
+                .filter(cu -> cu.fqName().equals(fqName))
+                .findFirst();
     }
 
 
@@ -296,13 +296,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
             return uniqueCodeUnitList().stream()
-                                      .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
-                                      .toList();
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
+                    .toList();
         } else {
             // Primary search using compiled regex pattern
             return uniqueCodeUnitList().stream()
-                                      .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
-                                      .toList();
+                    .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                    .toList();
         }
     }
 
@@ -331,7 +331,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
 
         for (CodeUnit cu : sortedTopCUs) {
-            resultSkeletons.put(cu, reconstructFullSkeleton(cu));
+            resultSkeletons.put(cu, reconstructFullSkeleton(cu, false));
         }
         log.trace("getSkeletons: file={}, count={}", file, resultSkeletons.size());
         return Collections.unmodifiableMap(resultSkeletons);
@@ -346,7 +346,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         Queue<CodeUnit> toProcess = new ArrayDeque<>(topCUs); // Changed to ArrayDeque
         Set<CodeUnit> visited = new HashSet<>(topCUs); // Track visited to avoid cycles and redundant processing
 
-        while(!toProcess.isEmpty()) {
+        while (!toProcess.isEmpty()) {
             CodeUnit current = toProcess.poll();
             allDeclarationsInFile.add(current); // Add all encountered CodeUnits
 
@@ -360,13 +360,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return Collections.unmodifiableSet(allDeclarationsInFile);
     }
 
-    private String reconstructFullSkeleton(CodeUnit cu) {
+    private String reconstructFullSkeleton(CodeUnit cu, boolean headerOnly) {
         StringBuilder sb = new StringBuilder();
-        reconstructSkeletonRecursive(cu, "", sb);
+        reconstructSkeletonRecursive(cu, "", headerOnly, sb);
         return sb.toString().stripTrailing();
     }
 
-    private void reconstructSkeletonRecursive(CodeUnit cu, String indent, StringBuilder sb) {
+    private void reconstructSkeletonRecursive(CodeUnit cu, String indent, boolean headerOnly, StringBuilder sb) {
         List<String> sigList = signatures.get(cu);
         if (sigList == null || sigList.isEmpty()) {
             // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual signatures.
@@ -387,13 +387,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
         }
 
-        List<CodeUnit> kids = childrenByParent.getOrDefault(cu, List.of());
+        final List<CodeUnit> kids = childrenByParent
+                .getOrDefault(cu, List.of())
+                .stream()
+                .filter(child -> !headerOnly || (!child.isFunction() && !child.isClass()))
+                .toList();
         // Only add children and closer if the CU can have them (e.g. class, or function that can nest)
         // For simplicity now, always check for children. Specific languages might refine this.
         if (!kids.isEmpty() || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
             String childIndent = indent + getLanguageSpecificIndent();
             for (CodeUnit kid : kids) {
-                reconstructSkeletonRecursive(kid, childIndent, sb);
+                reconstructSkeletonRecursive(kid, childIndent, headerOnly, sb);
+            }
+            if (cu.isClass() && headerOnly) {
+                sb.append(childIndent)
+                        .append("[... methods not shown ...]")
+                        .append("\n");
             }
             String closer = getLanguageSpecificCloser(cu);
             if (!closer.isEmpty()) {
@@ -405,11 +414,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     @Override
     public Optional<String> getSkeleton(String fqName) {
+        return getSkeletonImpl(fqName, false);
+    }
+
+    public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
         Optional<CodeUnit> cuOpt = signatures.keySet().stream()
-                                          .filter(c -> c.fqName().equals(fqName))
-                                          .findFirst();
+                .filter(c -> c.fqName().equals(fqName))
+                .findFirst();
         if (cuOpt.isPresent()) {
-            String skeleton = reconstructFullSkeleton(cuOpt.get());
+            String skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
             log.trace("getSkeleton: fqName='{}', found=true", fqName);
             return Optional.of(skeleton);
         }
@@ -420,8 +433,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     @Override
     public String getClassSource(String fqName) {
         var cu = getDefinition(fqName)
-                         .filter(CodeUnit::isClass)
-                         .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
+                .filter(CodeUnit::isClass)
+                .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
 
         var ranges = sourceRanges.get(cu);
         if (ranges == null || ranges.isEmpty()) {
@@ -442,60 +455,68 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     @Override
     public Optional<String> getMethodSource(String fqName) {
         return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for overloads)
-            .filter(CodeUnit::isFunction)
-            .flatMap(cu -> {
-                List<Range> rangesForOverloads = sourceRanges.get(cu);
-                if (rangesForOverloads == null || rangesForOverloads.isEmpty()) {
-                    log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, fqName);
-                    return Optional.empty();
-                }
-
-                String fileContent;
-                try {
-                    fileContent = cu.source().read();
-                } catch (IOException e) {
-                    log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, e.getMessage());
-                    return Optional.empty();
-                }
-
-                List<String> individualMethodSources = new ArrayList<>();
-                for (Range range : rangesForOverloads) {
-                    // Ensure range is within fileContent bounds, though it should be by construction.
-                    int startByte = Math.max(0, range.startByte());
-                    int endByte = Math.min(fileContent.length(), range.endByte());
-                    if (startByte < endByte) {
-                        individualMethodSources.add(fileContent.substring(startByte, endByte));
-                    } else {
-                        log.warn("Invalid range [{}, {}] for CU {} (fqName {}) in file of length {}. Skipping this range.",
-                                 range.startByte(), range.endByte(), cu, fqName, fileContent.length());
+                .filter(CodeUnit::isFunction)
+                .flatMap(cu -> {
+                    List<Range> rangesForOverloads = sourceRanges.get(cu);
+                    if (rangesForOverloads == null || rangesForOverloads.isEmpty()) {
+                        log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, fqName);
+                        return Optional.empty();
                     }
-                }
 
-                if (individualMethodSources.isEmpty()) {
-                    log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, fqName);
-                    return Optional.empty();
-                }
-                return Optional.of(String.join("\n\n", individualMethodSources));
-            });
+                    String fileContent;
+                    try {
+                        fileContent = cu.source().read();
+                    } catch (IOException e) {
+                        log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, e.getMessage());
+                        return Optional.empty();
+                    }
+
+                    List<String> individualMethodSources = new ArrayList<>();
+                    for (Range range : rangesForOverloads) {
+                        // Ensure range is within fileContent bounds, though it should be by construction.
+                        int startByte = Math.max(0, range.startByte());
+                        int endByte = Math.min(fileContent.length(), range.endByte());
+                        if (startByte < endByte) {
+                            individualMethodSources.add(fileContent.substring(startByte, endByte));
+                        } else {
+                            log.warn("Invalid range [{}, {}] for CU {} (fqName {}) in file of length {}. Skipping this range.",
+                                    range.startByte(), range.endByte(), cu, fqName, fileContent.length());
+                        }
+                    }
+
+                    if (individualMethodSources.isEmpty()) {
+                        log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, fqName);
+                        return Optional.empty();
+                    }
+                    return Optional.of(String.join("\n\n", individualMethodSources));
+                });
     }
 
 
     /* ---------- abstract hooks ---------- */
-    /** Creates a new TSLanguage instance for the specific language. Called by ThreadLocal initializer. */
+
+    /**
+     * Creates a new TSLanguage instance for the specific language. Called by ThreadLocal initializer.
+     */
     protected abstract TSLanguage createTSLanguage();
 
     /**
      * Provides a thread-safe TSLanguage instance.
+     *
      * @return A TSLanguage instance for the current thread.
      */
     protected TSLanguage getTSLanguage() {
         return threadLocalLanguage.get();
     }
 
-    /** Provides the language-specific syntax profile. */
+    /**
+     * Provides the language-specific syntax profile.
+     */
     protected abstract LanguageSyntaxProfile getLanguageSyntaxProfile();
 
-    /** Class-path resource for the query (e.g. {@code "treesitter/python.scm"}). */
+    /**
+     * Class-path resource for the query (e.g. {@code "treesitter/python.scm"}).
+     */
     protected abstract String getQueryResource();
 
     /**
@@ -538,10 +559,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /**
      * Determines the package or namespace name for a given definition.
      *
-     * @param file The project file being analyzed.
+     * @param file           The project file being analyzed.
      * @param definitionNode The TSNode representing the definition (e.g., class, function).
-     * @param rootNode The root TSNode of the file's syntax tree.
-     * @param src The source code of the file.
+     * @param rootNode       The root TSNode of the file's syntax tree.
+     * @param src            The source code of the file.
      * @return The package or namespace name, or an empty string if not applicable.
      */
     protected abstract String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src);
@@ -561,13 +582,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
     }
 
-    /** Captures that should be ignored entirely. */
-    protected Set<String> getIgnoredCaptures() { return Set.of(); }
+    /**
+     * Captures that should be ignored entirely.
+     */
+    protected Set<String> getIgnoredCaptures() {
+        return Set.of();
+    }
 
-    /** Language-specific indentation string, e.g., "  " or "    ". */
-    protected String getLanguageSpecificIndent() { return "  "; } // Default
+    /**
+     * Language-specific indentation string, e.g., "  " or "    ".
+     */
+    protected String getLanguageSpecificIndent() {
+        return "  ";
+    } // Default
 
-    /** Language-specific closing token for a class or namespace (e.g., "}"). Empty if none. */
+    /**
+     * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
+     */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
 
 
@@ -579,16 +610,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     /* ---------- core parsing ---------- */
-    /** Analyzes a single file and extracts declaration information. */
+
+    /**
+     * Analyzes a single file and extracts declaration information.
+     */
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
 
         byte[] fileBytes = Files.readAllBytes(file.absPath());
         // Strip UTF-8 BOM if present (EF BB BF)
         if (fileBytes.length >= 3 &&
-            (fileBytes[0] & 0xFF) == 0xEF &&
-            (fileBytes[1] & 0xFF) == 0xBB &&
-            (fileBytes[2] & 0xFF) == 0xBF) {
+                (fileBytes[0] & 0xFF) == 0xEF &&
+                (fileBytes[1] & 0xFF) == 0xBB &&
+                (fileBytes[2] & 0xFF) == 0xBF) {
             byte[] bytesWithoutBom = new byte[fileBytes.length - 3];
             System.arraycopy(fileBytes, 3, bytesWithoutBom, 0, fileBytes.length - 3);
             fileBytes = bytesWithoutBom;
@@ -643,17 +677,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     } else {
                         // Store the first non-null node found for other capture names in this match
                         capturedNodesForMatch.putIfAbsent(captureName, node);
-                         log.trace("  Capture: '{}', Node: {} '{}'", captureName, node.getType(), textSlice(node, src).lines().findFirst().orElse("").trim());
+                        log.trace("  Capture: '{}', Node: {} '{}'", captureName, node.getType(), textSlice(node, src).lines().findFirst().orElse("").trim());
                     }
                 }
             }
 
             modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
             List<String> sortedModifierStrings = modifierNodesForMatch.stream()
-                                                                      .map(modNode -> textSlice(modNode, src).strip())
-                                                                      .toList();
+                    .map(modNode -> textSlice(modNode, src).strip())
+                    .toList();
             if (!sortedModifierStrings.isEmpty()) {
-                 log.trace("  Modifiers for this match: {}", sortedModifierStrings);
+                log.trace("  Modifiers for this match: {}", sortedModifierStrings);
             }
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
@@ -683,12 +717,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         simpleName = textSlice(nameNode, src);
                         if (simpleName.isBlank()) {
                             log.warn("Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
-                                     expectedNameCapture, captureName, file, textSlice(nameNode, src), nameNode.getType());
+                                    expectedNameCapture, captureName, file, textSlice(nameNode, src), nameNode.getType());
                             simpleName = extractSimpleName(definitionNode, src).orElse(null);
                         }
                     } else {
                         log.warn("Expected name capture '{}' not found for definition '{}' in match for file {}. Current captures in this match: {}. Falling back to extractSimpleName on definition node.",
-                                 expectedNameCapture, captureName, file, capturedNodesForMatch.keySet());
+                                expectedNameCapture, captureName, file, capturedNodesForMatch.keySet());
                         simpleName = extractSimpleName(definitionNode, src).orElse(null);
                     }
 
@@ -697,10 +731,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     } else {
                         if (simpleName == null) {
                             log.warn("Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
-                                     captureName, definitionNode.getType(), definitionNode.getStartPoint().getRow() + 1, file);
+                                    captureName, definitionNode.getType(), definitionNode.getStartPoint().getRow() + 1, file);
                         } else {
                             log.warn("Determined simple name for definition capture {} (Node Type [{}], Line {}) in file {} is BLANK. Definition will be skipped.",
-                                     captureName, definitionNode.getType(), definitionNode.getStartPoint().getRow() + 1, file);
+                                    captureName, definitionNode.getType(), definitionNode.getStartPoint().getRow() + 1, file);
                         }
                     }
                 }
@@ -709,9 +743,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // Sort declaration nodes by their start byte to process outer definitions before inner ones.
         List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries =
-            declarationNodes.entrySet().stream()
-                .sorted(Comparator.comparingInt(entry -> entry.getKey().getStartByte()))
-                .toList();
+                declarationNodes.entrySet().stream()
+                        .sorted(Comparator.comparingInt(entry -> entry.getKey().getStartByte()))
+                        .toList();
 
         TSNode currentRootNode = tree.getRootNode(); // Used for namespace and class chain extraction
 
@@ -724,12 +758,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
             if (simpleName.isBlank()) {
                 log.warn("Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
-                         node.getType(), primaryCaptureName, file);
+                        node.getType(), primaryCaptureName, file);
                 continue;
             }
 
             log.trace("Processing definition: Name='{}', Capture='{}', Node Type='{}'",
-                      simpleName, primaryCaptureName, node.getType());
+                    simpleName, primaryCaptureName, node.getType());
 
             String packageName = determinePackageName(file, node, currentRootNode, src);
             List<String> enclosingClassNames = new ArrayList<>();
@@ -758,8 +792,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
                 TSNode receiverNode;
                 // TSNode methodIdentifierNode = null; // This would be `node.getChildByFieldName("name")` for method_declaration
-                                                    // or more reliably, the node associated with captureName.replace(".definition", ".name")
-                                                    // simpleName is already derived from method.identifier.
+                // or more reliably, the node associated with captureName.replace(".definition", ".name")
+                // simpleName is already derived from method.identifier.
 
                 // Re-evaluate captures specific to this `node` (method_definition)
                 // This is a simplified re-querying logic. A more efficient approach might involve
@@ -808,7 +842,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
             if (file.getFileName().equals("vars.py") && primaryCaptureName.equals("field.definition")) {
                 log.trace("[vars.py DEBUG] Processing entry for vars.py field: Node Type='{}', SimpleName='{}', CaptureName='{}', PackageName='{}', ClassChain='{}'",
-                         node.getType(), simpleName, primaryCaptureName, packageName, classChain);
+                        node.getType(), simpleName, primaryCaptureName, packageName, classChain);
                 log.trace("[vars.py DEBUG] CU created: {}, Signature: [{}]", cu, signature.isBlank() ? "BLANK_SIG" : signature.lines().findFirst().orElse("EMPTY_SIG"));
             }
 
@@ -860,7 +894,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 }
             }
             var currentRange = new Range(node.getStartByte(), node.getEndByte(),
-                                         node.getStartPoint().getRow(), node.getEndPoint().getRow());
+                    node.getStartPoint().getRow(), node.getEndPoint().getRow());
             localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(currentRange);
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
             localChildren.putIfAbsent(cu, new ArrayList<>()); // Ensure every CU can be a parent
@@ -870,7 +904,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             } else {
                 // Parent's shortName is the classChain string itself.
                 String parentFqName = cu.packageName().isEmpty() ? classChain
-                                     : cu.packageName() + "." + classChain;
+                        : cu.packageName() + "." + classChain;
                 CodeUnit parentCu = localCuByFqName.get(parentFqName);
                 if (parentCu != null) {
                     List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
@@ -896,18 +930,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // Check if a module CU with this FQ name already exists
             // or if this logic somehow runs twice for the same file.
             if (!localCuByFqName.containsKey(moduleCU.fqName())) {
-                 localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
-                 localCuByFqName.put(moduleCU.fqName(), moduleCU);
-                 // Join imports into a single multi-line signature string for the module CU
-                 String importBlockSignature = String.join("\n", localImportStatements);
-                 localSignatures.computeIfAbsent(moduleCU, k -> new ArrayList<>()).add(importBlockSignature);
-                 // Add a general range for the module CU (e.g. entire file or first import to last)
-                 // For simplicity, can use the range of the root node or skip detailed range for module CU.
-                 // Here, we'll use the root node's range as a placeholder.
-                 localSourceRanges.computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                                  .add(new Range(rootNode.getStartByte(), rootNode.getEndByte(),
-                                                 rootNode.getStartPoint().getRow(), rootNode.getEndPoint().getRow()));
-                 log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
+                localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
+                localCuByFqName.put(moduleCU.fqName(), moduleCU);
+                // Join imports into a single multi-line signature string for the module CU
+                String importBlockSignature = String.join("\n", localImportStatements);
+                localSignatures.computeIfAbsent(moduleCU, k -> new ArrayList<>()).add(importBlockSignature);
+                // Add a general range for the module CU (e.g. entire file or first import to last)
+                // For simplicity, can use the range of the root node or skip detailed range for module CU.
+                // Here, we'll use the root node's range as a placeholder.
+                localSourceRanges.computeIfAbsent(moduleCU, k -> new ArrayList<>())
+                        .add(new Range(rootNode.getStartByte(), rootNode.getEndByte(),
+                                rootNode.getStartPoint().getRow(), rootNode.getEndPoint().getRow()));
+                log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
             } else {
                 log.warn("Module CU for {} with fqName {} already exists. Skipping duplicate module CU creation.", file, moduleCU.fqName());
             }
@@ -915,7 +949,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
 
         log.trace("Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries.",
-                  file, localTopLevelCUs.size(), localImportStatements.size(), localSignatures.size(), localChildren.size(), localSourceRanges.size());
+                file, localTopLevelCUs.size(), localImportStatements.size(), localSignatures.size(), localChildren.size(), localSourceRanges.size());
 
         // Make internal lists unmodifiable before returning in FileAnalysisResult
         Map<CodeUnit, List<CodeUnit>> finalLocalChildren = new HashMap<>();
@@ -925,10 +959,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         localSourceRanges.forEach((c, ranges) -> finalLocalSourceRanges.put(c, Collections.unmodifiableList(ranges)));
 
         return new FileAnalysisResult(Collections.unmodifiableList(localTopLevelCUs),
-                                      finalLocalChildren,
-                                      localSignatures,
-                                      finalLocalSourceRanges,
-                                      Collections.unmodifiableList(localImportStatements));
+                finalLocalChildren,
+                localSignatures,
+                finalLocalSourceRanges,
+                Collections.unmodifiableList(localImportStatements));
     }
 
 
@@ -937,6 +971,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /**
      * Builds a signature string for a given definition node.
      * This includes decorators and the main declaration line (e.g., class header or function signature).
+     *
      * @param simpleName The simple name of the definition, pre-determined by query captures.
      */
     private String buildSignatureString(TSNode definitionNode, String simpleName, String src, String primaryCaptureName, List<String> capturedModifierKeywords, ProjectFile file) {
@@ -960,7 +995,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType) ||
                             // Special case for TypeScript/JavaScript arrow functions in lexical declarations
                             ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT) &&
-                             ("lexical_declaration".equals(innerType) || "variable_declaration".equals(innerType)));
+                                    ("lexical_declaration".equals(innerType) || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
                     case ALIAS_LIKE ->
                             typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT) && "type_alias_declaration".equals(innerType));
@@ -972,23 +1007,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     // Keep nodeForSignature as the original export_statement for text slicing
                 } else {
                     log.warn("Export statement in {} wraps an unexpected declaration type '{}' for skeletonType '{}'. Using export_statement as nodeForContent. DefinitionNode: {}, SimpleName: {}",
-                             definitionNode.getStartPoint().getRow() +1, innerType, skeletonType, definitionNode.getType(), simpleName);
+                            definitionNode.getStartPoint().getRow() + 1, innerType, skeletonType, definitionNode.getType(), simpleName);
                 }
             }
         }
 
         // Check if we need to find specific variable_declarator (this should run after export unwrapping)
         if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT) &&
-                   ("lexical_declaration".equals(nodeForContent.getType()) || "variable_declaration".equals(nodeForContent.getType())) &&
-                   (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
+                ("lexical_declaration".equals(nodeForContent.getType()) || "variable_declaration".equals(nodeForContent.getType())) &&
+                (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
             // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator by name
             log.debug("Entering variable_declarator lookup for '{}' in nodeForContent '{}'",
-                     simpleName, nodeForContent.getType());
+                    simpleName, nodeForContent.getType());
             boolean found = false;
             for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
                 TSNode child = nodeForContent.getNamedChild(i);
                 log.debug("  Child[{}]: type='{}', text='{}'", i, child.getType(),
-                         textSlice(child, src).lines().findFirst().orElse("").trim());
+                        textSlice(child, src).lines().findFirst().orElse("").trim());
                 if ("variable_declarator".equals(child.getType())) {
                     TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
                     if (nameNode != null && !nameNode.isNull() && simpleName.equals(textSlice(nameNode, src).strip())) {
@@ -1055,8 +1090,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         classSignatureText = textSlice(nodeForContent.getStartByte(), nodeForContent.getEndByte(), src).stripTrailing();
                     }
                     // Attempt to remove trailing tokens like '{' or ';' if no body node found, to get a cleaner signature part
-                    if (classSignatureText.endsWith("{")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
-                    else if (classSignatureText.endsWith(";")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                    if (classSignatureText.endsWith("{"))
+                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                    else if (classSignatureText.endsWith(";"))
+                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
                 }
 
 
@@ -1065,7 +1102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 if (!exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix.strip())) {
                     classSignatureText = classSignatureText.substring(exportPrefix.strip().length()).stripLeading();
                 } else if (!exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix)) { // Check with trailing space too
-                     classSignatureText = classSignatureText.substring(exportPrefix.length()).stripLeading();
+                    classSignatureText = classSignatureText.substring(exportPrefix.length()).stripLeading();
                 }
 
 
@@ -1075,7 +1112,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
             case FUNCTION_LIKE: {
                 log.debug("FUNCTION_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
-                         simpleName, nodeForContent.getType(), nodeForSignature.getType());
+                        simpleName, nodeForContent.getType(), nodeForSignature.getType());
 
                 // Add extra comments determined from the function body
                 TSNode bodyNodeForComments = nodeForContent.getChildByFieldName(profile.bodyFieldName());
@@ -1094,14 +1131,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             case FIELD_LIKE: {
                 // Always use nodeForContent which has been set to the specific variable_declarator
                 log.debug("FIELD_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
-                         simpleName, nodeForContent.getType(), nodeForSignature.getType());
+                        simpleName, nodeForContent.getType(), nodeForSignature.getType());
                 String fieldSignatureText = textSlice(nodeForContent, src).strip();
 
                 // Strip export prefix if present to avoid duplication
                 if (!exportPrefix.isEmpty() && !exportPrefix.isBlank()) {
                     String strippedExportPrefix = exportPrefix.strip();
                     log.debug("Checking for prefix duplication: exportPrefix='{}', fieldSignatureText='{}'",
-                             strippedExportPrefix, fieldSignatureText);
+                            strippedExportPrefix, fieldSignatureText);
 
                     // Check for exact match first
                     if (fieldSignatureText.startsWith(strippedExportPrefix)) {
@@ -1145,8 +1182,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 if (valueNode != null && !valueNode.isNull()) {
                     valueText = textSlice(valueNode, src).strip();
                 } else {
-                     log.warn("Type alias '{}' (node type {}) in {} at line {} is missing its 'value' child. Resulting skeleton may be incomplete. Node text: {}",
-                             simpleName, nodeForContent.getType(), project.getRoot().relativize(file.absPath()), nodeForContent.getStartPoint().getRow() +1, textSlice(nodeForContent,src));
+                    log.warn("Type alias '{}' (node type {}) in {} at line {} is missing its 'value' child. Resulting skeleton may be incomplete. Node text: {}",
+                            simpleName, nodeForContent.getType(), project.getRoot().relativize(file.absPath()), nodeForContent.getStartPoint().getRow() + 1, textSlice(nodeForContent, src));
                     valueText = "any"; // Fallback or indicate error
                 }
 
@@ -1159,19 +1196,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
             case UNSUPPORTED:
             default:
-                 log.debug("Unsupported capture name '{}' for signature building (type {}). Using raw text slice (with prefix if any from modifiers): '{}'",
-                           primaryCaptureName, skeletonType, exportPrefix + textSlice(definitionNode, src).stripLeading());
-                 signatureLines.add(exportPrefix + textSlice(definitionNode, src).stripLeading()); // Add prefix here too
-                 break;
+                log.debug("Unsupported capture name '{}' for signature building (type {}). Using raw text slice (with prefix if any from modifiers): '{}'",
+                        primaryCaptureName, skeletonType, exportPrefix + textSlice(definitionNode, src).stripLeading());
+                signatureLines.add(exportPrefix + textSlice(definitionNode, src).stripLeading()); // Add prefix here too
+                break;
         }
 
         String result = String.join("\n", signatureLines).stripTrailing();
         log.trace("buildSignatureString: DefNode={}, SimpleName={}, Capture='{}', nodeForContent={}, Modifiers='{}', Signature (first line): '{}'",
-                  definitionNode.getType(), simpleName, primaryCaptureName, nodeForContent.getType(), exportPrefix, (result.isEmpty() ? "EMPTY" : result.lines().findFirst().orElse("EMPTY")));
+                definitionNode.getType(), simpleName, primaryCaptureName, nodeForContent.getType(), exportPrefix, (result.isEmpty() ? "EMPTY" : result.lines().findFirst().orElse("EMPTY")));
         return result;
     }
 
-    /** Renders the opening part of a class-like structure (e.g., "public class Foo {"). */
+    /**
+     * Renders the opening part of a class-like structure (e.g., "public class Foo {").
+     */
     protected abstract String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent);
     // renderClassFooter is removed, replaced by getLanguageSpecificCloser
     // buildClassMemberSkeletons is removed from this direct path; children are handled by recursive reconstruction.
@@ -1184,7 +1223,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * implementation simply returns the raw text of {@code parametersNode}.
      *
      * @param parametersNode The TSNode representing the parameter list.
-     * @param src The source code.
+     * @param src            The source code.
      * @return The formatted parameter list text.
      */
     protected String formatParameterList(TSNode parametersNode, String src) {
@@ -1200,7 +1239,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * node is null).
      *
      * @param returnTypeNode The TSNode representing the return type.
-     * @param src The source code.
+     * @param src            The source code.
      * @return The formatted return type text.
      */
     protected String formatReturnType(@Nullable TSNode returnTypeNode, String src) {
@@ -1209,7 +1248,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     // Removed deprecated formatReturnType(String)
 
-    protected String formatHeritage(String signatureText) { return signatureText; }
+    protected String formatHeritage(String signatureText) {
+        return signatureText;
+    }
 
     /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
     protected String assembleFunctionSignature(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
@@ -1226,11 +1267,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Subclasses must implement this to provide language-specific formatting,
      * including any necessary keywords, type annotations, and terminators (e.g., semicolon).
      *
-     * @param fieldNode The TSNode representing the field declaration.
-     * @param src The source code.
-     * @param exportPrefix The pre-determined export/visibility prefix (e.g., "export const ").
+     * @param fieldNode     The TSNode representing the field declaration.
+     * @param src           The source code.
+     * @param exportPrefix  The pre-determined export/visibility prefix (e.g., "export const ").
      * @param signatureText The core text of the field signature (e.g., "fieldName: type = value").
-     * @param baseIndent The indentation string for this line.
+     * @param baseIndent    The indentation string for this line.
      * @return The fully formatted field signature line.
      */
     protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
@@ -1264,12 +1305,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     /**
      * Builds the function signature lines.
-     * @param funcNode The TSNode for the function definition.
+     *
+     * @param funcNode        The TSNode for the function definition.
      * @param providedNameOpt Optional pre-determined name (e.g. from a specific capture).
-     * @param src Source code.
-     * @param indent Indentation string.
-     * @param lines List to add signature lines to.
-     * @param exportPrefix Pre-determined export and modifier prefix (e.g., "export async").
+     * @param src             Source code.
+     * @param indent          Indentation string.
+     * @param lines           List to add signature lines to.
+     * @param exportPrefix    Pre-determined export and modifier prefix (e.g., "export async").
      */
     protected void buildFunctionSkeleton(TSNode funcNode, Optional<String> providedNameOpt, String src, String indent, List<String> lines, String exportPrefix) {
         var profile = getLanguageSyntaxProfile();
@@ -1289,7 +1331,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             } else {
                 String funcNodeText = textSlice(funcNode, src);
                 log.warn("Function node type {} has no name field '{}' and no name was provided or extracted. Raw text: {}",
-                         funcNode.getType(), profile.identifierFieldName(), funcNodeText.lines().findFirst().orElse(""));
+                        funcNode.getType(), profile.identifierFieldName(), funcNodeText.lines().findFirst().orElse(""));
                 lines.add(indent + funcNodeText);
                 log.warn("-> Falling back to raw text slice for function skeleton due to missing name.");
                 return;
@@ -1309,13 +1351,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // but log it if it's unusual for the current node type based on typical expectations.
             // If paramsText ends up empty, renderFunctionDeclaration should handle it gracefully.
             log.trace("Parameters node (field '{}') not found for function node type '{}', name '{}'. Assuming empty parameter list.",
-                     profile.parametersFieldName(), funcNode.getType(), functionName);
+                    profile.parametersFieldName(), funcNode.getType(), functionName);
         }
 
         // Body node might be missing for abstract/interface methods.
         if (bodyNode == null || bodyNode.isNull()) {
             log.trace("Body node (field '{}') not found for function node type '{}', name '{}'. Renderer or placeholder logic must handle this.",
-                     profile.bodyFieldName(), funcNode.getType(), functionName);
+                    profile.bodyFieldName(), funcNode.getType(), functionName);
         }
 
         // exportPrefix already contains all modifiers including 'async' if present.
@@ -1343,8 +1385,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Retrieves extra comment lines to be added to a function's skeleton, typically before the body.
      * Example: mutation tracking comments.
      *
-     * @param bodyNode The TSNode representing the function's body. Can be null.
-     * @param src The source code.
+     * @param bodyNode   The TSNode representing the function's body. Can be null.
+     * @param src        The source code.
      * @param functionCu The CodeUnit for the function. Can be null if not available.
      * @return A list of comment strings, or an empty list if none.
      */
@@ -1361,14 +1403,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Implementations are responsible for constructing the entire line, including indentation and any
      * language-specific body placeholder if the function body is not empty or trivial.
      *
-     * @param funcNode The Tree-sitter node representing the function.
-     * @param src The source code of the file.
+     * @param funcNode                The Tree-sitter node representing the function.
+     * @param src                     The source code of the file.
      * @param exportAndModifierPrefix The combined export and modifier prefix (e.g., "export async ", "public static ").
-     * @param asyncPrefix This parameter is deprecated and no longer used; async is part of exportAndModifierPrefix. Pass empty string.
-     * @param functionName The name of the function.
-     * @param paramsText The text content of the function's parameters.
-     * @param returnTypeText The text content of the function's return type, or empty if none.
-     * @param indent The base indentation string for this line.
+     * @param asyncPrefix             This parameter is deprecated and no longer used; async is part of exportAndModifierPrefix. Pass empty string.
+     * @param functionName            The name of the function.
+     * @param paramsText              The text content of the function's parameters.
+     * @param returnTypeText          The text content of the function's return type, or empty if none.
+     * @param indent                  The base indentation string for this line.
      * @return The fully rendered function declaration line, or null/blank if it should not be added.
      */
     protected abstract String renderFunctionDeclaration(TSNode funcNode,
@@ -1381,7 +1423,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                                         String returnTypeText,
                                                         String indent);
 
-    /** Finds decorator nodes immediately preceding a given node. */
+    /**
+     * Finds decorator nodes immediately preceding a given node.
+     */
     private List<TSNode> getPrecedingDecorators(TSNode decoratedNode) {
         List<TSNode> decorators = new ArrayList<>();
         var decoratorNodeTypes = getLanguageSyntaxProfile().decoratorNodeTypes();
@@ -1398,7 +1442,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
 
-    /** Extracts a substring from the source code based on node boundaries. */
+    /**
+     * Extracts a substring from the source code based on node boundaries.
+     */
     protected String textSlice(TSNode node, String src) {
         if (node.isNull()) return "";
         // Get the byte array representation of the source
@@ -1410,14 +1456,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // Fallback in case of encoding error
             log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
             return src.substring(Math.min(node.getStartByte(), src.length()),
-                                Math.min(node.getEndByte(), src.length()));
+                    Math.min(node.getEndByte(), src.length()));
         }
 
         // Extract using correct byte indexing
         return textSliceFromBytes(node.getStartByte(), node.getEndByte(), bytes);
     }
 
-    /** Extracts a substring from the source code based on byte offsets. */
+    /**
+     * Extracts a substring from the source code based on byte offsets.
+     */
     protected String textSlice(int startByte, int endByte, String src) {
         // Get the byte array representation of the source
         byte[] bytes;
@@ -1427,13 +1475,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // Fallback in case of encoding error
             log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
             return src.substring(Math.min(startByte, src.length()),
-                                Math.min(endByte, src.length()));
+                    Math.min(endByte, src.length()));
         }
 
         return textSliceFromBytes(startByte, endByte, bytes);
     }
 
-    /** Helper method that correctly extracts UTF-8 byte slice into a String */
+    /**
+     * Helper method that correctly extracts UTF-8 byte slice into a String
+     */
     private String textSliceFromBytes(int startByte, int endByte, byte[] bytes) {
         if (startByte < 0 || endByte > bytes.length || startByte >= endByte) {
             log.warn("Invalid byte range [{}, {}] for byte array of length {}",
@@ -1458,7 +1508,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         String identifierFieldName = getLanguageSyntaxProfile().identifierFieldName();
         if (identifierFieldName.isEmpty()) {
             log.warn("Identifier field name is empty in LanguageSyntaxProfile for node type {} at line {}. Cannot extract simple name by field.",
-                     decl.getType(), decl.getStartPoint().getRow() + 1);
+                    decl.getType(), decl.getStartPoint().getRow() + 1);
             return Optional.empty();
         }
 
@@ -1467,20 +1517,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             if (nameNode != null && !nameNode.isNull()) {
                 nameOpt = Optional.of(src.substring(nameNode.getStartByte(), nameNode.getEndByte()));
             } else {
-                 log.warn("getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
-                          identifierFieldName, decl.getType(), decl.getStartPoint().getRow() + 1);
+                log.warn("getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
+                        identifierFieldName, decl.getType(), decl.getStartPoint().getRow() + 1);
             }
         } catch (Exception e) {
-             log.warn("Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
-                      identifierFieldName, decl.getType(), src.substring(decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20)), e.getMessage());
+            log.warn("Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
+                    identifierFieldName, decl.getType(), src.substring(decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20)), e.getMessage());
         }
 
         if (nameOpt.isEmpty()) {
             log.warn("extractSimpleName: Failed using getChildByFieldName('{}') for node type {} at line {}",
-                     identifierFieldName, decl.getType(), decl.getStartPoint().getRow() + 1);
+                    identifierFieldName, decl.getType(), decl.getStartPoint().getRow() + 1);
         }
         log.trace("extractSimpleName: DeclNode={}, IdentifierField='{}', ExtractedName='{}'",
-                  decl.getType(), identifierFieldName, nameOpt.orElse("N/A"));
+                decl.getType(), identifierFieldName, nameOpt.orElse("N/A"));
         return nameOpt;
     }
 
