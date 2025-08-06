@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -10,12 +11,12 @@ import java.nio.file.Path;
 import java.util.Comparator;
 
 class EnvironmentTest {
-    @org.junit.jupiter.api.Test
+    @Test
     void helloWorld() {
         System.out.println("Hello, World!");
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void helloWorldChroot() throws Exception {
         // Skip when the underlying sandboxing tool is not present
         Assumptions.assumeTrue(Environment.isSandboxAvailable(),
@@ -26,7 +27,8 @@ class EnvironmentTest {
                 "echo hello > test.txt && cat test.txt",
                 tmpRoot,
                 true,
-                s -> {}        // no-op consumer
+                s -> {},        // no-op consumer
+                Environment.UNLIMITED_TIMEOUT
         );
         assertEquals("hello", output.trim());
 
@@ -34,7 +36,7 @@ class EnvironmentTest {
         assertEquals("hello", fileContents);
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void cannotWriteOutsideSandbox() throws Exception {
         Assumptions.assumeTrue(Environment.isSandboxAvailable(),
                                "Required sandboxing tool not available on this platform");
@@ -47,8 +49,22 @@ class EnvironmentTest {
 
         String cmd = "echo fail > '" + outsideTarget.toString() + "'";
         assertThrows(Environment.FailureException.class, () ->
-                Environment.instance.runShellCommand(cmd, tmpRoot, true, s -> {}));
+                Environment.instance.runShellCommand(cmd, tmpRoot, true, s -> {}, Environment.UNLIMITED_TIMEOUT));
 
         assertFalse(Files.exists(outsideTarget), "File should not have been created outside sandbox");
+    }
+
+    @Test
+    void testNegativeTimeoutThrowsException() {
+        Path tmpRoot = Path.of(System.getProperty("java.io.tmpdir"));
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            Environment.instance.runShellCommand(
+                "echo test",
+                tmpRoot,
+                s -> {},
+                java.time.Duration.ofSeconds(-1)
+            );
+        }, "Negative timeout should throw IllegalArgumentException");
     }
 }

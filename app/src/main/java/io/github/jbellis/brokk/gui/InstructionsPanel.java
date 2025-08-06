@@ -1175,7 +1175,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
             Environment.instance.runShellCommand(input,
                                                  contextManager.getRoot(),
-                                                 line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                                                 line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                                                 Environment.DEFAULT_TIMEOUT);
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
         } catch (Environment.SubprocessException e) {

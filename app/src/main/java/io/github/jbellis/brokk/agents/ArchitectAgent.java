@@ -90,7 +90,7 @@ public class ArchitectAgent {
      */
     public ArchitectAgent(ContextManager contextManager,
                           StreamingChatModel model,
-                          StreamingChatModel codeModel, 
+                          StreamingChatModel codeModel,
                           ToolRegistry toolRegistry,
                           String goal,
                           ArchitectOptions options)
@@ -376,7 +376,8 @@ public class ArchitectAgent {
             output = Environment.instance.runShellCommand(command,
                                                           java.nio.file.Path.of("."),
                                                           true,
-                                                          io::systemOutput);
+                                                          io::systemOutput,
+                                                          Environment.DEFAULT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             throw new RuntimeException(e);
         }
