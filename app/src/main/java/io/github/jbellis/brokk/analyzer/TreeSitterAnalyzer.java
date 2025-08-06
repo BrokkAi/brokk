@@ -210,6 +210,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         log.warn("Generic error analyzing {}: {}", pf, e.getMessage(), e);
                     }
                 });
+
+        log.debug("TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
+                  topLevelDeclarations.size(), childrenByParent.size(), signatures.size());
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language) {
@@ -849,7 +852,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual skeleton but create a CU.
                 // However, if it's blank, it shouldn't be added to signatures map.
-                log.debug("buildSignatureString returned empty/null for node {} ({}), simpleName {}. This CU might not have a direct textual signature.", node.getType(), primaryCaptureName, simpleName);
+                log.trace("buildSignatureString returned empty/null for node {} ({}), simpleName {}. This CU might not have a direct textual signature.", node.getType(), primaryCaptureName, simpleName);
                 continue;
             }
 
@@ -912,7 +915,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         kids.add(cu);
                     }
                 } else {
-                    log.warn("Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.", cu, parentFqName, classChain);
+                    log.trace("Could not resolve parent CU for {} using parent FQ name candidate '{}' (derived from classChain '{}'). Treating as top-level for this file.", cu, parentFqName, classChain);
                     localTopLevelCUs.add(cu); // Fallback
                 }
             }
@@ -1017,19 +1020,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 ("lexical_declaration".equals(nodeForContent.getType()) || "variable_declaration".equals(nodeForContent.getType())) &&
                 (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
             // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator by name
-            log.debug("Entering variable_declarator lookup for '{}' in nodeForContent '{}'",
+            log.trace("Entering variable_declarator lookup for '{}' in nodeForContent '{}'",
                     simpleName, nodeForContent.getType());
             boolean found = false;
             for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
                 TSNode child = nodeForContent.getNamedChild(i);
-                log.debug("  Child[{}]: type='{}', text='{}'", i, child.getType(),
+                log.trace("  Child[{}]: type='{}', text='{}'", i, child.getType(),
                         textSlice(child, src).lines().findFirst().orElse("").trim());
                 if ("variable_declarator".equals(child.getType())) {
                     TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
                     if (nameNode != null && !nameNode.isNull() && simpleName.equals(textSlice(nameNode, src).strip())) {
                         nodeForContent = child; // Use the specific variable_declarator
                         found = true;
-                        log.debug("Found specific variable_declarator for '{}' in lexical_declaration", simpleName);
+                        log.trace("Found specific variable_declarator for '{}' in lexical_declaration", simpleName);
                         break;
                     }
                 }
@@ -1040,7 +1043,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 // Check if this variable_declarator contains an arrow function
                 TSNode valueNode = nodeForContent.getChildByFieldName("value");
                 if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
-                    log.debug("Found arrow function in variable_declarator for '{}'", simpleName);
+                    log.trace("Found arrow function in variable_declarator for '{}'", simpleName);
                 }
             }
         }
@@ -1111,7 +1114,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 break;
             }
             case FUNCTION_LIKE: {
-                log.debug("FUNCTION_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
+                log.trace("FUNCTION_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
                         simpleName, nodeForContent.getType(), nodeForSignature.getType());
 
                 // Add extra comments determined from the function body
@@ -1130,14 +1133,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
             case FIELD_LIKE: {
                 // Always use nodeForContent which has been set to the specific variable_declarator
-                log.debug("FIELD_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
+                log.trace("FIELD_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
                         simpleName, nodeForContent.getType(), nodeForSignature.getType());
                 String fieldSignatureText = textSlice(nodeForContent, src).strip();
 
                 // Strip export prefix if present to avoid duplication
                 if (!exportPrefix.isEmpty() && !exportPrefix.isBlank()) {
                     String strippedExportPrefix = exportPrefix.strip();
-                    log.debug("Checking for prefix duplication: exportPrefix='{}', fieldSignatureText='{}'",
+                    log.trace("Checking for prefix duplication: exportPrefix='{}', fieldSignatureText='{}'",
                             strippedExportPrefix, fieldSignatureText);
 
                     // Check for exact match first
@@ -1156,7 +1159,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                             if (lastExportToken.equals(firstFieldToken)) {
                                 // Remove the duplicate token from field signature
                                 fieldSignatureText = fieldSignatureText.substring(firstFieldToken.length()).stripLeading();
-                                log.debug("Removed duplicate token '{}' from field signature", firstFieldToken);
+                                log.trace("Removed duplicate token '{}' from field signature", firstFieldToken);
                             }
                         }
                     }

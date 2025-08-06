@@ -296,6 +296,20 @@ tasks.register<JavaExec>("runCli") {
     }
 }
 
+tasks.register<JavaExec>("runSkeletonPrinter") {
+    group = "application"
+    description = "Runs the SkeletonPrinter tool"
+    mainClass.set("io.github.jbellis.brokk.tools.SkeletonPrinter")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs = listOf(
+        "-ea",
+        "-Dbrokk.devmode=true"
+    )
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
+}
+
 tasks.shadowJar {
     archiveBaseName.set("brokk")
     archiveClassifier.set("")
