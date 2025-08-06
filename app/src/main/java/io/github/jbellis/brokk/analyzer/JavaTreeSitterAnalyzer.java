@@ -1,8 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import org.jetbrains.annotations.Nullable;
-import org.treesitter.*;
+import org.treesitter.TSLanguage;
+import org.treesitter.TSNode;
+import org.treesitter.TreeSitterJava;
 
 import java.util.Collections;
 import java.util.Map;
