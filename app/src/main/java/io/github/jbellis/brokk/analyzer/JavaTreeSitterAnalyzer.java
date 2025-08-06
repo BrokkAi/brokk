@@ -5,10 +5,7 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterJava;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
@@ -66,6 +63,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
             case CLASS_LIKE -> CodeUnitType.CLASS;
             case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
             case FIELD_LIKE -> CodeUnitType.FIELD;
+            case MODULE_STATEMENT ->  CodeUnitType.MODULE;
             default -> {
                 // This shouldn't be reached if captureConfiguration is exhaustive
                 log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
@@ -78,21 +76,19 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
-        // C# namespaces are determined by traversing up from the definition node
-        // to find enclosing namespace_declaration nodes.
-        // The 'file' parameter is not used here as namespace is derived from AST content.
-        java.util.List<String> namespaceParts = new java.util.ArrayList<>();
-        TSNode current = definitionNode.getParent();
+        // Java packages are either present or not, and will be the immediate child of the `program`
+        // if they are present at all
+        final List<String> namespaceParts = new ArrayList<>();
 
-        while (current != null && !current.isNull() && !current.equals(rootNode)) {
-            if ("package.declaration".equals(current.getType())) {
-                TSNode nameNode = current.getChildByFieldName("name");
+        final var maybeDeclaration = rootNode.getChildCount() > 0 ? rootNode.getChild(0) : null;
+        if (maybeDeclaration != null && "package_declaration".equals(maybeDeclaration.getType())) {
+            for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
+                final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
                     String nsPart = textSlice(nameNode, src);
                     namespaceParts.add(nsPart);
                 }
             }
-            current = current.getParent();
         }
         Collections.reverse(namespaceParts);
         return String.join(".", namespaceParts);
