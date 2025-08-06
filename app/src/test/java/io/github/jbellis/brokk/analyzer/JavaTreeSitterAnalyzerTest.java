@@ -16,9 +16,9 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class TreeSitterAnalyzerJavaTest {
+public class JavaTreeSitterAnalyzerTest {
 
-    private final static Logger logger = LoggerFactory.getLogger(TreeSitterAnalyzerJavaTest.class);
+    private final static Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerTest.class);
 
     @Nullable
     private static JavaTreeSitterAnalyzer analyzer;
