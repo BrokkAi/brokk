@@ -1,5 +1,10 @@
 ; Package declaration
-(package_declaration) @package.definition
+(package_declaration
+  [
+    (identifier)
+    (scoped_identifier)
+  ] @package.name
+) @package.declaration
 
 ; Import declarations (optional capture, might be noisy)
 ; (import_declaration) @import.definition
@@ -10,23 +15,31 @@
 
 ; Class declarations
 (class_declaration
-  body: (_)) @class.definition
+  name: (identifier) @class.name) @class.definition
 
 ; Interface declarations
 (interface_declaration
-  body: (_)) @interface.definition
+  name: (identifier) @interface.name) @interface.definition
 
 ; Method declarations
 (method_declaration
-  body: (_)?) @method.definition
+  name: (identifier) @method.name) @method.definition
 
 ; Field declarations
-(field_declaration) @field.definition
+(field_declaration
+    declarator: (variable_declarator name: (identifier) @field.name
+    )
+) @field.definition
 
 ; Enum declarations
 (enum_declaration
+  name: (identifier) @enum.name
   body: (enum_body
-    (enum_constant)*)) @enum.definition
+    (enum_constant
+      name: (identifier) @enum.constant
+    )
+  )
+) @enum.definition
 
 ; Annotations to strip
 (annotation) @annotation
