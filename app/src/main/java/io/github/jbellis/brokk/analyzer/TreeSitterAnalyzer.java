@@ -13,9 +13,24 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayDeque; // Added import
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -41,12 +56,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private final Language language;
     protected final Set<String> normalizedExcludedFiles;
 
-    /**
-     * Stores information about a definition found by a query match, including associated modifier keywords and decorators.
-     */
-    protected record DefinitionInfoRecord(String primaryCaptureName, String simpleName, List<String> modifierKeywords,
-                                          List<TSNode> decoratorNodes) {
-    }
+    /** Stores information about a definition found by a query match, including associated modifier keywords and decorators. */
+    protected record DefinitionInfoRecord(String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {}
 
 
     protected record LanguageSyntaxProfile(
@@ -79,16 +90,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
     }
 
-    public record Range(int startByte, int endByte, int startLine, int endLine) {
-    }
+    public record Range(int startByte, int endByte, int startLine, int endLine) {}
 
     private record FileAnalysisResult(List<CodeUnit> topLevelCUs,
                                       Map<CodeUnit, List<CodeUnit>> children,
                                       Map<CodeUnit, List<String>> signatures,
                                       Map<CodeUnit, List<Range>> sourceRanges,
                                       List<String> importStatements // Added for module-level imports
-    ) {
-    }
+    ) {}
 
     /* ---------- constructor ---------- */
     protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
@@ -220,10 +229,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     /* ---------- Helper methods for accessing CodeUnits ---------- */
-
-    /**
-     * All CodeUnits we know about (top-level + children).
-     */
+    /**  All CodeUnits we know about (top-level + children). */
     private Stream<CodeUnit> allCodeUnits() {
         // Stream top-level declarations
         Stream<CodeUnit> topLevelStream = topLevelDeclarations.values().stream().flatMap(Collection::stream);
@@ -237,23 +243,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return Stream.of(topLevelStream, parentStream, childrenStream).flatMap(s -> s);
     }
 
-    /**
-     * De-duplicate and materialise into a List once.
-     */
+    /**  De-duplicate and materialise into a List once. */
     private List<CodeUnit> uniqueCodeUnitList() {
         return allCodeUnits().distinct().toList();
     }
 
     /* ---------- IAnalyzer ---------- */
-    @Override
-    public boolean isEmpty() {
-        return topLevelDeclarations.isEmpty() && signatures.isEmpty() && childrenByParent.isEmpty() && sourceRanges.isEmpty();
-    }
+    @Override public boolean isEmpty() { return topLevelDeclarations.isEmpty() && signatures.isEmpty() && childrenByParent.isEmpty() && sourceRanges.isEmpty(); }
 
-    @Override
-    public boolean isCpg() {
-        return false;
-    }
+    @Override public boolean isCpg() { return false; }
 
     @Override
     public Optional<String> getSkeletonHeader(String fqName) {
@@ -349,7 +347,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         Queue<CodeUnit> toProcess = new ArrayDeque<>(topCUs); // Changed to ArrayDeque
         Set<CodeUnit> visited = new HashSet<>(topCUs); // Track visited to avoid cycles and redundant processing
 
-        while (!toProcess.isEmpty()) {
+        while(!toProcess.isEmpty()) {
             CodeUnit current = toProcess.poll();
             allDeclarationsInFile.add(current); // Add all encountered CodeUnits
 
@@ -497,29 +495,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
 
     /* ---------- abstract hooks ---------- */
-
-    /**
-     * Creates a new TSLanguage instance for the specific language. Called by ThreadLocal initializer.
-     */
+    /** Creates a new TSLanguage instance for the specific language. Called by ThreadLocal initializer. */
     protected abstract TSLanguage createTSLanguage();
 
     /**
      * Provides a thread-safe TSLanguage instance.
-     *
      * @return A TSLanguage instance for the current thread.
      */
     protected TSLanguage getTSLanguage() {
         return threadLocalLanguage.get();
     }
 
-    /**
-     * Provides the language-specific syntax profile.
-     */
+    /** Provides the language-specific syntax profile. */
     protected abstract LanguageSyntaxProfile getLanguageSyntaxProfile();
 
-    /**
-     * Class-path resource for the query (e.g. {@code "treesitter/python.scm"}).
-     */
+    /** Class-path resource for the query (e.g. {@code "treesitter/python.scm"}). */
     protected abstract String getQueryResource();
 
     /**
@@ -562,10 +552,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /**
      * Determines the package or namespace name for a given definition.
      *
-     * @param file           The project file being analyzed.
+     * @param file The project file being analyzed.
      * @param definitionNode The TSNode representing the definition (e.g., class, function).
-     * @param rootNode       The root TSNode of the file's syntax tree.
-     * @param src            The source code of the file.
+     * @param rootNode The root TSNode of the file's syntax tree.
+     * @param src The source code of the file.
      * @return The package or namespace name, or an empty string if not applicable.
      */
     protected abstract String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src);
@@ -585,23 +575,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
     }
 
-    /**
-     * Captures that should be ignored entirely.
-     */
-    protected Set<String> getIgnoredCaptures() {
-        return Set.of();
-    }
+    /** Captures that should be ignored entirely. */
+    protected Set<String> getIgnoredCaptures() { return Set.of(); }
 
-    /**
-     * Language-specific indentation string, e.g., "  " or "    ".
-     */
-    protected String getLanguageSpecificIndent() {
-        return "  ";
-    } // Default
+    /** Language-specific indentation string, e.g., "  " or "    ". */
+    protected String getLanguageSpecificIndent() { return "  "; } // Default
 
-    /**
-     * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
-     */
+    /** Language-specific closing token for a class or namespace (e.g., "}"). Empty if none. */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
 
 
@@ -613,10 +593,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     /* ---------- core parsing ---------- */
-
-    /**
-     * Analyzes a single file and extracts declaration information.
-     */
+    /** Analyzes a single file and extracts declaration information. */
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
 
@@ -974,7 +951,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /**
      * Builds a signature string for a given definition node.
      * This includes decorators and the main declaration line (e.g., class header or function signature).
-     *
      * @param simpleName The simple name of the definition, pre-determined by query captures.
      */
     private String buildSignatureString(TSNode definitionNode, String simpleName, String src, String primaryCaptureName, List<String> capturedModifierKeywords, ProjectFile file) {
@@ -1010,7 +986,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     // Keep nodeForSignature as the original export_statement for text slicing
                 } else {
                     log.warn("Export statement in {} wraps an unexpected declaration type '{}' for skeletonType '{}'. Using export_statement as nodeForContent. DefinitionNode: {}, SimpleName: {}",
-                            definitionNode.getStartPoint().getRow() + 1, innerType, skeletonType, definitionNode.getType(), simpleName);
+                            definitionNode.getStartPoint().getRow() +1, innerType, skeletonType, definitionNode.getType(), simpleName);
                 }
             }
         }
@@ -1093,10 +1069,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         classSignatureText = textSlice(nodeForContent.getStartByte(), nodeForContent.getEndByte(), src).stripTrailing();
                     }
                     // Attempt to remove trailing tokens like '{' or ';' if no body node found, to get a cleaner signature part
-                    if (classSignatureText.endsWith("{"))
-                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
-                    else if (classSignatureText.endsWith(";"))
-                        classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                    if (classSignatureText.endsWith("{")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
+                    else if (classSignatureText.endsWith(";")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
                 }
 
 
@@ -1211,9 +1185,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return result;
     }
 
-    /**
-     * Renders the opening part of a class-like structure (e.g., "public class Foo {").
-     */
+    /** Renders the opening part of a class-like structure (e.g., "public class Foo {"). */
     protected abstract String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent);
     // renderClassFooter is removed, replaced by getLanguageSpecificCloser
     // buildClassMemberSkeletons is removed from this direct path; children are handled by recursive reconstruction.
@@ -1226,7 +1198,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * implementation simply returns the raw text of {@code parametersNode}.
      *
      * @param parametersNode The TSNode representing the parameter list.
-     * @param src            The source code.
+     * @param src The source code.
      * @return The formatted parameter list text.
      */
     protected String formatParameterList(TSNode parametersNode, String src) {
@@ -1242,7 +1214,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * node is null).
      *
      * @param returnTypeNode The TSNode representing the return type.
-     * @param src            The source code.
+     * @param src The source code.
      * @return The formatted return type text.
      */
     protected String formatReturnType(@Nullable TSNode returnTypeNode, String src) {
@@ -1251,9 +1223,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     // Removed deprecated formatReturnType(String)
 
-    protected String formatHeritage(String signatureText) {
-        return signatureText;
-    }
+    protected String formatHeritage(String signatureText) { return signatureText; }
 
     /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
     protected String assembleFunctionSignature(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
@@ -1270,11 +1240,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Subclasses must implement this to provide language-specific formatting,
      * including any necessary keywords, type annotations, and terminators (e.g., semicolon).
      *
-     * @param fieldNode     The TSNode representing the field declaration.
-     * @param src           The source code.
-     * @param exportPrefix  The pre-determined export/visibility prefix (e.g., "export const ").
+     * @param fieldNode The TSNode representing the field declaration.
+     * @param src The source code.
+     * @param exportPrefix The pre-determined export/visibility prefix (e.g., "export const ").
      * @param signatureText The core text of the field signature (e.g., "fieldName: type = value").
-     * @param baseIndent    The indentation string for this line.
+     * @param baseIndent The indentation string for this line.
      * @return The fully formatted field signature line.
      */
     protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
@@ -1308,13 +1278,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     /**
      * Builds the function signature lines.
-     *
-     * @param funcNode        The TSNode for the function definition.
+     * @param funcNode The TSNode for the function definition.
      * @param providedNameOpt Optional pre-determined name (e.g. from a specific capture).
-     * @param src             Source code.
-     * @param indent          Indentation string.
-     * @param lines           List to add signature lines to.
-     * @param exportPrefix    Pre-determined export and modifier prefix (e.g., "export async").
+     * @param src Source code.
+     * @param indent Indentation string.
+     * @param lines List to add signature lines to.
+     * @param exportPrefix Pre-determined export and modifier prefix (e.g., "export async").
      */
     protected void buildFunctionSkeleton(TSNode funcNode, Optional<String> providedNameOpt, String src, String indent, List<String> lines, String exportPrefix) {
         var profile = getLanguageSyntaxProfile();
@@ -1388,8 +1357,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Retrieves extra comment lines to be added to a function's skeleton, typically before the body.
      * Example: mutation tracking comments.
      *
-     * @param bodyNode   The TSNode representing the function's body. Can be null.
-     * @param src        The source code.
+     * @param bodyNode The TSNode representing the function's body. Can be null.
+     * @param src The source code.
      * @param functionCu The CodeUnit for the function. Can be null if not available.
      * @return A list of comment strings, or an empty list if none.
      */
@@ -1406,14 +1375,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Implementations are responsible for constructing the entire line, including indentation and any
      * language-specific body placeholder if the function body is not empty or trivial.
      *
-     * @param funcNode                The Tree-sitter node representing the function.
-     * @param src                     The source code of the file.
+     * @param funcNode The Tree-sitter node representing the function.
+     * @param src The source code of the file.
      * @param exportAndModifierPrefix The combined export and modifier prefix (e.g., "export async ", "public static ").
-     * @param asyncPrefix             This parameter is deprecated and no longer used; async is part of exportAndModifierPrefix. Pass empty string.
-     * @param functionName            The name of the function.
-     * @param paramsText              The text content of the function's parameters.
-     * @param returnTypeText          The text content of the function's return type, or empty if none.
-     * @param indent                  The base indentation string for this line.
+     * @param asyncPrefix This parameter is deprecated and no longer used; async is part of exportAndModifierPrefix. Pass empty string.
+     * @param functionName The name of the function.
+     * @param paramsText The text content of the function's parameters.
+     * @param returnTypeText The text content of the function's return type, or empty if none.
+     * @param indent The base indentation string for this line.
      * @return The fully rendered function declaration line, or null/blank if it should not be added.
      */
     protected abstract String renderFunctionDeclaration(TSNode funcNode,
@@ -1426,9 +1395,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                                         String returnTypeText,
                                                         String indent);
 
-    /**
-     * Finds decorator nodes immediately preceding a given node.
-     */
+    /** Finds decorator nodes immediately preceding a given node. */
     private List<TSNode> getPrecedingDecorators(TSNode decoratedNode) {
         List<TSNode> decorators = new ArrayList<>();
         var decoratorNodeTypes = getLanguageSyntaxProfile().decoratorNodeTypes();
@@ -1445,9 +1412,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
 
-    /**
-     * Extracts a substring from the source code based on node boundaries.
-     */
+    /** Extracts a substring from the source code based on node boundaries. */
     protected String textSlice(TSNode node, String src) {
         if (node.isNull()) return "";
         // Get the byte array representation of the source
@@ -1466,9 +1431,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return textSliceFromBytes(node.getStartByte(), node.getEndByte(), bytes);
     }
 
-    /**
-     * Extracts a substring from the source code based on byte offsets.
-     */
+    /** Extracts a substring from the source code based on byte offsets. */
     protected String textSlice(int startByte, int endByte, String src) {
         // Get the byte array representation of the source
         byte[] bytes;
@@ -1484,9 +1447,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return textSliceFromBytes(startByte, endByte, bytes);
     }
 
-    /**
-     * Helper method that correctly extracts UTF-8 byte slice into a String
-     */
+    /** Helper method that correctly extracts UTF-8 byte slice into a String */
     private String textSliceFromBytes(int startByte, int endByte, byte[] bytes) {
         if (startByte < 0 || endByte > bytes.length || startByte >= endByte) {
             log.warn("Invalid byte range [{}, {}] for byte array of length {}",
