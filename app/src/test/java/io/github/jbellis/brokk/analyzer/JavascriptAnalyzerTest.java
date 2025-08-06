@@ -301,7 +301,7 @@ public final class JavascriptAnalyzerTest {
         assertTrue(jsxClassHeader.isPresent(), "Skeleton header for JsxClass should be defined.");
         assertEquals("""
                 export class JsxClass {
-                  [... methods not shown ...]
+                  [...]
                 }
                 """.trim(), jsxClassHeader.get().trim());
 

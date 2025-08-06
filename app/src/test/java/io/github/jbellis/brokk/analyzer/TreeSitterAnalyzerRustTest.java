@@ -155,7 +155,6 @@ public class TreeSitterAnalyzerRustTest {
     void testGetSkeletonHeader_Rust() {
         Optional<String> pointHeader = rsAnalyzer.getSkeletonHeader("Point");
         assertTrue(pointHeader.isPresent(), "Skeleton header for Point should be found.");
-        // The header will be the first line of the combined skeleton, which starts with the struct definition
         assertEquals("""
                 pub struct Point {
                 impl Point {
@@ -165,15 +164,15 @@ public class TreeSitterAnalyzerRustTest {
                   pub x: i32
                   pub y: i32
                   const ID: u32 = 1;
-                  [... methods not shown ...]
+                  [...]
                 }
-                """.strip(), pointHeader.get().trim());
+                """.strip(), pointHeader.get().trim()); // fixme: These seem to be the siblings not children
 
         Optional<String> drawableHeader = rsAnalyzer.getSkeletonHeader("Drawable");
         assertTrue(drawableHeader.isPresent(), "Skeleton header for Drawable should be found.");
         assertEquals("""
                 pub trait Drawable {
-                  [... methods not shown ...]
+                  [...]
                 }
                 """.strip(), drawableHeader.get().trim());
 
@@ -198,7 +197,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals("""
                 pub trait Shape {
                   const ID: u32;
-                  [... methods not shown ...]
+                  [...]
                 }
                 """.strip(), shapeHeader.get().trim());
 

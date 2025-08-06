@@ -263,16 +263,16 @@ public class GoAnalyzerTest {
         String expectedStruct = """
                 type MyStruct struct {
                   FieldA int
-                  [... methods not shown ...]
+                  [...]
                 }
-                """; // There is an implicit GetFieldA that is interpreted as a method
+                """;
         assertEquals(expectedStruct.trim(), headerStruct.get().trim());
 
         java.util.Optional<String> headerInterface = analyzer.getSkeletonHeader("declpkg.MyInterface");
         assertTrue(headerInterface.isPresent(), "Skeleton header for declpkg.MyInterface should be found.");
         String expectedInterface = """
                 type MyInterface interface {
-                  [... methods not shown ...]
+                  [...]
                 }
                 """;
         assertEquals(expectedInterface.trim(), headerInterface.get().trim());
