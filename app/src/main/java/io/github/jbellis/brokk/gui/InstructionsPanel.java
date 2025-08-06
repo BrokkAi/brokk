@@ -1175,7 +1175,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
             long timeoutSecs;
             if (chrome.getProject() instanceof MainProject mainProject) {
-                timeoutSecs = mainProject.getBuildCommandTimeoutSeconds();
+                timeoutSecs = mainProject.getRunCommandTimeoutSeconds();
             } else {
                 timeoutSecs = Environment.DEFAULT_TIMEOUT.toSeconds();
             }

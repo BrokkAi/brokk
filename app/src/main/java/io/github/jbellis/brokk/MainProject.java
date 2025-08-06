@@ -77,8 +77,8 @@ public final class MainProject extends AbstractProject {
             "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT))
     );
 
-    private static final String BUILD_COMMAND_TIMEOUT_SECONDS_KEY = "buildCommandTimeoutSeconds";
-    private static final long DEFAULT_BUILD_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
+    private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
+    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     /* Blitz-history workspace property key */
@@ -431,24 +431,24 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public long getBuildCommandTimeoutSeconds() {
-        String valueStr = projectProps.getProperty(BUILD_COMMAND_TIMEOUT_SECONDS_KEY);
+    public long getRunCommandTimeoutSeconds() {
+        String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         if (valueStr == null) {
-            return DEFAULT_BUILD_COMMAND_TIMEOUT_SECONDS;
+            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
         try {
             long seconds = Long.parseLong(valueStr);
-            return seconds > 0 ? seconds : DEFAULT_BUILD_COMMAND_TIMEOUT_SECONDS;
+            return seconds > 0 ? seconds : DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         } catch (NumberFormatException e) {
-            return DEFAULT_BUILD_COMMAND_TIMEOUT_SECONDS;
+            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
         }
     }
 
-    public void setBuildCommandTimeoutSeconds(long seconds) {
-        if (seconds > 0 && seconds != DEFAULT_BUILD_COMMAND_TIMEOUT_SECONDS) {
-            projectProps.setProperty(BUILD_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        if (seconds > 0 && seconds != DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
+            projectProps.setProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
         } else {
-            projectProps.remove(BUILD_COMMAND_TIMEOUT_SECONDS_KEY);
+            projectProps.remove(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
         }
         saveProjectProperties();
     }

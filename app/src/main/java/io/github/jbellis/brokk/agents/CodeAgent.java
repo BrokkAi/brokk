@@ -991,7 +991,7 @@ public class CodeAgent {
             var output = Environment.instance.runShellCommand(verificationCommand,
                                                               contextManager.getProject().getRoot(),
                                                               line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                                                              Environment.DEFAULT_TIMEOUT);
+                                                              Environment.UNLIMITED_TIMEOUT);
             logger.debug("Verification command successful. Output: {}", output);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
             return "";

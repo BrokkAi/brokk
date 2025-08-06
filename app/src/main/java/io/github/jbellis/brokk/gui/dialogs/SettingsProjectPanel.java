@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,7 +67,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
     private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
-    private JSpinner buildTimeoutSpinner = new JSpinner(new SpinnerNumberModel(120, 1, 10800, 1));
+    private JSpinner buildTimeoutSpinner = new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
     private JProgressBar buildProgressBar = new JProgressBar();
     private JButton inferBuildDetailsButton = new JButton("Infer Build Details");
     @Nullable
@@ -574,7 +575,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Command Timeout (sec):"), gbc);
+        buildPanel.add(new JLabel("Run Command Timeout (sec):"), gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(buildTimeoutSpinner, gbc);
 
@@ -952,7 +953,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             runTestsInWorkspaceRadio.setSelected(true);
         }
 
-        buildTimeoutSpinner.setValue((int) ((MainProject) project).getBuildCommandTimeoutSeconds());
+        buildTimeoutSpinner.setValue((int) ((MainProject) project).getRunCommandTimeoutSeconds());
 
         var currentRefresh = project.getAnalyzerRefresh();
         cpgRefreshComboBox.setSelectedItem(currentRefresh == IProject.CpgRefresh.UNSET ? IProject.CpgRefresh.AUTO : currentRefresh);
@@ -1037,9 +1038,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var mainProject = (MainProject) project;
         long timeout = ((Number) buildTimeoutSpinner.getValue()).longValue();
-        if (timeout != mainProject.getBuildCommandTimeoutSeconds()) {
-            mainProject.setBuildCommandTimeoutSeconds(timeout);
-            logger.debug("Applied Build Command Timeout: {} seconds", timeout);
+        if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
+            mainProject.setRunCommandTimeoutSeconds(timeout);
+            logger.debug("Applied Run Command Timeout: {} seconds", timeout);
         }
 
         var selectedRefresh = (MainProject.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
