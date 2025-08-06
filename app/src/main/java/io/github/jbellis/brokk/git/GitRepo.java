@@ -2038,6 +2038,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the URL of the origin remote
      */
+    @Override
     public @Nullable String getRemoteUrl() {
         return getRemoteUrl("origin");
     }

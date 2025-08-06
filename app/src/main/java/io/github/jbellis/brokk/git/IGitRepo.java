@@ -185,4 +185,8 @@ public interface IGitRepo {
     default void applyDiff(String diff) throws GitAPIException {
         throw new UnsupportedOperationException("applyDiff not implemented");
     }
+
+    default @Nullable String getRemoteUrl() {
+        throw new UnsupportedOperationException();
+    }
 }
