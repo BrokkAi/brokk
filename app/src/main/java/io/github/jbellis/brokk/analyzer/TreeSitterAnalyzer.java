@@ -212,7 +212,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 });
 
         log.debug("TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
-                  topLevelDeclarations.size(), childrenByParent.size(), signatures.size());
+                topLevelDeclarations.size(), childrenByParent.size(), signatures.size());
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language) {
@@ -1186,7 +1186,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     valueText = textSlice(valueNode, src).strip();
                 } else {
                     log.warn("Type alias '{}' (node type {}) in {} at line {} is missing its 'value' child. Resulting skeleton may be incomplete. Node text: {}",
-                            simpleName, nodeForContent.getType(), project.getRoot().relativize(file.absPath()), nodeForContent.getStartPoint().getRow() + 1, textSlice(nodeForContent, src));
+                            simpleName, nodeForContent.getType(), project.getRoot().relativize(file.absPath()), nodeForContent.getStartPoint().getRow() +1, textSlice(nodeForContent,src));
                     valueText = "any"; // Fallback or indicate error
                 }
 
