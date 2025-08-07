@@ -199,7 +199,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
             logger.warn("paintDiffs called but FilePanel(s) are null. FromPanel: {}, ToPanel: {}", fromPanel, toPanel);
             return;
         }
-        
+
         var viewportFrom = fromPanel.getScrollPane().getViewport();
         var editorFrom = fromPanel.getEditor();
         var bdFrom = fromPanel.getBufferDocument();
@@ -239,8 +239,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                     break;
                 }
 
-                boolean selected = Objects.equals(delta, diffPanel.getSelectedDelta());
-                boolean hovered = Objects.equals(delta, currentlyHoveredDelta); // Check against the component's state
+                var selected = Objects.equals(delta, diffPanel.getSelectedDelta());
+                var hovered = Objects.equals(delta, currentlyHoveredDelta); // Check against the component's state
 
                 // --- Determine Color ---
                 Color color = switch (delta.getType()) {
@@ -371,8 +371,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
 
                 // Merging is possible if the target document is not read-only.
                 // The existence of a source is guaranteed by the BufferSource model.
-                boolean canMergeRight = !bdTo.isReadonly();
-                boolean canMergeLeft = !bdFrom.isReadonly();
+                var canMergeRight = !bdTo.isReadonly();
+                var canMergeLeft = !bdFrom.isReadonly();
 
                 // Draw merge right command (triangle pointing right on left edge of right bar)
                 if (canMergeRight) {
@@ -415,9 +415,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                  }
             }
         } catch (BadLocationException ex) {
-            // Log error or handle gracefully
-            System.err.println("Error calculating view coordinates: " + ex.getMessage());
-            // Consider painting an error message or indicator
+            logger.error("Error calculating view coordinates: {}", ex.getMessage());
         }
     }
 

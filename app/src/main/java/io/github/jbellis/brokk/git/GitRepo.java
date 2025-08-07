@@ -36,6 +36,7 @@ import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 import org.eclipse.jgit.treewalk.filter.TreeFilter;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -416,6 +417,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the current commit ID (HEAD)
      */
+    @Override
     public String getCurrentCommitId() throws GitAPIException {
         var head = resolve("HEAD");
         return head.getName();
@@ -496,6 +498,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Returns a set of uncommitted files with their status (new, modified, deleted).
      */
+    @Override
     public Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
         var statusResult = git.status().call();
         var uncommittedFilesWithStatus = new HashSet<ModifiedFile>();
@@ -852,6 +855,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Checkout a specific branch
      */
+    @Override
     public void checkout(String branchName) throws GitAPIException {
         git.checkout().setName(branchName).call();
         invalidateCaches();
@@ -1344,12 +1348,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
     // getStashesAsCommits removed, functionality moved to listStashes
 
-    /**
-     * A record to hold a modified file and its status.
-     */
-    public record ModifiedFile(ProjectFile file, String status) {
-    }
-
     public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {
     }
 
@@ -1631,6 +1629,21 @@ public class GitRepo implements Closeable, IGitRepo {
                         .call();
             }
             return out.toString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Apply a diff to the working directory.
+     * @param diff The diff to apply.
+     * @throws GitAPIException if applying the diff fails.
+     */
+    @Override
+    public void applyDiff(String diff) throws GitAPIException {
+        try (var in = new ByteArrayInputStream(diff.getBytes(StandardCharsets.UTF_8))) {
+            git.apply().setPatch(in).call();
+            invalidateCaches();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -2249,7 +2262,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public ListWorktreesResult listWorktreesAndInvalid() throws GitAPIException {
         try {
             var command = "git worktree list --porcelain";
-            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
             var worktrees = new ArrayList<WorktreeInfo>();
             var invalidPaths = new ArrayList<Path>();
             var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output); // Split by any newline sequence
@@ -2343,7 +2356,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 // Branch doesn't exist, create a new one
                 command = String.format("git worktree add -b %s %s", branch, absolutePath);
             }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
 
             // Recursively copy .brokk/dependencies from the project root into the new worktree
             var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
@@ -2397,7 +2410,7 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             var absolutePath = path.toAbsolutePath().normalize();
             var command = String.format("git worktree add --detach %s %s", absolutePath, commitId);
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             throw new GitRepoException("Failed to add detached worktree at " + path + " for commit " + commitId + ": " + e.getOutput(), e);
         } catch (InterruptedException e) {
@@ -2425,7 +2438,7 @@ public class GitRepo implements Closeable, IGitRepo {
             } else {
                 command = String.format("git worktree remove %s", absolutePath).trim();
             }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             String output = e.getOutput();
             // If 'force' was false and the command failed because force is needed, throw WorktreeNeedsForceException
@@ -2452,7 +2465,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public void pruneWorktrees() throws GitAPIException {
         try {
             var command = "git worktree prune";
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             throw new GitRepoException("Failed to prune worktrees: " + e.getOutput(), e);
         } catch (InterruptedException e) {
@@ -2508,7 +2521,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public boolean supportsWorktrees() {
         try {
             // Try to run a simple git command to check if git executable is available and working
-            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {});
+            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {}, Environment.GIT_TIMEOUT);
             return true;
         } catch (Environment.SubprocessException e) {
             // This typically means git command failed, e.g., not found or permission issue
@@ -2746,7 +2759,7 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             // Add a detached worktree on the target branch
             var addCommand = String.format("git worktree add --detach %s %s", tempWorktreePath.toAbsolutePath(), targetBranchId.getName());
-            Environment.instance.runShellCommand(addCommand, getGitTopLevel(), out -> {});
+            Environment.instance.runShellCommand(addCommand, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
 
             // Create a GitRepo instance for the temporary worktree to run the simulation
             try (GitRepo tempRepo = new GitRepo(tempWorktreePath)) {
@@ -2779,7 +2792,7 @@ public class GitRepo implements Closeable, IGitRepo {
             // Forcefully remove the temporary worktree and its directory
             try {
                 var removeCommand = String.format("git worktree remove --force %s", tempWorktreePath.toAbsolutePath());
-                Environment.instance.runShellCommand(removeCommand, getGitTopLevel(), out -> {});
+                Environment.instance.runShellCommand(removeCommand, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
             } catch (Exception e) {
                 logger.error("Failed to clean up temporary worktree at {}", tempWorktreePath, e);
             }

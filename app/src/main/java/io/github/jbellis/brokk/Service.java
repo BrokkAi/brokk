@@ -92,7 +92,7 @@ public class Service {
             logger.warn("Location not found for model name {}, cannot get prices.", modelName);
             return new ModelPricing(List.of());
         }
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, cannot get prices.", location);
             return new ModelPricing(List.of());
@@ -260,7 +260,7 @@ public class Service {
         var qm = getModel("gemini-2.0-flash", ReasoningLevel.DEFAULT);
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
+        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, OpenAiChatRequestParameters.builder().temperature(0.0));
         quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
@@ -307,7 +307,7 @@ public class Service {
     public static float getUserBalance(String key) throws IOException {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
-        String url = "https://app.brokk.ai/api/payments/balance-lookup/" + key;
+        String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
         Request request = new Request.Builder()
                 .url(url)
                 .get()
@@ -352,7 +352,7 @@ public class Service {
         }
 
         String encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
-        String url = "https://app.brokk.ai/api/users/check-data-sharing?brokk_key=" + encodedKey;
+        String url = MainProject.getServiceUrl() + "/api/users/check-data-sharing?brokk_key=" + encodedKey;
         Request request = new Request.Builder()
                 .url(url)
                 .get()
@@ -405,7 +405,7 @@ public class Service {
         infoTarget.clear();
 
         String baseUrl = MainProject.getProxyUrl(); // Get full URL (including scheme) from project settings
-        boolean isBrokk = MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK;
+        boolean isBrokk = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST;
         boolean isFreeTierOnly = false;
 
         var authHeader = "Bearer dummy-key";
@@ -559,7 +559,7 @@ public class Service {
      * Returns a default value if the information is not available.
      */
     private int getMaxOutputTokens(String location) {
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_output_tokens")) {
             logger.warn("max_output_tokens not found for model location: {}", location);
             return 8192;
@@ -575,7 +575,7 @@ public class Service {
      */
     public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
             return 65536;
@@ -591,7 +591,7 @@ public class Service {
      */
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_concurrent_requests")) {
             return null;
         }
@@ -604,11 +604,22 @@ public class Service {
      */
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null || !info.containsKey("tokens_per_minute")) {
             return null;
         }
         return (Integer) info.get("tokens_per_minute");
+    }
+
+    public boolean supportsToolChoiceRequired(StreamingChatModel model) {
+        var modelName = nameOf(model);
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, assuming no tool_choice=required support", modelName);
+            return false;
+        }
+
+        return !location.contains("claude") && !location.contains("deepseek-reasoner");
     }
 
     /**
@@ -621,7 +632,7 @@ public class Service {
             logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
             return false;
         }
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
             return false;
@@ -640,7 +651,7 @@ public class Service {
     }
 
     private boolean supportsReasoningEffortInternal(String location) {
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming no reasoning effort support.", location);
             return false;
@@ -662,7 +673,7 @@ public class Service {
      * @return True if the model info contains `"supports_reasoning": true`, false otherwise.
      */
     private boolean supportsReasoning(String location) {
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.trace("Model info not found for location {}, assuming no reasoning support.", location);
             return false;
@@ -677,7 +688,7 @@ public class Service {
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
     @Nullable
-    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable Double temperature) {
+    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
         @Nullable String location = modelLocations.get(modelName);
         logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
@@ -686,6 +697,9 @@ public class Service {
             return null;
         }
 
+        // default request parameters
+        var params = OpenAiChatRequestParameters.builder();
+
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
         String baseUrl = MainProject.getProxyUrl();
@@ -693,30 +707,30 @@ public class Service {
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
-                .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
+        params = params.maxOutputTokens(getMaxOutputTokens(location));
 
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
-                var kp = parseKey(MainProject.getBrokkKey());
-                builder = builder
-                        .apiKey(kp.token())
-                        .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
-                        .user(kp.userId().toString());
-            } else {
-                // Non-Brokk proxy
-                builder = builder.apiKey("dummy-key");
-            }
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+            // Non-Brokk proxy
+            builder = builder.apiKey("dummy-key");
+        } else {
+            var kp = parseKey(MainProject.getBrokkKey());
+            builder = builder
+                    .apiKey(kp.token())
+                    .customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
+            params = params.user(kp.userId().toString());
+        }
 
-        builder = builder.modelName(location);
+        params = params.modelName(location);
 
-        // default request parameters
-        var params = OpenAiChatRequestParameters.builder()
-                .temperature(temperature);
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
         if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
                 params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
+        }
+        if (parametersOverride != null) {
+            params = params.overrideWith(parametersOverride.build());
         }
         builder.defaultRequestParameters(params.build());
 
@@ -737,7 +751,7 @@ public class Service {
 
     public boolean supportsJsonSchema(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
 
         if (location.contains("gemini")) {
             // buildToolCallsSchema can't build a valid properties map for `arguments` without `oneOf` schema support.
@@ -765,7 +779,7 @@ public class Service {
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
 
         // first check litellm metadata
         if (info == null) {
@@ -780,6 +794,15 @@ public class Service {
 
         // gemini and grok-3 support function calling but not parallel calls
         return location.contains("grok-3");
+    }
+
+    private @Nullable Map<String, Object> getModelInfo(String location) {
+        try {
+            return modelInfoMap.get(location);
+        } catch (NullPointerException e) {
+            // ImmutableMap throws NPE when key does not exist
+            return null;
+        }
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
@@ -845,6 +868,23 @@ public class Service {
     }
 
     /**
+     * Checks if the model uses <think> tags for reasoning instead of a separate channel.
+     *
+     * @param model The model instance to check.
+     * @return True if the model info contains `"uses_think_tags": true`, false otherwise.
+     */
+    public boolean usesThinkTags(StreamingChatModel model) {
+        var location = model.defaultRequestParameters().modelName();
+        var info = getModelInfo(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming no think-tag usage.", location);
+            return false;
+        }
+        var v = info.get("uses_think_tags");
+        return v instanceof Boolean b && b;
+    }
+
+    /**
      * Checks if the model supports vision (image) inputs based on its metadata.
      *
      * @param model The model instance to check.
@@ -852,7 +892,7 @@ public class Service {
      */
     public boolean supportsVision(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = modelInfoMap.get(location);
+        var info = getModelInfo(location);
         if (info == null) {
             logger.warn("Model info not found for location {}, assuming no vision support.", location);
             return false;
@@ -953,7 +993,7 @@ public class Service {
         }
 
         var requestBuilder = new Request.Builder()
-                .url("https://app.brokk.ai/api/events/feedback")
+                .url(MainProject.getServiceUrl() + "/api/events/feedback")
                 .post(bodyBuilder.build());
 
         try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {

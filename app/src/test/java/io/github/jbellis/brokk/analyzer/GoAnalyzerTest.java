@@ -260,12 +260,21 @@ public class GoAnalyzerTest {
     void testGetSkeletonHeader_Type() {
         java.util.Optional<String> headerStruct = analyzer.getSkeletonHeader("declpkg.MyStruct");
         assertTrue(headerStruct.isPresent(), "Skeleton header for declpkg.MyStruct should be found.");
-        String expectedStruct = "type MyStruct struct {";
+        String expectedStruct = """
+                type MyStruct struct {
+                  FieldA int
+                  [...]
+                }
+                """;
         assertEquals(expectedStruct.trim(), headerStruct.get().trim());
 
         java.util.Optional<String> headerInterface = analyzer.getSkeletonHeader("declpkg.MyInterface");
         assertTrue(headerInterface.isPresent(), "Skeleton header for declpkg.MyInterface should be found.");
-        String expectedInterface = "type MyInterface interface {";
+        String expectedInterface = """
+                type MyInterface interface {
+                  [...]
+                }
+                """;
         assertEquals(expectedInterface.trim(), headerInterface.get().trim());
     }
 

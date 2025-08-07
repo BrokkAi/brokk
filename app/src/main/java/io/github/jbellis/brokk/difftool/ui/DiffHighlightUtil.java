@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
+import com.github.difflib.patch.DeltaType;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -24,13 +25,22 @@ public final class DiffHighlightUtil {
     }
 
     /**
-     * Returns the chunk to use for highlighting purposes. For revised side DELETE deltas,
-     * falls back to source chunk for positioning since target has size 0.
+     * Returns the chunk to use for highlighting purposes. For DELETE deltas on the revised side,
+     * creates a fallback chunk at the insertion point to show where content was removed.
      */
     public static @Nullable Chunk<String> getChunkForHighlight(AbstractDelta<String> delta, boolean originalSide) {
         var chunk = getRelevantChunk(delta, originalSide);
-        // For revised side DELETE deltas (empty target), use source chunk for positioning
-        return (chunk != null && chunk.size() == 0 && !originalSide) ? delta.getSource() : chunk;
+
+        // For DELETE deltas on revised side, create a fallback chunk at the target position
+        // to show a line indicator where the content was removed
+        if (chunk != null && chunk.size() == 0 && !originalSide) {
+            if (delta.getType() == DeltaType.DELETE) {
+                // Create a zero-size chunk at the target position for visual indication
+                return new Chunk<>(delta.getTarget().getPosition(), java.util.List.of());
+            }
+        }
+
+        return chunk;
     }
 
     /**

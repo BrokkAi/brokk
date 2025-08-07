@@ -9,6 +9,8 @@ import java.lang.reflect.Field;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -16,11 +18,12 @@ import java.util.stream.Stream;
 
 /**
  * Utility to print skeleton output for files in a directory or a specific file.
- * Usage: java SkeletonPrinter [--skeleton-only] [--no-color] <path> <language>
+ * Usage: java SkeletonPrinter [--skeleton-only] [--no-color] [--stats] <path> <language>
  *
  * Options:
  *   --skeleton-only    Only show skeleton output, not original content
  *   --no-color         Disable colored output
+ *   --stats            Only show final statistics, no file output
  *
  * Path can be:
  *   - A directory: Analyze all files of the specified language in the directory
@@ -43,14 +46,15 @@ public class SkeletonPrinter {
 
     private static boolean useColors = true;
     private static boolean skeletonOnly = false;
+    private static boolean statsOnly = false;
 
     private static boolean matchesLanguage(Path path, Language language) {
         var fileName = path.getFileName().toString().toLowerCase();
         return switch (language.name()) {
             case "TYPESCRIPT" -> fileName.endsWith(".ts") || fileName.endsWith(".tsx");
-            case "JAVASCRIPT" -> fileName.endsWith(".js") || fileName.endsWith(".jsx");
-            case "JAVA" -> fileName.endsWith(".java");
-            case "PYTHON" -> fileName.endsWith(".py");
+            case "JavaScript" -> fileName.endsWith(".js") || fileName.endsWith(".jsx");
+            case "Java" -> fileName.endsWith(".java");
+            case "Python" -> fileName.endsWith(".py");
             default -> false;
         };
     }
@@ -103,36 +107,41 @@ public class SkeletonPrinter {
 
     public static void main(String[] args) {
         if (args.length < 2) {
-            System.err.println("Usage: java SkeletonPrinter [--skeleton-only] [--no-color] <path> <language>");
+            System.err.println("Usage: java SkeletonPrinter [--skeleton-only] [--no-color] [--stats] <path> <language>");
             System.err.println("Options:");
             System.err.println("  --skeleton-only    Only show skeleton output, not original content");
             System.err.println("  --no-color         Disable colored output");
+            System.err.println("  --stats            Only show final statistics, no file output");
             System.err.println("Path can be a directory or a specific file");
             System.err.println("Supported languages: typescript, javascript, java, python");
             System.exit(1);
         }
 
-        // Parse command-line arguments
-        int argIndex = 0;
-        while (argIndex < args.length - 2) {
-            switch (args[argIndex]) {
-                case "--skeleton-only" -> skeletonOnly = true;
-                case "--no-color" -> useColors = false;
-                default -> {
-                    System.err.println("Unknown option: " + args[argIndex]);
-                    System.exit(1);
+        // Parse command-line arguments - scan all args for options first
+        List<String> nonOptionArgs = new ArrayList<>();
+        for (String arg : args) {
+            if (arg.startsWith("--")) {
+                switch (arg) {
+                    case "--skeleton-only" -> skeletonOnly = true;
+                    case "--no-color" -> useColors = false;
+                    case "--stats" -> statsOnly = true;
+                    default -> {
+                        System.err.println("Unknown option: " + arg);
+                        System.exit(1);
+                    }
                 }
+            } else {
+                nonOptionArgs.add(arg);
             }
-            argIndex++;
         }
 
-        if (argIndex + 1 >= args.length) {
+        if (nonOptionArgs.size() < 2) {
             System.err.println("Error: Missing path or language argument");
             System.exit(1);
         }
 
-        var inputPath = Path.of(args[argIndex]);
-        var languageStr = args[argIndex + 1].toLowerCase();
+        var inputPath = Path.of(nonOptionArgs.get(0));
+        var languageStr = nonOptionArgs.get(1).toLowerCase();
 
         if (!Files.exists(inputPath)) {
             System.err.println("Error: Path does not exist: " + inputPath);
@@ -150,7 +159,14 @@ public class SkeletonPrinter {
             printSkeletons(inputPath, language);
         } catch (Exception e) {
             System.err.println("Error processing files: " + e.getMessage());
-            System.exit(1);
+            if (!statsOnly) {
+                e.printStackTrace();
+            }
+        } catch (Error e) {
+            System.err.println("Fatal error processing files: " + e.getMessage());
+            if (!statsOnly) {
+                e.printStackTrace();
+            }
         }
     }
 
@@ -158,6 +174,7 @@ public class SkeletonPrinter {
         return switch (languageStr) {
             case "typescript", "ts" -> Language.TYPESCRIPT;
             case "javascript", "js" -> Language.JAVASCRIPT;
+            case "java" -> Language.JAVA;
             case "python", "py" -> Language.PYTHON;
             default -> null;
         };
@@ -178,77 +195,177 @@ public class SkeletonPrinter {
         var allFiles = project.getAllFiles();
 
         if (allFiles.isEmpty()) {
-            System.out.println("No matching files found in directory: " + directory);
+            if (!statsOnly) {
+                System.out.println("No matching files found in directory: " + directory);
+            }
             return;
         }
 
-        System.out.println(colorize(BOLD + CYAN, "=== SKELETON ANALYSIS FOR " + language.name() + " FILES ==="));
-        System.out.println(colorize(BLUE, "Directory: ") + directory);
-        System.out.println(colorize(BLUE, "Files found: ") + allFiles.size());
-        if (!skeletonOnly) {
-            System.out.println(colorize(YELLOW, "Use --skeleton-only to show only skeleton output"));
+        if (!statsOnly) {
+            System.out.println(colorize(BOLD + CYAN, "=== SKELETON ANALYSIS FOR " + language.name() + " FILES ==="));
+            System.out.println(colorize(BLUE, "Directory: ") + directory);
+            System.out.println(colorize(BLUE, "Files found: ") + allFiles.size());
+            if (!skeletonOnly) {
+                System.out.println(colorize(YELLOW, "Use --skeleton-only to show only skeleton output"));
+            }
+            System.out.println();
         }
-        System.out.println();
+
+        int filesProcessed = 0;
+        int skeletonsProduced = 0;
+        List<String> errors = new ArrayList<>();
+        long startTime = System.currentTimeMillis();
+        TreeSitterStats accumulatedStats = TreeSitterStats.empty();
 
         // Process each file individually to avoid CodeUnit name collisions across files
         for (var file : allFiles.stream().sorted().toList()) {
-            // Create a separate analyzer for each file to avoid name collisions
-            var parentDir = file.absPath().getParent();
-            var singleFileProject = new SingleFileProject(parentDir, file.absPath(), language);
-            var analyzer = createAnalyzer(singleFileProject, language);
+            try {
+                if (statsOnly) {
+                    System.out.println("Processing file: " + file);
+                }
 
-            if (analyzer == null) {
-                System.err.println("Error: Could not create analyzer for file: " + file);
-                continue;
+                // Create a separate analyzer for each file to avoid name collisions
+                var parentDir = file.absPath().getParent();
+                var singleFileProject = new SingleFileProject(parentDir, file.absPath(), language);
+                var analyzer = createAnalyzer(singleFileProject, language);
+
+                if (analyzer == null) {
+                    errors.add("Could not create analyzer for file: " + file);
+                    continue;
+                }
+
+                filesProcessed++;
+
+                if (!statsOnly) {
+                    printFileSkeletons(analyzer, file);
+                }
+
+                // Count skeletons for this file
+                var skeletons = analyzer.getSkeletons(file);
+                skeletonsProduced += skeletons.size();
+
+                // Accumulate TreeSitter statistics
+                accumulatedStats = accumulatedStats.add(getTreeSitterStats(analyzer));
+            } catch (Exception e) {
+                var errorMsg = "Error processing file " + file + ": " + e.getMessage();
+                errors.add(errorMsg);
+                if (!statsOnly) {
+                    System.err.println(errorMsg);
+                }
+            } catch (Error e) {
+                var errorMsg = "Fatal error processing file " + file + ": " + e.getMessage();
+                errors.add(errorMsg);
+                if (!statsOnly) {
+                    System.err.println(errorMsg);
+                }
             }
+        }
 
-            printFileSkeletons(analyzer, file);
+        if (statsOnly || !errors.isEmpty()) {
+            long endTime = System.currentTimeMillis();
+            long totalTimeMs = endTime - startTime;
+            // For directory processing, pass accumulated TreeSitter statistics
+            printStatistics(filesProcessed, skeletonsProduced, errors, accumulatedStats, totalTimeMs);
         }
     }
 
     private static void printSingleFileSkeletons(Path filePath, Language language) {
         // Verify the file matches the language
         if (!matchesLanguage(filePath, language)) {
-            System.err.println("Error: File extension does not match language " + language + ": " + filePath);
+            if (!statsOnly) {
+                System.err.println("Error: File extension does not match language " + language + ": " + filePath);
+            }
             return;
         }
 
-        // Create a project that contains just this file
-        var parentDir = filePath.getParent();
-        if (parentDir == null) {
-            parentDir = Path.of(".");
+        int filesProcessed = 0;
+        int skeletonsProduced = 0;
+        List<String> errors = new ArrayList<>();
+        IAnalyzer analyzer = null;
+        long startTime = System.currentTimeMillis();
+
+        try {
+            if (statsOnly) {
+                System.out.println("Processing file: " + filePath);
+            }
+
+            // Create a project that contains just this file
+            var parentDir = filePath.getParent();
+            if (parentDir == null) {
+                parentDir = Path.of(".");
+            }
+
+            var project = new SingleFileProject(parentDir.toAbsolutePath(), filePath.toAbsolutePath(), language);
+            analyzer = createAnalyzer(project, language);
+
+            if (analyzer == null) {
+                errors.add("Could not create analyzer for language: " + language);
+                if (statsOnly) {
+                    long endTime = System.currentTimeMillis();
+                    long totalTimeMs = endTime - startTime;
+                    printStatistics(filesProcessed, skeletonsProduced, errors, TreeSitterStats.empty(), totalTimeMs);
+                }
+                return;
+            }
+
+            var projectFile = new ProjectFile(parentDir.toAbsolutePath(), parentDir.toAbsolutePath().relativize(filePath.toAbsolutePath()));
+
+            filesProcessed++;
+
+            if (!statsOnly) {
+                System.out.println(colorize(BOLD + CYAN, "=== SKELETON ANALYSIS FOR " + language.name() + " FILE ==="));
+                System.out.println(colorize(BLUE, "File: ") + filePath);
+                if (!skeletonOnly) {
+                    System.out.println(colorize(YELLOW, "Use --skeleton-only to show only skeleton output"));
+                }
+                System.out.println();
+
+                printFileSkeletons(analyzer, projectFile);
+            }
+
+            // Count skeletons for this file
+            var skeletons = analyzer.getSkeletons(projectFile);
+            skeletonsProduced += skeletons.size();
+        } catch (Exception e) {
+            var errorMsg = "Error processing file " + filePath + ": " + e.getMessage();
+            errors.add(errorMsg);
+            if (!statsOnly) {
+                System.err.println(errorMsg);
+            }
+        } catch (Error e) {
+            var errorMsg = "Fatal error processing file " + filePath + ": " + e.getMessage();
+            errors.add(errorMsg);
+            if (!statsOnly) {
+                System.err.println(errorMsg);
+            }
         }
 
-        var project = new SingleFileProject(parentDir.toAbsolutePath(), filePath.toAbsolutePath(), language);
-        var analyzer = createAnalyzer(project, language);
-
-        if (analyzer == null) {
-            System.err.println("Error: Could not create analyzer for language: " + language);
-            return;
+        if (statsOnly || !errors.isEmpty()) {
+            long endTime = System.currentTimeMillis();
+            long totalTimeMs = endTime - startTime;
+            // For single file processing, pass the analyzer to get map sizes
+            printStatistics(filesProcessed, skeletonsProduced, errors, analyzer, totalTimeMs);
         }
-
-        var projectFile = new ProjectFile(parentDir.toAbsolutePath(), parentDir.toAbsolutePath().relativize(filePath.toAbsolutePath()));
-
-        System.out.println(colorize(BOLD + CYAN, "=== SKELETON ANALYSIS FOR " + language.name() + " FILE ==="));
-        System.out.println(colorize(BLUE, "File: ") + filePath);
-        if (!skeletonOnly) {
-            System.out.println(colorize(YELLOW, "Use --skeleton-only to show only skeleton output"));
-        }
-        System.out.println();
-
-        printFileSkeletons(analyzer, projectFile);
     }
 
     private static IAnalyzer createAnalyzer(IProject project, Language language) {
         return switch (language.name()) {
             case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
-            case "JAVASCRIPT" -> new JavascriptAnalyzer(project);
-            case "PYTHON" -> new PythonAnalyzer(project);
+            case "JavaScript" -> new JavascriptAnalyzer(project);
+            case "Java" -> {
+                var tempCpgFile = Path.of(System.getProperty("java.io.tmpdir"), "brokk-skeleton-printer-java.bin");
+                yield new JavaAnalyzer(project.getRoot(), project.getExcludedDirectories(), tempCpgFile);
+            }
+            case "Python" -> new PythonAnalyzer(project);
             default -> null;
         };
     }
 
     private static void printFileSkeletons(IAnalyzer analyzer, ProjectFile file) {
+        if (statsOnly) {
+            return;
+        }
+
         System.out.println();
         System.out.println(colorize(BOLD + PURPLE, "================================================================================"));
         System.out.println(colorize(BOLD + GREEN, "FILE: ") + colorize(CYAN, file.toString()));
@@ -399,6 +516,95 @@ public class SkeletonPrinter {
         highlighted = highlighted.replaceAll("\\b(new|instanceof|typeof|in)\\b", colorize(PURPLE, "$1"));
 
         return highlighted;
+    }
+
+    private static class TreeSitterStats {
+        final int topLevelDeclarations;
+        final int childrenByParent;
+        final int signatures;
+
+        TreeSitterStats(int topLevel, int children, int signatures) {
+            this.topLevelDeclarations = topLevel;
+            this.childrenByParent = children;
+            this.signatures = signatures;
+        }
+
+        static TreeSitterStats empty() {
+            return new TreeSitterStats(0, 0, 0);
+        }
+
+        TreeSitterStats add(TreeSitterStats other) {
+            return new TreeSitterStats(
+                this.topLevelDeclarations + other.topLevelDeclarations,
+                this.childrenByParent + other.childrenByParent,
+                this.signatures + other.signatures
+            );
+        }
+    }
+
+    private static TreeSitterStats getTreeSitterStats(IAnalyzer analyzer) {
+        if (!(analyzer instanceof TreeSitterAnalyzer tsAnalyzer)) {
+            return TreeSitterStats.empty();
+        }
+
+        try {
+            // Use reflection to access the map sizes from TreeSitterAnalyzer
+            Field topLevelDeclarationsField = TreeSitterAnalyzer.class.getDeclaredField("topLevelDeclarations");
+            topLevelDeclarationsField.setAccessible(true);
+            var topLevelDeclarations = (Map<?, ?>) topLevelDeclarationsField.get(tsAnalyzer);
+
+            Field childrenByParentField = TreeSitterAnalyzer.class.getDeclaredField("childrenByParent");
+            childrenByParentField.setAccessible(true);
+            var childrenByParent = (Map<?, ?>) childrenByParentField.get(tsAnalyzer);
+
+            Field signaturesField = TreeSitterAnalyzer.class.getDeclaredField("signatures");
+            signaturesField.setAccessible(true);
+            var signatures = (Map<?, ?>) signaturesField.get(tsAnalyzer);
+
+            return new TreeSitterStats(
+                topLevelDeclarations.size(),
+                childrenByParent.size(),
+                signatures.size()
+            );
+        } catch (Exception e) {
+            return TreeSitterStats.empty();
+        }
+    }
+
+    // Overloaded method for single analyzer (backward compatibility)
+    private static void printStatistics(int filesProcessed, int skeletonsProduced, List<String> errors, IAnalyzer analyzer, long totalTimeMs) {
+        TreeSitterStats stats = getTreeSitterStats(analyzer);
+        printStatistics(filesProcessed, skeletonsProduced, errors, stats, totalTimeMs);
+    }
+
+    // Main statistics method with accumulated TreeSitter stats
+    private static void printStatistics(int filesProcessed, int skeletonsProduced, List<String> errors, TreeSitterStats tsStats, long totalTimeMs) {
+        System.out.println(colorize(BOLD + CYAN, "=== SKELETON ANALYSIS STATISTICS ==="));
+        System.out.println(colorize(BLUE, "Files processed: ") + filesProcessed);
+        System.out.println(colorize(BLUE, "Skeletons produced: ") + skeletonsProduced);
+
+        // Show timing information
+        double totalTimeSeconds = totalTimeMs / 1000.0;
+        System.out.println(colorize(BLUE, "Total processing time: ") + String.format("%.2f seconds", totalTimeSeconds));
+
+        if (filesProcessed > 0) {
+            double avgTimePerFile = totalTimeSeconds / filesProcessed;
+            System.out.println(colorize(BLUE, "Average time per file: ") + String.format("%.3f seconds", avgTimePerFile));
+        }
+
+        // Show TreeSitter statistics if any files were TreeSitter-based
+        if (tsStats.topLevelDeclarations > 0 || tsStats.childrenByParent > 0 || tsStats.signatures > 0) {
+            System.out.println(colorize(BLUE, "TopLevel declarations map entries: ") + tsStats.topLevelDeclarations);
+            System.out.println(colorize(BLUE, "Children by parent map entries: ") + tsStats.childrenByParent);
+            System.out.println(colorize(BLUE, "Signatures map entries: ") + tsStats.signatures);
+        }
+
+        if (!errors.isEmpty()) {
+            System.out.println(colorize(RED, "Errors encountered: ") + errors.size());
+            for (var error : errors) {
+                System.out.println(colorize(RED, "  - ") + error);
+            }
+        }
     }
 
 }

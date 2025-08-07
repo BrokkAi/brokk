@@ -36,8 +36,16 @@ public final class PerformanceConstants {
     // Typing state management
     public static final int TYPING_STATE_TIMEOUT_MS = 150;
 
-    // Scroll synchronization
-    public static final int SCROLL_SYNC_DEBOUNCE_MS = 100;
+    // Scroll throttling mode configuration (mutable for developer UI)
+    public static volatile boolean ENABLE_FRAME_BASED_THROTTLING = false; // Frame-based throttling
+    public static volatile boolean ENABLE_ADAPTIVE_THROTTLING = true; // Adaptive mode (default)
+    public static volatile int SCROLL_FRAME_RATE_MS = 16; // 60fps default (configurable via UI)
+
+    // Adaptive throttling thresholds
+    public static final int ADAPTIVE_MODE_LINE_THRESHOLD = 1000; // Switch to frame mode for files > 1000 lines
+    public static final int ADAPTIVE_MODE_DELTA_THRESHOLD = 50;  // Switch to frame mode for > 50 deltas
+    public static final long ADAPTIVE_MODE_PERFORMANCE_THRESHOLD_MS = 5; // Switch if mapping takes > 5ms
+    public static final int ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD = 30; // Events per second to trigger frame mode
 
     // Navigation highlighting reset delay
     public static final int NAVIGATION_RESET_DELAY_MS = 30;
@@ -56,6 +64,42 @@ public final class PerformanceConstants {
 
     // Memory management thresholds
     public static final int MEMORY_HIGH_THRESHOLD_PERCENT = 70; // Memory usage threshold for cleanup
+
+    /**
+     * Validates scroll throttling configuration to ensure only one mode is active.
+     * If multiple modes are enabled, prioritizes adaptive throttling, then frame-based.
+     *
+     * @return true if configuration was changed, false if already valid
+     */
+    public static boolean validateScrollThrottlingConfig() {
+        int activeCount = 0;
+        if (ENABLE_ADAPTIVE_THROTTLING) activeCount++;
+        if (ENABLE_FRAME_BASED_THROTTLING) activeCount++;
+
+        if (activeCount > 1) {
+            // Auto-resolve: prioritize adaptive throttling
+            if (ENABLE_ADAPTIVE_THROTTLING) {
+                ENABLE_FRAME_BASED_THROTTLING = false;
+            }
+            return true; // Configuration was changed
+        }
+
+        return false; // Configuration was already valid
+    }
+
+    /**
+     * Gets a human-readable description of the current scroll throttling mode.
+     */
+    public static String getCurrentScrollMode() {
+        if (ENABLE_ADAPTIVE_THROTTLING) {
+            return "Adaptive (Dynamic mode selection)";
+        } else if (ENABLE_FRAME_BASED_THROTTLING) {
+            return String.format("Frame-Based (%dms / %.1f FPS)",
+                                SCROLL_FRAME_RATE_MS, 1000.0 / SCROLL_FRAME_RATE_MS);
+        } else {
+            return "Immediate (No throttling)";
+        }
+    }
 
     private PerformanceConstants() {} // Prevent instantiation
 }

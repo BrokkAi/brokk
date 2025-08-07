@@ -3,17 +3,32 @@ package dev.langchain4j.model.openai;
 import static dev.langchain4j.internal.Utils.copy;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.Utils.quoted;
+import static dev.langchain4j.model.chat.request.ResponseFormatType.JSON;
+import static java.util.Arrays.asList;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
-import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.model.chat.request.ResponseFormat;
+import dev.langchain4j.model.chat.request.ToolChoice;
+import dev.langchain4j.model.chat.request.json.JsonSchema;
 
-public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
+public class OpenAiChatRequestParameters {
 
     public static final OpenAiChatRequestParameters EMPTY = OpenAiChatRequestParameters.builder().build();
 
+    private final String modelName;
+    private final Double temperature;
+    private final Double topP;
+    private final Double frequencyPenalty;
+    private final Double presencePenalty;
+    private final Integer maxOutputTokens;
+    private final List<String> stopSequences;
+    private final List<ToolSpecification> toolSpecifications;
+    private final ToolChoice toolChoice;
+    private final ResponseFormat responseFormat;
     private final Integer maxCompletionTokens;
     private final Map<String, Integer> logitBias;
     private final Boolean parallelToolCalls;
@@ -25,7 +40,16 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
     private final String reasoningEffort;
 
     private OpenAiChatRequestParameters(Builder builder) {
-        super(builder);
+        this.modelName = builder.modelName;
+        this.temperature = builder.temperature;
+        this.topP = builder.topP;
+        this.frequencyPenalty = builder.frequencyPenalty;
+        this.presencePenalty = builder.presencePenalty;
+        this.maxOutputTokens = builder.maxOutputTokens;
+        this.stopSequences = copy(builder.stopSequences);
+        this.toolSpecifications = copy(builder.toolSpecifications);
+        this.toolChoice = builder.toolChoice;
+        this.responseFormat = builder.responseFormat;
         this.maxCompletionTokens = builder.maxCompletionTokens;
         this.logitBias = copy(builder.logitBias);
         this.parallelToolCalls = builder.parallelToolCalls;
@@ -35,6 +59,46 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
         this.metadata = copy(builder.metadata);
         this.serviceTier = builder.serviceTier;
         this.reasoningEffort = builder.reasoningEffort;
+    }
+
+    public String modelName() {
+        return modelName;
+    }
+
+    public Double temperature() {
+        return temperature;
+    }
+
+    public Double topP() {
+        return topP;
+    }
+
+    public Double frequencyPenalty() {
+        return frequencyPenalty;
+    }
+
+    public Double presencePenalty() {
+        return presencePenalty;
+    }
+
+    public Integer maxOutputTokens() {
+        return maxOutputTokens;
+    }
+
+    public List<String> stopSequences() {
+        return stopSequences;
+    }
+
+    public List<ToolSpecification> toolSpecifications() {
+        return toolSpecifications;
+    }
+
+    public ToolChoice toolChoice() {
+        return toolChoice;
+    }
+
+    public ResponseFormat responseFormat() {
+        return responseFormat;
     }
 
     public Integer maxCompletionTokens() {
@@ -73,8 +137,7 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
         return reasoningEffort;
     }
 
-    @Override
-    public OpenAiChatRequestParameters overrideWith(ChatRequestParameters that) {
+    public OpenAiChatRequestParameters overrideWith(OpenAiChatRequestParameters that) {
         return OpenAiChatRequestParameters.builder()
                 .overrideWith(this)
                 .overrideWith(that)
@@ -85,9 +148,18 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
-        if (!super.equals(o)) return false;
         OpenAiChatRequestParameters that = (OpenAiChatRequestParameters) o;
-        return Objects.equals(maxCompletionTokens, that.maxCompletionTokens)
+        return Objects.equals(modelName, that.modelName)
+                && Objects.equals(temperature, that.temperature)
+                && Objects.equals(topP, that.topP)
+                && Objects.equals(frequencyPenalty, that.frequencyPenalty)
+                && Objects.equals(presencePenalty, that.presencePenalty)
+                && Objects.equals(maxOutputTokens, that.maxOutputTokens)
+                && Objects.equals(stopSequences, that.stopSequences)
+                && Objects.equals(toolSpecifications, that.toolSpecifications)
+                && Objects.equals(toolChoice, that.toolChoice)
+                && Objects.equals(responseFormat, that.responseFormat)
+                && Objects.equals(maxCompletionTokens, that.maxCompletionTokens)
                 && Objects.equals(logitBias, that.logitBias)
                 && Objects.equals(parallelToolCalls, that.parallelToolCalls)
                 && Objects.equals(seed, that.seed)
@@ -101,7 +173,16 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
     @Override
     public int hashCode() {
         return Objects.hash(
-                super.hashCode(),
+                modelName,
+                temperature,
+                topP,
+                frequencyPenalty,
+                presencePenalty,
+                maxOutputTokens,
+                stopSequences,
+                toolSpecifications,
+                toolChoice,
+                responseFormat,
                 maxCompletionTokens,
                 logitBias,
                 parallelToolCalls,
@@ -117,10 +198,9 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
     @Override
     public String toString() {
         return "OpenAiChatRequestParameters{" +
-                "modelName=" + quoted(modelName()) +
+                "modelName=" + quoted(modelName) +
                 ", temperature=" + temperature() +
                 ", topP=" + topP() +
-                ", topK=" + topK() +
                 ", frequencyPenalty=" + frequencyPenalty() +
                 ", presencePenalty=" + presencePenalty() +
                 ", maxOutputTokens=" + maxOutputTokens() +
@@ -144,8 +224,18 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
         return new Builder();
     }
 
-    public static class Builder extends DefaultChatRequestParameters.Builder<Builder> {
+    public static class Builder {
 
+        private String modelName;
+        private Double temperature;
+        private Double topP;
+        private Double frequencyPenalty;
+        private Double presencePenalty;
+        private Integer maxOutputTokens;
+        private List<String> stopSequences;
+        private List<ToolSpecification> toolSpecifications;
+        private ToolChoice toolChoice;
+        private ResponseFormat responseFormat;
         private Integer maxCompletionTokens;
         private Map<String, Integer> logitBias;
         private Boolean parallelToolCalls;
@@ -156,25 +246,118 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
         private String serviceTier;
         private String reasoningEffort;
 
-        @Override
-        public Builder overrideWith(ChatRequestParameters parameters) {
-            super.overrideWith(parameters);
-            if (parameters instanceof OpenAiChatRequestParameters openAiParameters) {
-                maxCompletionTokens(getOrDefault(openAiParameters.maxCompletionTokens(), maxCompletionTokens));
-                logitBias(getOrDefault(openAiParameters.logitBias(), logitBias));
-                parallelToolCalls(getOrDefault(openAiParameters.parallelToolCalls(), parallelToolCalls));
-                seed(getOrDefault(openAiParameters.seed(), seed));
-                user(getOrDefault(openAiParameters.user(), user));
-                store(getOrDefault(openAiParameters.store(), store));
-                metadata(getOrDefault(openAiParameters.metadata(), metadata));
-                serviceTier(getOrDefault(openAiParameters.serviceTier(), serviceTier));
-                reasoningEffort(getOrDefault(openAiParameters.reasoningEffort(), reasoningEffort));
+        public Builder overrideWith(OpenAiChatRequestParameters parameters) {
+            modelName(getOrDefault(parameters.modelName(), modelName));
+            temperature(getOrDefault(parameters.temperature(), temperature));
+            topP(getOrDefault(parameters.topP(), topP));
+            frequencyPenalty(getOrDefault(parameters.frequencyPenalty(), frequencyPenalty));
+            presencePenalty(getOrDefault(parameters.presencePenalty(), presencePenalty));
+            maxOutputTokens(getOrDefault(parameters.maxOutputTokens(), maxOutputTokens));
+            stopSequences(getOrDefault(parameters.stopSequences(), stopSequences));
+            toolSpecifications(getOrDefault(parameters.toolSpecifications(), toolSpecifications));
+            toolChoice(getOrDefault(parameters.toolChoice(), toolChoice));
+            responseFormat(getOrDefault(parameters.responseFormat(), responseFormat));
+            maxCompletionTokens(getOrDefault(parameters.maxCompletionTokens(), maxCompletionTokens));
+            logitBias(getOrDefault(parameters.logitBias(), logitBias));
+            parallelToolCalls(getOrDefault(parameters.parallelToolCalls(), parallelToolCalls));
+            seed(getOrDefault(parameters.seed(), seed));
+            user(getOrDefault(parameters.user(), user));
+            store(getOrDefault(parameters.store(), store));
+            metadata(getOrDefault(parameters.metadata(), metadata));
+            serviceTier(getOrDefault(parameters.serviceTier(), serviceTier));
+            reasoningEffort(getOrDefault(parameters.reasoningEffort(), reasoningEffort));
+            return this;
+        }
+
+        public Builder modelName(String modelName) {
+            this.modelName = modelName;
+            return this;
+        }
+
+        public Builder temperature(Double temperature) {
+            this.temperature = temperature;
+            return this;
+        }
+
+        public Builder topP(Double topP) {
+            this.topP = topP;
+            return this;
+        }
+
+        public Builder frequencyPenalty(Double frequencyPenalty) {
+            this.frequencyPenalty = frequencyPenalty;
+            return this;
+        }
+
+        public Builder presencePenalty(Double presencePenalty) {
+            this.presencePenalty = presencePenalty;
+            return this;
+        }
+
+        public Builder maxOutputTokens(Integer maxOutputTokens) {
+            this.maxOutputTokens = maxOutputTokens;
+            return this;
+        }
+
+        /**
+         * @see #stopSequences(String...)
+         */
+        public Builder stopSequences(List<String> stopSequences) {
+            this.stopSequences = stopSequences;
+            return this;
+        }
+
+        /**
+         * @see #stopSequences(List)
+         */
+        public Builder stopSequences(String... stopSequences) {
+            return stopSequences(asList(stopSequences));
+        }
+
+        /**
+         * @see #toolSpecifications(ToolSpecification...)
+         */
+        public Builder toolSpecifications(List<ToolSpecification> toolSpecifications) {
+            this.toolSpecifications = toolSpecifications;
+            return this;
+        }
+
+        /**
+         * @see #toolSpecifications(List)
+         */
+        public Builder toolSpecifications(ToolSpecification... toolSpecifications) {
+            return toolSpecifications(asList(toolSpecifications));
+        }
+
+        public Builder toolChoice(ToolChoice toolChoice) {
+            this.toolChoice = toolChoice;
+            return this;
+        }
+
+        /**
+         * @see #responseFormat(JsonSchema)
+         */
+        public Builder responseFormat(ResponseFormat responseFormat) {
+            this.responseFormat = responseFormat;
+            return this;
+        }
+
+        /**
+         * @see #responseFormat(ResponseFormat)
+         */
+        public Builder responseFormat(JsonSchema jsonSchema) {
+            if (jsonSchema != null) {
+                ResponseFormat responseFormat = ResponseFormat.builder()
+                        .type(JSON)
+                        .jsonSchema(jsonSchema)
+                        .build();
+                return responseFormat(responseFormat);
             }
             return this;
         }
 
         public Builder modelName(OpenAiChatModelName modelName) {
-            return super.modelName(modelName.toString());
+            return modelName(modelName.toString());
         }
 
         public Builder maxCompletionTokens(Integer maxCompletionTokens) {
@@ -222,7 +405,6 @@ public class OpenAiChatRequestParameters extends DefaultChatRequestParameters {
             return this;
         }
 
-        @Override
         public OpenAiChatRequestParameters build() {
             return new OpenAiChatRequestParameters(this);
         }

@@ -24,6 +24,13 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -47,6 +54,9 @@ public class CodeAgent {
     private static final int MAX_PARSE_ATTEMPTS = 3;
     @VisibleForTesting
     static final int MAX_APPLY_FAILURES_BEFORE_FALLBACK = 3;
+    /** maximum consecutive build failures before giving up */
+    @VisibleForTesting
+    static final int MAX_BUILD_FAILURES = 5;
 
     final IContextManager contextManager;
     private final StreamingChatModel model;
@@ -102,7 +112,8 @@ public class CodeAgent {
                                                                    null);
 
         var conversationState = new ConversationState(taskMessages, nextRequest);
-        var workspaceState = new EditState(blocks, 0, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+        var workspaceState = new EditState(blocks, 0, applyFailures, 0,
+                                           blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
@@ -241,7 +252,8 @@ public class CodeAgent {
                                                                       file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0,
+                                      "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
@@ -817,6 +829,14 @@ public class CodeAgent {
             if (metrics != null) {
                 metrics.buildFailures++;
             }
+
+            int newBuildFailures = ws.consecutiveBuildFailures() + 1;
+            if (newBuildFailures >= MAX_BUILD_FAILURES) {
+                reportComplete("Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR,
+                                                                 "Build failed %d consecutive times:\n%s"
+                                                                         .formatted(newBuildFailures, latestBuildError)));
+            }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
             var newCs = new ConversationState(cs.taskMessages(),
                                               nextRequestForBuildFailure);
@@ -929,12 +949,49 @@ public class CodeAgent {
             return "";
         }
 
+        // Enforce single-build execution when requested
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (!noConcurrentBuilds) {
+            return runVerificationCommand(verificationCommand);
+        }
+
+        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
+        try {
+            Files.createDirectories(lockDir);
+        } catch (IOException e) {
+            logger.warn("Unable to create lock directory {}; proceeding without build lock", lockDir, e);
+            return runVerificationCommand(verificationCommand);
+        }
+
+        var projectName = contextManager.getProject().getRoot().getFileName().toString();
+        Path lockFile = lockDir.resolve(projectName + ".lock");
+
+        try (FileChannel channel = FileChannel.open(lockFile,
+                                                    StandardOpenOption.CREATE,
+                                                    StandardOpenOption.WRITE);
+             FileLock lock = channel.lock())
+        {
+            logger.debug("Acquired build lock {}", lockFile);
+            return runVerificationCommand(verificationCommand);
+        } catch (IOException ioe) {
+            logger.warn("Failed to acquire file lock {}; proceeding without it", lockFile, ioe);
+            return runVerificationCommand(verificationCommand);
+        }
+    }
+    
+    /**
+     * Executes the given verification command, streaming output back to the console.
+     * Returns an empty string on success, or the combined error/output when the
+     * command exits non-zero.
+     */
+    private String runVerificationCommand(String verificationCommand) throws InterruptedException {
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
         io.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
         try {
             var output = Environment.instance.runShellCommand(verificationCommand,
                                                               contextManager.getProject().getRoot(),
-                                                              line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                                                              line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                                                              Environment.UNLIMITED_TIMEOUT);
             logger.debug("Verification command successful. Output: {}", output);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
             return "";
@@ -987,6 +1044,7 @@ public class CodeAgent {
             List<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
+            int consecutiveBuildFailures,
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
@@ -997,6 +1055,7 @@ public class CodeAgent {
          */
         EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
             return new EditState(newPendingBlocks, newParseFailures, consecutiveApplyFailures,
+                                 consecutiveBuildFailures,
                                  blocksAppliedWithoutBuild, lastBuildError, changedFiles, originalFileContents);
         }
 
@@ -1005,6 +1064,7 @@ public class CodeAgent {
          */
         EditState afterBuildFailure(String newBuildError) {
             return new EditState(pendingBlocks, consecutiveParseFailures, consecutiveApplyFailures,
+                                 consecutiveBuildFailures + 1,
                                  0, newBuildError, changedFiles, originalFileContents);
         }
 
@@ -1014,6 +1074,7 @@ public class CodeAgent {
         EditState afterApply(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newApplyFailures,
                              int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
             return new EditState(newPendingBlocks, consecutiveParseFailures, newApplyFailures,
+                                 consecutiveBuildFailures,
                                  newBlocksApplied, lastBuildError, changedFiles, newOriginalContents);
         }
 
@@ -1024,6 +1085,7 @@ public class CodeAgent {
                                        Set<ProjectFile> updatedChangedFiles,
                                        Map<ProjectFile, String> newOriginalContents) {
             return new EditState(newPendingBlocks, consecutiveParseFailures, 0,
+                                 consecutiveBuildFailures,
                                  1, lastBuildError, updatedChangedFiles, newOriginalContents);
         }
     }

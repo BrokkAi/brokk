@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.DiffUtils;
-import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.DeltaType;
 import com.github.difflib.patch.Patch;
 import org.junit.jupiter.api.Test;
@@ -13,7 +12,6 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for DeltaHighlighter which unified the highlighting logic
  * that was previously duplicated in HighlightOriginal/HighlightRevised.
- * 
  * These tests verify that the DeltaHighlighter class exists and has the expected API.
  * Testing the full highlighting pipeline requires complex UI setup, so we focus on
  * the class structure and basic behavior verification.

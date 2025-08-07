@@ -75,14 +75,14 @@ public class SerialByKeyExecutor {
                                 } else {
                                     resultFuture.complete(res);
                                 }
-                            });
+                            }, executor);
 
                     if (previous == null) {
                         // no pending work: execute immediately
                         scheduleTask.run();
                     } else {
                         // chain after the previous placeholder, regardless of its outcome
-                        previous.whenCompleteAsync((r, e) -> scheduleTask.run());
+                        previous.whenCompleteAsync((r, e) -> scheduleTask.run(), executor);
                     }
 
                     return resultFuture;

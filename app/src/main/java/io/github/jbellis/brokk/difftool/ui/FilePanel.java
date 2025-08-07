@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
-import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
@@ -10,7 +9,6 @@ import io.github.jbellis.brokk.difftool.search.SearchHits;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
-import io.github.jbellis.brokk.gui.search.SearchCommand;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
@@ -20,7 +18,6 @@ import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Objects;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.Font;
@@ -29,18 +26,14 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
 import java.awt.*;
-import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.SwingWorker;
-
-import static java.util.Objects.requireNonNullElseGet;
 
 public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private static final Logger logger = LogManager.getLogger(FilePanel.class);
@@ -78,6 +71,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     // Track when typing state was last set to detect stuck states
     private volatile long lastTypingStateChange = System.currentTimeMillis();
+
 
     // Navigation state to ensure highlights appear when scrolling to diffs
     private final AtomicBoolean isNavigatingToDiff = new AtomicBoolean(false);
@@ -322,9 +316,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Mark initial setup as complete
             initialSetupComplete = true;
 
-            // Scroll to first diff once after initial setup is complete
-            SwingUtilities.invokeLater(this::scrollToFirstDiff);
-
         } catch (Exception ex) {
             diffPanel.getMainPanel().getConsoleIO().toolError(
                 "Could not read file or set document: "
@@ -515,6 +506,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     public boolean isActivelyTyping() {
         return isActivelyTyping.get();
     }
+
 
     /**
      * Force reset typing state - used for recovery from stuck states
@@ -842,7 +834,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         boolean isUserEdit = de.getDocumentEvent() != null ||
                             (de.getStartLine() != -1 && de.getNumberOfLines() > 0);
 
-        if (isUserEdit) {
+        // Check if this is a programmatic change by consulting the scroll synchronizer
+        boolean isProgrammaticChange = false;
+        var scrollSync = diffPanel.getScrollSynchronizer();
+        if (scrollSync != null) {
+            isProgrammaticChange = scrollSync.isProgrammaticScroll();
+        }
+
+        if (isUserEdit && !isProgrammaticChange) {
             boolean wasTyping = isActivelyTyping.getAndSet(true);
             if (!wasTyping) {
                 lastTypingStateChange = System.currentTimeMillis();
@@ -969,45 +968,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // This avoids flickering during initial setup
     }
 
-    /**
-     * Scrolls the editor to show the first diff highlight if available.
-     * Only called during initial setup to avoid flickering.
-     */
-    private void scrollToFirstDiff() {
-        // Don't auto-scroll if user is actively typing
-        if (isActivelyTyping.get()) {
-            return;
-        }
-
-        var patch = diffPanel.getPatch();
-        if (patch != null && !patch.getDeltas().isEmpty()) {
-            var firstDelta = patch.getDeltas().getFirst();
-            Chunk<String> relevantChunk = BufferDocumentIF.ORIGINAL.equals(name)
-                                          ? firstDelta.getSource()
-                                          : firstDelta.getTarget();
-
-            if (relevantChunk == null) { // If no relevant chunk for the first delta on this side
-                return;
-            }
-            int lineToShow = relevantChunk.getPosition();
-
-            if (bufferDocument != null) {
-                int offset = bufferDocument.getOffsetForLine(lineToShow);
-                if (offset >= 0) {
-                    try {
-                        editor.setCaretPosition(offset);
-                        // Scroll to make the caret visible
-                        Rectangle rect = SwingUtil.modelToView(editor, offset);
-                        if (rect != null) {
-                            editor.scrollRectToVisible(rect);
-                        }
-                    } catch (Exception e) {
-                        // Ignore scroll errors
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * Installs bidirectional listeners that keep the PlainDocument belonging to
@@ -1197,20 +1157,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     copyTextFallback(sourceDoc, destinationDoc);
                 }
             } else if (eventType == DocumentEvent.EventType.REMOVE) {
-                // Remove the same range from the destination document
-                if (offset < destinationDoc.getLength() && offset + length <= destinationDoc.getLength()) {
-                    destinationDoc.remove(offset, length);
-                } else {
-                    // Range is invalid, use fallback to resync
-                    copyTextFallback(sourceDoc, destinationDoc);
-                }
+                // Always use fallback for REMOVE operations to prevent any synchronization issues
+                // This is simpler and more reliable than trying to handle edge cases with incremental removal
+                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
                 // For change events, always use fallback to ensure consistency
-                copyTextFallback(sourceDoc, destinationDoc);
+                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error
-            copyTextFallback(sourceDoc, destinationDoc);
+            BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
         }
     }
 
@@ -1219,8 +1175,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * This preserves the original behavior but should only be used as a last resort.
      */
     private static void copyTextFallback(Document src, Document dst) {
+        // Only perform fallback if documents are significantly out of sync
         try {
-            // Only perform fallback if documents are significantly out of sync
             String srcText = src.getText(0, src.getLength());
             String dstText = dst.getText(0, dst.getLength());
 
@@ -1229,9 +1185,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 return;
             }
 
-            // If documents differ significantly, perform full copy as last resort
-            dst.remove(0, dst.getLength());
-            dst.insertString(0, srcText, null);
+            BufferDiffPanel.synchronizeDocuments(src, dst);
         } catch (BadLocationException e) {
             throw new RuntimeException("Document mirroring fallback failed", e);
         }

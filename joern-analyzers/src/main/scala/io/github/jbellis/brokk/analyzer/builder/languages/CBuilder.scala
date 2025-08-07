@@ -12,6 +12,7 @@ import io.joern.x2cpg.utils.Report
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.passes.CpgPassBase
 
+import java.util.concurrent.ForkJoinPool
 import scala.util.Try
 
 object CBuilder {
@@ -23,7 +24,7 @@ object CBuilder {
     override def sourceFileExtensions: Set[String] =
       FileDefaults.SourceFileExtensions ++ FileDefaults.HeaderFileExtensions + FileDefaults.PreprocessedExt
 
-    override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
+    override def createAst(cpg: Cpg, config: CConfig)(using pool: ForkJoinPool): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
       val report            = new Report()
       val global            = new CGlobal()

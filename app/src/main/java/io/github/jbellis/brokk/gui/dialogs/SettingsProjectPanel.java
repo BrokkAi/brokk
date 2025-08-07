@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,6 +67,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
     private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
+    private JSpinner buildTimeoutSpinner = new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
     private JProgressBar buildProgressBar = new JProgressBar();
     private JButton inferBuildDetailsButton = new JButton("Infer Build Details");
     @Nullable
@@ -349,7 +351,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubHostField, gbcGitHub);
-        
+
         var ghInfoLabel = new JLabel("<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
         ghInfoLabel.setFont(ghInfoLabel.getFont().deriveFont(Font.ITALIC, ghInfoLabel.getFont().getSize() * 0.9f));
         gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow++; gbcGitHub.gridwidth = 2; gbcGitHub.insets = new Insets(8, 2, 2, 2);
@@ -373,7 +375,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         githubOwnerField.setEnabled(false);
         githubRepoField.setEnabled(false);
         githubHostField.setEnabled(false);
-        
+
         gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.gridwidth = 2;
         gbcGitHub.weighty = 1.0; gbcGitHub.fill = GridBagConstraints.VERTICAL;
         gitHubCard.add(Box.createVerticalGlue(), gbcGitHub);
@@ -468,7 +470,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                           JOptionPane.WARNING_MESSAGE);
             return;
         }
-        
+
         testJiraConnectionButton.setEnabled(false);
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
@@ -571,6 +573,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(radioPanel, gbc);
 
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(new JLabel("Run Command Timeout (sec):"), gbc);
+        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(buildTimeoutSpinner, gbc);
+
         // Removed Build Instructions Area and its ScrollPane
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.weighty = 0.0; // Ensure weighty is reset before this
@@ -615,7 +623,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     currentElements.add(trimmedNewDir);
                 }
                 currentElements.sort(String::compareToIgnoreCase);
-                
+
                 excludedDirectoriesListModel.clear();
                 currentElements.forEach(excludedDirectoriesListModel::addElement);
             }
@@ -663,7 +671,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         inferBuildDetailsButton.addActionListener(e -> runBuildAgent());
-        
+
         // Vertical glue to push all build panel content up
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
         gbc.weighty = 1.0; gbc.fill = GridBagConstraints.VERTICAL;
@@ -945,6 +953,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             runTestsInWorkspaceRadio.setSelected(true);
         }
 
+        buildTimeoutSpinner.setValue((int) ((MainProject) project).getRunCommandTimeoutSeconds());
+
         var currentRefresh = project.getAnalyzerRefresh();
         cpgRefreshComboBox.setSelectedItem(currentRefresh == IProject.CpgRefresh.UNSET ? IProject.CpgRefresh.AUTO : currentRefresh);
 
@@ -1026,6 +1036,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
         }
 
+        var mainProject = (MainProject) project;
+        long timeout = ((Number) buildTimeoutSpinner.getValue()).longValue();
+        if (timeout != mainProject.getRunCommandTimeoutSeconds()) {
+            mainProject.setRunCommandTimeoutSeconds(timeout);
+            logger.debug("Applied Run Command Timeout: {} seconds", timeout);
+        }
+
         var selectedRefresh = (MainProject.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
         if (selectedRefresh != project.getAnalyzerRefresh()) {
             project.setAnalyzerRefresh(selectedRefresh);
@@ -1040,7 +1057,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Data Retention Tab
         if (dataRetentionPanelInner != null) dataRetentionPanelInner.applyPolicy();
-        
+
         // After applying data retention, model list might need refresh
         chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
             chrome.getContextManager().reloadModelsAsync();
@@ -1053,7 +1070,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     public void showBuildBanner() {
         bannerPanel.setVisible(true);
     }
-    
+
     public void refreshDataRetentionPanel() {
         if (dataRetentionPanelInner != null) {
             dataRetentionPanelInner.refreshStateAndUI();

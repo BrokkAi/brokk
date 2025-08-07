@@ -126,8 +126,25 @@ public class ManageDependenciesDialog extends JDialog {
         var okCancelPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var okButton = new JButton("OK");
         var cancelButton = new JButton("Cancel");
-        okCancelPanel.add(cancelButton);
-        okCancelPanel.add(okButton);
+
+        // Honor platform-specific button order
+        var order = UIManager.getString("OptionPane.buttonOrder");
+        if (order == null) order = "OC";   // sensible fallback
+
+        for (int i = 0; i < order.length(); i++) {
+            char ch = order.charAt(i);
+            switch (ch) {
+                case 'O' -> okCancelPanel.add(okButton);
+                case 'C' -> okCancelPanel.add(cancelButton);
+            }
+        }
+        // Ensure both buttons are present even if the LAF string missed one
+        if (okButton.getParent() == null) okCancelPanel.add(okButton);
+        if (cancelButton.getParent() == null) okCancelPanel.add(cancelButton);
+
+        // Make OK the default button for Enter key activation
+        getRootPane().setDefaultButton(okButton);
+
         buttonPanel.add(okCancelPanel, BorderLayout.EAST);
 
         var addRemovePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));

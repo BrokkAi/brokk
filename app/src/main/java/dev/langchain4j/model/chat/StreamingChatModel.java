@@ -10,10 +10,9 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
-import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 
 /**
  * Represents a language model that has a chat API and can stream a response one token at a time.
@@ -65,8 +64,8 @@ public interface StreamingChatModel {
         throw new RuntimeException("Not implemented");
     }
 
-    default ChatRequestParameters defaultRequestParameters() {
-        return DefaultChatRequestParameters.EMPTY;
+    default OpenAiChatRequestParameters defaultRequestParameters() {
+        return OpenAiChatRequestParameters.EMPTY;
     }
 
     default ModelProvider provider() {

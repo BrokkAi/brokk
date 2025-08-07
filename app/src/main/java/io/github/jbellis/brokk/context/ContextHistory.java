@@ -9,7 +9,10 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
@@ -30,25 +33,42 @@ public class ContextHistory {
     private static final int MAX_DEPTH = 100;
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
+    public record GitState(String commitHash, @Nullable String diff) {}
 
     private final Deque<Context> history = new ArrayDeque<>();
     private final Deque<Context> redo   = new ArrayDeque<>();
     private final List<ResetEdge> resetEdges = new ArrayList<>();
+    private final Map<UUID, GitState> gitStates = new HashMap<>();
+    private Context liveContext;
 
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
 
-    public ContextHistory(Context initialContext) {
-        history.add(initialContext.freeze());
+    public ContextHistory(Context liveContext) {
+        var fr = liveContext.freezeAndCleanup();
+        this.liveContext = fr.liveContext();
+        var frozen = fr.frozenContext();
+        history.add(frozen);
+        selected = frozen;
     }
 
     public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of());
+        this(contexts, List.of(), Map.of());
     }
 
     public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        history.addAll(contexts);
+        this(contexts, resetEdges, Map.of());
+    }
+
+    public ContextHistory(List<Context> frozenContexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
+        if (frozenContexts.isEmpty()) {
+            throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
+        }
+        history.addAll(frozenContexts);
         this.resetEdges.addAll(resetEdges);
+        this.gitStates.putAll(gitStates);
+        this.liveContext = Context.unfreeze(castNonNull(history.peekLast()));
+        selected = history.peekLast();
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -61,6 +81,10 @@ public class ContextHistory {
     /** Latest context or {@code null} when uninitialised. */
     public synchronized Context topContext() {
         return castNonNull(history.peekLast());
+    }
+
+    public synchronized Context getLiveContext() {
+        return liveContext;
     }
 
     public synchronized boolean hasUndoStates() { return history.size() > 1; }
@@ -92,15 +116,28 @@ public class ContextHistory {
         return false;
     }
 
-    /** Initialise with a single frozen context. */
-    public synchronized void setInitialContext(Context frozenInitial) {
-        assert !frozenInitial.containsDynamicFragments();
-        history.clear();
-        redo.clear();
-        resetEdges.clear();
-        history.add(frozenInitial);
-        selected = frozenInitial;
-        logger.debug("Initial context set: {}", frozenInitial);
+
+    /**
+     * Applies the given function to the live context, freezes the result, and pushes it to the history.
+     *
+     * @param contextGenerator a function to apply to the live context
+     * @return the new live context
+     */
+    public synchronized Context push(java.util.function.Function<Context, Context> contextGenerator) {
+        var updatedLiveContext = contextGenerator.apply(this.liveContext);
+        if (this.liveContext.equals(updatedLiveContext)) {
+            return this.liveContext;
+        }
+
+        var fr = updatedLiveContext.freezeAndCleanup();
+        this.liveContext = fr.liveContext();
+        addFrozenContextAndClearRedo(fr.frozenContext());
+        return this.liveContext;
+    }
+
+    public synchronized void pushLiveAndFrozen(Context live, Context frozen) {
+        this.liveContext = live;
+        addFrozenContextAndClearRedo(frozen);
     }
 
     /** Push {@code frozen} and clear redo stack. */
@@ -113,16 +150,17 @@ public class ContextHistory {
     }
 
     /**
-     * Replaces the most recent context in history with the provided frozen context.
+     * Replaces the most recent context in history with the provided live and frozen contexts.
      * This is useful for coalescing rapid changes into a single history entry.
      */
-    public synchronized void replaceTopContext(Context newFrozenContext) {
-        assert !newFrozenContext.containsDynamicFragments();
+    public synchronized void replaceTop(Context newLive, Context newFrozen) {
+        assert !newFrozen.containsDynamicFragments();
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
-        history.addLast(newFrozenContext);
+        history.addLast(newFrozen);
         redo.clear();
-        selected = newFrozenContext;
+        selected = newFrozen;
+        liveContext = newLive;
     }
 
     /* ─────────────── undo / redo  ────────────── */
@@ -143,7 +181,9 @@ public class ContextHistory {
             resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
             redo.addLast(popped);
         }
-        applyFrozenContextToWorkspace(history.peekLast(), io);
+        var newTop = history.peekLast();
+        applyFrozenContextToWorkspace(newTop, io);
+        liveContext = Context.unfreeze(castNonNull(newTop));
         selected = topContext();
         return UndoResult.success(toUndo);
     }
@@ -168,6 +208,7 @@ public class ContextHistory {
         var popped = redo.removeLast();
         history.addLast(popped);
         truncateHistory();
+        liveContext = Context.unfreeze(castNonNull(popped));
         selected = topContext();
         applyFrozenContextToWorkspace(history.peekLast(), io);
         return true;
@@ -178,6 +219,7 @@ public class ContextHistory {
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
+            gitStates.remove(removed.id());
             var historyIds = history.stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
@@ -202,6 +244,18 @@ public class ContextHistory {
 
     public synchronized List<ResetEdge> getResetEdges() {
         return List.copyOf(resetEdges);
+    }
+
+    public synchronized void addGitState(UUID contextId, GitState gitState) {
+        gitStates.put(contextId, gitState);
+    }
+
+    public synchronized Optional<GitState> getGitState(UUID contextId) {
+        return Optional.ofNullable(gitStates.get(contextId));
+    }
+
+    public synchronized Map<UUID, GitState> getGitStates() {
+        return Map.copyOf(gitStates);
     }
 
     /**

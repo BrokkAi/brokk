@@ -45,7 +45,7 @@ class SimplePerformanceTest {
 
         // Should dramatically reduce number of deltas
         assertTrue(visibleDeltas.size() < TEST_MAX_VISIBLE_DELTAS, "Should filter to small number of deltas: " + visibleDeltas.size());
-        assertTrue(visibleDeltas.size() > 0, "Should find some deltas in viewport");
+        assertTrue(!visibleDeltas.isEmpty(), "Should find some deltas in viewport");
 
         // Verify correct deltas are included
         for (TestDelta delta : visibleDeltas) {
@@ -66,7 +66,7 @@ class SimplePerformanceTest {
         List<TestDelta> visibleDeltas = helper.filterDeltasForViewport(allDeltas, 45, 55);
 
         assertEquals(1, visibleDeltas.size(), "Should find exactly one delta in viewport");
-        assertEquals(50, visibleDeltas.get(0).startLine, "Should find the delta at line 50");
+        assertEquals(50, visibleDeltas.getFirst().startLine, "Should find the delta at line 50");
     }
 
 

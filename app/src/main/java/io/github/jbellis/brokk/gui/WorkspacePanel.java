@@ -87,10 +87,13 @@ public class WorkspacePanel extends JPanel {
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
 
-            // Only add drop all action if workspace is editable
-            if (panel.workspaceCurrentlyEditable) {
-                actions.add(WorkspaceAction.DROP_ALL.createAction(panel));
+            // Always add drop all action but enable/disable based on workspace state
+            var dropAllAction = WorkspaceAction.DROP_ALL.createAction(panel);
+            if (!panel.workspaceCurrentlyEditable) {
+                dropAllAction.setEnabled(false);
+                dropAllAction.putValue(Action.SHORT_DESCRIPTION, "Drop All is disabled in read-only mode");
             }
+            actions.add(dropAllAction);
 
             actions.add(WorkspaceAction.COPY_ALL.createAction(panel));
             actions.add(WorkspaceAction.PASTE.createAction(panel));
@@ -214,10 +217,16 @@ public class WorkspacePanel extends JPanel {
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, List.of(fragment)));
 
-            // Only add drop action if workspace is editable and we're on the last history item
-            if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
-                actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment)));
+            // Always add drop action but enable/disable based on workspace state
+            var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment));
+            if (!panel.workspaceCurrentlyEditable || !panel.isOnLatestContext()) {
+                dropAction.setEnabled(false);
+                String tooltip = !panel.workspaceCurrentlyEditable ?
+                    "Drop is disabled in read-only mode" :
+                    "Drop is only available when viewing the latest context";
+                dropAction.putValue(Action.SHORT_DESCRIPTION, tooltip);
             }
+            actions.add(dropAction);
 
             return actions;
         }
@@ -253,10 +262,16 @@ public class WorkspacePanel extends JPanel {
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
 
-            // Only add drop action if workspace is editable and we're on the last history item
-            if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
-                actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, fragments));
+            // Always add drop action but enable/disable based on workspace state
+            var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, fragments);
+            if (!panel.workspaceCurrentlyEditable || !panel.isOnLatestContext()) {
+                dropAction.setEnabled(false);
+                String tooltip = !panel.workspaceCurrentlyEditable ?
+                    "Drop is disabled in read-only mode" :
+                    "Drop is only available when viewing the latest context";
+                dropAction.putValue(Action.SHORT_DESCRIPTION, tooltip);
             }
+            actions.add(dropAction);
 
             return actions;
         }
@@ -1647,7 +1662,7 @@ public class WorkspacePanel extends JPanel {
 
     private void doPasteAction() {
         assert !SwingUtilities.isEventDispatchThread();
-        
+
         var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         var contents = clipboard.getContents(null);
         if (contents == null) {

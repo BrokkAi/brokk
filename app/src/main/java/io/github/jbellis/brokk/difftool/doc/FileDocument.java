@@ -15,13 +15,14 @@ import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.util.logging.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class FileDocument
         extends AbstractBufferDocument {
-    private static final Logger logger = Logger.getLogger(FileDocument.class.getName());
+    private static final Logger logger = LogManager.getLogger(FileDocument.class);
     private static final int DEFAULT_BUFFER_SIZE = 1024;
-    
+
     // instance variables:
     private final File file;
     private boolean readOnly;
@@ -50,13 +51,13 @@ public class FileDocument
     public Reader getReader() {
         try {
             if (!file.exists() || !file.canRead()) {
-                logger.warning("File does not exist or cannot be read: " + file.getAbsolutePath());
+                logger.warn("File does not exist or cannot be read: " + file.getAbsolutePath());
                 // Return a reader for an empty string if file is inaccessible
                 return new BufferedReader(new InputStreamReader(new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
             }
 
             // Always use UTF-8 encoding
-            logger.fine("Reading file '" + file.getName() + "' using UTF-8 charset");
+            logger.debug("Reading file '" + file.getName() + "' using UTF-8 charset");
             return new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8));
         } catch (IOException ex) {
             throw new RuntimeException("Failed to create reader for file: " + file.getName(), ex);

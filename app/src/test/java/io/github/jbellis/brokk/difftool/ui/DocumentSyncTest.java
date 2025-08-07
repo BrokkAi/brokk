@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import io.github.jbellis.brokk.difftool.doc.InMemoryDocument;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;

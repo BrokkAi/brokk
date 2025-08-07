@@ -1,11 +1,11 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.ProjectWatchService.EventBatch;
+import io.github.jbellis.brokk.IWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
-public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Listener {
+public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
     public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
@@ -40,7 +40,7 @@ public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Liste
     private final Path gitRepoRoot;
     private final ContextManager.TaskRunner runner;
     private final IProject project;
-    private final ProjectWatchService watchService;
+    private final IWatchService watchService;
 
     private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
@@ -54,7 +54,11 @@ public class AnalyzerWrapper implements AutoCloseable, ProjectWatchService.Liste
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.runner = runner;
         this.listener = listener;
-        this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
+        if (listener == null) {
+            this.watchService = new IWatchService() { };
+        } else {
+            this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
+        }
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
