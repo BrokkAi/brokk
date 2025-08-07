@@ -81,6 +81,8 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
 
     public boolean isModule() { return kind == CodeUnitType.MODULE; }
 
+    public boolean isField() { return kind == CodeUnitType.FIELD; }
+
     /**
      * Returns accessor for the package name component.
      * @return Accessor for the package name component.

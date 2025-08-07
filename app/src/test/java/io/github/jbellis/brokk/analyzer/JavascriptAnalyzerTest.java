@@ -299,7 +299,11 @@ public final class JavascriptAnalyzerTest {
         // Test case 1: Class in JSX
         Optional<String> jsxClassHeader = jsAnalyzer.getSkeletonHeader("JsxClass");
         assertTrue(jsxClassHeader.isPresent(), "Skeleton header for JsxClass should be defined.");
-        assertEquals("export class JsxClass {", jsxClassHeader.get().trim());
+        assertEquals("""
+                export class JsxClass {
+                  [...]
+                }
+                """.trim(), jsxClassHeader.get().trim());
 
         // Test case 2: Arrow function component in JSX
         Optional<String> jsxArrowFnHeader = jsAnalyzer.getSkeletonHeader("JsxArrowFnComponent");

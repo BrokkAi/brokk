@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.Set;
 
 public interface IGitRepo {
-    
+
+    record ModifiedFile(ProjectFile file, String status) {}
+
     /**
      * Information about a Git worktree.
      * Branch will be null if worktree is in a detached HEAD state.
@@ -166,5 +168,21 @@ public interface IGitRepo {
 
     default String getCurrentBranch() throws GitAPIException {
         throw new UnsupportedOperationException("getDefaultBranch not implemented");
+    }
+
+    default String getCurrentCommitId() throws GitAPIException {
+        throw new UnsupportedOperationException("getCurrentCommitId not implemented");
+    }
+
+    default Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
+        throw new UnsupportedOperationException("getModifiedFiles not implemented");
+    }
+
+    default void checkout(String branchOrCommit) throws GitAPIException {
+        throw new UnsupportedOperationException("checkout not implemented");
+    }
+
+    default void applyDiff(String diff) throws GitAPIException {
+        throw new UnsupportedOperationException("applyDiff not implemented");
     }
 }

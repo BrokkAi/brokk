@@ -149,6 +149,7 @@ public class Llm {
 
         // Variables to store results from callbacks
         var accumulatedTextBuilder = new StringBuilder();
+        var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
 
@@ -182,7 +183,7 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
-                    accumulatedTextBuilder.append(reasoningContent);
+                    accumulatedReasoningBuilder.append(reasoningContent);
                     if (echo) {
                         io.llmOutput(reasoningContent, ChatMessageType.AI);
                     }
@@ -254,12 +255,13 @@ public class Llm {
         if (error != null) {
             // If no partial text, just return null response
             var partialText = accumulatedTextBuilder.toString();
-            if (partialText.isEmpty()) {
+            var partialReasoning = accumulatedReasoningBuilder.toString();
+            if (partialText.isEmpty() && partialReasoning.isEmpty()) {
                 return new StreamingResult(null, error);
             }
 
             // Construct a ChatResponse from accumulated partial text
-            var partialResponse = new NullSafeResponse(partialText, List.of(), null);
+            var partialResponse = new NullSafeResponse(partialText, partialReasoning, List.of(), null);
             logger.debug("LLM call resulted in error: {}. Partial text captured: {} chars", error.getMessage(), partialText.length());
             return new StreamingResult(partialResponse, error);
         }
@@ -529,8 +531,12 @@ public class Llm {
 
                 if (echo) {
                     // output the LLM's thinking
+                    var reasoning = parseResult.reasoningContent();
+                    if (reasoning != null && !reasoning.isBlank()) {
+                        io.llmOutput(reasoning, ChatMessageType.AI);
+                    }
                     String textToOutput = parseResult.text();
-                    if (!textToOutput.isBlank()) {
+                    if (textToOutput != null && !textToOutput.isBlank()) {
                         io.llmOutput(textToOutput, ChatMessageType.AI);
                     }
                 }
@@ -817,7 +823,7 @@ public class Llm {
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
         NullSafeResponse cResponse = castNonNull(result.chatResponse());
-        String rawText = cResponse.text();
+        String rawText = requireNonNull(cResponse.text());
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
         JsonNode root;
@@ -903,7 +909,7 @@ public class Llm {
         }
 
         // Pass the original raw response alongside the parsed one
-        return new NullSafeResponse(aiMessageText, toolExecutionRequests, result.originalResponse());
+        return new NullSafeResponse(aiMessageText, cResponse.reasoningContent(), toolExecutionRequests, result.originalResponse());
     }
 
     private static String getInstructions(List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
@@ -1067,22 +1073,27 @@ public class Llm {
     }
 
 
-    public record NullSafeResponse(String text,
+    public record NullSafeResponse(@Nullable String text,
+                                   @Nullable String reasoningContent,
                                    List<ToolExecutionRequest> toolRequests,
                                    @Nullable ChatResponse originalResponse)
     {
         public NullSafeResponse(@Nullable ChatResponse cr) {
-            this(cr == null || cr.aiMessage() == null || cr.aiMessage().text() == null ? "" : cr.aiMessage().text(),
+            this(cr == null || cr.aiMessage() == null ? null : cr.aiMessage().text(),
+                 cr == null || cr.aiMessage() == null ? null : cr.aiMessage().reasoningContent(),
                  cr == null || cr.aiMessage() == null || !cr.aiMessage().hasToolExecutionRequests() ? List.of() : cr.aiMessage().toolExecutionRequests(),
                  cr);
         }
 
         public boolean isEmpty() {
-            return text.isEmpty() && toolRequests.isEmpty();
+            var emptyText = text == null || text.isEmpty();
+            var emptyReasoning = reasoningContent == null || reasoningContent.isEmpty();
+            return emptyText && toolRequests.isEmpty() && emptyReasoning;
         }
 
         public AiMessage aiMessage() {
-            return toolRequests.isEmpty() ? new AiMessage(text) : new AiMessage(text, toolRequests);
+            var messageText = text == null ? "" : text;
+            return new AiMessage(messageText, reasoningContent, toolRequests);
         }
     }
 
@@ -1156,7 +1167,11 @@ public class Llm {
         }
 
         public String text() {
-            return chatResponse == null ? "" : chatResponse.text();
+            if (chatResponse == null) {
+                return "";
+            }
+            var text = chatResponse.text();
+            return text == null ? "" : text;
         }
 
         public boolean isEmpty() {
@@ -1237,7 +1252,7 @@ public class Llm {
                         .collect(Collectors.joining(", "));
             }
             var text = cr.text();
-            if (text.isBlank()) {
+            if (text == null || text.isBlank()) {
                 return "[empty response]";
             }
 
