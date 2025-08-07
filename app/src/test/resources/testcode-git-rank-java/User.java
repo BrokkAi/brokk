@@ -25,3 +25,15 @@ public class User {
         this.email = email;
     }
 }
+
+    // Added toString method stub
+
+    // Added validation
+
+    // Added toString method stub
+
+    // Added validation
+
+    // Added toString method stub
+
+    // Added validation
