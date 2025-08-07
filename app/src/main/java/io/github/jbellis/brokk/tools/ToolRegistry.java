@@ -211,7 +211,7 @@ public class ToolRegistry {
                 }
             }
             throw new RuntimeException(e);
-        } catch (JsonProcessingException e) {
+        } catch (JsonProcessingException | IllegalArgumentException e) {
             return ToolExecutionResult.failure(request, "Error parsing arguments json: " + e.getMessage());
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
