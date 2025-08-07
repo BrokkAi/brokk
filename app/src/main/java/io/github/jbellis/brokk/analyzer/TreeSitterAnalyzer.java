@@ -604,6 +604,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     /**
+     * Builds the parent FQName from package name and class chain for parent-child relationship lookup.
+     * Override this method to apply language-specific FQName correction logic.
+     */
+    protected String buildParentFqName(String packageName, String classChain) {
+        return packageName.isEmpty() ? classChain : packageName + "." + classChain;
+    }
+
+    /**
      * Captures that should be ignored entirely.
      */
     protected Set<String> getIgnoredCaptures() {
@@ -924,8 +932,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 localTopLevelCUs.add(cu);
             } else {
                 // Parent's shortName is the classChain string itself.
-                String parentFqName = cu.packageName().isEmpty() ? classChain
-                        : cu.packageName() + "." + classChain;
+                String parentFqName = buildParentFqName(cu.packageName(), classChain);
                 CodeUnit parentCu = localCuByFqName.get(parentFqName);
                 if (parentCu != null) {
                     List<CodeUnit> kids = localChildren.computeIfAbsent(parentCu, k -> new ArrayList<>());
@@ -1213,6 +1220,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     aliasSignature += ";";
                 }
                 signatureLines.add(aliasSignature);
+                break;
+            }
+            case MODULE_STATEMENT: {
+                // For namespace declarations, extract just the namespace declaration line without the body
+                String fullText = textSlice(definitionNode, src);
+                List<String> lines = Splitter.on('\n').splitToList(fullText);
+                String namespaceLine = lines.getFirst().strip(); // Get first line only
+
+                // Remove trailing '{' if present to get clean namespace signature
+                if (namespaceLine.endsWith("{")) {
+                    namespaceLine = namespaceLine.substring(0, namespaceLine.length() - 1).stripTrailing();
+                }
+
+                signatureLines.add(exportPrefix + namespaceLine);
                 break;
             }
             case UNSUPPORTED:

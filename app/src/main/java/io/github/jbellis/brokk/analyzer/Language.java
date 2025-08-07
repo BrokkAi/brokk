@@ -535,7 +535,7 @@ public interface Language {
     };
 
     Language CPP_TREESITTER = new Language() {
-        private final List<String> extensions = List.of("cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++");
+        private final List<String> extensions = List.of("cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
 
         @Override
         public List<String> getExtensions() {
