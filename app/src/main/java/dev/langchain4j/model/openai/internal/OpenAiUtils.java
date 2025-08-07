@@ -392,7 +392,7 @@ public class OpenAiUtils {
                 .topP(parameters.topP())
                 .frequencyPenalty(parameters.frequencyPenalty())
                 .presencePenalty(parameters.presencePenalty())
-                .maxTokens(parameters.maxOutputTokens())
+                .maxCompletionTokens(parameters.maxOutputTokens())
                 .stop(parameters.stopSequences())
                 .tools(toTools(parameters.toolSpecifications(), strictTools))
                 .toolChoice(toOpenAiToolChoice(parameters.toolChoice()))
