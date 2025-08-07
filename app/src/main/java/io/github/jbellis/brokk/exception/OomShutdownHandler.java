@@ -24,6 +24,7 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
     }
 
     public static void shutdownWithRecovery() {
+        logger.debug("Shutting down due to OOM");
         try {
             MainProject.setOomFlag();
         } catch (Exception e) {
