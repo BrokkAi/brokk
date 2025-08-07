@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.agents;
 
-import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -37,7 +36,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
@@ -90,7 +88,7 @@ public class ArchitectAgent {
      */
     public ArchitectAgent(ContextManager contextManager,
                           StreamingChatModel model,
-                          StreamingChatModel codeModel, 
+                          StreamingChatModel codeModel,
                           ToolRegistry toolRegistry,
                           String goal,
                           ArchitectOptions options)
@@ -376,7 +374,8 @@ public class ArchitectAgent {
             output = Environment.instance.runShellCommand(command,
                                                           java.nio.file.Path.of("."),
                                                           true,
-                                                          io::systemOutput);
+                                                          io::systemOutput,
+                                                          Environment.UNLIMITED_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             throw new RuntimeException(e);
         }

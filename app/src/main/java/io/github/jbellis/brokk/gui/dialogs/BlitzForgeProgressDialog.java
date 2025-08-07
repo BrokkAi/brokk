@@ -147,7 +147,8 @@ public class BlitzForgeProgressDialog extends JDialog {
                     String output = Environment.instance.runShellCommand(finalCommand,
                                                                          cm.getProject().getRoot(),
                                                                          line -> {
-                                                                         }); // No live consumer for now
+                                                                         }, // No live consumer for now
+                                                                         Environment.UNLIMITED_TIMEOUT);
                     commandOutputText = """
                             <per_file_command_output command="%s">
                             %s
@@ -492,7 +493,8 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
                                     Environment.instance.runShellCommand(verificationCommand,
                                                                           contextManager.getProject().getRoot(),
-                                                                          line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                                                                          line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                                                                          Environment.UNLIMITED_TIMEOUT);
                                     return "The build succeeded.";
                                 } catch (Environment.SubprocessException e) {
                                     return e.getMessage() + "\n\n" + e.getOutput();

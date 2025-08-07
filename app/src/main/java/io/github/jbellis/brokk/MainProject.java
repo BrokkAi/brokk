@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,6 +77,8 @@ public final class MainProject extends AbstractProject {
             "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT))
     );
 
+    private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
+    private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     /* Blitz-history workspace property key */
@@ -188,7 +191,7 @@ public final class MainProject extends AbstractProject {
             projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
             // projectPropsChangedByMigration = projectPropsChangedByMigration || projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
         }
-        
+
         // Determine if projectProps needs saving due to removal of architect keys.
         boolean removedKey1 = projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY) != null;
         boolean removedKey2 = projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY) != null;
@@ -221,7 +224,7 @@ public final class MainProject extends AbstractProject {
                  logger.info("Removed Architect/Dependency options from project.properties (already in or now moved to workspace.properties) for {}", root.getFileName());
             }
         }
-        
+
         // Load build details AFTER projectProps might have been modified by migration (though build details keys are not affected here)
         var bd = loadBuildDetailsInternal(); // Uses projectProps
         if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
@@ -246,7 +249,7 @@ public final class MainProject extends AbstractProject {
         if (globalPropertiesCache != null) {
             return (Properties) globalPropertiesCache.clone();
         }
-        
+
         var props = new Properties();
         if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
             try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
@@ -290,7 +293,7 @@ public final class MainProject extends AbstractProject {
         }
         return BuildAgent.BuildDetails.EMPTY;
     }
-    
+
     @Override
     public BuildAgent.BuildDetails loadBuildDetails() {
         return loadBuildDetailsInternal();
@@ -428,6 +431,28 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    public long getRunCommandTimeoutSeconds() {
+        String valueStr = projectProps.getProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
+        if (valueStr == null) {
+            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+        }
+        try {
+            long seconds = Long.parseLong(valueStr);
+            return seconds > 0 ? seconds : DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+        } catch (NumberFormatException e) {
+            return DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS;
+        }
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        if (seconds > 0 && seconds != DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS) {
+            projectProps.setProperty(RUN_COMMAND_TIMEOUT_SECONDS_KEY, String.valueOf(seconds));
+        } else {
+            projectProps.remove(RUN_COMMAND_TIMEOUT_SECONDS_KEY);
+        }
+        saveProjectProperties();
+    }
+
     @Override
     public Set<Language> getAnalyzerLanguages() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
@@ -525,7 +550,7 @@ public final class MainProject extends AbstractProject {
                 logger.error("Failed to deserialize IssueProvider from JSON: {}. Will attempt migration or default.", json, e);
             }
         }
-        
+
         // Defaulting logic if no JSON and no old properties
         if (isGitHubRepo()) {
             issuesProviderCache = IssueProvider.github();
@@ -874,7 +899,7 @@ public final class MainProject extends AbstractProject {
         props.setProperty("theme", theme);
         saveGlobalProperties(props);
     }
-    
+
     public static String getBrokkKey() {
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
@@ -1078,12 +1103,12 @@ public final class MainProject extends AbstractProject {
 
     public static void saveRecentProjects(Map<Path, ProjectPersistentInfo> projects) {
         var props = loadProjectsProperties();
-        
+
         var sorted = projects.entrySet().stream()
                 .sorted(Map.Entry.<Path, ProjectPersistentInfo>comparingByValue(Comparator.comparingLong(ProjectPersistentInfo::lastOpened)).reversed())
                 .limit(10)
                 .toList();
-        
+
         // Collect current project paths to keep
         Set<String> pathsToKeep = sorted.stream()
                 .map(entry -> entry.getKey().toAbsolutePath().toString())
@@ -1111,7 +1136,7 @@ public final class MainProject extends AbstractProject {
     public static void updateRecentProject(Path projectDir) {
         Path pathForRecentProjectsMap = projectDir;
         boolean isWorktree = false;
-        
+
         if (GitRepo.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
@@ -1122,16 +1147,16 @@ public final class MainProject extends AbstractProject {
                 logger.warn("Could not determine if {} is a worktree during updateRecentProject: {}", projectDir, e.getMessage());
             }
         }
-        
+
         var currentMap = loadRecentProjects();
         ProjectPersistentInfo persistentInfo = currentMap.get(pathForRecentProjectsMap);
         if (persistentInfo == null) {
             persistentInfo = ProjectPersistentInfo.fromTimestamp(System.currentTimeMillis());
         }
-        
+
         long newTimestamp = System.currentTimeMillis();
         List<String> newOpenWorktrees = new ArrayList<>(persistentInfo.openWorktrees());
-        
+
         if (isWorktree) {
             String worktreePathToAdd = projectDir.toAbsolutePath().normalize().toString();
             String mainProjectPathString = pathForRecentProjectsMap.toAbsolutePath().normalize().toString();

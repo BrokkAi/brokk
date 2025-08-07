@@ -990,7 +990,8 @@ public class CodeAgent {
         try {
             var output = Environment.instance.runShellCommand(verificationCommand,
                                                               contextManager.getProject().getRoot(),
-                                                              line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                                                              line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                                                              Environment.UNLIMITED_TIMEOUT);
             logger.debug("Verification command successful. Output: {}", output);
             io.llmOutput("\n```", ChatMessageType.CUSTOM);
             return "";
@@ -1000,7 +1001,7 @@ public class CodeAgent {
             return e.getMessage() + "\n\n" + e.getOutput();
         }
     }
-    
+
     record LoopContext(
             ConversationState conversationState,
             EditState editState,
