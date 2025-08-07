@@ -108,7 +108,7 @@ public final class JdtSkeletonHelper {
 
                 // If this is headers only, then add the omission notice
                 if (headerOnly) {
-                    sb.append("  ".repeat(indent + 1)).append("[... methods not shown ...]\n");
+                    sb.append("  ".repeat(indent + 1)).append("[...]\n");
                 }
 
                 sb.append(indentation).append("}\n");

@@ -255,7 +255,7 @@ public class JdtAnalyzerTest {
                 public class D {
                   public static int field1;
                   private String field2;
-                  [... methods not shown ...]
+                  [...]
                 }
                 """.trim().stripIndent();
         assertEquals(expected, skeleton);

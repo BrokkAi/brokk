@@ -2,11 +2,9 @@ package io.github.jbellis.brokk.tools;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.git.IGitRepo;
-
-import java.lang.reflect.Field;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -352,10 +350,7 @@ public class SkeletonPrinter {
         return switch (language.name()) {
             case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
             case "JavaScript" -> new JavascriptAnalyzer(project);
-            case "Java" -> {
-                var tempCpgFile = Path.of(System.getProperty("java.io.tmpdir"), "brokk-skeleton-printer-java.bin");
-                yield new JavaAnalyzer(project.getRoot(), project.getExcludedDirectories(), tempCpgFile);
-            }
+            case "Java" -> new JavaAnalyzer(project);
             case "Python" -> new PythonAnalyzer(project);
             default -> null;
         };
