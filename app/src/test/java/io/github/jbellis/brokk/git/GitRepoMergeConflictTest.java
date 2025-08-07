@@ -1,16 +1,14 @@
 package io.github.jbellis.brokk.git;
 
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -40,7 +38,7 @@ public class GitRepoMergeConflictTest {
         Path initialFile = tempDir.resolve("initial.txt");
         Files.writeString(initialFile, "initial content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("initial.txt").call();
-        git.commit().setMessage("Initial commit").call();
+        git.commit().setMessage("Initial commit").setSign(false).call();
     }
 
     @AfterEach
@@ -55,7 +53,7 @@ public class GitRepoMergeConflictTest {
         Path file1 = tempDir.resolve("file1.txt");
         Files.writeString(file1, "branch1 content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("file1.txt").call();
-        git.commit().setMessage("Add file1").call();
+        git.commit().setMessage("Add file1").setSign(false).call();
         
         // Create branch2 with non-conflicting changes
         git.checkout().setName("master").call();
@@ -63,7 +61,7 @@ public class GitRepoMergeConflictTest {
         Path file2 = tempDir.resolve("file2.txt");
         Files.writeString(file2, "branch2 content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("file2.txt").call();
-        git.commit().setMessage("Add file2").call();
+        git.commit().setMessage("Add file2").setSign(false).call();
         
         // Test merge conflict check - should be null (no conflicts)
         String result = gitRepo.checkMergeConflicts("branch1", "branch2", GitRepo.MergeMode.MERGE_COMMIT);
@@ -77,14 +75,14 @@ public class GitRepoMergeConflictTest {
         Path sharedFile = tempDir.resolve("shared.txt");
         Files.writeString(sharedFile, "branch1 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch1 changes shared file").call();
+        git.commit().setMessage("Branch1 changes shared file").setSign(false).call();
         
         // Create branch2 with conflicting changes to same file
         git.checkout().setName("master").call();
         git.checkout().setCreateBranch(true).setName("branch2").call();
         Files.writeString(sharedFile, "branch2 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch2 changes shared file").call();
+        git.commit().setMessage("Branch2 changes shared file").setSign(false).call();
         
         // Test merge conflict check - should detect conflicts
         String result = gitRepo.checkMergeConflicts("branch1", "branch2", GitRepo.MergeMode.MERGE_COMMIT);
@@ -100,7 +98,7 @@ public class GitRepoMergeConflictTest {
         Path file1 = tempDir.resolve("file1.txt");
         Files.writeString(file1, "branch1 content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("file1.txt").call();
-        git.commit().setMessage("Add file1").call();
+        git.commit().setMessage("Add file1").setSign(false).call();
         
         // Create branch2 with non-conflicting changes
         git.checkout().setName("master").call();
@@ -108,7 +106,7 @@ public class GitRepoMergeConflictTest {
         Path file2 = tempDir.resolve("file2.txt");
         Files.writeString(file2, "branch2 content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("file2.txt").call();
-        git.commit().setMessage("Add file2").call();
+        git.commit().setMessage("Add file2").setSign(false).call();
         
         // Test squash merge conflict check - should be null (no conflicts)
         String result = gitRepo.checkMergeConflicts("branch1", "branch2", GitRepo.MergeMode.SQUASH_COMMIT);
@@ -122,14 +120,14 @@ public class GitRepoMergeConflictTest {
         Path sharedFile = tempDir.resolve("shared.txt");
         Files.writeString(sharedFile, "branch1 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch1 changes shared file").call();
+        git.commit().setMessage("Branch1 changes shared file").setSign(false).call();
         
         // Create branch2 with conflicting changes to same file
         git.checkout().setName("master").call();
         git.checkout().setCreateBranch(true).setName("branch2").call();
         Files.writeString(sharedFile, "branch2 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch2 changes shared file").call();
+        git.commit().setMessage("Branch2 changes shared file").setSign(false).call();
         
         // Test squash merge conflict check - should detect conflicts
         String result = gitRepo.checkMergeConflicts("branch1", "branch2", GitRepo.MergeMode.SQUASH_COMMIT);
@@ -145,7 +143,7 @@ public class GitRepoMergeConflictTest {
         Path file1 = tempDir.resolve("file1.txt");
         Files.writeString(file1, "branch1 content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("file1.txt").call();
-        git.commit().setMessage("Add file1").call();
+        git.commit().setMessage("Add file1").setSign(false).call();
         
         // Create branch2 with non-conflicting changes
         git.checkout().setName("master").call();
@@ -153,7 +151,7 @@ public class GitRepoMergeConflictTest {
         Path file2 = tempDir.resolve("file2.txt");
         Files.writeString(file2, "branch2 content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("file2.txt").call();
-        git.commit().setMessage("Add file2").call();
+        git.commit().setMessage("Add file2").setSign(false).call();
         
         // Test rebase conflict check - should be null (no conflicts)
         String result = gitRepo.checkMergeConflicts("branch1", "branch2", GitRepo.MergeMode.REBASE_MERGE);
@@ -167,14 +165,14 @@ public class GitRepoMergeConflictTest {
         Path sharedFile = tempDir.resolve("shared.txt");
         Files.writeString(sharedFile, "branch1 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch1 changes shared file").call();
+        git.commit().setMessage("Branch1 changes shared file").setSign(false).call();
         
         // Create branch2 with conflicting changes to same file
         git.checkout().setName("master").call();
         git.checkout().setCreateBranch(true).setName("branch2").call();
         Files.writeString(sharedFile, "branch2 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch2 changes shared file").call();
+        git.commit().setMessage("Branch2 changes shared file").setSign(false).call();
         
         // Test rebase conflict check - should detect conflicts
         String result = gitRepo.checkMergeConflicts("branch1", "branch2", GitRepo.MergeMode.REBASE_MERGE);
@@ -190,13 +188,13 @@ public class GitRepoMergeConflictTest {
         Path sharedFile = tempDir.resolve("shared.txt");
         Files.writeString(sharedFile, "branch1 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch1 changes").call();
+        git.commit().setMessage("Branch1 changes").setSign(false).call();
         
         git.checkout().setName("master").call();
         git.checkout().setCreateBranch(true).setName("branch2").call();
         Files.writeString(sharedFile, "branch2 version\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("shared.txt").call();
-        git.commit().setMessage("Branch2 changes").call();
+        git.commit().setMessage("Branch2 changes").setSign(false).call();
         
         // Store original branch
         String originalBranch = gitRepo.getCurrentBranch();
@@ -223,7 +221,7 @@ public class GitRepoMergeConflictTest {
         Path file1 = tempDir.resolve("feature.txt");
         Files.writeString(file1, "feature content\n", StandardCharsets.UTF_8);
         git.add().addFilepattern("feature.txt").call();
-        git.commit().setMessage("Add feature").call();
+        git.commit().setMessage("Add feature").setSign(false).call();
         
         // Test merge conflict check for fast-forward case
         String result = gitRepo.checkMergeConflicts("feature", "master", GitRepo.MergeMode.MERGE_COMMIT);
