@@ -193,7 +193,67 @@ model_list:
       uses_think_tags: true
       supports_reasoning: true
       supports_function_calling: true
-      supported_openai_params: ["max_tokens","max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      tokens_per_minute: 8000000
+
+  - model_name: gpt-5
+    litellm_params:
+      model: openai/gpt-5
+      api_key: "os.environ/OPENAI_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 400000
+      max_input_tokens: 400000
+      max_output_tokens: 32766
+      input_cost_per_token: 1.25e-06
+      output_cost_per_token: 1e-05
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      tokens_per_minute: 8000000
+
+  - model_name: gpt-5-mini
+    litellm_params:
+      model: openai/gpt-5-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 400000
+      max_input_tokens: 400000
+      max_output_tokens: 32766
+      input_cost_per_token: 2.5e-07
+      output_cost_per_token: 2e-06
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      tokens_per_minute: 8000000
+
+  - model_name: gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5-nano
+      api_key: "os.environ/OPENAI_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 400000
+      max_input_tokens: 400000
+      max_output_tokens: 32766
+      input_cost_per_token: 5e-08
+      output_cost_per_token: 4e-07
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
       tokens_per_minute: 8000000
 
   - model_name: groq-kimi-k2
