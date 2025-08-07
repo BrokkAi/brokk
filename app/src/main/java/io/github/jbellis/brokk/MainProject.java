@@ -5,6 +5,8 @@ import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import org.eclipse.jgit.errors.ConfigInvalidException;
+import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -667,12 +669,37 @@ public final class MainProject extends AbstractProject {
     public boolean isGitIgnoreSet() {
         try {
             var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
-            if (Files.exists(gitignorePath)) {
-                var content = Files.readString(gitignorePath);
-                return content.contains(".brokk/") || content.contains(".brokk/**");
+            if (isBrokkIgnored(gitignorePath)) {
+                logger.debug(".gitignore at {} is set to ignore Brokk files.", gitignorePath);
+                return true;
             }
         } catch (IOException e) {
             logger.error("Error checking .gitignore at {}: {}", getMasterRootPathForConfig().resolve(".gitignore"), e.getMessage());
+        }
+        try {
+            var gitUserConfig = SystemReader.getInstance().getUserConfig();
+            var excludesFile = gitUserConfig.getString("core", null, "excludesfile");
+            if (excludesFile != null && !excludesFile.isBlank()) {
+                try {
+                    var excludesFilePath = Path.of(excludesFile);
+                    if (isBrokkIgnored(excludesFilePath)) {
+                        logger.debug("core.excludesfile at {} is set to ignore Brokk files.", excludesFilePath);
+                        return true;
+                    }
+                } catch (IOException e) {
+                    logger.error("Error checking core.excludesfile at {}: {}", excludesFile, e.getMessage());
+                }
+            }
+        } catch (IOException | ConfigInvalidException e) {
+            logger.error("Error checking core.excludesfile setting in ~/.gitconfig: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    private static boolean isBrokkIgnored(Path gitignorePath) throws IOException {
+        if (Files.exists(gitignorePath)) {
+            var content = Files.readString(gitignorePath);
+            return content.contains(".brokk/") || content.contains(".brokk/**");
         }
         return false;
     }
