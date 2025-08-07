@@ -11,7 +11,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,7 +31,7 @@ public class GitProjectStateRestorerTest {
             var dummyFile = tempDir.resolve("dummy.txt");
             Files.writeString(dummyFile, "dummy");
             r.add(List.of(new ProjectFile(tempDir, Path.of("dummy.txt"))));
-            r.getGit().commit().setMessage("Initial commit").call();
+            r.getGit().commit().setSign(false).setMessage("Initial commit").call();
         }
 
         project = new MainProject(tempDir);
@@ -52,12 +51,12 @@ public class GitProjectStateRestorerTest {
 
         Files.writeString(file, "version 1");
         repo.add(List.of(projectFile));
-        var commit1 = repo.getGit().commit().setMessage("Initial commit").call();
+        var commit1 = repo.getGit().commit().setSign(false).setMessage("Initial commit").call();
         var commit1Id = commit1.getId().getName();
 
         Files.writeString(file, "version 2");
         repo.add(List.of(projectFile));
-        var commit2 = repo.getGit().commit().setMessage("Second commit").call();
+        var commit2 = repo.getGit().commit().setSign(false).setMessage("Second commit").call();
         var commit2Id = commit2.getId().getName();
 
         // now we are at commit 2. create a state for commit 1

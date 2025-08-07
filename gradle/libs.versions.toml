@@ -80,6 +80,7 @@ jsoup = "org.jsoup:jsoup:1.19.1"
 
 # Git
 jgit-core = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
+jgit-gpg = { module = "org.eclipse.jgit:org.eclipse.jgit.gpg.bc", version.ref = "jgit" }
 jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
@@ -114,7 +115,7 @@ junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-plat
 scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
 ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
-git = ["jgit-core", "jgit-ssh", "bouncycastle"]
+git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-java", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 
