@@ -2,14 +2,25 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.Objects;
 import java.util.Optional;
 
 /**
  * Represents a named code element (class, function, field, or module).
  */
-public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String shortName)
-        implements Comparable<CodeUnit> {
+public class CodeUnit implements Comparable<CodeUnit> {
+
+    @JsonProperty("source")
+    private final ProjectFile source;
+    @JsonProperty("kind")
+    private final CodeUnitType kind;
+    @JsonProperty("shortName")
+    private final String shortName;
+    @JsonProperty("packageName")
+    private final String packageName;
+
+    private final transient String fqName;
 
     @JsonCreator
     public CodeUnit(@JsonProperty("source") ProjectFile source,
@@ -27,15 +38,17 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
         this.kind = kind;
         this.packageName = packageName;
         this.shortName = shortName;
+        this.fqName = packageName.isEmpty() ? shortName : packageName + "." + shortName;
     }
 
     /**
      * Returns the fully qualified name constructed from package and short name.
      * For MODULE, shortName is often a fixed placeholder like "_module_", so fqName becomes "packageName._module_".
+     *
      * @return The fully qualified name.
      */
     public String fqName() {
-        return packageName.isEmpty() ? shortName : packageName + "." + shortName;
+        return this.fqName;
     }
 
     /**
@@ -43,6 +56,7 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
      * For CLASS: simple class name (C, C$D).
      * For FUNCTION/FIELD: member name (foo from a.b.C.foo).
      * For MODULE: the shortName itself (e.g., "_module_").
+     *
      * @return just the last symbol name component.
      */
     public String identifier() {
@@ -64,9 +78,9 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
      *     <li>For {@link CodeUnitType#FUNCTION} or {@link CodeUnitType#FIELD}, this is "className.memberName" (e.g., "MyClass.myMethod") or just "functionName".</li>
      *     <li>For {@link CodeUnitType#MODULE}, this is typically a placeholder like "_module_" or a file-derived name.</li>
      * </ul>
+     *
      * @return The short name.
      */
-    @Override
     public String shortName() {
         return shortName;
     }
@@ -79,17 +93,39 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
         return kind == CodeUnitType.FUNCTION;
     }
 
-    public boolean isModule() { return kind == CodeUnitType.MODULE; }
+    public boolean isModule() {
+        return kind == CodeUnitType.MODULE;
+    }
 
-    public boolean isField() { return kind == CodeUnitType.FIELD; }
+    public boolean isField() {
+        return kind == CodeUnitType.FIELD;
+    }
+
+    /**
+     * Returns the code unit kind, i.e., Class, module, field, function, etc.
+     *
+     * @return the code unit kind.
+     */
+    public CodeUnitType kind() {
+        return kind;
+    }
 
     /**
      * Returns accessor for the package name component.
+     *
      * @return Accessor for the package name component.
      */
-    @Override
     public String packageName() {
         return packageName;
+    }
+
+    /**
+     * Returns the source ProjectFile associated with this code unit.
+     *
+     * @return the project file source.
+     */
+    public ProjectFile source() {
+        return source;
     }
 
     /**
