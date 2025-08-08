@@ -414,8 +414,8 @@ public final class GitDistance {
             var target = entry.getKey().dst();
             var joint  = entry.getValue();
 
-            var countSeed   = requireNonNull(unitCounts.get(seed));
-            var countTarget = requireNonNull(unitCounts.get(target));
+            final var countSeed   = requireNonNull(unitCounts.get(seed));
+            final int countTarget = requireNonNull(unitCounts.get(target));
             if (countSeed == 0 || countTarget == 0 || joint == 0) continue;
 
             double pmi = Math.log((double) joint * totalCommits /
