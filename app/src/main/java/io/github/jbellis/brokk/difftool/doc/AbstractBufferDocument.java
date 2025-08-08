@@ -139,7 +139,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
     @Override
     public int getLineForOffset(int offset) {
         if (offset < 0) {
-            return 0; 
+            return 0;
         }
         initLines(); // Ensures document, lineArray and lineOffsetArray are initialized
         Objects.requireNonNull(document, "Document should be initialized by initLines");
@@ -427,6 +427,15 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
     @Override
     public boolean isReadonly() {
         return true;
+    }
+
+    /**
+     * Reset the document's dirty state to clean.
+     * This should be called after theme application or other non-content operations
+     * that may trigger document change events but don't represent actual user edits.
+     */
+    public void resetDirtyState() {
+        initDigest();
     }
 
     @Override

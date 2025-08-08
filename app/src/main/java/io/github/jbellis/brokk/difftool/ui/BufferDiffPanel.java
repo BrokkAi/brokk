@@ -95,7 +95,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     * Recalculate dirty status by checking if any FilePanel has unsaved changes.
     * When the state changes, update tab title and toolbar buttons.
     */
-    private void recalcDirty() {
+    void recalcDirty() {
             // Check if either side has unsaved changes (document changed since last save)
             boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
 

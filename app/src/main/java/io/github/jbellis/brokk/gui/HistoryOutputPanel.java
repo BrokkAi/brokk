@@ -182,34 +182,34 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
-        // Build capture output panel (copyButton is passed in)
-        var capturePanel = buildCaptureOutputPanel(copyButton);
+    // Build capture output panel (copyButton is passed in)
+    var capturePanel = buildCaptureOutputPanel(copyButton);
 
-        // Output panel with LLM stream
-        var outputPanel = new JPanel(new BorderLayout());
-        outputPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Output",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
-        outputPanel.add(llmScrollPane, BorderLayout.CENTER);
-        outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
+    // Output panel with LLM stream
+    var outputPanel = new JPanel(new BorderLayout());
+    outputPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createEtchedBorder(),
+            "Output",
+            TitledBorder.DEFAULT_JUSTIFICATION,
+            TitledBorder.DEFAULT_POSITION,
+            new Font(Font.DIALOG, Font.BOLD, 12)
+    ));
+    outputPanel.add(llmScrollPane, BorderLayout.CENTER);
+    outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Create vertical split pane with Output above and Instructions below
-        var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
-        outputInstructionsSplit.setTopComponent(outputPanel);
-        outputInstructionsSplit.setBottomComponent(instructionsPanel);
+    // Create vertical split pane with Output above and Instructions below
+    var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+    outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
+    outputInstructionsSplit.setTopComponent(outputPanel);
+    outputInstructionsSplit.setBottomComponent(instructionsPanel);
 
-        // Container for the combined section
-        var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
-        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
+    // Container for the combined section
+    var centerContainer = new JPanel(new BorderLayout());
+    centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
+    centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
 
-        return centerContainer;
-    }
+    return centerContainer;
+}
 
     /**
      * Builds the session controls panel with combo box and buttons
@@ -623,11 +623,13 @@ public class HistoryOutputPanel extends JPanel {
      * Builds the LLM streaming area where markdown output is displayed
      */
     private JScrollPane buildLLMStreamScrollPane(MarkdownOutputPanel llmStreamArea) {
-        // Wrap it in a scroll pane so it can scroll if content is large
-        var jsp = new JScrollPane(llmStreamArea);
+        // Wrap it in a scroll pane for layout purposes, but disable scrollbars
+        // as scrolling is handled by the WebView inside MarkdownOutputPanel.
+        var jsp = new JScrollPane(
+                llmStreamArea,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         jsp.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        jsp.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        AutoScroller.install(jsp);
 
         // Add a text change listener to update capture buttons
         llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);

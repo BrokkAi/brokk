@@ -16,18 +16,12 @@ repositories {
 
 dependencies {
     // Minimal dependencies for analyzer API
-    compileOnly(libs.jsr305)
     compileOnly(libs.checker.qual)
-    implementation(libs.jspecify)
-    implementation(libs.jetbrains.annotations)
+    compileOnly(libs.jetbrains.annotations)
 
     // For JSON serialization interfaces (used by CodeUnit)
-    implementation(libs.jackson.databind)
-
-    // Testing
-    testImplementation(platform(libs.junit.bom))
-    testImplementation(libs.bundles.junit)
-    testRuntimeOnly(libs.bundles.junit.runtime)
+    runtimeOnly(libs.jackson.databind)
+    api(libs.jackson.annotations)
 }
 
 tasks.withType<JavaCompile> {

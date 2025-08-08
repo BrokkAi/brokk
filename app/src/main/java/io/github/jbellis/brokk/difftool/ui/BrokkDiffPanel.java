@@ -720,6 +720,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Apply theme to ensure proper syntax highlighting
         cachedPanel.applyTheme(theme);
 
+        // Reset dirty state after theme application to prevent false save prompts
+        // Theme application can trigger document events that incorrectly mark documents as dirty
+        resetDocumentDirtyStateAfterTheme(cachedPanel);
+
         // Re-establish component resize listeners and set flag for layout reset on next resize
         cachedPanel.refreshComponentListeners();
         needsLayoutReset = true;
@@ -1231,6 +1235,37 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 synchronizer.invalidateViewportCacheForBothPanels();
             }
         });
+    }
+
+    /**
+     * Reset document dirty state after theme application.
+     * This prevents false save prompts caused by document events fired during syntax highlighting setup.
+     */
+    private void resetDocumentDirtyStateAfterTheme(BufferDiffPanel panel) {
+        var diffNode = panel.getDiffNode();
+        if (diffNode == null) {
+            return;
+        }
+
+        // Reset dirty state for both left and right documents
+        var leftBufferNode = diffNode.getBufferNodeLeft();
+        if (leftBufferNode != null) {
+            var leftDoc = leftBufferNode.getDocument();
+            if (leftDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
+                abd.resetDirtyState();
+            }
+        }
+
+        var rightBufferNode = diffNode.getBufferNodeRight();
+        if (rightBufferNode != null) {
+            var rightDoc = rightBufferNode.getDocument();
+            if (rightDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
+                abd.resetDirtyState();
+            }
+        }
+
+        // Trigger recalculation of the panel's dirty state to update UI
+        SwingUtilities.invokeLater(panel::recalcDirty);
     }
 
     /**

@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.util.Messages;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
@@ -133,7 +134,7 @@ public class LlmTest {
 
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
 
-        List.of("gemini-2.5-pro-exp-03-25").parallelStream()
+        availableModels.keySet().parallelStream()
                 .filter(k -> !k.contains("R1")) // R1 doesn't support tool calling OR json output
                 .forEach(modelName -> {
                     try {
