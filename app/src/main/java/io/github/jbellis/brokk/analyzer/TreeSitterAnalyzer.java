@@ -645,6 +645,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      */
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
+        // Print filename in red to stdout for stats mode visibility
+        System.out.println("\u001B[31mParsing file: " + file + "\u001B[0m");
 
         byte[] fileBytes = Files.readAllBytes(file.absPath());
         // Strip UTF-8 BOM if present (EF BB BF)
