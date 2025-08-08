@@ -5,8 +5,7 @@ name: jDeploy CI with Gradle
 
 on:
   push:
-    branches: [ '*' ]
-    tags: [ '*' ]
+    branches: [ 'master' ]
 
 permissions:
   contents: read
@@ -45,4 +44,3 @@ jobs:
         uses: shannah/jdeploy@master
         with:
           github_token: ${{ github.token }}
-
