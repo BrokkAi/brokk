@@ -28,6 +28,19 @@ jobs:
         with:
           arguments: shadowJar
 
+      - name: Get JAR filename
+        id: jar
+        run: |
+          JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
+          JAR_NAME=$(basename "$JAR_FILE")
+          echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
+          echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
+          echo "Found JAR: $JAR_NAME"
+
+      - name: Update package.json with JAR name
+        run: |
+          jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_name }}"' package.json > package.tmp.json && mv package.tmp.json package.json
+
       - name: Build App Installer Bundles
         uses: shannah/jdeploy@master
         with:
