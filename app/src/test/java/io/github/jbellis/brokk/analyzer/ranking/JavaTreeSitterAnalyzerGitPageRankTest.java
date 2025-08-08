@@ -32,91 +32,22 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
 
     @BeforeAll
     public static void setup() throws Exception {
-        testPath = Path.of("src/test/resources/testcode-git-rank-java").toAbsolutePath().normalize();
-        assertTrue(Files.exists(testPath), "Test resource directory 'testcode-git-rank-java' not found.");
+        final var testResourcePath = Path.of("src/test/resources/testcode-git-rank-java").toAbsolutePath().normalize();
+        assertTrue(Files.exists(testResourcePath), "Test resource directory 'testcode-git-rank-java' not found.");
 
         // Initialize git repository and create commits with co-occurrence patterns
-        setupGitHistory(testPath);
+        testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         testProject = new TestProject(testPath, Language.JAVA);
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
         analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
     }
 
-    private static void teardownGitRepository() {
-        if (testPath != null) {
-            Path gitDir = testPath.resolve(".git");
-            if (Files.exists(gitDir)) {
-                try (final var walk = Files.walk(gitDir)) {
-                    walk.sorted(java.util.Comparator.reverseOrder())
-                            .map(Path::toFile)
-                            .forEach(java.io.File::delete);
-                } catch (Exception e) {
-                    logger.warn("Failed to delete git directory: {}", e.getMessage());
-                }
-            }
-        }
-    }
-
     @AfterAll
-    public static void teardown() {
-        teardownGitRepository();
+    public static void teardown() throws Exception {
+        GitDistanceTestSuite.teardownGitRepository(testPath);
         if (testProject != null) {
             testProject.close();
-        }
-    }
-
-    private static void setupGitHistory(Path testPath) throws Exception {
-        teardownGitRepository(); // start fresh
-        try (var git = Git.init().setDirectory(testPath.toFile()).call()) {
-            // Configure git user for commits
-            var config = git.getRepository().getConfig();
-            config.setString("user", null, "name", "Test User");
-            config.setString("user", null, "email", "test@example.com");
-            config.save();
-
-            // Commit 1: User and UserRepository together (creates User-UserRepository edge)
-            git.add().addFilepattern("User.java").call();
-            git.add().addFilepattern("UserRepository.java").call();
-            git.commit().setMessage("Initial user model and repository").setSign(false).call();
-
-            // Commit 2: UserService with User and UserRepository (strengthens existing edges, adds UserService)
-            git.add().addFilepattern("UserService.java").call();
-            git.commit().setMessage("Add user service layer").setSign(false).call();
-
-            // Commit 3: Update User and UserService together (strengthens User-UserService edge)
-            Files.writeString(testPath.resolve("User.java"),
-                    Files.readString(testPath.resolve("User.java")) + "\n    // Added toString method stub\n");
-            Files.writeString(testPath.resolve("UserService.java"),
-                    Files.readString(testPath.resolve("UserService.java")) + "\n    // Added validation\n");
-            git.add().addFilepattern("User.java").call();
-            git.add().addFilepattern("UserService.java").call();
-            git.commit().setMessage("Update user model and service").setSign(false).call();
-
-            // Commit 4: NotificationService standalone (creates isolated component)
-            git.add().addFilepattern("NotificationService.java").call();
-            git.commit().setMessage("Add notification service").setSign(false).call();
-
-            // Commit 5: UserService and NotificationService together (creates UserService-NotificationService edge)
-            Files.writeString(testPath.resolve("UserService.java"),
-                    Files.readString(testPath.resolve("UserService.java")) + "\n    // Added notification integration\n");
-            git.add().addFilepattern("UserService.java").call();
-            git.add().addFilepattern("NotificationService.java").call();
-            git.commit().setMessage("Integrate notifications with user service").setSign(false).call();
-
-            // Commit 6: ValidationService alone
-            git.add().addFilepattern("ValidationService.java").call();
-            git.commit().setMessage("Add validation service").setSign(false).call();
-
-            // Commit 7: User, UserService, and ValidationService together (creates multiple edges)
-            Files.writeString(testPath.resolve("User.java"),
-                    Files.readString(testPath.resolve("User.java")) + "\n    // Added validation\n");
-            git.add().addFilepattern("User.java").call();
-            git.add().addFilepattern("UserService.java").call();
-            git.add().addFilepattern("ValidationService.java").call();
-            git.commit().setMessage("Add validation to user workflows").setSign(false).call();
-
-            logger.debug("Created git history with 7 commits for GitRank testing");
         }
     }
 
