@@ -1,11 +1,14 @@
-package io.github.jbellis.brokk.analyzer;
+package io.github.jbellis.brokk.analyzer.ranking;
 
+import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.testutil.TestProject;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,9 +20,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class JavaTreeSitterAnalyzerGitRankTest {
+public class JavaTreeSitterAnalyzerGitInverseCooccurenceTest {
 
-    private final static Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerGitRankTest.class);
+    private final static Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerGitInverseCooccurenceTest.class);
 
     @Nullable
     private static JavaTreeSitterAnalyzer analyzer;
@@ -119,83 +122,60 @@ public class JavaTreeSitterAnalyzerGitRankTest {
     }
 
     @Test
-    public void testGitRankWithCoOccurrence() throws Exception {
+    public void testInverseCooccurrenceWithSeedWeights() throws Exception {
         assertNotNull(analyzer, "Analyzer should be initialized");
+        assertNotNull(testPath, "Test path should not be null");
 
         var projectRoot = testPath;
+        var seedWeights = Map.of("com.example.service.UserService", 1.0);
 
-        // Create seed weights favoring UserService
-        var seedWeights = Map.of(
-                "com.example.service.UserService", 1.0
-        );
+        var results = GitDistance.getInverseFileCountCooccurrence(analyzer, projectRoot, seedWeights, 10, false);
 
-        // Run GitRank
-        var results = GitDistance.getPagerank(analyzer, projectRoot, seedWeights, 10, false);
+        assertFalse(results.isEmpty(), "Inverse co-occurrence should return results");
 
-        assertFalse(results.isEmpty(), "GitRank should return results");
-        logger.info("GitRank results: {}", results);
-
-        // UserService should rank highly due to its central role and seed weight
         var userServiceResult = results.stream()
-                .filter(r -> r.unit().fqName().equals("com.example.service.UserService"))
-                .findFirst();
+                                       .filter(r -> r.unit().fqName().equals("com.example.service.UserService"))
+                                       .findFirst();
         assertTrue(userServiceResult.isPresent(), "UserService should be in results");
 
-        // User should also rank well due to frequent co-occurrence
         var userResult = results.stream()
-                .filter(r -> r.unit().fqName().equals("com.example.model.User"))
-                .findFirst();
+                                .filter(r -> r.unit().fqName().equals("com.example.model.User"))
+                                .findFirst();
         assertTrue(userResult.isPresent(), "User should be in results");
 
-        // Verify that central components rank higher than isolated ones
         var notificationResult = results.stream()
-                .filter(r -> r.unit().fqName().equals("com.example.service.NotificationService"))
-                .findFirst();
+                                        .filter(r -> r.unit().fqName().equals("com.example.service.NotificationService"))
+                                        .findFirst();
 
-        if (notificationResult.isPresent() && userResult.isPresent()) {
+        if (notificationResult.isPresent()) {
             assertTrue(userResult.get().score() > notificationResult.get().score(),
-                    "User should rank higher than NotificationService due to more co-occurrences");
+                       "User should rank higher than NotificationService due to more co-occurrences");
         }
     }
 
     @Test
-    public void testGitRankWithNoSeedWeights() throws Exception {
+    public void testInverseCooccurrenceNoSeedWeights() throws Exception {
         assertNotNull(analyzer, "Analyzer should be initialized");
+        assertNotNull(testPath, "Test path should not be null");
 
-        var projectRoot = testPath;
-
-        // Run GitRank with no seed weights
-        assertNotNull(projectRoot);
-        var results = GitDistance.getPagerank(analyzer, projectRoot, Map.of(), 5, false);
-
-        assertFalse(results.isEmpty(), "GitRank should return results even without seed weights");
-        logger.info("GitRank results (no seeds): {}", results);
-
-        // All results should have positive scores
-        results.forEach(result ->
-                assertTrue(result.score() > 0, "All results should have positive scores"));
+        var results = GitDistance.getInverseFileCountCooccurrence(analyzer, testPath, Map.of(), 10, false);
+        assertTrue(results.isEmpty(), "No seed weights should produce empty results");
     }
 
     @Test
-    public void testGitRankReversed() throws Exception {
+    public void testInverseCooccurrenceReversed() throws Exception {
         assertNotNull(analyzer, "Analyzer should be initialized");
+        assertNotNull(testPath, "Test path should not be null");
 
-        var projectRoot = testPath;
+        var seedWeights = Map.of("com.example.service.UserService", 1.0);
 
-        var seedWeights = Map.of(
-                "com.example.service.UserService", 1.0
-        );
+        var results = GitDistance.getInverseFileCountCooccurrence(analyzer, testPath, seedWeights, 10, true);
+        assertFalse(results.isEmpty(), "Inverse co-occurrence should return results");
 
-        // Run GitRank in reversed order (lowest scores first)
-        assertNotNull(projectRoot);
-        var results = GitDistance.getPagerank(analyzer, projectRoot, seedWeights, 5, true);
-
-        assertFalse(results.isEmpty(), "GitRank should return results");
-
-        // Verify results are in ascending order of scores
         for (int i = 1; i < results.size(); i++) {
             assertTrue(results.get(i - 1).score() <= results.get(i).score(),
-                    "Results should be in ascending order when reversed=true");
+                       "Results should be in ascending order when reversed=true");
         }
     }
+
 }
