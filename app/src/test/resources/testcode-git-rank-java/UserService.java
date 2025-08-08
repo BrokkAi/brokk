@@ -30,15 +30,3 @@ public class UserService {
         userRepository.delete(user);
     }
 }
-
-    // Added validation
-
-    // Added notification integration
-
-    // Added validation
-
-    // Added notification integration
-
-    // Added validation
-
-    // Added notification integration
