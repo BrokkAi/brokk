@@ -52,6 +52,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     final Map<CodeUnit, List<CodeUnit>> childrenByParent = new ConcurrentHashMap<>(); // package-private for testing
     final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
+    protected final Map<ProjectFile, TSTree> parsedTreeCache = new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
     private final IProject project;
     private final Language language;
     protected final Set<String> normalizedExcludedFiles;
@@ -62,8 +63,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     protected record DefinitionInfoRecord(String primaryCaptureName, String simpleName, List<String> modifierKeywords,
                                           List<TSNode> decoratorNodes) {
     }
-
-
     protected record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
@@ -337,14 +336,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        log.trace("TreeSitterAnalyzer.getSkeletons() called for file: {}", file);
-
         List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
-        log.trace("Found {} topCUs for file: {}", topCUs.size(), file);
-        if (topCUs.isEmpty()) {
-            log.trace("No topCUs found, returning empty map");
-            return Map.of();
-        }
+        if (topCUs.isEmpty()) return Map.of();
 
         Map<CodeUnit, String> resultSkeletons = new HashMap<>();
         List<CodeUnit> sortedTopCUs = new ArrayList<>(topCUs);
@@ -352,7 +345,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         // This simple sort puts them first if their fqName sorts before others.
         // A more explicit sort could check cu.isModule().
         Collections.sort(sortedTopCUs);
-
 
         for (CodeUnit cu : sortedTopCUs) {
             resultSkeletons.put(cu, reconstructFullSkeleton(cu, false));
@@ -393,18 +385,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private void reconstructSkeletonRecursive(CodeUnit cu, String indent, boolean headerOnly, StringBuilder sb) {
         List<String> sigList = signatures.get(cu);
         if (sigList == null || sigList.isEmpty()) {
-            log.error("CRITICAL: reconstructSkeletonRecursive: No signatures found for CU: {}, hashCode: {}. Checking if any signatures exist with same fqName...", cu, cu.hashCode());
-
-            // Debug: Check if signatures exist for any CodeUnit with the same fqName
-            var foundSignatures = signatures.entrySet().stream()
-                .filter(entry -> entry.getKey().fqName().equals(cu.fqName()) && entry.getKey().source().equals(cu.source()))
-                .findFirst();
-
-            if (foundSignatures.isPresent()) {
-                log.warn("FOUND MISMATCH: Signatures exist for different CodeUnit instance with same fqName: {}. Original CU hashCode: {}, Signatures CU hashCode: {}",
-                         cu.fqName(), foundSignatures.get().getKey().hashCode(), cu.hashCode());
-            }
-
             // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual signatures.
             // This can be legitimate if they are primarily structural and their children form the content.
             log.trace("No direct signatures found for CU: {}. It might be a structural-only CU. Skipping direct rendering in skeleton reconstruction.", cu);
@@ -549,6 +529,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     /**
+     * Returns the cached parsed tree for the given file if available, or null if not cached.
+     * This method allows subclasses to reuse already-parsed trees instead of re-parsing files.
+     *
+     * @param file The project file to get the cached tree for
+     * @return The cached TSTree, or null if not available
+     */
+    protected @Nullable TSTree getCachedTree(ProjectFile file) {
+        return parsedTreeCache.get(file);
+    }
+
+    /**
      * Provides the language-specific syntax profile.
      */
     protected abstract LanguageSyntaxProfile getLanguageSyntaxProfile();
@@ -663,9 +654,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      */
     private FileAnalysisResult analyzeFileDeclarations(ProjectFile file, TSParser localParser) throws IOException {
         log.trace("analyzeFileDeclarations: Parsing file: {}", file);
-        // Print filename in red to stdout for stats mode visibility
-        System.out.println("\u001B[31mParsing file: " + file + "\u001B[0m");
-
         byte[] fileBytes = Files.readAllBytes(file.absPath());
         // Strip UTF-8 BOM if present (EF BB BF)
         if (fileBytes.length >= 3 &&
@@ -688,6 +676,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
 
         TSTree tree = localParser.parseString(null, src);
+        // Cache the parsed tree for later use to avoid redundant parsing
+        parsedTreeCache.put(file, tree);
         TSNode rootNode = tree.getRootNode();
         if (rootNode.isNull()) {
             log.warn("Parsing failed or produced null root node for {}", file);
@@ -1380,23 +1370,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         String functionName;
         TSNode nameNode = funcNode.getChildByFieldName(profile.identifierFieldName());
 
-        log.debug("buildFunctionSkeleton: funcNode.type={}, identifierField={}, providedName={}, nameNode={}",
-                 funcNode.getType(), profile.identifierFieldName(), providedNameOpt.orElse("none"), nameNode != null ? "found" : "null");
 
         if (nameNode != null && !nameNode.isNull()) {
             functionName = textSlice(nameNode, src);
-            log.debug("buildFunctionSkeleton: extracted name from nameNode: '{}'", functionName);
         } else if (providedNameOpt.isPresent()) {
             functionName = providedNameOpt.get();
-            log.debug("buildFunctionSkeleton: using provided name: '{}'", functionName);
         } else {
             // Try to extract name using extractSimpleName as a last resort if the specific field isn't found/helpful
             // This could happen for anonymous functions or if identifierFieldName isn't 'name' and not directly on funcNode.
-            log.debug("buildFunctionSkeleton: falling back to extractSimpleName");
             Optional<String> extractedNameOpt = extractSimpleName(funcNode, src);
             if (extractedNameOpt.isPresent()) {
                 functionName = extractedNameOpt.get();
-                log.debug("buildFunctionSkeleton: extracted name via extractSimpleName: '{}'", functionName);
             } else {
                 String funcNodeText = textSlice(funcNode, src);
                 log.warn("Function node type {} has no name field '{}' and no name was provided or extracted. Raw text: {}",
@@ -1406,8 +1390,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 return;
             }
         }
-
-        log.debug("buildFunctionSkeleton: final functionName='{}', exportPrefix='{}'", functionName, exportPrefix);
 
         TSNode paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
         TSNode returnTypeNode = null;
@@ -1446,14 +1428,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
 
         // The asyncPrefix parameter is removed from assembleFunctionSignature
-        log.debug("buildFunctionSkeleton: calling assembleFunctionSignature with functionName='{}', typeParamsText='{}', paramsText='{}', returnTypeText='{}'",
-                 functionName, typeParamsText, paramsText, returnTypeText);
         String functionLine = assembleFunctionSignature(funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
-        log.debug("buildFunctionSkeleton: assembleFunctionSignature returned: '{}'", functionLine.isBlank() ? "BLANK" : functionLine);
         if (!functionLine.isBlank()) {
             lines.add(functionLine);
-        } else {
-            log.warn("buildFunctionSkeleton: assembleFunctionSignature returned blank line for function '{}'", functionName);
         }
     }
 

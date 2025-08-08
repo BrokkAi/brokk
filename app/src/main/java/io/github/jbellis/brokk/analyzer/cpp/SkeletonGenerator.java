@@ -7,49 +7,27 @@ import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-/**
- * Handles skeleton generation for C++ constructs like enums, unions, and classes.
- * Centralizes complex skeleton generation logic to improve maintainability and performance.
- */
 public class SkeletonGenerator {
     private static final Logger log = LogManager.getLogger(SkeletonGenerator.class);
 
-    // Cache for file content to avoid multiple reads
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
 
-    // Thread-local parser to avoid creation overhead
-    private final ThreadLocal<TSParser> parserCache;
-
     public SkeletonGenerator(TSParser templateParser) {
-        this.parserCache = ThreadLocal.withInitial(() -> {
-            var parser = new TSParser();
-            parser.setLanguage(templateParser.getLanguage());
-            return parser;
-        });
+        // No longer need separate parser - will use shared one from CppTreeSitterAnalyzer
     }
 
-    /**
-     * Fixes global enum skeletons to include their enum values instead of empty braces.
-     */
-    public Map<CodeUnit, String> fixGlobalEnumSkeletons(Map<CodeUnit, String> skeletons, ProjectFile file) {
+    public Map<CodeUnit, String> fixGlobalEnumSkeletons(Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
         var result = new HashMap<>(skeletons);
 
         try {
-            var fileContent = getCachedFileContent(file);
-            var parser = parserCache.get();
-            var tree = parser.parseString(null, fileContent);
-            var rootNode = tree.getRootNode();
 
-            // Find all global enum CodeUnits that need fixing
             var enumsToFix = skeletons.entrySet().stream()
                 .filter(entry -> entry.getKey().kind() == CodeUnitType.CLASS)
-                .filter(entry -> entry.getKey().packageName().isEmpty()) // global scope only
+                .filter(entry -> entry.getKey().packageName().isEmpty())
                 .filter(entry -> entry.getValue().startsWith("enum ") && entry.getValue().contains("{\n}"))
                 .collect(Collectors.toList());
 
@@ -57,18 +35,14 @@ public class SkeletonGenerator {
                 var enumCodeUnit = enumEntry.getKey();
                 var enumName = enumCodeUnit.fqName();
 
-                // Find the enum_specifier node in the AST
                 var enumNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, "enum_specifier", enumName, fileContent);
                 if (enumNode != null) {
-                    // Extract enum content with only names (no values)
                     var enumSkeleton = extractEnumSkeleton(enumNode, enumName, fileContent);
                     if (!enumSkeleton.isEmpty()) {
                         result.put(enumCodeUnit, enumSkeleton);
                     }
                 }
             }
-        } catch (IOException e) {
-            log.error("Failed to read file content for enum skeleton fixing: {}", file, e);
         } catch (Exception e) {
             log.error("Failed to fix global enum skeletons for file {}: {}", file, e.getMessage(), e);
         }
@@ -76,17 +50,10 @@ public class SkeletonGenerator {
         return result;
     }
 
-    /**
-     * Fixes global union skeletons to include their field content instead of incomplete skeletons.
-     */
-    public Map<CodeUnit, String> fixGlobalUnionSkeletons(Map<CodeUnit, String> skeletons, ProjectFile file) {
+    public Map<CodeUnit, String> fixGlobalUnionSkeletons(Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
         var result = new HashMap<>(skeletons);
 
         try {
-            var fileContent = getCachedFileContent(file);
-            var parser = parserCache.get();
-            var tree = parser.parseString(null, fileContent);
-            var rootNode = tree.getRootNode();
 
             // Find all global union CodeUnits that need fixing
             var unionsToFix = skeletons.entrySet().stream()
@@ -109,8 +76,6 @@ public class SkeletonGenerator {
                     }
                 }
             }
-        } catch (IOException e) {
-            log.error("Failed to read file content for union skeleton fixing: {}", file, e);
         } catch (Exception e) {
             log.error("Failed to fix global union skeletons for file {}: {}", file, e.getMessage(), e);
         }
@@ -250,19 +215,6 @@ public class SkeletonGenerator {
         return skeleton.toString();
     }
 
-    /**
-     * Gets cached file content or reads and caches it if not present.
-     */
-    private String getCachedFileContent(ProjectFile file) throws IOException {
-        return fileContentCache.computeIfAbsent(file, f -> {
-            try {
-                return Files.readString(f.absPath());
-            } catch (IOException e) {
-                log.error("Failed to read file content: {}", f, e);
-                throw new RuntimeException("Failed to read file: " + f, e);
-            }
-        });
-    }
 
     /**
      * Clears the file content cache to free memory.

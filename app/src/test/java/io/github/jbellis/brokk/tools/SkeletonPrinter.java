@@ -249,8 +249,6 @@ public class SkeletonPrinter {
                     continue;
                 }
 
-                // CRITICAL FIX: Use the ProjectFile from singleFileProject for both analysis and getSkeletons
-                // to ensure consistent path structures in topLevelDeclarations map
                 var projectFile = singleFileProject.getAllFiles().iterator().next();
 
                 filesProcessed++;

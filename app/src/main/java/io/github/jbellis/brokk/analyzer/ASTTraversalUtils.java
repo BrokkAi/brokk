@@ -15,10 +15,6 @@ public class ASTTraversalUtils {
 
     /**
      * Recursively finds the first node matching the given predicate.
-     *
-     * @param rootNode the root node to start searching from
-     * @param predicate the condition to match
-     * @return the first matching node, or null if none found
      */
     public static @Nullable TSNode findNodeRecursive(@Nullable TSNode rootNode, Predicate<TSNode> predicate) {
         if (rootNode == null || rootNode.isNull()) {
@@ -45,10 +41,6 @@ public class ASTTraversalUtils {
 
     /**
      * Recursively finds all nodes matching the given predicate.
-     *
-     * @param rootNode the root node to start searching from
-     * @param predicate the condition to match
-     * @return list of all matching nodes
      */
     public static List<TSNode> findAllNodesRecursive(TSNode rootNode, Predicate<TSNode> predicate) {
         var results = new ArrayList<TSNode>();
@@ -76,12 +68,6 @@ public class ASTTraversalUtils {
 
     /**
      * Finds a node by type and name within the AST.
-     *
-     * @param rootNode the root node to search from
-     * @param nodeType the type of node to find
-     * @param nodeName the name to match (extracted from name field)
-     * @param fileContent the source file content for text extraction
-     * @return the matching node or null
      */
     public static @Nullable TSNode findNodeByTypeAndName(TSNode rootNode, String nodeType, String nodeName, String fileContent) {
         return findNodeRecursive(rootNode, node -> {
@@ -101,10 +87,6 @@ public class ASTTraversalUtils {
 
     /**
      * Extracts text from a TSNode using the file content.
-     *
-     * @param node the node to extract text from
-     * @param fileContent the source file content
-     * @return the extracted text, trimmed
      */
     public static String extractNodeText(@Nullable TSNode node, @Nullable String fileContent) {
         if (node == null || node.isNull() || fileContent == null) {
@@ -123,10 +105,6 @@ public class ASTTraversalUtils {
 
     /**
      * Finds all nodes of a specific type within the AST.
-     *
-     * @param rootNode the root node to search from
-     * @param nodeType the type of nodes to find
-     * @return list of matching nodes
      */
     public static List<TSNode> findAllNodesByType(TSNode rootNode, String nodeType) {
         return findAllNodesRecursive(rootNode, node -> nodeType.equals(node.getType()));
