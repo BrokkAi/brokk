@@ -4,6 +4,7 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
+.idea/**/*
 *.iws
 *.iml
 *.ipr
@@ -61,5 +62,3 @@ cpg.bin
 
 ### frontend
 /frontend-mop/node_modules/
-
-.idea/**/*
