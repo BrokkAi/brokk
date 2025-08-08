@@ -377,6 +377,25 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         namespaceProcessor.clearCache();
     }
 
+    @Override
+    protected Optional<String> extractSimpleName(TSNode decl, String src) {
+        // Handle anonymous namespaces specially - they have no name field
+        if ("namespace_definition".equals(decl.getType())) {
+            TSNode nameNode = decl.getChildByFieldName("name");
+            if (nameNode == null || nameNode.isNull()) {
+                // This is an anonymous namespace - provide a synthetic name
+                log.trace("Found anonymous namespace at line {}, using synthetic name",
+                         decl.getStartPoint().getRow() + 1);
+                return Optional.of("(anonymous)");
+            }
+            // For named namespaces, extract the name normally
+            return Optional.of(ASTTraversalUtils.extractNodeText(nameNode, src));
+        }
+
+        // For all other node types, use the default implementation
+        return super.extractSimpleName(decl, src);
+    }
+
     /**
      * Gets cache statistics for monitoring.
      */
