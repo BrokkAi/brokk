@@ -37,8 +37,10 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
     case 'clear':
+      console.log('--- clear worker state ---')
       buffer = '';
       dirty = false;
+      busy = false;  // Reset busy flag to prevent old parseAndPost from continuing
       seq = m.seq;
       currentExpandIds.clear();
       break;

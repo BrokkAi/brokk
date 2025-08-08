@@ -283,6 +283,7 @@ Both approaches:
                 index++;
             } else {
                 clearInterval(interval);
+                simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false});
             }
         }, 10);
     }
