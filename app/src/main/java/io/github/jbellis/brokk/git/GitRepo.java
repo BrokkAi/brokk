@@ -568,7 +568,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public String commitFiles(List<ProjectFile> files, String message) throws GitAPIException {
         add(files);
 
-        var commitCommand = git.commit().setMessage(message);
+        var commitCommand = commitCommand().setMessage(message);
 
         if (!files.isEmpty()) {
             for (var file : files) {
