@@ -8,6 +8,9 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -37,7 +40,6 @@ public final class GitRank {
         }
 
         try (final var repo = new GitRepo(projectRoot)) {
-            final var codeUnitToProjectFile = new HashMap<CodeUnit, ProjectFile>();
             final var seedCodeUnitWeights = new HashMap<CodeUnit, Double>();
 
             seedClassWeights.forEach((fullName, weight) ->
@@ -46,19 +48,12 @@ public final class GitRank {
                             .forEach(cu -> seedCodeUnitWeights.put(cu, weight))
             );
 
-            analyzer.getAllDeclarations().stream()
-                    .filter(CodeUnit::isClass)
-                    .forEach(cu -> analyzer.getFileFor(cu.fqName())
-                            .ifPresent(projectFile -> codeUnitToProjectFile.put(cu, projectFile))
-                    );
-
-            return getPagerank(repo, codeUnitToProjectFile, seedCodeUnitWeights, k, reversed);
+            return getPagerank(repo, seedCodeUnitWeights, k, reversed);
         }
     }
 
     private static List<IAnalyzer.PageRankResult> getPagerank(
             GitRepo repo,
-            Map<CodeUnit, ProjectFile> codeUnitToProjectFile,
             Map<CodeUnit, Double> seedCodeUnitWeights,
             int k,
             boolean reversed
@@ -67,110 +62,134 @@ public final class GitRank {
 
         // Build reverse mapping from ProjectFile to CodeUnits
         final var fileToCodeUnits = new HashMap<ProjectFile, Set<CodeUnit>>();
-        codeUnitToProjectFile.forEach((codeUnit, projectFile) ->
-                fileToCodeUnits.computeIfAbsent(projectFile, f -> new HashSet<>()).add(codeUnit)
+        seedCodeUnitWeights.keySet().forEach (cu ->
+            fileToCodeUnits.computeIfAbsent(cu.source(), f -> new HashSet<>()).add(cu)
         );
 
         // Build weighted adjacency graph of CodeUnit co-occurrences
-        final var edgeWeights = new HashMap<CodeUnitEdge, Integer>(); // CodeUnit edge -> weight
-        final var allCodeUnits = new HashSet<>(codeUnitToProjectFile.keySet());
+        final var allCodeUnits = new HashSet<>(seedCodeUnitWeights.keySet());
 
-        // Get all commits and build co-occurrence graph
+        // Get all commits and build co-occurrence graph in parallel
         final var commits = repo.listCommitsDetailed(currentBranch);
+        final var concurrentEdgeWeights = new ConcurrentHashMap<CodeUnitEdge, Integer>();
 
-        for (var commit : commits) {
-            final var changedFiles = repo.listFilesChangedInCommit(commit.id());
-            final var codeUnitsInCommit = new HashSet<CodeUnit>();
+        // Create a custom ForkJoinPool to avoid the global common pool
+        final var pool = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
+        final var result = new ArrayList<IAnalyzer.PageRankResult>();
+        try {
+            try {
+                pool.submit(() -> commits.parallelStream().forEach(commit -> {
+                    try {
+                        final var changedFiles = repo.listFilesChangedInCommit(commit.id());
+                        final var codeUnitsInCommit = new HashSet<CodeUnit>();
 
-            // Find all CodeUnits that were changed in this commit
-            for (var file : changedFiles) {
-                final var codeUnitsInFile = fileToCodeUnits.get(file);
-                if (codeUnitsInFile != null) {
-                    codeUnitsInCommit.addAll(codeUnitsInFile);
-                }
-            }
+                        // Find all CodeUnits that were changed in this commit
+                        for (var file : changedFiles) {
+                            final var codeUnitsInFile = fileToCodeUnits.get(file);
+                            if (codeUnitsInFile != null) {
+                                codeUnitsInCommit.addAll(codeUnitsInFile);
+                            }
+                        }
 
-            // Add edges between all pairs of CodeUnits in this commit
-            for (var from : codeUnitsInCommit) {
-                for (var to : codeUnitsInCommit) {
-                    if (!from.equals(to)) {
-                        final var edgeKey = new CodeUnitEdge(from, to);
-                        edgeWeights.merge(edgeKey, 1, Integer::sum);
+                        // Add edges between all pairs of CodeUnits in this commit
+                        for (var from : codeUnitsInCommit) {
+                            for (var to : codeUnitsInCommit) {
+                                if (!from.equals(to)) {
+                                    final var edgeKey = new CodeUnitEdge(from, to);
+                                    concurrentEdgeWeights.merge(edgeKey, 1, Integer::sum);
+                                }
+                            }
+                        }
+                    } catch (GitAPIException e) {
+                        throw new RuntimeException("Error processing commit: " + commit.id(), e);
                     }
-                }
+                })).get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException("Error processing commits in parallel", e);
             }
-        }
 
-        // Run PageRank algorithm
-        final var damping = 0.85;
-        final var maxIterations = 50;
-        final var epsilon = 1e-6;
+            // Transfer results to the original map
+            // CodeUnit edge -> weight
+            final var edgeWeights = new HashMap<>(concurrentEdgeWeights);
 
-        // Initialize PageRank scores
-        final var scores = new HashMap<String, Double>();
-        final var newScores = new HashMap<String, Double>();
-        final var numNodes = allCodeUnits.size();
-        final var initialScore = 1.0 / numNodes;
+            // Run PageRank algorithm
+            final var damping = 0.85;
+            final var maxIterations = 50;
+            final var epsilon = 1e-6;
 
-        for (var codeUnit : allCodeUnits) {
-            var seedWeight = seedCodeUnitWeights.getOrDefault(codeUnit, 0.0);
-            scores.put(codeUnit.fqName(), initialScore + seedWeight);
-            newScores.put(codeUnit.fqName(), 0.0);
-        }
-
-        // Compute outgoing edge counts for each node
-        final var outgoingWeights = new HashMap<String, Integer>();
-        for (var entry : edgeWeights.entrySet()) {
-            final var fromNode = entry.getKey().src().fqName();
-            outgoingWeights.merge(fromNode, entry.getValue(), Integer::sum);
-        }
-
-        // Iteratively update PageRank scores
-        for (int iter = 0; iter < maxIterations; iter++) {
-            var maxDiff = 0.0;
+            // Initialize PageRank scores
+            final var scores = new HashMap<String, Double>();
+            /* newScores will be created inside each iteration using a thread-safe map */
+            final var numNodes = allCodeUnits.size();
+            final var initialScore = 1.0 / numNodes;
 
             for (var codeUnit : allCodeUnits) {
-                final var fqName = codeUnit.fqName();
-                var newScore = (1.0 - damping) / numNodes;
+                var seedWeight = seedCodeUnitWeights.getOrDefault(codeUnit, 0.0);
+                scores.put(codeUnit.fqName(), initialScore + seedWeight);
+            }
 
-                // Add contributions from incoming edges
-                for (var entry : edgeWeights.entrySet()) {
-                    final var edge = entry.getKey();
-                    if (edge.dst().fqName().equals(fqName)) {
-                        final var fromNode = edge.src().fqName();
-                        final var edgeWeight = entry.getValue();
-                        final var fromOutgoingWeight = outgoingWeights.getOrDefault(fromNode, 1);
-                        newScore += damping * requireNonNull(scores.get(fromNode)) * edgeWeight / fromOutgoingWeight;
-                    }
+            // Compute outgoing edge counts for each node
+            final var outgoingWeights = new HashMap<String, Integer>();
+            for (var entry : edgeWeights.entrySet()) {
+                final var fromNode = entry.getKey().src().fqName();
+                outgoingWeights.merge(fromNode, entry.getValue(), Integer::sum);
+            }
+
+            // Iteratively update PageRank scores, computing each iteration in parallel
+            for (int iter = 0; iter < maxIterations; iter++) {
+                final var concurrentNewScores = new ConcurrentHashMap<String, Double>();
+
+                try {
+                    pool.submit(() ->
+                            allCodeUnits.parallelStream().forEach(codeUnit -> {
+                                var fqName = codeUnit.fqName();
+                                double newScore = (1.0 - damping) / numNodes;
+
+                                // Add contributions from incoming edges
+                                for (var entry : edgeWeights.entrySet()) {
+                                    var edge = entry.getKey();
+                                    if (edge.dst().fqName().equals(fqName)) {
+                                        var fromNode = edge.src().fqName();
+                                        var edgeWeight = entry.getValue();
+                                        var fromOutgoingWeight = outgoingWeights.getOrDefault(fromNode, 1);
+                                        newScore += damping * requireNonNull(scores.get(fromNode)) * edgeWeight / fromOutgoingWeight;
+                                    }
+                                }
+
+                                // Seed contribution
+                                newScore += seedCodeUnitWeights.getOrDefault(codeUnit, 0.0);
+
+                                concurrentNewScores.put(fqName, newScore);
+                            })
+                    ).get();
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new RuntimeException("Error computing PageRank in parallel", e);
                 }
 
-                // Add seed contribution
-                var seedWeight = seedCodeUnitWeights.getOrDefault(codeUnit, 0.0);
-                newScore += seedWeight;
+                var maxDiff = concurrentNewScores.entrySet().stream()
+                        .mapToDouble(e -> Math.abs(e.getValue() - requireNonNull(scores.get(e.getKey()))))
+                        .max()
+                        .orElse(0.0);
 
-                newScores.put(fqName, newScore);
-                maxDiff = Math.max(maxDiff, Math.abs(newScore - requireNonNull(scores.get(fqName))));
+                scores.clear();
+                scores.putAll(concurrentNewScores);
+
+                if (maxDiff < epsilon) {
+                    break;
+                }
             }
 
-            // Swap score maps
-            scores.clear();
-            scores.putAll(newScores);
-            newScores.clear();
-            newScores.putAll(scores);
-
-            if (maxDiff < epsilon) {
-                break;
-            }
+            // Create results and sort by score
+            result.addAll(allCodeUnits.stream()
+                    .map(codeUnit -> new IAnalyzer.PageRankResult(codeUnit, requireNonNull(scores.get(codeUnit.fqName()))))
+                    .sorted((a, b) -> reversed ?
+                            Double.compare(a.score(), b.score()) :
+                            Double.compare(b.score(), a.score()))
+                    .limit(k).toList());
+        } finally {
+            pool.shutdown();
         }
-
-        // Create results and sort by score
-        return allCodeUnits.stream()
-                .map(codeUnit -> new IAnalyzer.PageRankResult(codeUnit, requireNonNull(scores.get(codeUnit.fqName()))))
-                .sorted((a, b) -> reversed ?
-                        Double.compare(a.score(), b.score()) :
-                        Double.compare(b.score(), a.score()))
-                .limit(k)
-                .collect(Collectors.toList());
+        return result;
     }
 
 }
