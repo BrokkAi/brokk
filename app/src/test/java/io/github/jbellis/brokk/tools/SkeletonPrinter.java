@@ -249,14 +249,18 @@ public class SkeletonPrinter {
                     continue;
                 }
 
+                // CRITICAL FIX: Use the ProjectFile from singleFileProject for both analysis and getSkeletons
+                // to ensure consistent path structures in topLevelDeclarations map
+                var projectFile = singleFileProject.getAllFiles().iterator().next();
+
                 filesProcessed++;
 
                 if (!statsOnly) {
-                    printFileSkeletons(analyzer, file);
+                    printFileSkeletons(analyzer, projectFile);
                 }
 
-                // Count skeletons for this file
-                var skeletons = analyzer.getSkeletons(file);
+                // Count skeletons for this file - use projectFile from singleFileProject
+                var skeletons = analyzer.getSkeletons(projectFile);
                 skeletonsProduced += skeletons.size();
 
                 // Accumulate TreeSitter statistics

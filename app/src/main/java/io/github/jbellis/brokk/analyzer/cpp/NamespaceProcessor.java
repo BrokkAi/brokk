@@ -1,5 +1,6 @@
-package io.github.jbellis.brokk.analyzer;
+package io.github.jbellis.brokk.analyzer.cpp;
 
+import io.github.jbellis.brokk.analyzer.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -42,7 +43,7 @@ public class NamespaceProcessor {
      * Merges namespace blocks with the same name by directly parsing the AST to find all blocks.
      * Since CodeUnit equality causes Map overwrites, we need to go to the source.
      */
-    public Map<CodeUnit, String> mergeNamespaceBlocks(Map<CodeUnit, String> skeletons) {
+    public Map<CodeUnit, String> mergeNamespaceBlocks(Map<CodeUnit, String> skeletons, Map<CodeUnit, List<String>> signatures) {
         // If we don't have any namespace skeletons, nothing to merge
         var namespaceEntries = skeletons.entrySet().stream()
             .filter(entry -> entry.getKey().kind() == CodeUnitType.MODULE)
@@ -63,7 +64,7 @@ public class NamespaceProcessor {
 
         for (var file : filesWithNamespaces) {
             try {
-                var mergedNamespaces = reParseAndMergeNamespaces(file);
+                var mergedNamespaces = reParseAndMergeNamespaces(file, signatures);
 
                 // Replace existing namespace skeletons with merged ones
                 // Remove old namespace entries for this file
@@ -85,7 +86,7 @@ public class NamespaceProcessor {
      * Re-parses a file to find all namespace blocks and merge them by name.
      * This bypasses the CodeUnit equality issue by working directly with the AST.
      */
-    private Map<CodeUnit, String> reParseAndMergeNamespaces(ProjectFile file) throws IOException {
+    private Map<CodeUnit, String> reParseAndMergeNamespaces(ProjectFile file, Map<CodeUnit, List<String>> signatures) throws IOException {
         var fileContent = getCachedFileContent(file);
         var parser = parserCache.get();
         var tree = parser.parseString(null, fileContent);
@@ -100,14 +101,33 @@ public class NamespaceProcessor {
             groupedNamespaces.computeIfAbsent(block.name, k -> new ArrayList<>()).add(block);
         }
 
-        // Create merged CodeUnits and skeletons
+        // Find existing CodeUnits for these namespaces from the SIGNATURES map
+        // This is crucial - we must reuse existing CodeUnit objects that are keys in the signatures map
         var result = new HashMap<CodeUnit, String>();
         for (var entry : groupedNamespaces.entrySet()) {
             var namespaceName = entry.getKey();
             var blocks = entry.getValue();
 
-            // Create a representative CodeUnit for this namespace
-            var codeUnit = new CodeUnit(file, CodeUnitType.MODULE, "", namespaceName);
+            // CRITICAL FIX: Search in the signatures map to find the actual CodeUnit objects that exist as keys
+            CodeUnit existingCodeUnit = null;
+            for (var signatureEntry : signatures.entrySet()) {
+                var cu = signatureEntry.getKey();
+                if (cu.kind() == CodeUnitType.MODULE &&
+                    cu.source().equals(file) &&
+                    cu.fqName().equals(namespaceName)) {
+                    existingCodeUnit = cu;
+                    log.debug("Found existing CodeUnit in signatures map for namespace '{}': {}", namespaceName, cu);
+                    break;
+                }
+            }
+
+            // If we found an existing CodeUnit, reuse it; otherwise create a new one
+            var codeUnit = existingCodeUnit != null ? existingCodeUnit :
+                          new CodeUnit(file, CodeUnitType.MODULE, "", namespaceName);
+
+            if (existingCodeUnit == null) {
+                log.warn("No existing CodeUnit found in signatures map for namespace '{}', creating new one: {}", namespaceName, codeUnit);
+            }
 
             // Merge all blocks into one skeleton
             var mergedSkeleton = createMergedNamespaceSkeleton(namespaceName, blocks, fileContent);
