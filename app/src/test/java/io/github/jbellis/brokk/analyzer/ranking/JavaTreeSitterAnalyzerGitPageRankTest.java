@@ -44,7 +44,7 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
     }
 
     @AfterAll
-    public static void teardown() throws Exception {
+    public static void teardown() {
         GitDistanceTestSuite.teardownGitRepository(testPath);
         if (testProject != null) {
             testProject.close();

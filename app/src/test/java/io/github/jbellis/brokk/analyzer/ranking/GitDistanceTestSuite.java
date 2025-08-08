@@ -84,7 +84,7 @@ public final class GitDistanceTestSuite {
         return testPath;
     }
 
-    static void teardownGitRepository(Path testPath) throws Exception {
+    static void teardownGitRepository(Path testPath) {
         if (testPath != null) {
             Path gitDir = testPath.resolve(".git");
             if (Files.exists(gitDir)) {
