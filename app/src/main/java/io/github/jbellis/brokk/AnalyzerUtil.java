@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -107,56 +106,13 @@ public class AnalyzerUtil {
                 .collect(Collectors.toSet());
     }
 
-    public static Map<CodeUnit, String> getSkeletonStrings(IAnalyzer analyzer, Set<CodeUnit> classes) {
-        var coalescedUnits = coalesceInnerClasses(classes);
-        return coalescedUnits.stream().parallel()
-                .map(cu -> Map.entry(cu, analyzer.getSkeleton(cu.fqName())))
-                .filter(entry -> entry.getValue().isPresent())
-                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().get()));
-    }
-
-    public static List<String> testFilesToFQCNs(IAnalyzer analyzer, Collection<ProjectFile> files) {
-        if (analyzer.isCpg()) {
-            // TODO remove this hack when we can get Joern to process the damn test files
-            return files.stream()
-                    .map(file -> {
-                        // Extract class name from filename (without extension)
-                        var fileName = file.getRelPath().getFileName().toString();
-                        var className = fileName.contains(".") 
-                                ? fileName.substring(0, fileName.lastIndexOf('.'))
-                                : fileName;
-                        
-                        // Read file content and extract package declaration
-                        try {
-                            var content = file.read();
-                            var packageName = extractPackageName(content);
-                            
-                            // Build FQCN: package.classname or just classname if no package
-                            return packageName.isEmpty() 
-                                    ? className 
-                                    : packageName + "." + className;
-                        } catch (IOException e) {
-                            // If we can't read the file, just use the simple class name
-                            logger.warn("Could not read file {}", file, e);
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .sorted()
-                    .toList();
-        }
-
+    public static Set<CodeUnit> testFilesToCodeUnits(IAnalyzer analyzer, Collection<ProjectFile> files) {
         var classUnitsInTestFiles = files.stream()
                 .flatMap(testFile -> analyzer.getDeclarationsInFile(testFile).stream())
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 
-        var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
-
-        return coalescedClasses.stream()
-                .map(CodeUnit::fqName)
-                .sorted() // for consistent test command generation
-                .toList();
+        return AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
     }
 
     private record StackEntry(String method, int depth) {
@@ -256,24 +212,6 @@ public class AnalyzerUtil {
         }
         // Return the map containing sources for all found methods
         return sources;
-    }
-
-    private static final Pattern PACKAGE_PATTERN = Pattern.compile("^\\s*package\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)\\s*;");
-
-    /**
-     * Extracts the package name from Java source code content.
-     * @param content The source code content
-     * @return The package name, or empty string if no package declaration found
-     */
-    private static String extractPackageName(String content) {
-        return content.lines()
-                .map(String::trim)
-                .filter(line -> !line.isEmpty() && !line.startsWith("//") && !line.startsWith("/*"))
-                .map(PACKAGE_PATTERN::matcher)
-                .filter(Matcher::matches)
-                .findFirst()
-                .map(matcher -> matcher.group(1))
-                .orElse("");
     }
 
     /**

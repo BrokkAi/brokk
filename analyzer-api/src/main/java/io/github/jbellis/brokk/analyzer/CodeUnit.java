@@ -11,11 +11,16 @@ import java.util.Optional;
  */
 public class CodeUnit implements Comparable<CodeUnit> {
 
+    @JsonProperty("source")
     private final ProjectFile source;
+    @JsonProperty("kind")
     private final CodeUnitType kind;
+    @JsonProperty("shortName")
     private final String shortName;
+    @JsonProperty("packageName")
     private final String packageName;
-    private final String fqName;
+
+    private final transient String fqName;
 
     @JsonCreator
     public CodeUnit(@JsonProperty("source") ProjectFile source,
@@ -126,7 +131,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
     /**
      * Returns the CodeUnit representing the containing class, if this is a member (function/field).
      * Returns empty for CLASS or MODULE.
-     *
      * @return The CodeUnit representing the containing class, if this is a member (function/field).
      */
     public Optional<CodeUnit> classUnit() {
@@ -159,9 +163,9 @@ public class CodeUnit implements Comparable<CodeUnit> {
         if (!(obj instanceof CodeUnit other)) return false;
         // Equality based on the derived fully qualified name, kind, AND source file
         // This ensures that classes/interfaces with the same name in different files are distinct
-        return kind == other.kind &&
-                Objects.equals(this.fqName(), other.fqName()) &&
-                Objects.equals(this.source, other.source);
+        return kind == other.kind && 
+               Objects.equals(this.fqName(), other.fqName()) &&
+               Objects.equals(this.source, other.source);
     }
 
     @Override
@@ -221,7 +225,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
         // This validation might be too strict if a language allows fields without a containing structure name in shortName.
         // For now, retain the check as it's consistent with current JSAnalyzer practice for top-level vars.
         if (!shortName.contains(".")) {
-            throw new IllegalArgumentException("shortName for FIELD must be in 'ContainingStructure.fieldName' format (e.g. 'MyClass.field' or '_module_.field'), got: " + shortName);
+             throw new IllegalArgumentException("shortName for FIELD must be in 'ContainingStructure.fieldName' format (e.g. 'MyClass.field' or '_module_.field'), got: " + shortName);
         }
         return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName);
     }
@@ -239,10 +243,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     // Helper records for parsing, made public for external access
-    public record Tuple2<T1, T2>(T1 _1, T2 _2) {
-    }
+    public record Tuple2<T1, T2>(T1 _1, T2 _2) {}
 
     // Package, className, identifier - used for language-specific parsing
-    public record Tuple3<T1, T2, T3>(T1 _1, T2 _2, T3 _3) {
-    }
+    public record Tuple3<T1, T2, T3>(T1 _1, T2 _2, T3 _3) {}
 }
