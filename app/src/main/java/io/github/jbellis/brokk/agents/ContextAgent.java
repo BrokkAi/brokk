@@ -212,6 +212,7 @@ public class ContextAgent {
             return new RecommendationResult(false, List.of(), "Workspace is too large", null);
         }
         var existingFiles = cm.liveContext().allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH || f.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
         var allProjectFiles = cm.getProject().getAllFiles();
