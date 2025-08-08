@@ -47,6 +47,7 @@ public class SkeletonPrinter {
     private static boolean useColors = true;
     private static boolean skeletonOnly = false;
     private static boolean statsOnly = false;
+    private static boolean verbose = false;
 
     private static boolean matchesLanguage(Path path, Language language) {
         var fileName = path.getFileName().toString().toLowerCase();
@@ -107,18 +108,7 @@ public class SkeletonPrinter {
     }
 
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.err.println("Usage: java SkeletonPrinter [--skeleton-only] [--no-color] [--stats] <path> <language>");
-            System.err.println("Options:");
-            System.err.println("  --skeleton-only    Only show skeleton output, not original content");
-            System.err.println("  --no-color         Disable colored output");
-            System.err.println("  --stats            Only show final statistics, no file output");
-            System.err.println("Path can be a directory or a specific file");
-            System.err.println("Supported languages: typescript, javascript, java, python, cpp");
-            System.exit(1);
-        }
-
-        // Parse command-line arguments - scan all args for options first
+        // Parse command-line arguments first to check for verbose mode
         List<String> nonOptionArgs = new ArrayList<>();
         for (String arg : args) {
             if (arg.startsWith("--")) {
@@ -126,14 +116,40 @@ public class SkeletonPrinter {
                     case "--skeleton-only" -> skeletonOnly = true;
                     case "--no-color" -> useColors = false;
                     case "--stats" -> statsOnly = true;
+                    case "--verbose" -> verbose = true;
                     default -> {
-                        System.err.println("Unknown option: " + arg);
-                        System.exit(1);
+                        if (!arg.equals("--help")) {
+                            System.err.println("Unknown option: " + arg);
+                            System.exit(1);
+                        }
                     }
                 }
             } else {
                 nonOptionArgs.add(arg);
             }
+        }
+
+        // Set log level before configuring Log4j2
+        if (verbose) {
+            System.setProperty("skeleton.printer.log.level", "debug");
+        } else {
+            System.setProperty("skeleton.printer.log.level", "info");
+        }
+
+        // Configure Log4j2 to use the SkeletonPrinter-specific configuration
+        System.setProperty("log4j2.configurationFile", "log4j2-skeleton-printer.xml");
+
+        if (args.length < 2 || List.of(args).contains("--help")) {
+            System.err.println("Usage: java SkeletonPrinter [--skeleton-only] [--no-color] [--stats] [--verbose] <path> <language>");
+            System.err.println("Options:");
+            System.err.println("  --skeleton-only    Only show skeleton output, not original content");
+            System.err.println("  --no-color         Disable colored output");
+            System.err.println("  --stats            Only show final statistics, no file output");
+            System.err.println("  --verbose          Enable debug-level logging");
+            System.err.println("Path can be a directory or a specific file");
+            System.err.println("Supported languages: typescript, javascript, java, python, cpp");
+            System.err.println("Debug logs will be written to: " + System.getProperty("user.home") + "/.brokk/skeleton-printer.log");
+            System.exit(1);
         }
 
         if (nonOptionArgs.size() < 2) {
