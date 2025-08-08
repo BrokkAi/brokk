@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.git;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.transport.RefSpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,10 +10,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -50,6 +48,7 @@ public class GitRepoRemoteMergeTest {
         // Configure user for commits
         localGit.getRepository().getConfig().setString("user", null, "name", "Test User");
         localGit.getRepository().getConfig().setString("user", null, "email", "test@example.com");
+        localGit.getRepository().getConfig().setBoolean("commit", null, "gpgsign", false);
         localGit.getRepository().getConfig().save();
 
         // Create initial commit
@@ -116,7 +115,7 @@ public class GitRepoRemoteMergeTest {
         Path masterFile = tempDir.resolve("master.txt");
         Files.writeString(masterFile, "master content\n", StandardCharsets.UTF_8);
         localGit.add().addFilepattern("master.txt").call();
-        localGit.commit().setMessage("Add master file").call();
+        localGit.commit().setMessage("Add master file").setSign(false).call();
 
         // Fetch remote changes
         localGit.fetch().call();

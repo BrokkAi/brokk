@@ -963,8 +963,8 @@ public class CodeAgent {
             return runVerificationCommand(verificationCommand);
         }
 
-        var projectName = contextManager.getProject().getRoot().getFileName().toString();
-        Path lockFile = lockDir.resolve(projectName + ".lock");
+        var repoNameForLock = getOriginRepositoryName();
+        Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
 
         try (FileChannel channel = FileChannel.open(lockFile,
                                                     StandardOpenOption.CREATE,
@@ -978,7 +978,28 @@ public class CodeAgent {
             return runVerificationCommand(verificationCommand);
         }
     }
-    
+
+    public String getOriginRepositoryName() {
+        var url = contextManager.getRepo().getRemoteUrl();
+        if (url == null || url.isBlank()) {
+            // Fallback: use directory name of repo root
+            return contextManager.getRepo().getGitTopLevel().getFileName().toString();
+        }
+
+        // Strip trailing ".git", if any
+        if (url.endsWith(".git")) {
+            url = url.substring(0, url.length() - 4);
+        }
+
+        // SSH URLs use ':', HTTPS uses '/'
+        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
+        if (idx >= 0 && idx < url.length() - 1) {
+            return url.substring(idx + 1);
+        }
+
+        throw new IllegalArgumentException("Unable to parse git repo url " + url);
+    }
+
     /**
      * Executes the given verification command, streaming output back to the console.
      * Returns an empty string on success, or the combined error/output when the
