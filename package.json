@@ -26,7 +26,7 @@
         "yauzl": "^2.10.0",
         "shelljs": "^0.8.4"
     },
-    "license": "ISC",
+    "license": "GPL-3.0-only",
     "name": "brokk",
     "files": ["jdeploy-bundle"],
     "scripts": {"test": "echo \"Error: no test specified\" && exit 1"}
