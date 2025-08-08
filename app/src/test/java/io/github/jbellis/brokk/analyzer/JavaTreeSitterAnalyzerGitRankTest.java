@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.git.GitRank;
+import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.testutil.TestProject;
 import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
@@ -130,7 +130,7 @@ public class JavaTreeSitterAnalyzerGitRankTest {
         );
 
         // Run GitRank
-        var results = GitRank.getPagerank(analyzer, projectRoot, seedWeights, 10, false);
+        var results = GitDistance.getPagerank(analyzer, projectRoot, seedWeights, 10, false);
 
         assertFalse(results.isEmpty(), "GitRank should return results");
         logger.info("GitRank results: {}", results);
@@ -166,7 +166,7 @@ public class JavaTreeSitterAnalyzerGitRankTest {
 
         // Run GitRank with no seed weights
         assertNotNull(projectRoot);
-        var results = GitRank.getPagerank(analyzer, projectRoot, Map.of(), 5, false);
+        var results = GitDistance.getPagerank(analyzer, projectRoot, Map.of(), 5, false);
 
         assertFalse(results.isEmpty(), "GitRank should return results even without seed weights");
         logger.info("GitRank results (no seeds): {}", results);
@@ -188,7 +188,7 @@ public class JavaTreeSitterAnalyzerGitRankTest {
 
         // Run GitRank in reversed order (lowest scores first)
         assertNotNull(projectRoot);
-        var results = GitRank.getPagerank(analyzer, projectRoot, seedWeights, 5, true);
+        var results = GitDistance.getPagerank(analyzer, projectRoot, seedWeights, 5, true);
 
         assertFalse(results.isEmpty(), "GitRank should return results");
 

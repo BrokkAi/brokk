@@ -11,14 +11,13 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Provides the logic to perform a Git-centric PageRank calculation for given type declarations.
+ * Provides the logic to perform a Git-centric distance calculations for given type declarations.
  */
-public final class GitRank {
+public final class GitDistance {
 
     /**
      * Represents an edge between two CodeUnits in the co-occurrence graph.
@@ -26,7 +25,7 @@ public final class GitRank {
     public record CodeUnitEdge(CodeUnit src, CodeUnit dst) {
     }
 
-    public static List<IAnalyzer.PageRankResult> getPagerank(
+    public static List<IAnalyzer.CodeUnitRelevance> getPagerank(
             IAnalyzer analyzer,
             Path projectRoot,
             Map<String, Double> seedClassWeights,
@@ -52,7 +51,7 @@ public final class GitRank {
         }
     }
 
-    private static List<IAnalyzer.PageRankResult> getPagerank(
+    private static List<IAnalyzer.CodeUnitRelevance> getPagerank(
             GitRepo repo,
             Map<CodeUnit, Double> seedCodeUnitWeights,
             int k,
@@ -75,7 +74,7 @@ public final class GitRank {
 
         // Create a custom ForkJoinPool to avoid the global common pool
         final var pool = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()));
-        final var result = new ArrayList<IAnalyzer.PageRankResult>();
+        final var result = new ArrayList<IAnalyzer.CodeUnitRelevance>();
         try {
             try {
                 pool.submit(() -> commits.parallelStream().forEach(commit -> {
@@ -181,7 +180,7 @@ public final class GitRank {
 
             // Create results and sort by score
             result.addAll(allCodeUnits.stream()
-                    .map(codeUnit -> new IAnalyzer.PageRankResult(codeUnit, requireNonNull(scores.get(codeUnit.fqName()))))
+                    .map(codeUnit -> new IAnalyzer.CodeUnitRelevance(codeUnit, requireNonNull(scores.get(codeUnit.fqName()))))
                     .sorted((a, b) -> reversed ?
                             Double.compare(a.score(), b.score()) :
                             Double.compare(b.score(), a.score()))
