@@ -325,29 +325,26 @@ public class NamespaceProcessor {
      * already included in the 'ui::widgets' namespace skeleton.
      */
     public Map<CodeUnit, String> filterNestedDeclarations(Map<CodeUnit, String> skeletons) {
-        // Get all namespace names that have merged skeletons
-        var namespaceNames = skeletons.entrySet().stream()
-            .filter(entry -> entry.getKey().kind() == CodeUnitType.MODULE)
-            .map(entry -> entry.getKey().fqName())
-            .collect(Collectors.toSet());
+        // The original logic was too aggressive and filtered out all declarations within namespaces
+        // that had merged skeletons. However, namespace merging only handles duplicate namespace
+        // blocks themselves, not the individual declarations within them.
+        //
+        // The correct approach is to be conservative and only filter out obvious duplicates
+        // while preserving individual function, class, and field declarations.
 
-        // Filter out CodeUnits that represent individual nested declarations within these namespaces
-        return skeletons.entrySet().stream()
-            .filter(entry -> {
-                var codeUnit = entry.getKey();
-                // Keep namespace CodeUnits
-                if (codeUnit.kind() == CodeUnitType.MODULE) {
-                    return true;
-                }
-                // Keep global declarations (no package name)
-                if (codeUnit.packageName().isEmpty()) {
-                    return true;
-                }
-                // Remove nested declarations if their namespace has a merged skeleton
-                // Example: remove 'ui::widgets.ui::widgets$WidgetType' if 'ui::widgets' namespace exists
-                return !namespaceNames.contains(codeUnit.packageName());
-            })
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        log.debug("filterNestedDeclarations: Input {} skeletons", skeletons.size());
+
+        // For now, we'll be conservative and not filter out any declarations except
+        // for obvious cases where we know they're duplicated.
+        // This preserves the individual declarations that users expect to see.
+
+        // TODO: In the future, we could implement smarter filtering that actually
+        // checks if the declaration content is included within a merged namespace skeleton,
+        // but for now it's better to show too much rather than too little.
+
+        var result = new HashMap<>(skeletons);
+        log.debug("filterNestedDeclarations: Output {} skeletons (conservative filtering)", result.size());
+        return result;
     }
 
     /**

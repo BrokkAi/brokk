@@ -12,7 +12,6 @@ import org.treesitter.TreeSitterCpp;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.*;
-import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -274,24 +273,37 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             // Start with the base skeletons from this file
             Map<CodeUnit, String> baseSkeletons = super.getSkeletons(file);
             Map<CodeUnit, String> resultSkeletons = new HashMap<>(baseSkeletons);
+            log.debug("getSkeletons({}): Step 0 - Base skeletons: {} (sample keys: {})",
+                     file, baseSkeletons.size(), getSampleKeys(baseSkeletons, 3));
 
             // 1. Fix global enum skeletons to include their content
             resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file);
+            log.debug("getSkeletons({}): Step 1 - After enum fix: {} skeletons",
+                     file, resultSkeletons.size());
 
             // 2. Fix global union skeletons to include their content
             resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file);
+            log.debug("getSkeletons({}): Step 2 - After union fix: {} skeletons",
+                     file, resultSkeletons.size());
 
             // 3. Merge namespace blocks with the same name
             resultSkeletons = namespaceProcessor.mergeNamespaceBlocks(resultSkeletons);
+            log.debug("getSkeletons({}): Step 3 - After namespace merge: {} skeletons (sample keys: {})",
+                     file, resultSkeletons.size(), getSampleKeys(resultSkeletons, 3));
 
             // 4. Remove individual nested declarations that are already included in merged namespaces
             resultSkeletons = namespaceProcessor.filterNestedDeclarations(resultSkeletons);
+            log.debug("getSkeletons({}): Step 4 - After filtering nested: {} skeletons (sample keys: {})",
+                     file, resultSkeletons.size(), getSampleKeys(resultSkeletons, 3));
 
             // 5. For header files, also include global functions and variables from corresponding source files
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
+                log.debug("getSkeletons({}): Step 5 - After header source addition: {} skeletons",
+                         file, resultSkeletons.size());
             }
 
+            log.debug("getSkeletons({}): Final result: {} skeletons", file, resultSkeletons.size());
             return Collections.unmodifiableMap(resultSkeletons);
         } catch (Exception e) {
             log.error("Failed to generate skeletons for file {}: {}", file, e.getMessage(), e);
@@ -394,6 +406,19 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
         // For all other node types, use the default implementation
         return super.extractSimpleName(decl, src);
+    }
+
+    /**
+     * Helper method to get sample keys from a skeleton map for debugging.
+     */
+    private String getSampleKeys(Map<CodeUnit, String> skeletons, int maxCount) {
+        if (skeletons.isEmpty()) {
+            return "[]";
+        }
+        return skeletons.keySet().stream()
+            .limit(maxCount)
+            .map(cu -> String.format("%s:%s(%s)", cu.kind(), cu.fqName(), cu.packageName()))
+            .collect(Collectors.joining(", ", "[", skeletons.size() > maxCount ? "...]" : "]"));
     }
 
     /**
