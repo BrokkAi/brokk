@@ -39,7 +39,7 @@ jobs:
 
       - name: Update package.json with JAR name
         run: |
-          jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_name }}"' package.json > package.tmp.json && mv package.tmp.json package.json
+          jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_file }}"' package.json > package.tmp.json && mv package.tmp.json package.json
 
       - name: Build App Installer Bundles
         uses: shannah/jdeploy@master
