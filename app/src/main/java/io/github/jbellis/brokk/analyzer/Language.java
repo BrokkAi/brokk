@@ -135,18 +135,12 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            try {
-                return new JdtAnalyzer(project.getRoot(), project.getExcludedDirectories());
-            } catch (IOException e) {
-                logger.error("The JDT LSP server could not be started.", e);
-                return new DisabledAnalyzer();
-            }
+            return new JavaAnalyzer(project);
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            // TODO: Not persisting the analyzer cache, need to still handle
-            //  the case of cache corruption before we do.
+            // the LSP server component will handle loading in the cache
             return createAnalyzer(project);
         }
 
