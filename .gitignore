@@ -60,5 +60,9 @@ project/project/
 cpg.bin
 /workspace/
 
+### JDeploy CONFIGURATION ###
+.jdeploy/
+
 ### frontend
 /frontend-mop/node_modules/
+
