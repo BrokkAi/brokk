@@ -32,6 +32,11 @@
       <AppenderRef ref="Console"/>
     </Logger>
 
+    <!-- Disable debug logging specifically for skeleton printer to reduce verbose output -->
+    <Logger name="io.github.jbellis.brokk.tools.SkeletonPrinter" level="warn" additivity="false">
+      <AppenderRef ref="Console"/>
+    </Logger>
+
     <!-- everything else at DEBUG -->
     <Root level="debug">
       <AppenderRef ref="Console"/>
