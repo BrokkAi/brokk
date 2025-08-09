@@ -363,6 +363,30 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Forcefully removes files from the working directory and the Git index.
+     * This is equivalent to deleting the files and then running `git rm`.
+     *
+     * @param files The list of files to remove.
+     * @throws GitAPIException if the Git command fails.
+     */
+    @Override
+    public synchronized void forceRemoveFiles(List<ProjectFile> files) throws GitAPIException {
+        try {
+            for (var file : files) {
+                Files.deleteIfExists(file.absPath());
+            }
+            var rmCommand = git.rm();
+            for (var file : files) {
+                rmCommand.addFilepattern(toRepoRelativePath(file));
+            }
+            rmCommand.call();
+            invalidateCaches();
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+    }
+
+    /**
      * Returns a list of RepoFile objects representing all tracked files in the repository.
      */
     @Override

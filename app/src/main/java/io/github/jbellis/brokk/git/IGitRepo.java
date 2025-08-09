@@ -83,6 +83,10 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
+    default void forceRemoveFiles(List<ProjectFile> files) throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
     default List<WorktreeInfo> listWorktrees() throws GitAPIException {
         throw new UnsupportedOperationException();
     }
