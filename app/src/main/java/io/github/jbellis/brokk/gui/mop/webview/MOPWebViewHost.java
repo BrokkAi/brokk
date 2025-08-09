@@ -118,6 +118,41 @@ public final class MOPWebViewHost extends JPanel {
                     };
                 })();
                 """);
+                    // Install wheel event override for adjusted scroll speed
+            view.getEngine().executeScript("""
+                (function() {
+                    try {
+                        var factor = 0.7; // < 1 slows down, > 1 speeds up
+
+                        function findScrollable(el) {
+                            while (el && el !== document.body && el !== document.documentElement) {
+                                var style = getComputedStyle(el);
+                                var canScrollY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+                                var canScrollX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth;
+                                if (canScrollY || canScrollX) return el;
+                                el = el.parentElement;
+                            }
+                            return document.scrollingElement || document.documentElement || document.body;
+                        }
+
+                        window.addEventListener('wheel', function(ev) {
+                            if (ev.ctrlKey || ev.metaKey) { return; } // let zoom gestures pass
+                            var target = findScrollable(ev.target);
+                            if (!target) return;
+
+                            ev.preventDefault();
+
+                            var dx = ev.deltaX * factor;
+                            var dy = ev.deltaY * factor;
+
+                            if (dx) { target.scrollLeft += dx; }
+                            if (dy) { target.scrollTop += dy; }
+                        }, { passive: false, capture: true });
+                    } catch (e) {
+                        if (window.javaBridge) window.javaBridge.jsLog('ERROR', 'wheel override failed: ' + e);
+                    }
+                })();
+            """);
                     // Now that the page is loaded, flush any buffered commands
                     flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
