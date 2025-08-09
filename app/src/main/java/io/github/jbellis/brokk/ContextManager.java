@@ -573,20 +573,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return model;
         }
 
-        // Configured model is not available. Attempt fallbacks.
-        String chosenFallbackName = Service.GEMINI_2_5_PRO; // For the io.toolError message
-        model = service.getModel(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT);
+        model = service.getModel(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH);
         if (model != null) {
             io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                                          config.name(), modelTypeName, chosenFallbackName));
-            return model;
-        }
-
-        chosenFallbackName = Service.GROK_3_MINI;
-        model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.HIGH);
-        if (model != null) {
-            io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                                          config.name(), modelTypeName, chosenFallbackName));
+                                          config.name(), modelTypeName, Service.GPT_5_MINI));
             return model;
         }
 

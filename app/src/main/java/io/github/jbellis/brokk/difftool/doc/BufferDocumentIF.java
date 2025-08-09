@@ -17,6 +17,14 @@ public interface BufferDocumentIF
 
     boolean isChanged();
 
+    /**
+     * Recheck if the document content matches the original saved state.
+     * If so, reset the changed flag. Useful after undo operations.
+     */
+    default void recheckChangedState() {
+        // Default implementation does nothing for implementations that don't support this
+    }
+
     PlainDocument getDocument();
     AbstractBufferDocument.Line[] getLines();  // existing method
     int getOffsetForLine(int lineNumber);

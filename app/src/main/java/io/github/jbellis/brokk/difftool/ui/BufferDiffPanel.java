@@ -1,17 +1,26 @@
 package io.github.jbellis.brokk.difftool.ui;
 
+import com.github.difflib.DiffUtils;
+import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
 import com.jgoodies.forms.layout.FormLayout;
+import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
+import io.github.jbellis.brokk.difftool.doc.FileDocument;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
+import io.github.jbellis.brokk.difftool.doc.StringDocument;
 import io.github.jbellis.brokk.difftool.node.BufferNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -20,13 +29,26 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.UndoableEditListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import javax.swing.text.JTextComponent;
+import javax.swing.undo.UndoableEdit;
 import java.awt.*;
+import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
 import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -92,6 +114,26 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     private boolean dirtySinceOpen = false;
 
     /**
+     * Tracks applied diff operations that haven't been saved yet.
+     * Maps filename to count of operations applied.
+     */
+    private final Map<String, Integer> pendingDiffChanges = new ConcurrentHashMap<>();
+
+    /**
+     * Tracks the content of files before any diff changes were applied.
+     * Used to generate unified diffs showing what changes were made.
+     */
+    private final Map<String, String> contentBeforeChanges = Collections.synchronizedMap(
+        new LinkedHashMap<String, String>(16, 0.75f, true) {
+            private static final int MAX_ENTRIES = 100; // Limit to 100 files
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > MAX_ENTRIES;
+            }
+        }
+    );
+
+    /**
     * Recalculate dirty status by checking if any FilePanel has unsaved changes.
     * When the state changes, update tab title and toolbar buttons.
     */
@@ -129,6 +171,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
         mainPanel.setBufferDiffPanel(this);
+
 
         init();
         setFocusable(true);
@@ -965,8 +1008,59 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         void perform() throws BadLocationException;
     }
 
-    private void applyDelta(AbstractDelta<String> delta, BufferDocumentIF changedDoc, JTextComponent changedEditor, DocumentMutation mutation) {
+    private void applyDelta(AbstractDelta<String> delta, BufferDocumentIF changedDoc, JTextComponent changedEditor, DocumentMutation mutation, String operationType) {
         assert SwingUtilities.isEventDispatchThread();
+
+        var undoState = captureUndoState(delta);
+        var documentEdits = new ArrayList<javax.swing.undo.UndoableEdit>();
+        var editCapture = createEditCaptureListener(documentEdits);
+
+        executeWithEditTracking(changedEditor, editCapture, () -> {
+            performDocumentMutation(mutation);
+            updatePatchState(delta);
+            synchronizeAndRefreshDocuments(changedEditor, changedDoc);
+            createUndoOperation(delta, documentEdits, undoState, operationType);
+            refreshUserInterface();
+        });
+    }
+
+    private UndoState captureUndoState(AbstractDelta<String> delta) {
+        var originalDeltaIndex = patch != null ? patch.getDeltas().indexOf(delta) : null;
+        var selectedDeltaSnapshot = selectedDelta;
+        return new UndoState(originalDeltaIndex, selectedDeltaSnapshot);
+    }
+
+    private UndoableEditListener createEditCaptureListener(List<UndoableEdit> documentEdits) {
+        return new javax.swing.event.UndoableEditListener() {
+            @Override
+            public void undoableEditHappened(javax.swing.event.UndoableEditEvent e) {
+                documentEdits.add(e.getEdit());
+            }
+        };
+    }
+
+    private void executeWithEditTracking(JTextComponent editor, UndoableEditListener editCapture, Runnable operation) {
+        var document = editor.getDocument();
+        boolean listenerAdded = false;
+
+        try {
+            document.addUndoableEditListener(editCapture);
+            listenerAdded = true;
+            operation.run();
+        } catch (Exception ex) {
+            throw new RuntimeException("Error applying delta operation", ex);
+        } finally {
+            if (listenerAdded && editor.getDocument() == document) {
+                try {
+                    document.removeUndoableEditListener(editCapture);
+                } catch (Exception e) {
+                    logger.warn("Failed to remove UndoableEditListener, potential resource leak", e);
+                }
+            }
+        }
+    }
+
+    private void performDocumentMutation(DocumentMutation mutation) {
         try {
             if (scrollSynchronizer != null) {
                 try (var ignored = scrollSynchronizer.programmaticSection()) {
@@ -975,19 +1069,38 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             } else {
                 mutation.perform();
             }
-
-            if (patch != null) {
-                patch.getDeltas().remove(delta);
-            }
-
-            synchronizeDocuments(changedEditor, changedDoc);
-            changedDoc.getLines(); // rebuild internal cache
-            diff(false); // recalc patch & refresh UI without auto-scrolling
-            mainPanel.refreshTabTitle(this);
-        } catch (Exception ex) {
-            throw new RuntimeException("Error applying delta operation", ex);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to perform document mutation", e);
         }
     }
+
+    private void updatePatchState(AbstractDelta<String> delta) {
+        if (patch != null) {
+            patch.getDeltas().remove(delta);
+        }
+    }
+
+    private void synchronizeAndRefreshDocuments(JTextComponent changedEditor, BufferDocumentIF changedDoc) {
+        synchronizeDocuments(changedEditor, changedDoc);
+        changedDoc.getLines(); // rebuild internal cache
+    }
+
+    private void createUndoOperation(AbstractDelta<String> delta, List<UndoableEdit> documentEdits, UndoState undoState, String operationType) {
+        if (!documentEdits.isEmpty()) {
+            var chunkEdit = new ChunkApplicationEdit(
+                this, delta, documentEdits, undoState.originalDeltaIndex(), undoState.selectedDeltaSnapshot(), operationType);
+            getUndoHandler().add(chunkEdit);
+        }
+    }
+
+    private void refreshUserInterface() {
+        diff(false); // recalc patch & refresh UI without auto-scrolling
+        mainPanel.refreshTabTitle(this);
+        recalcDirty(); // Update dirty state after document changes
+    }
+
+    private record UndoState(@Nullable Integer originalDeltaIndex, @Nullable AbstractDelta<String> selectedDeltaSnapshot) {}
+
 
     /**
      * The "change" operation from left->right or right->left.
@@ -1022,6 +1135,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         if (toOffset < 0) return;
 
         var toEditor = toFilePanel.getEditor();
+        var operationType = shift ? "Apply Change (Insert)" : "Apply Change (Replace)";
         applyDelta(delta, toDoc, toEditor, () -> {
             var fromPlainDoc = fromDoc.getDocument();
             var replacedText = fromPlainDoc.getText(fromOffset, toOffset - fromOffset);
@@ -1033,6 +1147,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             var toToOffset = toDoc.getOffsetForLine(toLine + toSize);
             if (toToOffset < 0) return;
 
+            // Record that this file was modified by a diff operation BEFORE applying changes
+            recordDiffChange(toDoc);
+
             toEditor.setSelectionStart(toFromOffset);
             toEditor.setSelectionEnd(toToOffset);
 
@@ -1041,12 +1158,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             } else {
                 toEditor.getDocument().insertString(toToOffset, replacedText, null);
             }
-
             SwingUtilities.invokeLater(() -> {
                 toEditor.setCaretPosition(toFromOffset);
                 destinationViewport.setViewPosition(originalViewPosition);
             });
-        });
+        }, operationType);
     }
 
     /**
@@ -1075,11 +1191,15 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         var editor = fromFilePanel.getEditor();
         applyDelta(delta, fromDoc, editor, () -> {
+            // Record that this file was modified by a diff operation BEFORE applying changes
+            recordDiffChange(fromDoc);
+
             editor.setSelectionStart(fromOffset);
             editor.setSelectionEnd(toOffset);
             editor.replaceSelection("");
             editor.setCaretPosition(fromOffset);
-        });
+
+        }, "Delete Chunk");
     }
 
     /**
@@ -1106,6 +1226,27 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
                                               JOptionPane.ERROR_MESSAGE);
             }
         }
+
+        // Generate activity entries for files that had diff changes applied
+        // Move expensive operations to background thread to avoid blocking UI
+        if (!pendingDiffChanges.isEmpty()) {
+            // Capture current state for background processing
+            var diffChangesCopy = new HashMap<>(pendingDiffChanges);
+            var contentBeforeChangesCopy = new HashMap<>(contentBeforeChanges);
+
+            // Process in background thread
+            CompletableFuture.supplyAsync(() -> {
+                generateDiffChangeActivityEntriesAsync(diffChangesCopy, contentBeforeChangesCopy);
+                return null;
+            }).exceptionally(ex -> {
+                logger.error("Failed to generate diff change activity entries in background", ex);
+                return null;
+            });
+
+            // After processing, update baseline content for next save (like PreviewTextPanel)
+            updateBaselineContentAfterSave();
+        }
+
         // After saving, recalculate dirty status (should be false since undo history is cleared)
         recalcDirty();
     }
@@ -1135,7 +1276,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     {
         super.doUndo();
         mainPanel.updateUndoRedoButtons();
-        // Recalculate diff and redraw highlights after undo
+        // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
         recalcDirty();
     }
@@ -1145,7 +1286,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     {
         super.doRedo();
         mainPanel.updateUndoRedoButtons();
-        // Recalculate diff and redraw highlights after redo
+        // ChunkApplicationEdit handles its own patch state restoration and diff() calls
         diff(true); // Scroll to selection since this is user-initiated
         recalcDirty();
     }
@@ -1310,6 +1451,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     @Override
     public void dispose() {
+
+        // Clear tracking maps
+        pendingDiffChanges.clear();
+        contentBeforeChanges.clear();
+
         // Dispose of file panels to clean up their timers and listeners
         for (var fp : filePanels.values()) {
             fp.dispose();
@@ -1321,6 +1467,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             scrollSynchronizer.dispose();
             scrollSynchronizer = null;
         }
+
+        // Clear diff change tracking
+        clearDiffChangeTracking();
 
         // Clear references
         diffNode = null;
@@ -1366,4 +1515,225 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             fp.clearSearchCache();
         }
     }
+
+    /**
+     * Records that a diff operation was applied to a file.
+     */
+    private void recordDiffChange(BufferDocumentIF doc) {
+        var filename = doc.getShortName();
+
+        // Capture baseline content before changes (first time or if no changes pending)
+        if (contentBeforeChanges.get(filename) == null || pendingDiffChanges.get(filename) == null) {
+            try {
+                var document = doc.getDocument();
+                var content = document.getText(0, document.getLength());
+
+                // Only update baseline if no changes are pending (start of new change cycle)
+                if (pendingDiffChanges.get(filename) == null) {
+                    contentBeforeChanges.put(filename, content);
+                } else {
+                    // First time seeing this file, use putIfAbsent
+                    contentBeforeChanges.putIfAbsent(filename, content);
+                }
+
+                // Add file to editable context - this preserves original content for undo
+                var contextManager = mainPanel.getContextManager();
+                var projectFile = new ProjectFile(contextManager.getRoot(), filename);
+                contextManager.editFiles(List.of(projectFile));
+
+            } catch (BadLocationException e) {
+                logger.warn("Failed to capture original content for diff change tracking: {}", filename, e);
+            }
+        }
+
+        // Thread-safe atomic increment
+        pendingDiffChanges.merge(filename, 1, Integer::sum);
+    }
+
+    /**
+     * Records a manual edit (typing, paste, etc.) on a document for history tracking.
+     */
+    public void recordManualEdit(BufferDocumentIF doc) {
+        recordDiffChange(doc);
+    }
+
+    /**
+     * Asynchronous version of generateDiffChangeActivityEntries that can run on background threads.
+     */
+    private void generateDiffChangeActivityEntriesAsync(Map<String, Integer> diffChanges, Map<String, String> contentBefore) {
+        if (diffChanges.isEmpty()) {
+            return;
+        }
+
+        for (var entry : diffChanges.entrySet()) {
+            var filename = entry.getKey();
+            var changeCount = entry.getValue();
+
+            try {
+                var fileData = findFileData(filename);
+                if (fileData == null) {
+                    logSimpleMessage(filename, changeCount);
+                    continue;
+                }
+
+                var originalContent = contentBefore.get(filename);
+                if (originalContent != null) {
+                    createHistoryEntry(filename, changeCount, originalContent, fileData);
+                } else {
+                    logSimpleMessage(filename, changeCount);
+                }
+            } catch (Exception e) {
+                logger.error("Failed to generate diff change activity entry for {}", filename, e);
+                logSimpleMessage(filename, changeCount);
+            }
+        }
+    }
+
+    private record FileData(String currentContent, @Nullable ProjectFile projectFile) {}
+
+    @Nullable
+    private FileData findFileData(String filename) {
+        for (var fp : filePanels.values()) {
+            var doc = fp.getBufferDocument();
+            if (doc != null && filename.equals(doc.getShortName())) {
+                try {
+                    var document = doc.getDocument();
+                    var currentContent = document.getText(0, document.getLength());
+                    var projectFile = createProjectFile(doc, filename);
+                    return new FileData(currentContent, projectFile);
+                } catch (Exception e) {
+                    logger.warn("Failed to get current content for diff change history: {}", filename, e);
+                    break;
+                }
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private ProjectFile createProjectFile(BufferDocumentIF doc, String filename) {
+        var contextManager = mainPanel.getContextManager();
+        var projectRoot = contextManager.getProject().getRoot();
+
+        try {
+            if (doc instanceof FileDocument fileDoc) {
+                // Try absolute path first
+                var fullPath = Paths.get(fileDoc.getName());
+                if (fullPath.toFile().exists()) {
+                    var relativePath = projectRoot.relativize(fullPath);
+                    return new ProjectFile(projectRoot, relativePath);
+                }
+
+                // If that fails, try resolving against project root
+                var resolvedPath = projectRoot.resolve(fileDoc.getName());
+                if (resolvedPath.toFile().exists()) {
+                    var relativePath = projectRoot.relativize(resolvedPath);
+                    return new ProjectFile(projectRoot, relativePath);
+                }
+            } else {
+                var filePath = projectRoot.resolve(filename);
+                if (filePath.toFile().exists()) {
+                    return new ProjectFile(projectRoot, Paths.get(filename));
+                }
+
+                var docNamePath = Paths.get(doc.getName());
+                if (docNamePath.toFile().exists()) {
+                    var relativePath = projectRoot.relativize(docNamePath);
+                    return new ProjectFile(projectRoot, relativePath);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to create ProjectFile for {}: {}", filename, e.getMessage());
+        }
+        return null;
+    }
+
+    private void createHistoryEntry(String filename, int changeCount, String originalContent, FileData fileData) {
+        if (fileData.projectFile == null) {
+            logSimpleMessage(filename, changeCount);
+            return;
+        }
+
+        // Generate unified diff (same as PreviewTextPanel approach)
+        var originalLines = originalContent.lines().collect(Collectors.toList());
+        var currentLines = fileData.currentContent.lines().collect(Collectors.toList());
+        var patch = DiffUtils.diff(originalLines, currentLines);
+        var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(filename, filename, originalLines, patch, 3);
+
+        var actionDescription = formatDiffActionDescription(changeCount, filename);
+
+        // Create TaskResult with unified diff (same pattern as PreviewTextPanel)
+        var messagesForHistory = new ArrayList<ChatMessage>();
+        messagesForHistory.add(Messages.customSystem("Diff operation: " + actionDescription));
+        messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
+
+        var diffResult = new TaskResult(mainPanel.getContextManager(),
+                                      actionDescription,
+                                      messagesForHistory,
+                                      Set.of(fileData.projectFile),
+                                      TaskResult.StopReason.SUCCESS);
+
+        // Add to history using standard mechanism (editable file system handles undo)
+        mainPanel.getContextManager().addToHistory(diffResult, false);
+    }
+
+
+    private void logSimpleMessage(String filename, int changeCount) {
+        var message = formatDiffActionDescription(changeCount, filename);
+        mainPanel.getConsoleIO().systemOutput(message);
+    }
+
+    /**
+     * Clears all diff change tracking state.
+     * Should be called when loading a new diff or disposing the panel.
+     */
+    public void clearDiffChangeTracking() {
+        pendingDiffChanges.clear();
+        contentBeforeChanges.clear();
+    }
+
+
+    private String formatDiffActionDescription(int changeCount, String filename) {
+        return changeCount == 1
+            ? "Applied diff change to " + filename
+            : "Applied " + changeCount + " diff changes to " + filename;
+    }
+
+    /**
+     * Updates the baseline content after save to track future changes (like PreviewTextPanel).
+     * This allows multiple saves to each create history entries.
+     */
+    private void updateBaselineContentAfterSave() {
+        // Reset counters for next save cycle
+        pendingDiffChanges.clear();
+
+        // Update baseline content to current content for each tracked file
+        var updatedBaseline = new HashMap<String, String>();
+        for (var entry : contentBeforeChanges.entrySet()) {
+            var filename = entry.getKey();
+
+            // Find current content for this file
+            for (var fp : filePanels.values()) {
+                var doc = fp.getBufferDocument();
+                if (doc != null && filename.equals(doc.getShortName())) {
+                    try {
+                        var document = doc.getDocument();
+                        var currentContent = document.getText(0, document.getLength());
+                        updatedBaseline.put(filename, currentContent);
+                        break;
+                    } catch (Exception e) {
+                        logger.warn("Failed to update baseline content for {}: {}", filename, e.getMessage());
+                        // Keep old baseline if we can't read current content
+                        updatedBaseline.put(filename, entry.getValue());
+                    }
+                }
+            }
+        }
+
+        // Replace the baseline with current content
+        contentBeforeChanges.clear();
+        contentBeforeChanges.putAll(updatedBaseline);
+    }
+
+
 }

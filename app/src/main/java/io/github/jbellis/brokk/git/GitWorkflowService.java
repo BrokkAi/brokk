@@ -216,7 +216,7 @@ public final class GitWorkflowService {
 
         // 2. Decide “too big?” heuristic
         var service    = contextManager.getService();
-        var preferredModel = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
+        var preferredModel = service.getModel(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT);
         var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
         var maxTokens  = service.getMaxInputTokens(modelToUse);
         boolean useCommitMsgs = diff.length() / 3.0 > maxTokens * 0.9;

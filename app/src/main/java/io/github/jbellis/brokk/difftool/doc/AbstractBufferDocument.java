@@ -109,6 +109,30 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         return changed;
     }
 
+    /**
+     * Check if the document content matches the original saved state.
+     * If so, reset the changed flag to reflect the accurate state.
+     * This is useful after undo operations that might restore original content.
+     */
+    @Override
+    public void recheckChangedState() {
+        if (!changed) {
+            return; // Already marked as unchanged
+        }
+
+        if (document == null || content == null) {
+            return; // Cannot determine state
+        }
+
+        // Check if document has returned to original state (same length and digest)
+        boolean isOriginalState = (document.getLength() == originalLength) &&
+                                 (content.getDigest() == digest);
+
+        if (isOriginalState) {
+            changed = false;
+        }
+    }
+
     @Override
     public Line[] getLines() { // This method ensures lineArray is non-null
         initLines();

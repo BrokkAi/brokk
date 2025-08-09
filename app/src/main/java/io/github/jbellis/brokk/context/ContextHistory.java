@@ -275,14 +275,15 @@ public class ContextHistory {
             try {
                 var newContent = fragment.text();
                 var currentContent = pf.exists() ? pf.read() : "";
-                
+
                 if (!newContent.equals(currentContent)) {
-                    var restoredFiles = new ArrayList<String>();
                     pf.write(newContent);
+                    var restoredFiles = new ArrayList<String>();
                     restoredFiles.add(pf.toString());
                     if (!restoredFiles.isEmpty()) {
                         io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
                     }
+                    io.updateWorkspace();
                 }
             } catch (IOException e) {
                 io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
