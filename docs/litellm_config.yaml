@@ -192,7 +192,7 @@ model_list:
       uses_think_tags: true
       supports_reasoning: true
       supports_function_calling: true
-      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format"]
       tokens_per_minute: 8000000
 
   - model_name: gpt-5
@@ -212,7 +212,7 @@ model_list:
       uses_think_tags: true
       supports_reasoning: true
       supports_function_calling: true
-      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format"]
       tokens_per_minute: 8000000
 
   - model_name: gpt-5-mini
@@ -232,7 +232,7 @@ model_list:
       uses_think_tags: true
       supports_reasoning: true
       supports_function_calling: true
-      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format"]
       tokens_per_minute: 8000000
 
   - model_name: gpt-5-nano
@@ -252,7 +252,7 @@ model_list:
       uses_think_tags: true
       supports_reasoning: true
       supports_function_calling: true
-      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format","reasoning_effort"]
+      supported_openai_params: ["max_completion_tokens","stream", "stream_options","temperature","tools","tool_choice","function_call","functions","max_retries","extra_headers","response_format"]
       tokens_per_minute: 8000000
 
   - model_name: groq-kimi-k2
