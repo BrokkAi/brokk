@@ -9,11 +9,11 @@ import java.util.regex.PatternSyntaxException;
 
 public interface IAnalyzer {
     /**
-     * Record representing a page rank result with a code unit and its score.
+     * Record representing a code unit relevance result with a code unit and its score.
      */
-    record PageRankResult(CodeUnit unit, double score) implements Comparable<PageRankResult> {
+    record CodeUnitRelevance(CodeUnit unit, double score) implements Comparable<CodeUnitRelevance> {
         @Override
-        public int compareTo(PageRankResult other) {
+        public int compareTo(CodeUnitRelevance other) {
             int scoreComparison = Double.compare(other.score, this.score);
             return scoreComparison != 0 ? scoreComparison : this.unit.fqName().compareTo(other.unit.fqName());
         }
@@ -33,9 +33,9 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default List<PageRankResult> getPagerank(Map<String, Double> seedClassWeights,
-                                             int k,
-                                             boolean reversed) {
+    default List<CodeUnitRelevance> getPagerank(Map<String, Double> seedClassWeights,
+                                                int k,
+                                                boolean reversed) {
         throw new UnsupportedOperationException();
     }
 

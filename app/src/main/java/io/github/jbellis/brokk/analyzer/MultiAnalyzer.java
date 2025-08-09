@@ -62,7 +62,7 @@ public class MultiAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<PageRankResult> getPagerank(Map<String, Double> seedClassWeights, int k, boolean reversed) {
+    public List<CodeUnitRelevance> getPagerank(Map<String, Double> seedClassWeights, int k, boolean reversed) {
         if (seedClassWeights.isEmpty()) {
             logger.warn("MultiAnalyzer pagerank called with empty seed classes -- sub analyzer will be ~random");
         }
