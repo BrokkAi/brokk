@@ -824,7 +824,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io);
+        UndoResult result = contextHistory.undo(1, io, project);
         if (result.wasUndone()) {
             notifyContextListeners(topContext());
             project.getSessionManager().saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
@@ -839,7 +839,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitUserTask("Undoing", () -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io);
+            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -855,7 +855,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> redoContextAsync() {
         return submitUserTask("Redoing", () -> {
-            boolean wasRedone = contextHistory.redo(io);
+            boolean wasRedone = contextHistory.redo(io, project);
             if (wasRedone) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);

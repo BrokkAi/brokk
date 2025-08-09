@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.context;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -34,11 +36,14 @@ public class ContextHistory {
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
     public record GitState(String commitHash, @Nullable String diff) {}
+    public record DeletedFile(ProjectFile file, String content) {}
+    public record ContextHistoryEntryInfo(List<DeletedFile> deletedFiles) {}
 
     private final Deque<Context> history = new ArrayDeque<>();
     private final Deque<Context> redo   = new ArrayDeque<>();
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
+    private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
     private Context liveContext;
 
     /** UI-selection; never {@code null} once an initial context is set. */
@@ -53,20 +58,25 @@ public class ContextHistory {
     }
 
     public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of(), Map.of());
+        this(contexts, List.of(), Map.of(), Map.of());
     }
 
     public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of());
+        this(contexts, resetEdges, Map.of(), Map.of());
     }
 
-    public ContextHistory(List<Context> frozenContexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
+        this(contexts, resetEdges, gitStates, Map.of());
+    }
+
+    public ContextHistory(List<Context> frozenContexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates, Map<UUID, ContextHistoryEntryInfo> entryInfos) {
         if (frozenContexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
         history.addAll(frozenContexts);
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
+        this.entryInfos.putAll(entryInfos);
         this.liveContext = Context.unfreeze(castNonNull(history.peekLast()));
         selected = history.peekLast();
     }
@@ -170,7 +180,7 @@ public class ContextHistory {
         public static UndoResult success(int n)    { return new UndoResult(true, n);  }
     }
 
-    public synchronized UndoResult undo(int steps, IConsoleIO io) {
+    public synchronized UndoResult undo(int steps, IConsoleIO io, AbstractProject project) {
         if (steps <= 0 || !hasUndoStates()) {
             return UndoResult.none();
         }
@@ -179,6 +189,7 @@ public class ContextHistory {
         for (int i = 0; i < toUndo; i++) {
             var popped = history.removeLast();
             resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
+            undoFileDeletions(io, project, popped);
             redo.addLast(popped);
         }
         var newTop = history.peekLast();
@@ -188,14 +199,46 @@ public class ContextHistory {
         return UndoResult.success(toUndo);
     }
 
-    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io) {
+    private void undoFileDeletions(IConsoleIO io, AbstractProject project, Context popped) {
+        getEntryInfo(popped.id()).ifPresent(info -> {
+            if (info.deletedFiles().isEmpty()) {
+                return;
+            }
+        
+            var filesToRestore = new ArrayList<ProjectFile>();
+            for (var deletedFile : info.deletedFiles()) {
+                var pf = deletedFile.file();
+                try {
+                    pf.write(deletedFile.content());
+                    filesToRestore.add(pf);
+                } catch (IOException e) {
+                    var msg = "Failed to restore deleted file during undo: " + pf;
+                    io.toolError(msg, "Undo Error");
+                    logger.error(msg, e);
+                }
+            }
+        
+            if (!filesToRestore.isEmpty() && project.hasGit()) {
+                try {
+                    project.getRepo().add(filesToRestore);
+                    io.systemOutput("Restored and staged files: " + String.join(", ", filesToRestore.stream().map(Object::toString).toList()));
+                } catch (Exception e) {
+                    var msg = "Failed to stage restored files during undo: " + e.getMessage();
+                    io.toolError(msg, "Undo Error");
+                    logger.error(msg, e);
+                }
+            }
+        });
+    }
+
+    public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, AbstractProject project) {
         if (target == null) {
             return UndoResult.none();
         }
         var idx = indexOf(target);
         if (idx < 0) return UndoResult.none();
         var distance = history.size() - 1 - idx;
-        return distance == 0 ? UndoResult.none() : undo(distance, io);
+        return distance == 0 ? UndoResult.none() : undo(distance, io, project);
     }
 
     /**
@@ -203,7 +246,7 @@ public class ContextHistory {
      * @param io the console IO for feedback
      * @return {@code true} if something was redone.
      */
-    public synchronized boolean redo(IConsoleIO io) {
+    public synchronized boolean redo(IConsoleIO io, AbstractProject project) {
         if (redo.isEmpty()) return false;
         var popped = redo.removeLast();
         history.addLast(popped);
@@ -211,7 +254,25 @@ public class ContextHistory {
         liveContext = Context.unfreeze(castNonNull(popped));
         selected = topContext();
         applyFrozenContextToWorkspace(history.peekLast(), io);
+        redoFileDeletions(io, project, popped);
         return true;
+    }
+
+    private void redoFileDeletions(IConsoleIO io, AbstractProject project, Context popped) {
+        getEntryInfo(popped.id()).ifPresent(info -> {
+            var filesToDelete = info.deletedFiles().stream()
+                                       .map(DeletedFile::file)
+                                       .toList();
+            if (!filesToDelete.isEmpty() && project.hasGit()) {
+                try {
+                    project.getRepo().forceRemoveFiles(filesToDelete);
+                    io.systemOutput("Deleted files as part of redo: " + String.join(", ", filesToDelete.stream().map(Object::toString).toList()));
+                } catch (Exception e) {
+                    io.toolError("Failed to delete files during redo: " + e.getMessage(), "Redo error");
+                    logger.error("Failed to delete files during redo", e);
+                }
+            }
+        });
     }
 
     /* ────────────────────────── private helpers ─────────────────────────── */
@@ -220,6 +281,7 @@ public class ContextHistory {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
+            entryInfos.remove(removed.id());
             var historyIds = history.stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
@@ -256,6 +318,18 @@ public class ContextHistory {
 
     public synchronized Map<UUID, GitState> getGitStates() {
         return Map.copyOf(gitStates);
+    }
+
+    public synchronized void addEntryInfo(UUID contextId, ContextHistoryEntryInfo info) {
+        entryInfos.put(contextId, info);
+    }
+
+    public synchronized Optional<ContextHistoryEntryInfo> getEntryInfo(UUID contextId) {
+        return Optional.ofNullable(entryInfos.get(contextId));
+    }
+
+    public synchronized Map<UUID, ContextHistoryEntryInfo> getEntryInfos() {
+        return Map.copyOf(entryInfos);
     }
 
     /**
