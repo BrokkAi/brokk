@@ -13,7 +13,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.ImageUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 
@@ -147,7 +146,7 @@ public abstract class CodePrompts {
                                   <workspace_editable>
                                   You are editing A SINGLE FILE in this Workspace.
                                   This represents the current state of the file.
-                                  
+
                                   <file path="%s">
                                   %s
                                   </file>

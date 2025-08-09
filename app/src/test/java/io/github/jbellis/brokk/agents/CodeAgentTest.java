@@ -303,7 +303,7 @@ class CodeAgentTest {
         // On partial success, consecutive failures should reset, and applied count should increment.
         assertEquals(0, retryStep.loopContext().editState().consecutiveApplyFailures(), "Consecutive failures should reset on partial success");
         assertEquals(1, retryStep.loopContext().editState().blocksAppliedWithoutBuild(), "One block should have been applied");
-        
+
         // The retry message should reflect both the success and the failure.
         String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
         // Weaker assertion: just check that the name of the file that failed to apply is mentioned.
@@ -349,7 +349,7 @@ class CodeAgentTest {
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
         java.util.concurrent.atomic.AtomicInteger attempt = new java.util.concurrent.atomic.AtomicInteger(0);
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer) -> {
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             int currentAttempt = attempt.getAndIncrement();
             // Log the attempt to help diagnose mock behavior using a more visible marker
             System.out.println("[TEST DEBUG] MockShellCommandRunner: Attempt " + currentAttempt + " for command: " + cmd);
@@ -362,6 +362,7 @@ class CodeAgentTest {
             outputConsumer.accept("Build successful");
             return "Successful output";
         };
+
 
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1); // 1 block applied
 
@@ -404,9 +405,10 @@ class CodeAgentTest {
         contextManager.getProject().setBuildDetails(bd);
         contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer) -> {
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             throw new InterruptedException("Simulated interruption during shell command");
         };
+
 
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
 
@@ -457,12 +459,13 @@ class CodeAgentTest {
 
         // Make the build command fail once
         var buildAttempt = new AtomicInteger(0);
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer) -> {
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             if (buildAttempt.getAndIncrement() == 0) {
                 throw new Environment.FailureException("Build failed", "Compiler error on line 5");
             }
             return "Build successful";
         };
+
 
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
         contextManager.getProject().setBuildDetails(bd);

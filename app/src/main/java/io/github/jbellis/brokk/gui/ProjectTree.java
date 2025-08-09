@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -64,16 +63,16 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
         ProjectTreeNode rootNode = new ProjectTreeNode(projectRoot.toFile(), false);
         DefaultMutableTreeNode treeRoot = new DefaultMutableTreeNode(rootNode);
-        
+
         // Add loading placeholder initially
         treeRoot.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
-        
+
         setModel(new DefaultTreeModel(treeRoot));
         setRootVisible(true);
         setShowsRootHandles(true);
         getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         setCellRenderer(new ProjectTreeCellRenderer());
-        
+
         // Load root children immediately
         SwingUtilities.invokeLater(() -> loadChildrenForNode(treeRoot));
     }
@@ -170,7 +169,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             }
         }
     }
-    
+
     private void setupContextMenuKeyBindings() {
         InputMap inputMap = getInputMap(JComponent.WHEN_FOCUSED);
         ActionMap actionMap = getActionMap();
@@ -189,7 +188,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             }
         });
     }
-    
+
     private JPopupMenu getOrCreateContextMenu() {
         if (currentContextMenu == null) {
             currentContextMenu = new JPopupMenu();
@@ -272,7 +271,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         contextMenu.add(runTestsItem);
     }
 
-    private @NotNull JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {
+    private JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {
         var file = selectedFiles.getFirst();
         boolean hasGit = contextManager.getProject().hasGit();
         JMenuItem historyItem = new JMenuItem("Show History");
@@ -417,7 +416,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     }
 
     @Override
-    public void 
+    public void
     onTrackedFilesChanged() {
         SwingUtilities.invokeLater(() -> {
             logger.trace("FileSystem change detected, refreshing ProjectTree.");
@@ -519,7 +518,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                  loadChildrenForNode(currentNode); // This should be safe if called on EDT.
             }
         }
-        
+
         if (depth == relativePath.getNameCount()) {
             // Base case: We've traversed all path components.
             // This currentNode should be the target file/directory node.
@@ -550,7 +549,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             DefaultMutableTreeNode childNode = (DefaultMutableTreeNode) children.nextElement();
             if (childNode.getUserObject() instanceof ProjectTreeNode childPtn &&
                 childPtn.getFile().getName().equals(targetComponentName)) {
-                
+
                 if (childPtn.getFile().isDirectory()) {
                     TreePath childPath = new TreePath(childNode.getPath());
                     if (!isExpanded(childPath)) {
@@ -634,15 +633,15 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
      */
     private class ProjectTreeCellRenderer extends DefaultTreeCellRenderer {
         @Override
-        public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected, 
+        public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected,
                 boolean expanded, boolean leaf, int row, boolean hasFocus) {
-            
+
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
 
             if (value instanceof DefaultMutableTreeNode node) {
                 if (node.getUserObject() instanceof ProjectTreeNode treeNode) {
                     File file = treeNode.getFile();
-                    
+
                     // Set appropriate icon
                     if (file.isDirectory()) {
                         setIcon(expanded ? getOpenIcon() : getClosedIcon());

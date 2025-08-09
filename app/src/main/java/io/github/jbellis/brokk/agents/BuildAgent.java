@@ -4,7 +4,6 @@ import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
 import com.github.mustachejava.util.DecoratedCollection;
-import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -15,6 +14,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -241,7 +241,7 @@ public class BuildAgent {
 
                                        | Build tool        | One-liner a user could write
                                        | ----------------- | ------------------------------------------------------------------------
-                                       | **SBT**           | `sbt -error "testOnly{{#classes}} {{value}}{{/classes}}"`
+                                       | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                                        | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
                                        | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
                                        | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
@@ -274,7 +274,7 @@ public class BuildAgent {
     public String reportBuildDetails(
             @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.") String buildLintCommand,
             @P("Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.") String testAllCommand,
-            @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}} or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.") String testSomeCommand,
+            @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.") String testSomeCommand,
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)") List<String> excludedDirectories
         ) {
         // Combine baseline excluded directories with those suggested by the LLM
@@ -399,7 +399,8 @@ public class BuildAgent {
                                   ? details.testSomeCommand()
                                   : System.getenv("BRK_TESTSOME_CMD");
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
-        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}");
+        boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
+        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
 
         if (!isFilesBased && !isClassesBased) {
             logger.debug("Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}", getBuildLintAllCommand(details));
@@ -427,7 +428,15 @@ public class BuildAgent {
                 return details.buildLintCommand();
             }
 
-            targetItems = AnalyzerUtil.testFilesToFQCNs(analyzer, workspaceTestFiles);
+            var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+            if (isFqBased) {
+                targetItems = codeUnits.stream()
+                        .map(CodeUnit::fqName)
+                        .sorted()
+                        .toList();
+            } else {
+                targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
+            }
             if (targetItems.isEmpty()) {
                 logger.debug("No classes found in workspace test files for class-based template, using build/lint command: {}", details.buildLintCommand());
                 return details.buildLintCommand();
@@ -436,7 +445,8 @@ public class BuildAgent {
         }
 
         // Perform simple template interpolation
-        String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, isFilesBased);
+        String listKey = isFilesBased ? "files" : (isFqBased ? "fqclasses" : "classes");
+        String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, listKey);
         logger.debug("Interpolated test command: '{}'", interpolatedCommand);
         return interpolatedCommand;
     }
@@ -452,7 +462,7 @@ public class BuildAgent {
      * Interpolates a Mustache template with the given list of items.
      * Supports {{files}} and {{classes}} variables with {{^-last}} separators.
      */
-    private static String interpolateMustacheTemplate(String template, List<String> items, boolean isFilesBased) {
+    private static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         if (template.isEmpty()) {
             return "";
         }
@@ -462,7 +472,6 @@ public class BuildAgent {
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
 
         Map<String, Object> context = new HashMap<>();
-        String listKey = isFilesBased ? "files" : "classes";
         // Mustache.java handles null or empty lists correctly for {{#section}} blocks.
         context.put(listKey, new DecoratedCollection<>(items));
 

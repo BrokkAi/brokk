@@ -14,8 +14,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import java.util.function.BiFunction;
@@ -25,14 +27,34 @@ public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
     public static final Environment instance = new Environment();
 
+    /**
+     * Default timeout for generic shell commands.
+     */
+    public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
+
+    /**
+     * Timeout for fast git commands (status, branch, etc.).
+     */
+    public static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
+
+    /**
+     * Timeout for network-heavy git operations (fetch, clone, push, pull).
+     */
+    public static final Duration GIT_NETWORK_TIMEOUT = Duration.ofMinutes(5);
+
+    /**
+     * Unlimited timeout constant (no timeout guard).
+     */
+    public static final Duration UNLIMITED_TIMEOUT = Duration.ofNanos(Long.MAX_VALUE);
+
     @FunctionalInterface
     public interface ShellCommandRunner {
-        String run(Consumer<String> outputConsumer) throws SubprocessException, InterruptedException;
+        String run(Consumer<String> outputConsumer, Duration timeout) throws SubprocessException, InterruptedException;
     }
 
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
-            (cmd, projectRoot) -> (outputConsumer) -> runShellCommandInternal(cmd, projectRoot, outputConsumer);
+            (cmd, projectRoot) -> (outputConsumer, timeout) -> runShellCommandInternal(cmd, projectRoot, timeout, outputConsumer);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -43,40 +65,41 @@ public class Environment {
     private Environment() {
     }
 
+
+
     /**
-     * Runs a shell command using the appropriate shell for the current OS,
-     * returning combined stdout and stderr. The command is executed in the directory
-     * specified by {@code root}. Output lines are passed to the consumer as they are generated.
-     * @param command The command to execute.
-     * @param root The working directory for the command.
-     * @param outputConsumer A consumer that accepts output lines (from stdout or stderr) as they are produced.
-     * @throws SubprocessException if the command fails to start, times out, or returns a non-zero exit code.
-     * @throws InterruptedException if the thread is interrupted.
+     * Runs a shell command with a caller-specified timeout.
+     *
+     * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
      */
-    public String runShellCommand(String command, Path root, Consumer<String> outputConsumer)
+    public String runShellCommand(String command,
+                                  Path root,
+                                  Consumer<String> outputConsumer,
+                                  Duration timeout)
             throws SubprocessException, InterruptedException
     {
-        return shellCommandRunnerFactory.apply(command, root).run(outputConsumer);
+        return shellCommandRunnerFactory.apply(command, root).run(outputConsumer, timeout);
     }
 
     /**
-     * Runs a shell command with optional sandbox.
-     * When {@code sandbox} is {@code false} this is identical to
-     * {@link #runShellCommand(String, Path, Consumer)}.
+     * Runs a shell command with optional sandbox and configurable timeout.
+     *
+     * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
      */
     public String runShellCommand(String command,
                                   Path root,
                                   boolean sandbox,
-                                  Consumer<String> outputConsumer)
+                                  Consumer<String> outputConsumer,
+                                  Duration timeout)
             throws SubprocessException, InterruptedException
     {
-        if (!sandbox) {
-            return runShellCommand(command, root, outputConsumer);
-        }
-        return runShellCommandInternal(command, root, true, outputConsumer);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer);
     }
 
-    private static String runShellCommandInternal(String command, Path root, Consumer<String> outputConsumer)
+    private static String runShellCommandInternal(String command,
+                                                  Path root,
+                                                  Duration timeout,
+                                                  Consumer<String> outputConsumer)
             throws SubprocessException, InterruptedException {
         logger.debug("Running internal `{}` in `{}`", command, root);
         String shell = isWindows() ? "cmd.exe" : "/bin/sh";
@@ -100,13 +123,24 @@ public class Environment {
 
         String combinedOutput;
         try {
-            if (!process.waitFor(120, TimeUnit.SECONDS)) {
-                process.destroyForcibly(); // ensure the process is terminated
-                // Collect any output produced before timeout
+            boolean finished;
+            if (timeout.isNegative()) {
+                throw new IllegalArgumentException("Timeout duration cannot be negative: " + timeout);
+            } else if (timeout.equals(UNLIMITED_TIMEOUT)) {
+                process.waitFor();
+                finished = true;
+            } else {
+                finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            }
+
+            if (!finished) {
+                process.destroyForcibly();
                 String stdout = stdoutFuture.join();
                 String stderr = stderrFuture.join();
                 combinedOutput = formatOutput(stdout, stderr);
-                throw new TimeoutException("process '%s' did not complete within 120 seconds".formatted(command), combinedOutput);
+                throw new TimeoutException(
+                        "process '%s' did not complete within %s".formatted(command, timeout),
+                        combinedOutput);
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
@@ -116,10 +150,9 @@ public class Environment {
             throw ie; // Propagate InterruptedException
         }
 
-        // process has exited – collect whatever is left
-        String stdout = stdoutFuture.join();
-        String stderr = stderrFuture.join();
-        combinedOutput = formatOutput(stdout, stderr);
+        // process has exited – collect whatever is left with timeout to avoid indefinite blocking
+        StreamOutput streams = collectStreamOutputs(stdoutFuture, stderrFuture, command);
+        combinedOutput = formatOutput(streams.stdout(), streams.stderr());
         int exitCode = process.exitValue();
 
         if (exitCode != 0) {
@@ -135,8 +168,9 @@ public class Environment {
     private static String runShellCommandInternal(String command,
                                                   Path root,
                                                   boolean sandbox,
+                                                  Duration timeout,
                                                   Consumer<String> outputConsumer)
-            throws SubprocessException, InterruptedException 
+            throws SubprocessException, InterruptedException
     {
         logger.debug("Running internal `{}` in `{}` (sandbox={})", command, root, sandbox);
 
@@ -210,12 +244,23 @@ public class Environment {
 
         String combinedOutput;
         try {
-            if (!process.waitFor(120, TimeUnit.SECONDS)) {
+            boolean finished;
+            if (timeout.isNegative()) {
+                throw new IllegalArgumentException("Timeout duration cannot be negative: " + timeout);
+            } else if (timeout.equals(UNLIMITED_TIMEOUT)) {
+                process.waitFor();
+                finished = true;
+            } else {
+                finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+            }
+            if (!finished) {
                 process.destroyForcibly();
                 String stdout = stdoutFuture.join();
                 String stderr = stderrFuture.join();
                 combinedOutput = formatOutput(stdout, stderr);
-                throw new TimeoutException("process '%s' did not complete within 120 seconds".formatted(command), combinedOutput);
+                throw new TimeoutException(
+                        "process '%s' did not complete within %s".formatted(command, timeout),
+                        combinedOutput);
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
@@ -225,9 +270,9 @@ public class Environment {
             throw ie;
         }
 
-        String stdout = stdoutFuture.join();
-        String stderr = stderrFuture.join();
-        combinedOutput = formatOutput(stdout, stderr);
+        // collect output with timeout to avoid indefinite blocking
+        StreamOutput streams = collectStreamOutputs(stdoutFuture, stderrFuture, command);
+        combinedOutput = formatOutput(streams.stdout(), streams.stderr());
         int exitCode = process.exitValue();
 
         if (exitCode != 0) {
@@ -251,6 +296,32 @@ public class Environment {
             // The returned string will contain lines accumulated so far.
         }
         return String.join("\n", lines);
+    }
+
+    /**
+     * Record to hold stdout and stderr output from stream collection.
+     */
+    private record StreamOutput(String stdout, String stderr) {}
+
+    /**
+     * Collect stdout and stderr from futures with a timeout to avoid indefinite blocking.
+     */
+    private static StreamOutput collectStreamOutputs(CompletableFuture<String> stdoutFuture,
+                                                    CompletableFuture<String> stderrFuture,
+                                                    String command) {
+        String stdout;
+        String stderr;
+        try {
+            stdout = stdoutFuture.get(5, TimeUnit.SECONDS);
+            stderr = stderrFuture.get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.warn("Timeout or error collecting output streams for command '{}': {}", command, e.getMessage());
+            stdoutFuture.cancel(true);
+            stderrFuture.cancel(true);
+            stdout = "";
+            stderr = "Stream collection timeout or error: " + e.getMessage();
+        }
+        return new StreamOutput(stdout, stderr);
     }
 
     private static final String ANSI_ESCAPE_PATTERN = "\\x1B(?:\\[[;\\d]*[ -/]*[@-~]|\\]\\d+;[^\\x07]*\\x07)";
@@ -328,7 +399,7 @@ public class Environment {
           (sysctl-name-prefix "hw.perflevel")
         )
         """;
-    
+
     /** Escape a path for inclusion inside a seatbelt policy. */
     private static String escapeForSeatbelt(String path) {
         return path.replace("\\", "\\\\").replace("\"", "\\\"");
@@ -547,4 +618,6 @@ public class Environment {
             );
         }
     }
+
+
 }
