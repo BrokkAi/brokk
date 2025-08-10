@@ -89,18 +89,18 @@ public final class MOPWebViewHost extends JPanel {
                 if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
                     var window = (JSObject) view.getEngine().executeScript("window");
                     window.setMember("javaBridge", bridge);
-                    
+
                     // Inject JavaScript to intercept console methods and forward to Java bridge with stack traces
             view.getEngine().executeScript("""
                 (function() {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
-                    
+
                     function toStringWithStack(arg) {
                         return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
                     }
-                    
+
                     console.log = function() {
                         var msg = Array.from(arguments).map(toStringWithStack).join(' ');
                         if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
@@ -122,7 +122,14 @@ public final class MOPWebViewHost extends JPanel {
             view.getEngine().executeScript("""
                 (function() {
                     try {
-                        var factor = 0.7; // < 1 slows down, > 1 speeds up
+                        // Scroll behavior configuration
+                        var scrollSpeedFactor = 0.5;        // < 1 slows down, > 1 speeds up
+                        var smallScrollThreshold = 100;     // Most scrolling immediate
+                        var animationDuration = 0;          // No animation for wheel events
+                        var decayFactor = 0.95;             // Higher momentum retention
+
+                        var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
+                        var momentum = new Map();      // Track momentum per element
 
                         function findScrollable(el) {
                             while (el && el !== document.body && el !== document.documentElement) {
@@ -135,6 +142,42 @@ public final class MOPWebViewHost extends JPanel {
                             return document.scrollingElement || document.documentElement || document.body;
                         }
 
+                        function smoothScroll(element, targetX, targetY, duration) {
+                            duration = duration || animationDuration;
+                            var startX = element.scrollLeft;
+                            var startY = element.scrollTop;
+                            var deltaX = targetX - startX;
+                            var deltaY = targetY - startY;
+                            var startTime = performance.now();
+
+                            // Cancel any existing smooth scroll for this element
+                            var existing = smoothScrolls.get(element);
+                            if (existing) {
+                                cancelAnimationFrame(existing);
+                            }
+
+                            function animate(currentTime) {
+                                var elapsed = currentTime - startTime;
+                                var progress = Math.min(elapsed / duration, 1);
+
+                                // Ease out cubic for smooth deceleration
+                                var eased = 1 - Math.pow(1 - progress, 3);
+
+                                element.scrollLeft = startX + deltaX * eased;
+                                element.scrollTop = startY + deltaY * eased;
+
+                                if (progress < 1) {
+                                    var animId = requestAnimationFrame(animate);
+                                    smoothScrolls.set(element, animId);
+                                } else {
+                                    smoothScrolls.delete(element);
+                                }
+                            }
+
+                            var animId = requestAnimationFrame(animate);
+                            smoothScrolls.set(element, animId);
+                        }
+
                         window.addEventListener('wheel', function(ev) {
                             if (ev.ctrlKey || ev.metaKey) { return; } // let zoom gestures pass
                             var target = findScrollable(ev.target);
@@ -142,11 +185,20 @@ public final class MOPWebViewHost extends JPanel {
 
                             ev.preventDefault();
 
-                            var dx = ev.deltaX * factor;
-                            var dy = ev.deltaY * factor;
+                            var dx = ev.deltaX * scrollSpeedFactor;
+                            var dy = ev.deltaY * scrollSpeedFactor;
 
-                            if (dx) { target.scrollLeft += dx; }
-                            if (dy) { target.scrollTop += dy; }
+                            // Apply scroll immediately
+                            if (dx) {
+                                var newScrollLeft = target.scrollLeft + dx;
+                                var maxScrollLeft = target.scrollWidth - target.clientWidth;
+                                target.scrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
+                            }
+                            if (dy) {
+                                var newScrollTop = target.scrollTop + dy;
+                                var maxScrollTop = target.scrollHeight - target.clientHeight;
+                                target.scrollTop = Math.max(0, Math.min(newScrollTop, maxScrollTop));
+                            }
                         }, { passive: false, capture: true });
                     } catch (e) {
                         if (window.javaBridge) window.javaBridge.jsLog('ERROR', 'wheel override failed: ' + e);
