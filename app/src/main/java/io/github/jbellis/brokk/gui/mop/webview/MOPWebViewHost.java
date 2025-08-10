@@ -124,9 +124,8 @@ public final class MOPWebViewHost extends JPanel {
                     try {
                         // Scroll behavior configuration
                         var scrollSpeedFactor = 0.5;        // < 1 slows down, > 1 speeds up
-                        var smallScrollThreshold = 100;     // Most scrolling immediate
-                        var animationDuration = 0;          // No animation for wheel events
-                        var decayFactor = 0.95;             // Higher momentum retention
+                        var minScrollThreshold = 0.5;       // Minimum delta to process (prevents jitter)
+                        var smoothingFactor = 0.8;          // Smoothing for very small movements
 
                         var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
                         var momentum = new Map();      // Track momentum per element
@@ -188,14 +187,18 @@ public final class MOPWebViewHost extends JPanel {
                             var dx = ev.deltaX * scrollSpeedFactor;
                             var dy = ev.deltaY * scrollSpeedFactor;
 
-                            // Apply scroll immediately
+                            // Filter out very small deltas to prevent jitter
+                            if (Math.abs(dx) < minScrollThreshold) dx = 0;
+                            if (Math.abs(dy) < minScrollThreshold) dy = 0;
+
+                            // Apply scroll immediately with rounding to prevent sub-pixel issues
                             if (dx) {
-                                var newScrollLeft = target.scrollLeft + dx;
+                                var newScrollLeft = target.scrollLeft + Math.round(dx);
                                 var maxScrollLeft = target.scrollWidth - target.clientWidth;
                                 target.scrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
                             }
                             if (dy) {
-                                var newScrollTop = target.scrollTop + dy;
+                                var newScrollTop = target.scrollTop + Math.round(dy);
                                 var maxScrollTop = target.scrollHeight - target.clientHeight;
                                 target.scrollTop = Math.max(0, Math.min(newScrollTop, maxScrollTop));
                             }
