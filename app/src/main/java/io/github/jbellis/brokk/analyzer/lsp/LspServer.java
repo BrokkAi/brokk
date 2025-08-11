@@ -152,7 +152,11 @@ public abstract class LspServer {
      * @param language the target programming language.
      * @return a language client to monitor and handle server communication.
      */
-    protected abstract LanguageClient createLanguageClient(String language, , CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap);
+    protected abstract LanguageClient createLanguageClient(
+            String language,
+            CountDownLatch serverReadyLatch,
+            Map<String, CountDownLatch> workspaceReadyLatchMap
+    );
 
     protected void startServer(
             Path initialWorkspace,
