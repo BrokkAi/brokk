@@ -1,11 +1,15 @@
 package io.github.jbellis.brokk.gui.dialogs.analyzer;
 
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
 import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 
 import javax.swing.*;
 import java.awt.*;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.util.prefs.Preferences;
 
 /**
@@ -15,8 +19,12 @@ import java.util.prefs.Preferences;
  */
 public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
-    public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot) {
-        super(new BorderLayout(5, 5), language, projectRoot);
+    private static final String PREF_KEY_PREFIX = "analyzer.java.jdkHome.";
+    private final JTextField jdkHomeField = new JTextField(30);
+    private final JButton browseButton = new JButton("Browse...");
+
+    public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
+        super(new BorderLayout(5, 5), language, projectRoot, io);
         logger.debug("JavaAnalyzerConfigPanel initialised");
 
         add(new JLabel("JDK Home:"), BorderLayout.WEST);
@@ -41,11 +49,6 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
     }
 
-    private static final String PREF_KEY_PREFIX = "analyzer.java.jdkHome.";
-    private final JTextField jdkHomeField = new JTextField(30);
-    private final JButton browseButton = new JButton("Browse...");
-
-
     /* Preference-key scoped to the current project root so different projects
        can keep independent JDK selections. */
     private String getPrefKey() {
@@ -53,7 +56,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
     }
 
     private void loadSettings() {
-        Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
+        final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
         String jdkHome = prefs.get(getPrefKey(), "");
         if (jdkHome.isEmpty()) {
             jdkHome = System.getProperty("java.home");
@@ -63,12 +66,60 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
     @Override
     public void saveSettings() {
-        String value = jdkHomeField.getText().trim();
-        Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
-        prefs.put(getPrefKey(), value);
+        final String value = jdkHomeField.getText().trim();
+        if (value.isEmpty()) {
+            consoleIO.systemNotify("Please specify a valid JDK home directory.",
+                                   "Invalid JDK Path",
+                                   JOptionPane.WARNING_MESSAGE);
+            return;
+        }
 
-        /* todo A future enhancement could pass this to the analyzer so that it
-           immediately refreshes, if/when such an API is available. */
+        final Path jdkPath;
+        try {
+            jdkPath = Path.of(value).normalize().toAbsolutePath();
+        } catch (InvalidPathException ex) {
+            consoleIO.systemNotify("The path \"" + value + "\" is not a valid file-system path.",
+                                   "Invalid JDK Path",
+                                   JOptionPane.ERROR_MESSAGE);
+            logger.warn("Invalid JDK path string: {}", value, ex);
+            return;
+        }
+
+        if (!Files.isDirectory(jdkPath)) {
+            consoleIO.systemNotify("The path \"" + jdkPath + "\" does not exist or is not a directory.",
+                                   "Invalid JDK Path",
+                                   JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        final boolean hasJavac = Files.isRegularFile(jdkPath.resolve("bin/javac")) ||
+                Files.isRegularFile(jdkPath.resolve("bin/javac.exe"));
+        final boolean hasJava = Files.isRegularFile(jdkPath.resolve("bin/java")) ||
+                Files.isRegularFile(jdkPath.resolve("bin/java.exe"));
+
+        if (!hasJavac || !hasJava) {
+            consoleIO.systemNotify("The directory \"" + jdkPath + "\" does not appear to be a valid JDK home.",
+                                   "Invalid JDK Path",
+                                   JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        try {
+            // Wait synchronously so we can detect errors and notify the user immediately
+            SharedLspServer.getInstance()
+                           .updateWorkspaceJdk(projectRoot, jdkPath)
+                           .join();
+        } catch (Exception ex) {
+            consoleIO.systemNotify("Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
+                                   "JDK Update Failed",
+                                   JOptionPane.ERROR_MESSAGE);
+            logger.error("Failed updating workspace JDK to {}", jdkPath, ex);
+            return;
+        }
+
+        // Persist the preference only if everything succeeded
+        final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
+        prefs.put(getPrefKey(), value);
         logger.debug("Saved Java analyzer JDK home: {}", value);
     }
 

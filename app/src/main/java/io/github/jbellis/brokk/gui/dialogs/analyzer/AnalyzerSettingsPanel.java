@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs.analyzer;
 
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 import org.slf4j.Logger;
@@ -15,19 +16,21 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
     protected final Language language;
     protected final Path projectRoot;
+    protected final IConsoleIO consoleIO;
 
-    public AnalyzerSettingsPanel(BorderLayout borderLayout, Language language, Path projectRoot) {
+    protected AnalyzerSettingsPanel(BorderLayout borderLayout, Language language, Path projectRoot, IConsoleIO io) {
         super(borderLayout);
         this.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         this.language = language;
         this.projectRoot = projectRoot;
+        this.consoleIO = io;
     }
 
-    public static AnalyzerSettingsPanel createAnalyzersPanel(SettingsProjectPanel parent, Language language, Path projectRoot) {
+    public static AnalyzerSettingsPanel createAnalyzersPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
         if (language.internalName().equals("JAVA")) {
-            return new JavaAnalyzerSettingsPanel(parent, language, projectRoot);
+            return new JavaAnalyzerSettingsPanel(parent, language, projectRoot, io);
         } else {
-            return new EmptyAnalyzerSettingsPanel(language, projectRoot);
+            return new EmptyAnalyzerSettingsPanel(language, projectRoot, io);
         }
     }
 

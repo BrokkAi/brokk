@@ -494,8 +494,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             container.setBorder(BorderFactory.createEmptyBorder());
 
             analyzerLanguages.forEach(language -> {
-                final AnalyzerSettingsPanel panel = AnalyzerSettingsPanel
-                        .createAnalyzersPanel(SettingsProjectPanel.this, language, projectRoot);
+                final AnalyzerSettingsPanel panel = AnalyzerSettingsPanel.createAnalyzersPanel(
+                        SettingsProjectPanel.this,
+                        language,
+                        projectRoot,
+                        chrome.getContextManager().getIo()
+                );
                 analyzerSettingsPanels.add(panel);
                 final var languageLabel = new JLabel(language.name());
                 languageLabel.setHorizontalAlignment(SwingConstants.LEFT);

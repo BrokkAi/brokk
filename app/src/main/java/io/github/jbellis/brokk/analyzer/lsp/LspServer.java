@@ -481,5 +481,28 @@ public abstract class LspServer {
         whenInitialized(server -> server.getWorkspaceService().didChangeWatchedFiles(params));
     }
 
+    /**
+     * Update the active workspace so the JDT language-server builds the project
+     * with the supplied JDK. The change is applied asynchronously once the
+     * server is ready.
+     *
+     * @param jdkPath absolute path to the desired JDK directory
+     */
+    public CompletableFuture<Object> updateWorkspaceJdk(@NotNull Path workspace, @NotNull Path jdkPath) {
+        if (!Files.isDirectory(jdkPath)) {
+            logger.error("Provided JDK path is not a valid directory: {}", jdkPath);
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid JDK path."));
+        }
+
+        return query(server -> {
+            ExecuteCommandParams params = new ExecuteCommandParams(
+                    "java.project.updateJdk",
+                    // Arguments: [projectUri, jdkPath]
+                    List.of(workspace.toUri().toString(), jdkPath.toString())
+            );
+            return server.getWorkspaceService().executeCommand(params);
+        });
+    }
+
 
 }
