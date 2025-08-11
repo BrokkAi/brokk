@@ -57,7 +57,7 @@ public class SkeletonGenerator {
 
             // Find all global union CodeUnits that need fixing
             var unionsToFix = skeletons.entrySet().stream()
-                .filter(entry -> entry.getKey().kind() == CodeUnitType.CLASS)
+                .filter(entry -> entry.getKey().isClass())
                 .filter(entry -> entry.getKey().packageName().isEmpty()) // global scope only
                 .filter(entry -> entry.getValue().startsWith("union ") && !entry.getValue().contains("char*"))
                 .collect(Collectors.toList());

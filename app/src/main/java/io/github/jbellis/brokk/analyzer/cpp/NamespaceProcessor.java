@@ -25,7 +25,7 @@ public class NamespaceProcessor {
 
     public Map<CodeUnit, String> mergeNamespaceBlocks(Map<CodeUnit, String> skeletons, Map<CodeUnit, List<String>> signatures, ProjectFile file, TSNode rootNode, String fileContent, Function<String, CodeUnit> codeUnitFactory) {
         var namespaceEntries = skeletons.entrySet().stream()
-            .filter(entry -> entry.getKey().kind() == CodeUnitType.MODULE)
+            .filter(entry -> entry.getKey().isModule())
             .toList();
 
         if (namespaceEntries.isEmpty()) {
@@ -44,7 +44,7 @@ public class NamespaceProcessor {
                 var mergedNamespaces = reParseAndMergeNamespaces(file, signatures, rootNode, fileContent, codeUnitFactory);
 
                 result.entrySet().removeIf(entry ->
-                    entry.getKey().kind() == CodeUnitType.MODULE &&
+                    entry.getKey().isModule() &&
                     entry.getKey().source().equals(file));
 
                 result.putAll(mergedNamespaces);
@@ -254,11 +254,6 @@ public class NamespaceProcessor {
         }
 
         return signature;
-    }
-
-    public Map<CodeUnit, String> filterNestedDeclarations(Map<CodeUnit, String> skeletons) {
-        var result = new HashMap<>(skeletons);
-        return result;
     }
 
 

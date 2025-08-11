@@ -246,13 +246,13 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         var namespaceCodeUnits = new HashSet<CodeUnit>();
 
         for (var cu : mergedSkeletons.keySet()) {
-            if (cu.kind() == CodeUnitType.MODULE) {
+            if (cu.isModule()) {
                 namespaceCodeUnits.add(cu);
             }
         }
 
         for (var cu : baseDeclarations) {
-            if (cu.kind() != CodeUnitType.MODULE) {
+            if (!cu.isModule()) {
                 result.add(cu);
             }
         }
@@ -281,7 +281,6 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
             resultSkeletons = namespaceProcessor.mergeNamespaceBlocks(resultSkeletons, signatures, file, rootNode, fileContent,
                 namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
-            resultSkeletons = namespaceProcessor.filterNestedDeclarations(resultSkeletons);
 
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);

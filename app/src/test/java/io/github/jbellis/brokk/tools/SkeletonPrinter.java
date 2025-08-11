@@ -249,7 +249,12 @@ public class SkeletonPrinter {
                     continue;
                 }
 
-                var projectFile = singleFileProject.getAllFiles().iterator().next();
+                var projectFiles = singleFileProject.getAllFiles();
+                if (projectFiles.isEmpty()) {
+                    errors.add("No files found in project for: " + file);
+                    continue;
+                }
+                var projectFile = projectFiles.iterator().next();
 
                 filesProcessed++;
 
