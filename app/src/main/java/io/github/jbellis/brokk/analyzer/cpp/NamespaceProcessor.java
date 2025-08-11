@@ -72,7 +72,7 @@ public class NamespaceProcessor {
             CodeUnit existingCodeUnit = null;
             for (var signatureEntry : signatures.entrySet()) {
                 var cu = signatureEntry.getKey();
-                if (cu.kind() == CodeUnitType.MODULE &&
+                if (cu.isModule() &&
                     cu.source().equals(file) &&
                     cu.fqName().equals(namespaceName)) {
                     existingCodeUnit = cu;
