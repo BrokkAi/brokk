@@ -38,6 +38,11 @@ public abstract class LspServer {
     @Nullable
     private Thread shutdownHook;
 
+    /**
+     * The type of server this is, e.g, JDT
+     */
+    private final SupportedLspServer serverType;
+
     private final AtomicInteger clientCounter = new AtomicInteger(0);
     @NotNull
     private CountDownLatch serverReadyLatch = new CountDownLatch(1);
@@ -48,6 +53,10 @@ public abstract class LspServer {
     @NotNull
     public Optional<CountDownLatch> getWorkspaceReadyLatch(String workspace) {
         return Optional.ofNullable(this.workspaceReadyLatches.get(workspace));
+    }
+
+    protected LspServer(SupportedLspServer serverType) {
+        this.serverType = serverType;
     }
 
     /**
@@ -131,45 +140,21 @@ public abstract class LspServer {
         logger.info("Sent didClose notification for {}", filePath);
     }
 
+    /**
+     * @return a process builder configured to launch the implementing LSP server.
+     * @throws IOException if any work related to building the process occurs.
+     */
+    protected abstract ProcessBuilder createProcessBuilder(Path cache) throws IOException;
+
     protected void startServer(
             Path initialWorkspace,
             String language,
             Path cache,
             Map<String, Object> initializationOptions
     ) throws IOException {
-        logger.info("First client connected. Starting JDT Language Server...");
-        final Path serverHome = LspFileUtilities.unpackLspServer("jdt");
-        final Path launcherJar = LspFileUtilities.findFile(serverHome, "org.eclipse.equinox.launcher_");
-        final Path configDir = LspFileUtilities.findConfigDir(serverHome);
+        logger.info("First client connected. Starting {} Language Server...", serverType.name());
 
-        final ProcessBuilder pb = new ProcessBuilder(
-                "java",
-                // Java module system args for compatibility
-                "--add-modules=ALL-SYSTEM",
-                "--add-opens=java.base/java.util=ALL-UNNAMED",
-                "--add-opens=java.base/java.lang=ALL-UNNAMED",
-                "--add-opens=java.base/sun.nio.fs=ALL-UNNAMED",
-                // Eclipse/OSGi launchers
-                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
-                "-Dosgi.bundles.defaultStartLevel=4",
-                "-Declipse.product=org.eclipse.jdt.ls.core.product",
-                "-Dlog.level=ALL",
-                // JDT LSP arguments
-                "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
-                "-DDetectVMInstallsJob.disabled=true",
-                // Memory arguments
-                "-Xmx2g",
-                "-Xms100m",
-                "-XX:+UseParallelGC",
-                "-XX:GCTimeRatio=4",
-                "-XX:AdaptiveSizePolicyWeight=90",
-                "-XX:+UseStringDeduplication",
-                "-Dsun.zip.disableMemoryMapping=true",
-                // Running the JAR
-                "-jar", launcherJar.toString(),
-                "-configuration", configDir.toString(),
-                "-data", cache.toString()
-        );
+        final ProcessBuilder pb = createProcessBuilder(cache);
         // In case the JVM doesn't shut down gracefully. If graceful shutdown is successful, this is removed. 
         // See LspServer::shutdown
         this.shutdownHook = new Thread(() -> {
@@ -209,7 +194,7 @@ public abstract class LspServer {
         params.setInitializationOptions(initializationOptions);
 
         final var capabilities = getCapabilities();
-        logger.trace("Setting JDT capabilities {}", capabilities);
+        logger.trace("Setting {} capabilities {}", serverType.name(), capabilities);
         params.setCapabilities(capabilities);
 
         if (!this.serverProcess.isAlive()) {
@@ -343,7 +328,7 @@ public abstract class LspServer {
     }
 
     /**
-     * Registers a new client (JdtAnalyzer instance). Starts the server if this is the first client.
+     * Registers a new client (e.g., JdtAnalyzer instance). Starts the server if this is the first client.
      *
      * @param projectPath     The workspace path for the new client.
      * @param excludePatterns A set of glob patterns to exclude for this workspace.
@@ -482,7 +467,7 @@ public abstract class LspServer {
     }
 
     /**
-     * Update the active workspace so the JDT language-server builds the project
+     * Update the active workspace so the LSP language-server builds the project
      * with the supplied JDK. The change is applied asynchronously once the
      * server is ready.
      *

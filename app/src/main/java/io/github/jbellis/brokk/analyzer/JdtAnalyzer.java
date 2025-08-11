@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
-import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
 import org.eclipse.lsp4j.SymbolKind;
@@ -24,7 +24,7 @@ public class JdtAnalyzer implements LspAnalyzer {
     @NotNull
     private final String workspace;
     @NotNull
-    private final SharedLspServer sharedServer;
+    private final SharedJdtLspServer sharedServer;
     private boolean useEclipseBuildFiles = false;
 
     /**
@@ -45,7 +45,7 @@ public class JdtAnalyzer implements LspAnalyzer {
                 logger.warn("Error validating and creating project build files for: {}. Attempting to continue.", projectRoot, e);
             }
             this.workspace = this.projectRoot.toUri().toString();
-            this.sharedServer = SharedLspServer.getInstance();
+            this.sharedServer = SharedJdtLspServer.getInstance();
             this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions(), getLanguage());
             this.sharedServer.refreshWorkspace().join();
             try {

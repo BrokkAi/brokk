@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.gui.dialogs.analyzer;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.lsp.SharedLspServer;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 
 import javax.swing.*;
@@ -106,7 +106,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
         try {
             // Wait synchronously so we can detect errors and notify the user immediately
-            SharedLspServer.getInstance()
+            SharedJdtLspServer.getInstance()
                            .updateWorkspaceJdk(projectRoot, jdkPath)
                            .join();
         } catch (Exception ex) {
