@@ -26,7 +26,7 @@ public class SkeletonGenerator {
         try {
 
             var enumsToFix = skeletons.entrySet().stream()
-                .filter(entry -> entry.getKey().kind() == CodeUnitType.CLASS)
+                .filter(entry -> entry.getKey().isClass())
                 .filter(entry -> entry.getKey().packageName().isEmpty())
                 .filter(entry -> entry.getValue().startsWith("enum ") && entry.getValue().contains("{\n}"))
                 .collect(Collectors.toList());
