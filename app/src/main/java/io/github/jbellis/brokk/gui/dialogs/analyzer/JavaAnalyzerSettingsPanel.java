@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.dialogs.analyzer;
 
-import io.github.jbellis.brokk.analyzer.JavaAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 
@@ -30,9 +29,9 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         loadSettings();
 
         browseButton.addActionListener(e -> {
-            var chooser = new javax.swing.JFileChooser();
-            chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
-            if (chooser.showOpenDialog(parent) == javax.swing.JFileChooser.APPROVE_OPTION) {
+            var chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(parent) == JFileChooser.APPROVE_OPTION) {
                 jdkHomeField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
         });
