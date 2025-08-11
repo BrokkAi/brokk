@@ -1,5 +1,7 @@
 {
-    "bin": {"brokk": "jdeploy-bundle/jdeploy.js"},
+    "bin": {
+        "brokk": "jdeploy-bundle/jdeploy.js"
+    },
     "author": "Brokk Team",
     "description": "AI for large codebases. Brokk is a tool that helps you understand and navigate large codebases using AI.",
     "main": "index.js",
@@ -8,12 +10,16 @@
     "version": "1.0.0",
     "jdeploy": {
         "jdk": false,
-        "args": ["--add-modules jdk.incubator.vector"],
-        "publishTargets": [{
-            "name": "github: brokk",
-            "type": "GITHUB",
-            "url": "https://github.com/shannah/brokk"
-        }],
+        "args": [
+            "--add-modules jdk.incubator.vector"
+        ],
+        "publishTargets": [
+            {
+                "name": "github: brokk",
+                "type": "GITHUB",
+                "url": "https://github.com/shannah/brokk"
+            }
+        ],
         "javaVersion": "21",
         "jar": "app/build/libs/brokk-*.jar",
         "javafx": false,
@@ -22,12 +28,17 @@
     "dependencies": {
         "command-exists-promise": "^2.0.2",
         "node-fetch": "2.6.7",
+        "normalize-wheel-es": "^1.2.0",
+        "shelljs": "^0.8.4",
         "tar": "^4.4.8",
-        "yauzl": "^2.10.0",
-        "shelljs": "^0.8.4"
+        "yauzl": "^2.10.0"
     },
     "license": "GPL-3.0-only",
     "name": "brokk",
-    "files": ["jdeploy-bundle"],
-    "scripts": {"test": "echo \"Error: no test specified\" && exit 1"}
+    "files": [
+        "jdeploy-bundle"
+    ],
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    }
 }

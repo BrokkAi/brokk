@@ -122,13 +122,48 @@ public final class MOPWebViewHost extends JPanel {
             view.getEngine().executeScript("""
                 (function() {
                     try {
-                        // Scroll behavior configuration
-                        var scrollSpeedFactor = 0.5;        // < 1 slows down, > 1 speeds up
-                        var minScrollThreshold = 0.5;       // Minimum delta to process (prevents jitter)
-                        var smoothingFactor = 0.8;          // Smoothing for very small movements
+                        // Normalize wheel implementation (based on Facebook's Fixed Data Table)
+                        function normalizeWheel(event) {
+                            var spinX = 0, spinY = 0, pixelX = 0, pixelY = 0;
 
-                        var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
-                        var momentum = new Map();      // Track momentum per element
+                            // Legacy
+                            if ('detail' in event) { spinY = event.detail; }
+                            if ('wheelDelta' in event) { spinY = -event.wheelDelta / 120; }
+                            if ('wheelDeltaY' in event) { spinY = -event.wheelDeltaY / 120; }
+                            if ('wheelDeltaX' in event) { spinX = -event.wheelDeltaX / 120; }
+
+                            // side scrolling on FF with DOMMouseScroll
+                            if ('axis' in event && event.axis === event.HORIZONTAL_AXIS) {
+                                spinX = spinY;
+                                spinY = 0;
+                            }
+
+                            pixelX = spinX * 10;
+                            pixelY = spinY * 10;
+
+                            if ('deltaY' in event) { pixelY = event.deltaY; }
+                            if ('deltaX' in event) { pixelX = event.deltaX; }
+
+                            if ((pixelX || pixelY) && event.deltaMode) {
+                                if (event.deltaMode == 1) { // delta in LINE units
+                                    pixelX *= 40;
+                                    pixelY *= 40;
+                                } else { // delta in PAGE units
+                                    pixelX *= 800;
+                                    pixelY *= 800;
+                                }
+                            }
+
+                            // Fall-back if spin cannot be determined
+                            if (pixelX && !spinX) { spinX = (pixelX < 1) ? -1 : 1; }
+                            if (pixelY && !spinY) { spinY = (pixelY < 1) ? -1 : 1; }
+
+                            return { spinX: spinX, spinY: spinY, pixelX: pixelX, pixelY: pixelY };
+                        }
+
+                        // Scroll configuration
+                        var scrollSpeedFactor = 0.8;           // Speed factor after normalization
+                        var minScrollThreshold = 1.5;          // min threshold to allow smooth slow scrolling
 
                         function findScrollable(el) {
                             while (el && el !== document.body && el !== document.documentElement) {
@@ -141,42 +176,6 @@ public final class MOPWebViewHost extends JPanel {
                             return document.scrollingElement || document.documentElement || document.body;
                         }
 
-                        function smoothScroll(element, targetX, targetY, duration) {
-                            duration = duration || animationDuration;
-                            var startX = element.scrollLeft;
-                            var startY = element.scrollTop;
-                            var deltaX = targetX - startX;
-                            var deltaY = targetY - startY;
-                            var startTime = performance.now();
-
-                            // Cancel any existing smooth scroll for this element
-                            var existing = smoothScrolls.get(element);
-                            if (existing) {
-                                cancelAnimationFrame(existing);
-                            }
-
-                            function animate(currentTime) {
-                                var elapsed = currentTime - startTime;
-                                var progress = Math.min(elapsed / duration, 1);
-
-                                // Ease out cubic for smooth deceleration
-                                var eased = 1 - Math.pow(1 - progress, 3);
-
-                                element.scrollLeft = startX + deltaX * eased;
-                                element.scrollTop = startY + deltaY * eased;
-
-                                if (progress < 1) {
-                                    var animId = requestAnimationFrame(animate);
-                                    smoothScrolls.set(element, animId);
-                                } else {
-                                    smoothScrolls.delete(element);
-                                }
-                            }
-
-                            var animId = requestAnimationFrame(animate);
-                            smoothScrolls.set(element, animId);
-                        }
-
                         window.addEventListener('wheel', function(ev) {
                             if (ev.ctrlKey || ev.metaKey) { return; } // let zoom gestures pass
                             var target = findScrollable(ev.target);
@@ -184,22 +183,24 @@ public final class MOPWebViewHost extends JPanel {
 
                             ev.preventDefault();
 
-                            var dx = ev.deltaX * scrollSpeedFactor;
-                            var dy = ev.deltaY * scrollSpeedFactor;
+                            // Normalize the wheel event
+                            var normalized = normalizeWheel(ev);
+                            var dx = normalized.pixelX * scrollSpeedFactor;
+                            var dy = normalized.pixelY * scrollSpeedFactor;
 
-                            // Filter out very small deltas to prevent jitter
+                            // Filter out small movements
                             if (Math.abs(dx) < minScrollThreshold) dx = 0;
                             if (Math.abs(dy) < minScrollThreshold) dy = 0;
 
-                            // Apply scroll immediately with rounding to prevent sub-pixel issues
+                            // Apply scroll directly with simple boundary clamping
                             if (dx) {
-                                var newScrollLeft = target.scrollLeft + Math.round(dx);
                                 var maxScrollLeft = target.scrollWidth - target.clientWidth;
+                                var newScrollLeft = target.scrollLeft + dx;
                                 target.scrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
                             }
                             if (dy) {
-                                var newScrollTop = target.scrollTop + Math.round(dy);
                                 var maxScrollTop = target.scrollHeight - target.clientHeight;
+                                var newScrollTop = target.scrollTop + dy;
                                 target.scrollTop = Math.max(0, Math.min(newScrollTop, maxScrollTop));
                             }
                         }, { passive: false, capture: true });
