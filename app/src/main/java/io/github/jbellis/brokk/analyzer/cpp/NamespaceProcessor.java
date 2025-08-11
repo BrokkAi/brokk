@@ -13,6 +13,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
+
 public class NamespaceProcessor {
     private static final Logger log = LogManager.getLogger(NamespaceProcessor.class);
 
@@ -90,7 +92,7 @@ public class NamespaceProcessor {
     }
 
     private List<NamespaceBlock> findAllNamespaceBlocks(TSNode rootNode, String fileContent) {
-        var namespaceNodes = ASTTraversalUtils.findAllNodesByType(rootNode, "namespace_definition");
+        var namespaceNodes = ASTTraversalUtils.findAllNodesByType(rootNode, NAMESPACE_DEFINITION);
         var namespaceBlocks = new ArrayList<NamespaceBlock>();
 
         for (var node : namespaceNodes) {
@@ -131,40 +133,40 @@ public class NamespaceProcessor {
 
             String childType = child.getType();
 
-            if ("function_definition".equals(childType)) {
+            if (FUNCTION_DEFINITION.equals(childType)) {
                 var signature = extractFunctionSignature(child, fileContent);
                 if (!signature.trim().isEmpty()) {
                     skeletons.add(signature + "  {...}");
                 }
             }
-            else if ("enum_specifier".equals(childType)) {
+            else if (ENUM_SPECIFIER.equals(childType)) {
                 var enumSkeleton = extractEnumSkeletonFromNode(child, fileContent);
                 if (!enumSkeleton.isEmpty()) {
                     skeletons.add(enumSkeleton);
                 }
             }
-            else if ("class_specifier".equals(childType) || "struct_specifier".equals(childType)) {
+            else if (CLASS_SPECIFIER.equals(childType) || STRUCT_SPECIFIER.equals(childType)) {
                 var classDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!classDecl.isEmpty()) {
                     skeletons.add(classDecl);
                 }
             }
-            else if ("union_specifier".equals(childType)) {
+            else if (UNION_SPECIFIER.equals(childType)) {
                 var unionDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!unionDecl.isEmpty()) {
                     skeletons.add(unionDecl);
                 }
             }
-            else if ("type_definition".equals(childType) || "alias_declaration".equals(childType)) {
+            else if (TYPE_DEFINITION.equals(childType) || ALIAS_DECLARATION.equals(childType)) {
                 var typeDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!typeDecl.isEmpty()) {
                     skeletons.add(typeDecl);
                 }
             }
-            else if ("declaration".equals(childType) ||
-                     "field_declaration".equals(childType) ||
-                     "using_declaration".equals(childType) ||
-                     "typedef_declaration".equals(childType)) {
+            else if (DECLARATION.equals(childType) ||
+                     FIELD_DECLARATION.equals(childType) ||
+                     USING_DECLARATION.equals(childType) ||
+                     TYPEDEF_DECLARATION.equals(childType)) {
                 var declaration = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!declaration.isEmpty()) {
                     if (!declaration.endsWith(";") && !declaration.endsWith("}")) {
@@ -246,9 +248,9 @@ public class NamespaceProcessor {
             if (child == null || child.isNull()) continue;
 
             String childType = child.getType();
-            if ("noexcept_specifier".equals(childType) ||
-                "trailing_return_type".equals(childType) ||
-                "virtual_specifier".equals(childType)) {
+            if (NOEXCEPT_SPECIFIER.equals(childType) ||
+                TRAILING_RETURN_TYPE.equals(childType) ||
+                VIRTUAL_SPECIFIER.equals(childType)) {
                 signature += " " + ASTTraversalUtils.extractNodeText(child, fileContent);
             }
         }

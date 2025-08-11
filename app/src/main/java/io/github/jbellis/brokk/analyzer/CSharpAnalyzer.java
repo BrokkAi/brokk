@@ -9,13 +9,15 @@ import org.treesitter.TreeSitterCSharp;
 import java.util.Collections;
 import java.util.Set;
 
+import static io.github.jbellis.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
+
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CSharpAnalyzer.class);
 
     private static final LanguageSyntaxProfile CS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_declaration", "interface_declaration", "struct_declaration", "record_declaration", "record_struct_declaration"),
-            Set.of("method_declaration", "constructor_declaration", "local_function_statement"),
-            Set.of("field_declaration", "property_declaration", "event_field_declaration"),
+            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, STRUCT_DECLARATION, RECORD_DECLARATION, RECORD_STRUCT_DECLARATION),
+            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION, LOCAL_FUNCTION_STATEMENT),
+            Set.of(FIELD_DECLARATION, PROPERTY_DECLARATION, EVENT_FIELD_DECLARATION),
             Set.of("attribute_list"),
             "name",
             "body",
@@ -148,7 +150,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         TSNode current = definitionNode.getParent();
 
         while (current != null && !current.isNull() && !current.equals(rootNode)) {
-            if ("namespace_declaration".equals(current.getType())) {
+            if (NAMESPACE_DECLARATION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     String nsPart = textSlice(nameNode, src);
@@ -173,7 +175,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         // In C#, only actual field declarations need semicolons, not properties
         // Properties look like: public string Name { get; set; }
         // Fields look like: public string name;
-        if ("field_declaration".equals(fieldNode.getType()) && !fullSignature.endsWith(";")) {
+        if (FIELD_DECLARATION.equals(fieldNode.getType()) && !fullSignature.endsWith(";")) {
             fullSignature += ";";
         }
 

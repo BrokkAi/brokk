@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import static java.util.Optional.*;
+import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LogManager.getLogger(CppTreeSitterAnalyzer.class);
@@ -54,10 +55,10 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile CPP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_specifier", "struct_specifier", "union_specifier", "enum_specifier", "namespace_definition"),
-            Set.of("function_definition", "method_definition", "constructor_declaration", "destructor_declaration", "declaration"),
-            Set.of("field_declaration", "parameter_declaration", "enumerator"),
-            Set.of("attribute_specifier", "access_specifier"),
+            Set.of(CLASS_SPECIFIER, STRUCT_SPECIFIER, UNION_SPECIFIER, ENUM_SPECIFIER, NAMESPACE_DEFINITION),
+            Set.of(FUNCTION_DEFINITION, METHOD_DEFINITION, CONSTRUCTOR_DECLARATION, DESTRUCTOR_DECLARATION, DECLARATION),
+            Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
+            Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
             "name",
             "body",
             "parameters",
@@ -65,7 +66,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             "template_parameters",
             createCaptureConfiguration(),
             "",
-            Set.of("storage_class_specifier", "type_qualifier", "access_specifier")
+            Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER)
     );
 
     public CppTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
@@ -154,7 +155,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             }
             current = parent;
 
-            if ("namespace_definition".equals(current.getType())) {
+            if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 var nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     namespaceParts.add(ASTTraversalUtils.extractNodeText(nameNode, src));
@@ -421,7 +422,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
-        if ("namespace_definition".equals(decl.getType())) {
+        if (NAMESPACE_DEFINITION.equals(decl.getType())) {
             TSNode nameNode = decl.getChildByFieldName("name");
             if (nameNode == null || nameNode.isNull()) {
                 return Optional.of("(anonymous)");
@@ -430,7 +431,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             return Optional.of(name);
         }
 
-        if ("function_definition".equals(decl.getType())) {
+        if (FUNCTION_DEFINITION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
             if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
@@ -443,8 +444,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        if ("declaration".equals(decl.getType()) || "method_definition".equals(decl.getType()) ||
-            "constructor_declaration".equals(decl.getType()) || "destructor_declaration".equals(decl.getType())) {
+        if (DECLARATION.equals(decl.getType()) || METHOD_DEFINITION.equals(decl.getType()) ||
+            CONSTRUCTOR_DECLARATION.equals(decl.getType()) || DESTRUCTOR_DECLARATION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
             if (declaratorNode != null) {
                 if ("function_declarator".equals(declaratorNode.getType())) {

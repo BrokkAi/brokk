@@ -11,6 +11,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
+import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
+
 public class SkeletonGenerator {
     private static final Logger log = LogManager.getLogger(SkeletonGenerator.class);
 
@@ -35,7 +37,7 @@ public class SkeletonGenerator {
                 var enumCodeUnit = enumEntry.getKey();
                 var enumName = enumCodeUnit.fqName();
 
-                var enumNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, "enum_specifier", enumName, fileContent);
+                var enumNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, ENUM_SPECIFIER, enumName, fileContent);
                 if (enumNode != null) {
                     var enumSkeleton = extractEnumSkeleton(enumNode, enumName, fileContent);
                     if (!enumSkeleton.isEmpty()) {
@@ -67,7 +69,7 @@ public class SkeletonGenerator {
                 var unionName = unionCodeUnit.fqName();
 
                 // Find the union_specifier node in the AST
-                var unionNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, "union_specifier", unionName, fileContent);
+                var unionNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, UNION_SPECIFIER, unionName, fileContent);
                 if (unionNode != null) {
                     // Extract full union content
                     var unionSkeleton = extractUnionSkeleton(unionNode, unionName, fileContent);
@@ -96,7 +98,7 @@ public class SkeletonGenerator {
             // Extract each field declaration
             for (int i = 0; i < bodyNode.getChildCount(); i++) {
                 var child = bodyNode.getChild(i);
-                if (child != null && !child.isNull() && "field_declaration".equals(child.getType())) {
+                if (child != null && !child.isNull() && FIELD_DECLARATION.equals(child.getType())) {
                     // Get the full field declaration text
                     var fieldText = ASTTraversalUtils.extractNodeText(child, fileContent);
                     if (!fieldText.isEmpty()) {
@@ -129,7 +131,7 @@ public class SkeletonGenerator {
             // Extract each enumerator name
             for (int i = 0; i < bodyNode.getChildCount(); i++) {
                 var child = bodyNode.getChild(i);
-                if (child != null && !child.isNull() && "enumerator".equals(child.getType())) {
+                if (child != null && !child.isNull() && ENUMERATOR.equals(child.getType())) {
                     // Get the name of the enumerator (before any '=' assignment)
                     var nameNode = child.getChildByFieldName("name");
                     if (nameNode != null && !nameNode.isNull()) {
@@ -189,7 +191,7 @@ public class SkeletonGenerator {
             // Extract each enumerator name
             for (int i = 0; i < bodyNode.getChildCount(); i++) {
                 var child = bodyNode.getChild(i);
-                if (child != null && !child.isNull() && "enumerator".equals(child.getType())) {
+                if (child != null && !child.isNull() && ENUMERATOR.equals(child.getType())) {
                     // Get the name of the enumerator (before any '=' assignment)
                     var enumeratorNameNode = child.getChildByFieldName("name");
                     if (enumeratorNameNode != null && !enumeratorNameNode.isNull()) {
