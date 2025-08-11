@@ -748,23 +748,6 @@ public class HistoryOutputPanel extends JPanel {
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         llmStreamArea.setText(newOutput);
     }
-    
-    /**
-     * Sets the text in the LLM output area
-     */
-    public void setLlmOutputAndCompact(ContextFragment.TaskFragment output, boolean forceScrollToTop) {
-        // this is called by the context selection listener, but when we just finished streaming a response
-        // we don't want scroll-to-top behavior (forceScrollToTop will be false in this case)
-        setLlmOutput(output);
-        llmStreamArea.scheduleCompaction().thenRun(
-                () -> {
-                    if (forceScrollToTop) {
-                        // Scroll to the top
-                        SwingUtilities.invokeLater(() -> castNonNull(llmScrollPane.getVerticalScrollBar()).setValue(0));
-                    }
-                }
-        );
-    }
 
     /**
      * Appends text to the LLM output area
@@ -917,11 +900,6 @@ public class HistoryOutputPanel extends JPanel {
 
             // Add the content panel to the frame
             add(contentPanel);
-            
-            if (!isBlockingMode) {
-                // Schedule compaction after everything is set up
-                outputPanel.scheduleCompaction();
-            }
             outputPanel.setBlocking(isBlockingMode);
 
             // Load saved size and position, or use defaults

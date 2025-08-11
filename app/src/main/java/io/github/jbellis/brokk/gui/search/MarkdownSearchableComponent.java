@@ -2,10 +2,6 @@ package io.github.jbellis.brokk.gui.search;
 
 import io.github.jbellis.brokk.difftool.ui.JMHighlightPainter;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import io.github.jbellis.brokk.gui.mop.stream.HtmlCustomizer;
-import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
-import io.github.jbellis.brokk.gui.mop.stream.TextNodeMarkerCustomizer;
-import io.github.jbellis.brokk.gui.mop.util.ComponentUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -16,8 +12,6 @@ import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
-import java.util.IdentityHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -35,7 +29,7 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
     private static final boolean DEBUG_SEARCH_COLLECTION = false;
 
     // Constants for configuration
-    private static final boolean REQUIRE_WHOLE_WORD = false; // Don't require whole word matching for better search experience
+    // private static final boolean REQUIRE_WHOLE_WORD = false; // Don't require whole word matching for better search experience
 
     private final List<MarkdownOutputPanel> panels;
     private final MarkdownSearchDebugger debugger;
@@ -123,54 +117,17 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
         this.allMatches.clear();
         this.codeSearchComponents.clear();
 
-        // Don't highlight code components here - they will be recreated when markdown is re-rendered
-        // We'll handle code highlighting in handleSearchComplete after markdown rendering is done
+        // TODO: Reimplement for new MOP
 
-        // Create search customizer for Markdown content
-        HtmlCustomizer searchCustomizer = new TextNodeMarkerCustomizer(
-            finalSearchTerm,
-            caseSensitive,
-            REQUIRE_WHOLE_WORD,
-            "<span class=\"" + SearchConstants.SEARCH_HIGHLIGHT_CLASS + "\">",
-            "</span>"
-        );
-
-        // Track how many panels need to be processed for Markdown highlighting
-        var panelCount = panels.size();
-        if (panelCount == 0) {
-            handleSearchComplete(); // No panels, complete immediately
-            return;
-        }
-        var remainingMarkdownOperations = new AtomicInteger(panelCount);
-
-        // Apply customizer to all panels for Markdown
-        for (MarkdownOutputPanel panel : panels) {
-            Runnable processMarkdownSearchResults = () -> {
-                if (remainingMarkdownOperations.decrementAndGet() == 0) {
-                    handleSearchComplete(); // All Markdown highlighting done, now consolidate
-                }
-            };
-
-            // No render listener needed for initial scroll
-            try {
-                panel.setHtmlCustomizerWithCallback(searchCustomizer, processMarkdownSearchResults);
-            } catch (Exception e) {
-                logger.error("Error applying search customizer to panel for Markdown", e);
-                notifySearchError("Search failed during Markdown highlighting: " + e.getMessage());
-                // Even if one panel fails, try to complete with what we have
-                if (remainingMarkdownOperations.decrementAndGet() == 0) {
-                    handleSearchComplete();
-                }
-            }
-        }
+        handleSearchComplete();
     }
 
     @Override
     public void clearHighlights() {
         // Clear Markdown highlights
-        for (MarkdownOutputPanel panel : panels) {
-            panel.setHtmlCustomizer(HtmlCustomizer.DEFAULT);
-        }
+
+        // TODO: Reimplement for new MOP (code areas not needed any more)
+
         // Clear code highlights
         for (RTextAreaSearchableComponent codeComp : codeSearchComponents) {
             codeComp.clearHighlights();
@@ -255,15 +212,8 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
     }
 
     private void updateMarkdownMarkerStyle(int markerId, boolean isCurrent) {
-        SwingUtilities.invokeLater(() -> { // Ensure UI updates on EDT
-            for (MarkdownOutputPanel panel : panels) {
-                panel.renderers().forEach(renderer -> {
-                    if (renderer.findByMarkerId(markerId).isPresent()) {
-                        renderer.updateMarkerStyle(markerId, isCurrent);
-                    }
-                });
-            }
-        });
+        logger.trace("updateMarkdownMarkerStyle: {} {}", markerId, isCurrent);
+        // TODO: reimplement for new MOP
     }
 
     private void updateCurrentMatchHighlighting() {
@@ -425,59 +375,6 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
         allMatches.addAll(tempMatches);
     }
 
-    private void collectMatchesFromComponent(Component comp, IncrementalBlockRenderer renderer,
-                                           int panelIdx, int rendererIdx, int compVisOrder,
-                                           AtomicInteger subComponentCounter, List<SearchMatch> tempMatches,
-                                           IdentityHashMap<Component, Boolean> processedComponents) {
-
-        // Skip if we've already processed this component
-        if (processedComponents.containsKey(comp)) {
-            return;
-        }
-
-        // Mark this component as processed
-        processedComponents.put(comp, true);
-
-        // Debug: Show all available marker IDs at the renderer level for the first component
-        if (compVisOrder == 0 && comp instanceof JEditorPane) {
-            debugger.logRendererDebug(panelIdx, rendererIdx, renderer);
-        }
-
-        // Check if this component itself has matches
-        if (comp instanceof JEditorPane editor) {
-            // Try both indexed markers and direct DOM scanning
-            collectMarkdownMatches(editor, renderer, panelIdx, rendererIdx, compVisOrder, subComponentCounter, tempMatches);
-        } else if (comp instanceof JLabel label) {
-            // Try both indexed markers and direct DOM scanning
-            collectMarkdownMatches(label, renderer, panelIdx, rendererIdx, compVisOrder, subComponentCounter, tempMatches);
-        } else if (comp instanceof RSyntaxTextArea textArea) {
-            // Code matches
-            RTextAreaSearchableComponent rsc = codeSearchComponents.stream()
-                .filter(cs -> cs.getComponent() == textArea)
-                .findFirst().orElse(null);
-
-            if (rsc != null) {
-                List<int[]> ranges = countMatchesInTextArea(textArea, currentSearchTerm, currentCaseSensitive);
-                if (!ranges.isEmpty()) {
-                    // All ranges within this component share the same sub-component index
-                    int subIdx = subComponentCounter.getAndIncrement();
-                    for (int[] range : ranges) {
-                        tempMatches.add(new CodeSearchMatch(rsc, range[0], range[1], textArea, panelIdx, rendererIdx, compVisOrder, subIdx));
-                    }
-                }
-            }
-        }
-
-        // Recursively check children
-        if (comp instanceof Container container) {
-            Component[] children = container.getComponents();
-            for (Component child : children) {
-                collectMatchesFromComponent(child, renderer, panelIdx, rendererIdx, compVisOrder, subComponentCounter, tempMatches, processedComponents);
-            }
-        }
-    }
-
-
     private boolean canNavigate() {
         return !allMatches.isEmpty() && currentMatchIndex >= 0;
     }
@@ -511,141 +408,89 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
     }
 
     /**
-     * Collect markdown matches for a component using both indexed markers and direct DOM scanning.
-     */
-    private void collectMarkdownMatches(JComponent component, IncrementalBlockRenderer renderer,
-                                      int panelIdx, int rendererIdx, int compVisOrder,
-                                      AtomicInteger subComponentCounter, List<SearchMatch> tempMatches) {
-
-        // Get all markers for this component from both sources
-        var indexedMarkerIds = renderer.getIndexedMarkerIds();
-        var directMarkerIds = findMarkersInComponentText(component);
-
-        // Collect all markers that belong to this component
-        var componentMarkers = new ArrayList<Integer>();
-        var foundIndexedMarkers = new ArrayList<Integer>();
-        var foundDirectMarkers = new ArrayList<Integer>();
-
-        // Check indexed markers
-        for (int markerId : indexedMarkerIds) {
-            Component foundComponent = renderer.findByMarkerId(markerId).orElse(null);
-            if (foundComponent == component) {
-                componentMarkers.add(markerId);
-                foundIndexedMarkers.add(markerId);
-            }
-        }
-
-        // Check direct markers (only add if not already found via indexing)
-        for (int markerId : directMarkerIds) {
-            boolean alreadyFound = indexedMarkerIds.contains(markerId) &&
-                                  renderer.findByMarkerId(markerId).orElse(null) == component;
-            if (!alreadyFound) {
-                componentMarkers.add(markerId);
-                foundDirectMarkers.add(markerId);
-            }
-        }
-
-        // Sort all markers by ID to ensure correct document order
-        componentMarkers.sort(Integer::compareTo);
-
-        // Now add them to tempMatches in the correct order
-        for (int markerId : componentMarkers) {
-            int subIdx = subComponentCounter.getAndIncrement();
-            tempMatches.add(new MarkdownSearchMatch(markerId, component, panelIdx, rendererIdx, compVisOrder, subIdx));
-        }
-
-        debugger.logMarkdownMatches(component, panelIdx, rendererIdx, compVisOrder,
-                                   foundIndexedMarkers, foundDirectMarkers, componentMarkers);
-
-        var detailedMarkers = findDetailedMarkersInComponentText(component);
-        debugger.logDetailedMarkerContext(component, foundIndexedMarkers, foundDirectMarkers,
-                                        componentMarkers, detailedMarkers);
-    }
-
-    /**
      * Find marker IDs by scanning the component's HTML text directly.
      */
-    private Set<Integer> findMarkersInComponentText(JComponent component) {
-        var markerIds = new HashSet<Integer>();
-
-        try {
-            String htmlText = "";
-            if (component instanceof JEditorPane editor) {
-                htmlText = editor.getText();
-            } else if (component instanceof JLabel label) {
-                htmlText = label.getText();
-            }
-
-            if (htmlText == null || htmlText.isEmpty()) {
-                return markerIds;
-            }
-
-            // Look for data-brokk-id attributes in the HTML
-            Pattern pattern = Pattern.compile("data-brokk-id=\"(\\d+)\"");
-            Matcher matcher = pattern.matcher(htmlText);
-
-            while (matcher.find()) {
-                try {
-                    int markerId = Integer.parseInt(matcher.group(1));
-                    markerIds.add(markerId);
-                } catch (NumberFormatException e) {
-                    // Skip invalid marker IDs
-                }
-            }
-
-        } catch (Exception e) {
-            logger.warn("Error scanning component text for markers", e);
-        }
-
-        return markerIds;
-    }
+//    private Set<Integer> findMarkersInComponentText(JComponent component) {
+//        var markerIds = new HashSet<Integer>();
+//
+//        try {
+//            String htmlText = "";
+//            if (component instanceof JEditorPane editor) {
+//                htmlText = editor.getText();
+//            } else if (component instanceof JLabel label) {
+//                htmlText = label.getText();
+//            }
+//
+//            if (htmlText == null || htmlText.isEmpty()) {
+//                return markerIds;
+//            }
+//
+//            // Look for data-brokk-id attributes in the HTML
+//            Pattern pattern = Pattern.compile("data-brokk-id=\"(\\d+)\"");
+//            Matcher matcher = pattern.matcher(htmlText);
+//
+//            while (matcher.find()) {
+//                try {
+//                    int markerId = Integer.parseInt(matcher.group(1));
+//                    markerIds.add(markerId);
+//                } catch (NumberFormatException e) {
+//                    // Skip invalid marker IDs
+//                }
+//            }
+//
+//        } catch (Exception e) {
+//            logger.warn("Error scanning component text for markers", e);
+//        }
+//
+//        return markerIds;
+//    }
 
     /**
      * Find detailed marker information including surrounding HTML context.
      */
-    private List<MarkdownSearchDebugger.MarkerInfo> findDetailedMarkersInComponentText(JComponent component) {
-        var markers = new ArrayList<MarkdownSearchDebugger.MarkerInfo>();
-
-        try {
-            String htmlText = "";
-            if (component instanceof JEditorPane editor) {
-                htmlText = editor.getText();
-            } else if (component instanceof JLabel label) {
-                htmlText = label.getText();
-            }
-
-            if (htmlText == null || htmlText.isEmpty()) {
-                return markers;
-            }
-
-            // Look for complete marker tags with surrounding context
-            Pattern pattern = Pattern.compile(
-                "(.{0,30})<[^>]*data-brokk-id=\"(\\d+)\"[^>]*>([^<]*)</[^>]*>(.{0,30})"
-            );
-            Matcher matcher = pattern.matcher(htmlText);
-
-            while (matcher.find()) {
-                try {
-                    int markerId = Integer.parseInt(matcher.group(2));
-                    String before = matcher.group(1);
-                    String content = matcher.group(3);
-                    String after = matcher.group(4);
-
-                    markers.add(new MarkdownSearchDebugger.MarkerInfo(markerId, before, content, after, matcher.start()));
-                } catch (NumberFormatException e) {
-                    // Skip invalid marker IDs
-                }
-            }
-
-            // Sort by position in text
-            markers.sort((a, b) -> Integer.compare(a.position(), b.position()));
-
-        } catch (Exception e) {
-            logger.warn("Error scanning component text for detailed markers", e);
-        }
-
-        return markers;
-    }
+//    private List<MarkdownSearchDebugger.MarkerInfo> findDetailedMarkersInComponentText(JComponent component) {
+//        var markers = new ArrayList<MarkdownSearchDebugger.MarkerInfo>();
+//
+//        try {
+//            String htmlText = "";
+//            if (component instanceof JEditorPane editor) {
+//                htmlText = editor.getText();
+//            } else if (component instanceof JLabel label) {
+//                htmlText = label.getText();
+//            }
+//
+//            if (htmlText == null || htmlText.isEmpty()) {
+//                return markers;
+//            }
+//
+//            // Look for complete marker tags with surrounding context
+//            Pattern pattern = Pattern.compile(
+//                "(.{0,30})<[^>]*data-brokk-id=\"(\\d+)\"[^>]*>([^<]*)</[^>]*>(.{0,30})"
+//            );
+//            Matcher matcher = pattern.matcher(htmlText);
+//
+//            while (matcher.find()) {
+//                try {
+//                    int markerId = Integer.parseInt(matcher.group(2));
+//                    String before = matcher.group(1);
+//                    String content = matcher.group(3);
+//                    String after = matcher.group(4);
+//
+//                    markers.add(new MarkdownSearchDebugger.MarkerInfo(markerId, before, content, after, matcher.start()));
+//                } catch (NumberFormatException e) {
+//                    // Skip invalid marker IDs
+//                }
+//            }
+//
+//            // Sort by position in text
+//            markers.sort((a, b) -> Integer.compare(a.position(), b.position()));
+//
+//        } catch (Exception e) {
+//            logger.warn("Error scanning component text for detailed markers", e);
+//        }
+//
+//        return markers;
+//    }
 
 
     /**

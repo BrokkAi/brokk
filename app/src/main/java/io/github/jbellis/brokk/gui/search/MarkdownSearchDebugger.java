@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.search;
 
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -66,21 +65,6 @@ public class MarkdownSearchDebugger {
                        case MarkdownSearchMatch ignored -> 0;
                    },
                    firstMatch.actualUiComponent().getBounds());
-    }
-
-    /**
-     * Logs renderer debug information.
-     */
-    public void logRendererDebug(int panelIdx, int rendererIdx, IncrementalBlockRenderer renderer) {
-        if (!debugEnabled) return;
-
-        var allMarkerIds = renderer.getIndexedMarkerIds();
-        logger.debug("RENDERER DEBUG: [P:{},R:{}] has {} indexed markers: {}",
-                   panelIdx, rendererIdx, allMarkerIds.size(),
-                   allMarkerIds.stream()
-                       .sorted()
-                       .map(String::valueOf)
-                       .collect(java.util.stream.Collectors.joining(", ")));
     }
 
     /**

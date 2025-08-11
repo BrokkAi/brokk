@@ -366,7 +366,6 @@ public class SessionsDialog extends JDialog {
         } else {
             markdownOutputPanel.clear();
         }
-        markdownOutputPanel.scheduleCompaction().thenRun(() -> SwingUtilities.invokeLater(() -> markdownScrollPane.getViewport().setViewPosition(new Point(0, 0))));;
     }
 
     private void clearPreviewPanels() {

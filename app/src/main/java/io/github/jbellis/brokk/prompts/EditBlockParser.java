@@ -9,7 +9,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.stream.Stream;
-import static io.github.jbellis.brokk.gui.mop.stream.flex.EditBlockUtils.*;
+import static io.github.jbellis.brokk.prompts.EditBlockUtils.*;
 
 public class EditBlockParser {
     public static EditBlockParser instance = new EditBlockParser();
