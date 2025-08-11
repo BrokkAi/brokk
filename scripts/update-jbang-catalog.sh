@@ -16,17 +16,20 @@ MAX_VERSIONS="${3:-3}"
 REPO_SLUG_OVERRIDE="${4:-}"
 
 if [ -z "$VERSION" ]; then
-    # Try to get the latest git tag
+    # Try to get the latest version-like git tag from remote (starts with digit or 'v' followed by digit)
     if command -v git &> /dev/null && git rev-parse --git-dir &> /dev/null; then
-        VERSION=$(git describe --tags --abbrev=0 2>/dev/null)
+        echo "Fetching remote tags..."
+        git fetch --tags origin 2>/dev/null || echo "Warning: Could not fetch remote tags, using local tags"
+        VERSION=$(git tag -l | grep -E '^v?[0-9]' | sort -V | tail -n1)
         if [ -n "$VERSION" ]; then
-            echo "No version specified, using latest git tag: $VERSION"
+            echo "No version specified, using latest version tag: $VERSION"
         else
-            echo "Error: No version specified and no git tags found"
+            echo "Error: No version specified and no version-like git tags found"
             echo "Usage: $0 [version] [catalog-file] [max-versions] [repo-slug]"
             echo "Example: $0 0.12.4-M1"
             echo "Example: $0 0.12.4-M1 jbang-catalog.json 3 myuser/mybrokk"
-            echo "If no version is provided, the latest git tag will be used"
+            echo "If no version is provided, the latest version-like git tag will be used"
+            echo "Version tags should start with a digit (e.g., 0.12.4) or 'v' + digit (e.g., v0.12.4)"
             exit 1
         fi
     else
@@ -112,31 +115,53 @@ NEW_ENTRY=$(jq -n --arg version "brokk-$VERSION" --arg url "$JAR_URL" '{
     }
 }')
 
-# Process the catalog: update main alias, keep previous main + 2 other previous versions
-jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson max "$MAX_VERSIONS" '
-    # Extract the current main version from its URL to create a versioned alias
-    (.aliases.brokk."script-ref" | match(".*/download/([^/]+)/.*").captures[0].string) as $current_main_version |
+# Get all available versions and group by generation (major.minor)
+ALL_VERSIONS=$(git tag -l | grep -E '^v?[0-9]' | sort -V)
+
+# Get current version's major.minor.patch prefix
+CURRENT_PREFIX=$(echo "$VERSION" | sed -E 's/^v?([0-9]+\.[0-9]+\.[0-9]+).*$/\1/')
+
+# Get latest version from each minor series, excluding current series entirely
+VERSIONS_TO_KEEP=$(echo "$ALL_VERSIONS" | \
+    awk -F'.' -v current_prefix="$CURRENT_PREFIX" '
+    {
+        # Extract major.minor.patch prefix (pad with .0 if needed)
+        if (NF >= 3) {
+            prefix = $1 "." $2 "." $3
+        } else if (NF == 2) {
+            prefix = $1 "." $2 ".0"
+        } else {
+            prefix = $0 ".0.0"
+        }
+        # Skip versions from the current series
+        if (prefix != current_prefix) {
+            # Store the latest version for each prefix series
+            versions[prefix] = $0
+        }
+    }
+    END {
+        # Output all series, sorted by version
+        for (prefix in versions) {
+            print versions[prefix]
+        }
+    }' | sort -rV | head -n $((MAX_VERSIONS - 1)))
+
+
+# Process the catalog: update main alias, keep the most recent N-1 other versions
+jq --arg url "$JAR_URL" --arg new_version "brokk-$VERSION" --arg repo_slug "$REPO_SLUG" --argjson versions_to_keep "$(echo "$VERSIONS_TO_KEEP" | jq -R -s 'split("\n") | map(select(length > 0))')" '
     # Update main brokk alias to point to new version
     .aliases.brokk."script-ref" = $url |
-    # Get existing versioned aliases (excluding main "brokk" and the new version)
-    ([.aliases | to_entries | .[] |
-      select(.key | startswith("brokk-")) |
-      select(.key != "brokk") |
-      select(.key != $new_version)] |
-     sort_by(.key | gsub("brokk-"; "") | split(".") | map(tonumber? // 0)) |
-     .[-($max-1):]) as $previous |
-    # Create previous main version alias
-    ("brokk-" + $current_main_version) as $previous_main_key |
-    # Rebuild the aliases object with proper structure
-    .aliases = (
-        {"brokk": .aliases.brokk} +
-        {($previous_main_key): {
-            "script-ref": ("https://github.com/" + $repo_slug + "/releases/download/" + $current_main_version + "/brokk-" + $current_main_version + ".jar"),
+    # Create version aliases for the versions we want to keep
+    ($versions_to_keep | map({
+        key: ("brokk-" + .),
+        value: {
+            "script-ref": ("https://github.com/" + $repo_slug + "/releases/download/" + . + "/brokk-" + . + ".jar"),
             "java": "21",
             "java-options": ["--add-modules=jdk.incubator.vector"]
-        }} +
-        (($previous | reverse) | from_entries)
-    )
+        }
+    }) | from_entries) as $version_aliases |
+    # Rebuild the aliases object
+    .aliases = ({"brokk": .aliases.brokk} + $version_aliases)
 ' "$CATALOG_FILE" > "${CATALOG_FILE}.tmp"
 
 # Move the updated file back

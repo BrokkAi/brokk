@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.prompts;
 
-import static io.github.jbellis.brokk.gui.mop.stream.flex.EditBlockUtils.*;
+import static io.github.jbellis.brokk.prompts.EditBlockUtils.*;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;

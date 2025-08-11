@@ -473,7 +473,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
           workspacePanel.setWorkspaceEditable(isEditable);
           if (updateOutput) {
             if (ctx.getParsedOutput() != null) {
-              historyOutputPanel.setLlmOutputAndCompact(ctx.getParsedOutput(), true);
+              historyOutputPanel.setLlmOutput(ctx.getParsedOutput());
             } else {
               historyOutputPanel.clearLlmOutput();
             }
@@ -985,7 +985,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var markdownPanel = MarkdownOutputPool.instance().borrow();
         markdownPanel.updateTheme(themeManager.isDarkTheme());
         markdownPanel.setText(combinedMessages);
-        markdownPanel.scheduleCompaction();
 
         // Use shared utility method to create searchable content panel without scroll pane
         JPanel previewContentPanel =

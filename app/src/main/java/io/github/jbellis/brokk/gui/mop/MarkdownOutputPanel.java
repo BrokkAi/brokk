@@ -8,8 +8,6 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.gui.mop.stream.HtmlCustomizer;
-import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
 import io.github.jbellis.brokk.gui.mop.webview.MOPWebViewHost;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -18,11 +16,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Stream;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jsoup.nodes.Element;
 
 /**
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern,
@@ -214,23 +210,5 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
   public void dispose() {
     logger.debug("Disposing WebViewMarkdownOutputPanel.");
     webHost.dispose();
-  }
-
-  // TODO: drop the unneeded methods later (they are just here to let the code compile)
-  public CompletableFuture<Void> scheduleCompaction() {
-    return CompletableFuture.completedFuture(null);
-  }
-
-  public Stream<IncrementalBlockRenderer> renderers() {
-    return Stream.empty();
-  }
-
-  public void setHtmlCustomizerWithCallback(HtmlCustomizer customizer, Runnable callback) {
-    callback.run();
-    customizer.customize(new Element("body"));
-  }
-
-  public void setHtmlCustomizer(HtmlCustomizer customizer) {
-    customizer.customize(new Element("body"));
   }
 }
