@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.util.FileUtils;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.eclipse.lsp4j.launch.LSPLauncher;
+import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageServer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -146,6 +147,13 @@ public abstract class LspServer {
      */
     protected abstract ProcessBuilder createProcessBuilder(Path cache) throws IOException;
 
+    /**
+     *
+     * @param language the target programming language.
+     * @return a language client to monitor and handle server communication.
+     */
+    protected abstract LanguageClient createLanguageClient(String language, , CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap);
+
     protected void startServer(
             Path initialWorkspace,
             String language,
@@ -178,7 +186,7 @@ public abstract class LspServer {
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
         final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
-                new SimpleLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches),
+                createLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches),
                 serverProcess.getInputStream(),
                 serverProcess.getOutputStream(),
                 this.lspExecutor,

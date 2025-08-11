@@ -3,10 +3,12 @@ package io.github.jbellis.brokk.analyzer.lsp.jdt;
 import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
+import org.eclipse.lsp4j.services.LanguageClient;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * Manages a single, shared instance of the JDT Language Server process.
@@ -58,5 +60,14 @@ public final class SharedJdtLspServer extends LspServer {
                 "-configuration", configDir.toString(),
                 "-data", cache.toString()
         );
+    }
+
+    @Override
+    protected LanguageClient createLanguageClient(
+            String language,
+            CountDownLatch serverReadyLatch,
+            Map<String, CountDownLatch> workspaceReadyLatchMap
+    ) {
+        return new JdtLanguageClient(language, serverReadyLatch, workspaceReadyLatchMap);
     }
 }

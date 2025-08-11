@@ -1,5 +1,7 @@
-package io.github.jbellis.brokk.analyzer.lsp;
+package io.github.jbellis.brokk.analyzer.lsp.jdt;
 
+import io.github.jbellis.brokk.analyzer.lsp.LspServer;
+import io.github.jbellis.brokk.analyzer.lsp.LspStatus;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.services.LanguageClient;
@@ -15,15 +17,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 
-public final class SimpleLanguageClient implements LanguageClient {
+public final class JdtLanguageClient implements LanguageClient {
 
-    private final Logger logger = LoggerFactory.getLogger(SimpleLanguageClient.class);
+    private final Logger logger = LoggerFactory.getLogger(JdtLanguageClient.class);
     private final CountDownLatch serverReadyLatch;
     private final Map<String, CountDownLatch> workspaceReadyLatchMap;
     private final String language;
     private final int ERROR_LOG_LINE_LIMIT = 4;
 
-    public SimpleLanguageClient(
+    public JdtLanguageClient(
             String language,
             CountDownLatch serverReadyLatch,
             Map<String, CountDownLatch> workspaceReadyLatchMap) {
