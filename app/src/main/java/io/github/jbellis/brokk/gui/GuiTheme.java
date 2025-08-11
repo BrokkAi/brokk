@@ -7,7 +7,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.Theme;
 
-import javax.annotation.Nullable;
+import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
@@ -230,7 +230,7 @@ public class GuiTheme {
      */
     private void registerCustomIcons(boolean isDark) {
         String iconBase = isDark ? "/icons/dark/" : "/icons/light/";
-        
+
         try {
             // Try to discover icons from the resource directory
             var iconUrl = GuiTheme.class.getResource(iconBase);
@@ -242,7 +242,7 @@ public class GuiTheme {
                     int dotIndex = filename.lastIndexOf('.');
                     String keyName = (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
                     String iconKey = "Brokk." + keyName;
-                    
+
                     registerIcon(iconKey, iconFile);
                 }
                 logger.debug("Registered {} custom icons for {} theme", iconFiles.size(), isDark ? "dark" : "light");
@@ -262,7 +262,7 @@ public class GuiTheme {
      */
     private List<String> discoverIconFiles(URL directoryUrl, String iconBase) {
         var iconFiles = new ArrayList<String>();
-        
+
         try {
             String protocol = directoryUrl.getProtocol();
             if (protocol == null) {
@@ -316,7 +316,7 @@ public class GuiTheme {
         } catch (Exception e) {
             logger.warn("Error scanning icon directory {}: {}", directoryUrl, e.getMessage());
         }
-        
+
         return iconFiles;
     }
 

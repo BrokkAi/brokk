@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.Environment;
@@ -782,54 +783,7 @@ public class ArchitectAgent {
                                                    new AiMessage("Potentially relevant files:\n" + summaries)));
             contextManager.addToHistory(new TaskResult(contextManager, "Scan for relevant files", messages, Set.of(), TaskResult.StopReason.SUCCESS), false);
         } else {
-            addToWorkspace(recommendationResult);
-        }
-    }
-
-    private void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
-        logger.debug("Recommended context fits within final budget.");
-        List<ContextFragment> selected = recommendationResult.fragments();
-        // Group selected fragments by type
-        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
-
-        // Process ProjectPathFragments
-        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
-                .map(ContextFragment.ProjectPathFragment.class::cast)
-                .toList();
-        if (!pathFragments.isEmpty()) {
-            logger.debug("Adding selected ProjectPathFragments: {}", pathFragments.stream().map(ContextFragment.ProjectPathFragment::shortDescription).collect(Collectors.joining(", ")));
-            contextManager.editFiles(pathFragments);
-        }
-
-        // Process SkeletonFragments
-        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
-                .map(ContextFragment.SkeletonFragment.class::cast)
-                .toList();
-
-        if (!skeletonFragments.isEmpty()) {
-            // For CLASS_SKELETON, collect all target FQNs.
-            // For FILE_SKELETONS, collect all target file paths.
-            // Create one fragment per type.
-            List<String> classTargetFqns = skeletonFragments.stream()
-                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.CLASS_SKELETON)
-                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
-                    .distinct()
-                    .toList();
-
-            List<String> fileTargetPaths = skeletonFragments.stream()
-                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
-                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
-                    .distinct()
-                    .toList();
-
-            if (!classTargetFqns.isEmpty()) {
-                logger.debug("Adding combined SkeletonFragment for classes: {}", classTargetFqns);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, classTargetFqns, ContextFragment.SummaryType.CLASS_SKELETON));
-            }
-            if (!fileTargetPaths.isEmpty()) {
-                logger.debug("Adding combined SkeletonFragment for files: {}", fileTargetPaths);
-                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, fileTargetPaths, ContextFragment.SummaryType.FILE_SKELETONS));
-            }
+            WorkspaceTools.addToWorkspace(contextManager, recommendationResult);
         }
     }
 
@@ -885,8 +839,9 @@ public class ArchitectAgent {
         messages.addAll(precomputedWorkspaceMessages);
 
         // Add auto-context as a separate message/ack pair
-        var acFragment = contextManager.liveContext().buildAutoContext(10);
-        String topClassesRaw = acFragment.text();
+        var topClassesRaw = contextManager.getAnalyzerWrapper().isCpg()
+                ? contextManager.liveContext().buildAutoContext(10).text()
+                : "";
         if (!topClassesRaw.isBlank()) {
             var topClassesText = """
                            <related_classes>

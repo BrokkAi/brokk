@@ -32,6 +32,9 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 /**
  * Manages dynamically loaded models via LiteLLM.
  * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
@@ -202,7 +205,7 @@ public class Service {
     // Model name constants
     public static final String O3 = "o3";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
-    public static final String GROK_3_MINI = "grok-3-mini-beta";
+    public static final String GPT_5_MINI = "gpt-5-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -529,8 +532,10 @@ public class Service {
                     logger.debug("Discovered model: {} -> {} with info {})",
                                  modelName, modelLocation, immutableModelInfo);
 
-                    // Only add chat models to the available locations for selection
-                    if ("chat".equals(immutableModelInfo.get("mode"))) {
+                    // Only add chat models (not STT) to the available locations for selection
+                    if ("chat".equals(immutableModelInfo.get("mode"))
+                        || "responses".equals(immutableModelInfo.get("mode")))
+                    {
                          locationsTarget.put(modelName, modelLocation);
                          logger.debug("Added chat model {} to available locations.", modelName);
                     } else {
@@ -560,13 +565,18 @@ public class Service {
      */
     private int getMaxOutputTokens(String location) {
         var info = getModelInfo(location);
+
+        Integer value;
         if (info == null || !info.containsKey("max_output_tokens")) {
             logger.warn("max_output_tokens not found for model location: {}", location);
-            return 8192;
+            value = 8192;
+        } else {
+            value = (Integer) info.get("max_output_tokens");
         }
-        var value = info.get("max_output_tokens");
-        assert value instanceof Integer;
-        return (Integer) value;
+
+        // some models can output a lot of tokens, but if you ask for them it gets subtracted from the input budget
+        int floor = min(8192, value);
+        return max(floor, min(32768, value / 8));
     }
 
     /**
@@ -618,8 +628,12 @@ public class Service {
             logger.warn("Location not found for model name {}, assuming no tool_choice=required support", modelName);
             return false;
         }
+        var info = getModelInfo(location);
+        if (info == null || !info.containsKey("supports_tool_choice")) {
+            return false;
+        }
 
-        return !location.contains("claude") && !location.contains("deepseek-reasoner");
+        return (Boolean) info.get("supports_tool_choice");
     }
 
     /**
@@ -709,7 +723,7 @@ public class Service {
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
-        params = params.maxOutputTokens(getMaxOutputTokens(location));
+        params = params.maxCompletionTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             // Non-Brokk proxy
@@ -733,13 +747,6 @@ public class Service {
             params = params.overrideWith(parametersOverride.build());
         }
         builder.defaultRequestParameters(params.build());
-
-        if (modelName.contains("sonnet")) {
-            // "Claude 3.7 Sonnet may be less likely to make parallel tool calls in a response,
-            // even when you have not set disable_parallel_tool_use. To work around this, we recommend
-            // enabling token-efficient tool use, which helps encourage Claude to use parallel tools."
-            builder = builder.customHeaders(Map.of("anthropic-beta", "token-efficient-tools-2025-02-19,output-128k-2025-02-19"));
-        }
 
         return builder.build();
     }
@@ -774,26 +781,21 @@ public class Service {
 
     public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
-        return !(modelName.contains("3-7-sonnet") || modelName.contains("gemini-2.5-pro"));
+        return !(modelName.contains("sonnet") || modelName.contains("gemini-2.5-pro"));
     }
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
 
-        // first check litellm metadata
+        var info = getModelInfo(location);
         if (info == null) {
              logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
              return true;
         }
-        var b = info.get("supports_function_calling");
-        if (!(b instanceof Boolean bVal) || !bVal) {
-            // if it doesn't support function calling then we need to emulate
-            return true;
-        }
 
-        // gemini and grok-3 support function calling but not parallel calls
-        return location.contains("grok-3");
+        // if it doesn't support function calling then we need to emulate
+        var b = info.get("supports_function_calling");
+        return !(b instanceof Boolean bVal) || !bVal;
     }
 
     private @Nullable Map<String, Object> getModelInfo(String location) {
@@ -808,8 +810,12 @@ public class Service {
     public boolean supportsParallelCalls(StreamingChatModel model) {
         // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with that
         // that serial calls is the lesser evil
+        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can do parallel calls
         var location = model.defaultRequestParameters().modelName();
-        return !location.contains("gemini") && !location.contains("o3") && !location.contains("o4-mini");
+        return !location.contains("gemini")
+                && !location.contains("o3")
+                && !location.contains("o4-mini")
+                && !location.contains("gpt-5");
     }
 
     /**
@@ -1098,10 +1104,10 @@ public class Service {
             String proxyUrl = MainProject.getProxyUrl();
             String endpoint = proxyUrl + "/audio/transcriptions";
 
-            var authHeader = "Bearer dummy-key"; // Default for non-Brokk
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+            var authHeader = "Bearer dummy-key"; // Default for LOCALHOST (no auth)
+            if (MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST) {
                 var kp = parseKey(MainProject.getBrokkKey());
-                authHeader = "Bearer " + kp.token;
+                authHeader = "Bearer " + kp.token();
             }
 
             Request request = new Request.Builder()

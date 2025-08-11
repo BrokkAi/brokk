@@ -393,7 +393,7 @@ public class Llm {
             while (System.currentTimeMillis() < endTime) {
                 long remain = endTime - System.currentTimeMillis();
                 if (remain <= 0) break;
-                io.actionOutput("Retrying in %.1f seconds...".formatted(remain / 1000.0));
+                io.systemOutput("Retrying in %.1f seconds...".formatted(remain / 1000.0));
                 Thread.sleep(Math.min(remain, 100));
             }
         }

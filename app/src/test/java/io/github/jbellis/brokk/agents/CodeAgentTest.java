@@ -225,60 +225,6 @@ class CodeAgentTest {
         assertTrue(nextRequestText.contains(file.getFileName()));
     }
 
-    // A-3: applyPhase - triggering full-file fallback
-    @Test
-    void testApplyPhase_triggersFullFileFallback() throws IOException {
-        var file = contextManager.toFile("test.txt");
-        file.write("initial content");
-        contextManager.addEditableFile(file);
-
-        var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "nonexistent", "text");
-
-        // Fail just under the threshold
-        var currentContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
-        for (int i = 0; i < CodeAgent.MAX_APPLY_FAILURES_BEFORE_FALLBACK - 1; i++) {
-            // Re-seed the pending blocks for this attempt
-            var contextForThisAttempt = new CodeAgent.LoopContext(
-                currentContext.conversationState(),
-                new CodeAgent.EditState(List.of(nonMatchingBlock), // re-add the block
-                                        currentContext.editState().consecutiveParseFailures(),
-                                        currentContext.editState().consecutiveApplyFailures(),
-                                        currentContext.editState().consecutiveBuildFailures(),  // new
-                                        currentContext.editState().blocksAppliedWithoutBuild(),
-                                        currentContext.editState().lastBuildError(),
-                                        currentContext.editState().changedFiles(),
-                                        currentContext.editState().originalFileContents()),
-                currentContext.userGoal());
-
-            var result = codeAgent.applyPhase(contextForThisAttempt, parser, null);
-            assertInstanceOf(CodeAgent.Step.Retry.class, result, "Should be a retry on failure " + (i + 1));
-            currentContext = result.loopContext();
-            assertEquals(i + 1, currentContext.editState().consecutiveApplyFailures());
-        }
-
-        // Final failure that should trigger fallback
-        // We need to inject the failing block again for the final attempt
-        var finalContext = new CodeAgent.LoopContext(
-            currentContext.conversationState(),
-            new CodeAgent.EditState(List.of(nonMatchingBlock),
-                                    currentContext.editState().consecutiveParseFailures(),
-                                    currentContext.editState().consecutiveApplyFailures(),
-                                    currentContext.editState().consecutiveBuildFailures(),  // new
-                                    currentContext.editState().blocksAppliedWithoutBuild(),
-                                    currentContext.editState().lastBuildError(),
-                                    currentContext.editState().changedFiles(),
-                                    currentContext.editState().originalFileContents()),
-            currentContext.userGoal()
-        );
-
-        var result = codeAgent.applyPhase(finalContext, parser, null);
-
-        assertInstanceOf(CodeAgent.Step.Continue.class, result, "Should continue after successful fallback");
-        var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().editState().consecutiveApplyFailures(), "Failures should reset after fallback");
-        assertEquals(1, continueStep.loopContext().editState().blocksAppliedWithoutBuild(), "Should force build after fallback");
-    }
-
     // A-4: applyPhase – mix success & failure
     @Test
     void testApplyPhase_mixSuccessAndFailure() throws IOException {

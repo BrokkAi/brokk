@@ -981,7 +981,7 @@ public class ContextSerializationTest {
     @Test
     void testRoundTripSkeletonFragment() throws Exception {
         var targetIds = List.of("com.example.ClassA", "com.example.ClassB");
-        var fragment = new ContextFragment.SkeletonFragment(mockContextManager, targetIds, ContextFragment.SummaryType.CLASS_SKELETON);
+        var fragment = new ContextFragment.SkeletonFragment(mockContextManager, targetIds, ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
         var context = new Context(mockContextManager, "Test SkeletonFragment")
                 .addVirtualFragment(fragment);
@@ -999,12 +999,12 @@ public class ContextSerializationTest {
         
         if (loadedRawFragment instanceof ContextFragment.SkeletonFragment loadedFragment) {
             assertEquals(targetIds, loadedFragment.getTargetIdentifiers());
-            assertEquals(ContextFragment.SummaryType.CLASS_SKELETON, loadedFragment.getSummaryType());
+            assertEquals(ContextFragment.SummaryType.CODEUNIT_SKELETON, loadedFragment.getSummaryType());
         } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
             assertEquals(ContextFragment.FragmentType.SKELETON, loadedFrozenFragment.getType());
             assertEquals(ContextFragment.SkeletonFragment.class.getName(), loadedFrozenFragment.originalClassName());
             assertEquals(String.join(";", targetIds), loadedFrozenFragment.meta().get("targetIdentifiers"));
-            assertEquals(ContextFragment.SummaryType.CLASS_SKELETON.name(), loadedFrozenFragment.meta().get("summaryType"));
+            assertEquals(ContextFragment.SummaryType.CODEUNIT_SKELETON.name(), loadedFrozenFragment.meta().get("summaryType"));
         } else {
             fail("Expected SkeletonFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
         }

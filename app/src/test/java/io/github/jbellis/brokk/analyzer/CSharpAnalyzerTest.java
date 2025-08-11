@@ -235,7 +235,7 @@ public final class CSharpAnalyzerTest {
         // and we want to avoid complex mocking for this CSharpAnalyzer test.
         var skeletonFragment = new ContextFragment.SkeletonFragment(null,
                                                                     List.of(ifaceCU.fqName()),
-                                                                    ContextFragment.SummaryType.CLASS_SKELETON);
+                                                                    ContextFragment.SummaryType.CODEUNIT_SKELETON);
         
         // Assert that the skels map (directly from analyzer) contains the interface
         assertTrue(skels.containsKey(ifaceCU),

@@ -842,6 +842,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
 
         if (isUserEdit && !isProgrammaticChange) {
+            // Record manual edit for history tracking
+            if (bufferDocument != null) {
+                diffPanel.recordManualEdit(bufferDocument);
+            }
+
             boolean wasTyping = isActivelyTyping.getAndSet(true);
             if (!wasTyping) {
                 lastTypingStateChange = System.currentTimeMillis();
