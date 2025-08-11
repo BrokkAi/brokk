@@ -31,7 +31,7 @@ public final class GitDistance {
     /**
      * Convenience wrapper around {@link #getRecentCommits(GitRepo, int)} that chooses a
      * dynamic limit equal to 30% of the total commit count on the current branch
-     * (rounded up, with a minimum of one).
+     * (rounded up, with a minimum of 250).
      * <p>
      * This percentage-based cap scales with repository size, ensuring we neither ignore
      * too much history in large projects nor overwhelm small ones with an arbitrary
@@ -48,7 +48,7 @@ public final class GitDistance {
             return commits;
         }
 
-        final int dynamicLimit = Math.max(1, (int) Math.ceil(commits.size() * 0.30));
+        final int dynamicLimit = Math.max(250, (int) Math.ceil(commits.size() * 0.30));
         // Re-use the 90-day trimming logic in the overload
         return getRecentCommits(repo, dynamicLimit);
     }
