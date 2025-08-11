@@ -197,11 +197,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // immediately during construction, which means our own reference to it will still be null
         this.io = new IConsoleIO() {
             @Override
-            public void actionOutput(String msg) {
-                logger.info(msg);
-            }
-
-            @Override
             public void toolError(String msg, String title) {
                 logger.info(msg);
             }
@@ -545,20 +540,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return model;
         }
 
-        // Configured model is not available. Attempt fallbacks.
-        String chosenFallbackName = Service.GEMINI_2_5_PRO; // For the io.toolError message
-        model = service.getModel(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT);
+        model = service.getModel(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH);
         if (model != null) {
             io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                                          config.name(), modelTypeName, chosenFallbackName));
-            return model;
-        }
-
-        chosenFallbackName = Service.GROK_3_MINI;
-        model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.HIGH);
-        if (model != null) {
-            io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
-                                          config.name(), modelTypeName, chosenFallbackName));
+                                          config.name(), modelTypeName, Service.GPT_5_MINI));
             return model;
         }
 
@@ -799,7 +784,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io);
+        UndoResult result = contextHistory.undo(1, io, project);
         if (result.wasUndone()) {
             notifyContextListeners(topContext());
             project.getSessionManager().saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
@@ -814,7 +799,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitUserTask("Undoing", () -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io);
+            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -830,7 +815,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> redoContextAsync() {
         return submitUserTask("Redoing", () -> {
-            boolean wasRedone = contextHistory.redo(io);
+            boolean wasRedone = contextHistory.redo(io, project);
             if (wasRedone) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1133,7 +1118,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             List<String> classFqns = classes.stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
-            var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CLASS_SKELETON); // Pass IContextManager
+            var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
             io.systemOutput("Summarized " + String.join(", ", classFqns));
             summariesAdded = true;

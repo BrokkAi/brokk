@@ -612,11 +612,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void actionOutput(String msg) {
-                appendSystemMessage(msg);
-            }
-
-            @Override
             public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 appendSystemMessage(token);
             }

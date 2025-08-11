@@ -3,8 +3,8 @@ package dev.langchain4j.model.output;
 import static dev.langchain4j.internal.Utils.copy;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 
-import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
 import java.util.Objects;
@@ -17,11 +17,11 @@ import java.util.Objects;
  */
 public class Response<T> {
 
-    @NonNull
+    @NotNull
     private final T content;
     private final TokenUsage tokenUsage;
     private final FinishReason finishReason;
-    @NonNull
+    @NotNull
     private final Map<String, Object> metadata;
 
     /**
@@ -31,7 +31,7 @@ public class Response<T> {
      *
      * @param content the content to wrap.
      */
-    public Response(@NonNull T content) {
+    public Response(@NotNull T content) {
         this(content, null, null, Map.of());
     }
 
@@ -42,7 +42,7 @@ public class Response<T> {
      * @param tokenUsage   the token usage statistics, or {@code null}.
      * @param finishReason the finish reason, or {@code null}.
      */
-    public Response(@NonNull T content, TokenUsage tokenUsage, FinishReason finishReason) {
+    public Response(@NotNull T content, TokenUsage tokenUsage, FinishReason finishReason) {
         this(content, tokenUsage, finishReason, Map.of());
     }
 
@@ -54,7 +54,7 @@ public class Response<T> {
      * @param finishReason the finish reason, or {@code null}.
      * @param metadata     the response metadata, or {@code null}.
      */
-    public Response(@NonNull T content,
+    public Response(@NotNull T content,
                     TokenUsage tokenUsage,
                     FinishReason finishReason,
                     @Nullable Map<String, Object> metadata) {
@@ -69,7 +69,7 @@ public class Response<T> {
      *
      * @return the content.
      */
-    @NonNull
+    @NotNull
     public T content() {
         return content;
     }
@@ -97,7 +97,7 @@ public class Response<T> {
      *
      * @return the response metadata.
      */
-    @NonNull
+    @NotNull
     public Map<String, Object> metadata() {
         return metadata;
     }
@@ -135,8 +135,8 @@ public class Response<T> {
      * @param <T>     the type of content.
      * @return the new Response.
      */
-    @NonNull
-    public static <T> Response<T> from(@NonNull T content) {
+    @NotNull
+    public static <T> Response<T> from(@NotNull T content) {
         return new Response<>(content);
     }
 
@@ -148,8 +148,8 @@ public class Response<T> {
      * @param <T>        the type of content.
      * @return the new Response.
      */
-    @NonNull
-    public static <T> Response<T> from(@NonNull T content, TokenUsage tokenUsage) {
+    @NotNull
+    public static <T> Response<T> from(@NotNull T content, TokenUsage tokenUsage) {
         return new Response<>(content, tokenUsage, null);
     }
 
@@ -162,8 +162,8 @@ public class Response<T> {
      * @param <T>          the type of content.
      * @return the new Response.
      */
-    @NonNull
-    public static <T> Response<T> from(@NonNull T content, TokenUsage tokenUsage, FinishReason finishReason) {
+    @NotNull
+    public static <T> Response<T> from(@NotNull T content, TokenUsage tokenUsage, FinishReason finishReason) {
         return new Response<>(content, tokenUsage, finishReason);
     }
 
@@ -177,8 +177,8 @@ public class Response<T> {
      * @param <T>          the type of content.
      * @return the new Response.
      */
-    @NonNull
-    public static <T> Response<T> from(@NonNull T content,
+    @NotNull
+    public static <T> Response<T> from(@NotNull T content,
                                        TokenUsage tokenUsage,
                                        FinishReason finishReason,
                                        @Nullable Map<String, Object> metadata) {

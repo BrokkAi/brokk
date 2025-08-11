@@ -53,7 +53,7 @@ public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
     private static final int MAX_PARSE_ATTEMPTS = 3;
     @VisibleForTesting
-    static final int MAX_APPLY_FAILURES_BEFORE_FALLBACK = 3;
+    static final int MAX_APPLY_FAILURES = 3;
     /** maximum consecutive build failures before giving up */
     @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
@@ -467,133 +467,6 @@ public class CodeAgent {
     }
 
     /**
-     * Fallback mechanism when standard SEARCH/REPLACE fails repeatedly.
-     * Attempts to replace the entire content of each failed file using QuickEdit prompts.
-     * Runs replacements in parallel.
-     *
-     * @param failedBlocks      The list of blocks that failed to apply.
-     * @param originalUserInput The initial user goal for context.
-     * @param taskMessages      The list of task messages for context.
-     * @throws EditStopException if the fallback fails or is interrupted.
-     */
-    private void attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
-                                             String originalUserInput,
-                                             List<ChatMessage> taskMessages,
-                                             @Nullable Metrics metrics) throws EditStopException {
-        var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().filename() != null)
-                .collect(Collectors.groupingBy(fb -> contextManager.toFile(fb.block().filename())));
-
-        if (failuresByFile.isEmpty()) {
-            logger.debug("Fatal: no filenames present in failed blocks");
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "No filenames present in failed blocks"));
-        }
-
-        report("Attempting full file replacement for: " + failuresByFile.keySet().stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
-
-        // Prepare tasks for parallel execution
-        var tasks = failuresByFile.entrySet().stream().map(entry -> (Callable<Optional<String>>) () -> {
-            var file = entry.getKey();
-            var failuresForFile = entry.getValue();
-            try {
-                // Prepare request
-                var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, failuresForFile, goal, taskMessages);
-                var model = requireNonNull(contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT));
-                var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
-                coder.setOutput(io);
-                return executeReplace(file, coder, messages, metrics);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }).toList();
-
-        // Execute tasks with ExecutorService.invokeAll for interrupt handling
-        var executor = Executors.newFixedThreadPool(10);
-        List<Future<Optional<String>>> futures;
-        try {
-            futures = executor.invokeAll(tasks);
-        } catch (InterruptedException e) {
-            logger.debug("Interrupted during full file replacement tasks execution.");
-            Thread.currentThread().interrupt();
-            throw new EditStopException(TaskResult.StopReason.INTERRUPTED);
-        } finally {
-            executor.shutdownNow();
-        }
-
-        // Collect results
-        var actualFailureMessages = futures.stream()
-                .map(future -> {
-                    try {
-                        return future.get(); // This should not block long since invokeAll already waited
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        logger.debug("Interrupted while collecting results for full file replacement.");
-                        return Optional.of("Interrupted during result collection.");
-                    } catch (ExecutionException e) {
-                        logger.error("Error during full file replacement task", e.getCause());
-                        return Optional.of("Error: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
-                    }
-                })
-                .flatMap(Optional::stream)
-                .toList();
-
-        if (actualFailureMessages.isEmpty()) {
-            // All replacements succeeded
-            return;
-        }
-
-        // Report combined errors
-        var combinedError = String.join("\n", actualFailureMessages);
-        if (actualFailureMessages.size() < failuresByFile.size()) {
-            int succeeded = failuresByFile.size() - actualFailureMessages.size();
-            combinedError = "%d/%d files succeeded.\n".formatted(succeeded, failuresByFile.size()) + combinedError;
-        }
-        logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
-        throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s). Details:\n%s".formatted(actualFailureMessages.size(), combinedError)));
-    }
-
-    /**
-     * @return an error message, or empty if successful
-     */
-    public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages, @Nullable Metrics metrics)
-            throws InterruptedException, IOException {
-        // Send request
-        var llmStartNanos = System.nanoTime();
-        StreamingResult result = coder.sendRequest(messages, false);
-        if (metrics != null) {
-            metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
-            Optional.ofNullable(result.tokenUsage()).ifPresent(metrics::addTokens);
-            metrics.addApiRetries(result.retries());
-        }
-
-        // Process response
-        if (result.error() != null) {
-            return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
-        }
-        // If no error, result.text() is available.
-        if (result.text().isBlank()) {
-            return Optional.of("Empty LLM response for %s".formatted(file));
-        }
-
-        // Extract and apply
-        var newContent = EditBlock.extractCodeFromTripleBackticks(result.text());
-        if (newContent.isBlank()) {
-            // Allow empty if response wasn't just ``` ```
-            if (result.text().strip().equals("```\n```") || result.text().strip().equals("``` ```")) {
-                // Treat explicitly empty fenced block as success
-                newContent = "";
-            } else {
-                return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
-            }
-        }
-
-        file.write(newContent);
-        logger.debug("Successfully applied full file replacement for {}", file);
-        return Optional.empty();
-    }
-
-    /**
      * Prepares messages for storage in a TaskEntry.
      * This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI messages.
      * AI messages containing SEARCH/REPLACE blocks will have their raw text preserved,
@@ -885,25 +758,11 @@ public class CodeAgent {
                     updatedConsecutiveApplyFailures = 0;
                 }
 
-                if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES_BEFORE_FALLBACK) {
-                    report("Apply failure limit reached (%d), attempting full file replacement fallback.".formatted(updatedConsecutiveApplyFailures));
-                    List<EditBlock.FailedBlock> blocksForFallback = List.copyOf(failedBlocks);
-                    attemptFullFileReplacements(blocksForFallback, currentLoopContext.userGoal(), cs.taskMessages(), metrics);
-                    // If attemptFullFileReplacements succeeds, it doesn't throw. If it fails, it throws EditStopException caught below.
-                    report("Full file replacement fallback successful.");
-
-                    // Update changedFiles with files modified by fallback
-                    Set<ProjectFile> updatedChangedFiles = new HashSet<>(ws.changedFiles());
-                    blocksForFallback.stream()
-                            .filter(fb -> fb.block().filename() != null) // Ensure filename is not null
-                            .map(fb -> contextManager.toFile(requireNonNull(fb.block().filename()))) // Now safe to call requireNonNull
-                            .forEach(updatedChangedFiles::add);
-
-                    UserMessage placeholderPrompt = new UserMessage("[Placeholder: Build errors will be inserted here by verifyPhase if build fails after this full file replacement]");
-                    csForStep = new ConversationState(cs.taskMessages(), placeholderPrompt);
-
-                    wsForStep = ws.afterFallbackSuccess(nextPendingBlocks, updatedChangedFiles, nextOriginalFileContents);
-                    return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
+                if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
+                    var msg = "Unable to apply %d blocks to %s".formatted(failedBlocks.size(),
+                                                                          failedBlocks.stream().map(b -> b.block().filename()).collect(Collectors.joining(",")));
+                    var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, msg);
+                    return new Step.Fatal(details);
                 } else { // Apply failed, but not yet time for full fallback -> ask LLM to retry
                     if (metrics != null) {
                         metrics.applyRetries++;
@@ -923,9 +782,8 @@ public class CodeAgent {
                 wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
                 return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
             }
-
         } catch (EditStopException e) {
-            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), applyEditBlocks (IO), or attemptFullFileReplacements failure
+            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or applyEditBlocks (IO)
             // Log appropriate messages based on e.stopDetails.reason()
             if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
                 // already reported by applyBlocksAndHandleErrors

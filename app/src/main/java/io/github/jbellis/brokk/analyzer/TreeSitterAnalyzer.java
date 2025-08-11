@@ -54,7 +54,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
     private final IProject project;
     private final Language language;
-    protected final Set<String> normalizedExcludedFiles;
+    protected final Set<Path> normalizedExcludedPaths;
 
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and decorators.
@@ -111,19 +111,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         this.language = language;
         // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
 
-        this.normalizedExcludedFiles = excludedFiles
-                .stream()
-                .map(p -> {
-                    Path path = Path.of(p);
-                    if (path.isAbsolute()) {
-                        return path.normalize().toString();
-                    } else {
-                        return project.getRoot().resolve(p).toAbsolutePath().normalize().toString();
-                    }
-                })
-                .collect(Collectors.toSet());
-        if (!this.normalizedExcludedFiles.isEmpty()) {
-            log.debug("Normalized excluded files: {}", this.normalizedExcludedFiles);
+        this.normalizedExcludedPaths = excludedFiles.stream()
+                .map(Path::of)
+                .map(p -> p.isAbsolute() ? p.normalize() : project.getRoot().resolve(p).toAbsolutePath().normalize())
+                .collect(Collectors.toUnmodifiableSet());
+        if (!this.normalizedExcludedPaths.isEmpty()) {
+            log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
         }
 
         // Initialize query using a ThreadLocal for thread safety
@@ -144,11 +137,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         project.getAllFiles().stream()
                 .filter(pf -> {
-                    var pathStr = pf.absPath().toString();
-                    if (this.normalizedExcludedFiles.contains(pathStr)) {
-                        log.trace("Skipping excluded file: {}", pf);
+                    // Normalize the file path once
+                    var filePath = pf.absPath().toAbsolutePath().normalize();
+                    
+                    // Check if file is under any excluded path
+                    var excludedBy = normalizedExcludedPaths.stream()
+                            .filter(filePath::startsWith)
+                            .findFirst();
+                    
+                    if (excludedBy.isPresent()) {
+                        log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
                         return false;
                     }
+                    
+                    // Check extension
+                    var pathStr = filePath.toString();
                     return validExtensions.stream().anyMatch(pathStr::endsWith);
                 })
                 .parallel()

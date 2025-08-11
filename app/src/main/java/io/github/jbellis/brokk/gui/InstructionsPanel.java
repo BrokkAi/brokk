@@ -12,14 +12,13 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
-import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -28,12 +27,12 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -85,7 +84,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
-                                                   
+
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
@@ -96,19 +95,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
     private final JButton architectButton; // Changed from SplitButton
-    private final io.github.jbellis.brokk.gui.components.SplitButton codeButton;
-    private final io.github.jbellis.brokk.gui.components.SplitButton askButton;
-    private final JButton searchButton;
+    private final SplitButton codeButton;
+    private final SplitButton searchButton;
     private final JButton runButton;
     private final JButton stopButton;
     private final JButton configureModelsButton;
-    private final JLabel commandResultLabel;
     private final ContextManager contextManager;
     private JTable referenceFileTable;
     private JLabel failureReasonLabel;
     private JPanel suggestionContentPanel;
     private CardLayout suggestionCardLayout;
-    private final LoadingButton deepScanButton;
     private final JPanel centerPanel;
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
     private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
@@ -148,9 +144,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionsArea = buildCommandInputField(); // Build first to add listener
         micButton = new VoiceInputButton(instructionsArea, contextManager, () -> {
             activateCommandInput();
-            chrome.actionOutput("Recording");
+            chrome.systemOutput("Recording");
         }, msg -> chrome.toolError(msg, "Error"));
-        commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
 
         // Initialize Buttons first
@@ -160,7 +155,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         architectButton.addActionListener(e -> runArchitectCommand()); // Main button action
         // architectButton.setMenuSupplier(this::createArchitectMenu); // Removed menu supplier
 
-        codeButton = new io.github.jbellis.brokk.gui.components.SplitButton("Code");
+        codeButton = new SplitButton("Code");
         codeButton.setMnemonic(KeyEvent.VK_C);
         codeButton.setToolTipText("Tell the LLM to write code using the current context (click ▼ for model options)");
         codeButton.addActionListener(e -> runCodeCommand()); // Main button action
@@ -176,26 +171,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
         ));
 
-        askButton = new io.github.jbellis.brokk.gui.components.SplitButton(" Ask");
-        askButton.setMnemonic(KeyEvent.VK_A);
-        askButton.setToolTipText("Ask the LLM a question about the current context (click ▼ for model options)");
-        askButton.addActionListener(e -> runAskCommand(getInstructions())); // Main button action
-        askButton.setMenuSupplier(() -> createModelSelectionMenu(
-                (modelName, reasoningLevel) -> {
-                    var models = chrome.getContextManager().getService();
-                    StreamingChatModel selectedModel = models.getModel(modelName, reasoningLevel);
-                    if (selectedModel != null) {
-                        runAskCommand(selectedModel);
-                    } else {
-                        chrome.toolError("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
-                    }
-                }
-        ));
-
-        searchButton = new JButton("Search");
+        searchButton = new SplitButton("Search");
         searchButton.setMnemonic(KeyEvent.VK_S);
-        searchButton.setToolTipText("Explore the codebase beyond the current context");
-        searchButton.addActionListener(e -> runSearchCommand());
+        searchButton.setToolTipText("Explore the codebase beyond the current context (click ▼ for options)");
+        searchButton.addActionListener(e -> runSearchCommand()); // Main action unchanged
+        searchButton.setMenuSupplier(this::createSearchMenu);
 
         runButton = new JButton("Run in Shell");
         runButton.setMnemonic(KeyEvent.VK_N);
@@ -210,10 +190,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         configureModelsButton = new JButton("Configure Models...");
         configureModelsButton.setToolTipText("Open settings to configure AI models");
         configureModelsButton.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
-
-        deepScanButton = new LoadingButton("Deep Scan", null, chrome, this::triggerDeepScan);
-        deepScanButton.setToolTipText("Perform a deeper analysis (Code + Tests) to suggest relevant context");
-        deepScanButton.setEnabled(false); // Start disabled like command input
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -444,11 +420,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()
 
-        // Command Result
-        var topInfoPanel = new JPanel();
-        topInfoPanel.setLayout(new BoxLayout(topInfoPanel, BoxLayout.PAGE_AXIS));
-        topInfoPanel.add(commandResultLabel);
-        panel.add(topInfoPanel);
 
         return panel;
     }
@@ -491,7 +462,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
-                // Only handle popup triggers (right-click) on press
                 if (e.isPopupTrigger()) {
                     ContextMenuUtils.handleFileReferenceClick(e,
                                                               referenceFileTable,
@@ -502,7 +472,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                // Handle both popup triggers and left-clicks on release
                 ContextMenuUtils.handleFileReferenceClick(e,
                                                           referenceFileTable,
                                                           chrome,
@@ -535,27 +504,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         suggestionContentPanel.add(localTableScrollPane, "TABLE");
         suggestionContentPanel.add(failureReasonLabel, "LABEL");
 
-        // ----- create container panel for button and content (table/label) -------------------
+        // ----- create container panel for content (table/label) -------------------------------
         var suggestionAreaPanel = new JPanel(new BorderLayout(H_GLUE, 0));
         suggestionAreaPanel.setBorder(BorderFactory.createEmptyBorder(V_GLUE, H_PAD, V_GLUE, H_PAD));
 
-        // Add the Deep Scan button to the left
-        suggestionAreaPanel.add(deepScanButton, BorderLayout.WEST);
-        // Add the card layout panel (containing table or label) to the center
+        // Only the card layout panel now (Deep Scan button removed)
         suggestionAreaPanel.add(suggestionContentPanel, BorderLayout.CENTER);
 
         // Apply height constraints to the container panel
-        int currentPanelRowHeight = referenceFileTable.getRowHeight(); // This now uses the dynamic height
-        int fixedHeight = currentPanelRowHeight + 2; // +2 for a tiny margin for the panel itself
+        int currentPanelRowHeight = referenceFileTable.getRowHeight();
+        int fixedHeight = currentPanelRowHeight + 2;
         suggestionAreaPanel.setPreferredSize(new Dimension(600, fixedHeight));
         suggestionAreaPanel.setMinimumSize(new Dimension(100, fixedHeight));
-        // Allow panel to span horizontally, while height remains fixed.
         suggestionAreaPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fixedHeight));
 
         // Insert the container panel beneath the command-input area (index 1)
         centerPanel.add(suggestionAreaPanel, 1);
     }
-
 
     private JPanel buildBottomPanel() {
         JPanel bottomPanel = new JPanel();
@@ -567,45 +532,32 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
         bottomPanel.add(codeButton);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        bottomPanel.add(askButton);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        bottomPanel.add(searchButton);
+        bottomPanel.add(searchButton); // SplitButton with dropdown
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
         bottomPanel.add(runButton);
 
-        // Set preferred size of codeButton and askButton to match agentButton
-        // This needs to be done after buttons are potentially realized/packed by layout
+        // Match button sizes to Run button so Architect/Code/Search match Run's preferred size
         SwingUtilities.invokeLater(() -> {
-            Dimension buttonSize = architectButton.getPreferredSize();
+            Dimension buttonSize = runButton.getPreferredSize();
             if (buttonSize != null && buttonSize.width > 0 && buttonSize.height > 0) {
+                architectButton.setPreferredSize(buttonSize);
                 codeButton.setPreferredSize(buttonSize);
-                askButton.setPreferredSize(buttonSize);
-                // Revalidate parent if sizes changed to ensure layout updates
+                searchButton.setPreferredSize(buttonSize);
                 bottomPanel.revalidate();
                 bottomPanel.repaint();
             }
         });
 
-        // Add flexible space between action buttons and stop button
+        // Flexible space between action buttons and stop button
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Add Stop button to the right side
+        // Stop button on the right
         stopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         bottomPanel.add(stopButton);
 
         return bottomPanel;
     }
 
-
-    /**
-     * Builds the command result label.
-     * Moved from HistoryOutputPanel.
-     */
-    private JLabel buildCommandResultLabel() {
-        var label = new JLabel(" "); // Start with a space to ensure height
-        label.setBorder(new EmptyBorder(2, H_PAD, 2, H_PAD));
-        return label;
-    }
 
     private void showHistoryMenu(Component invoker) {
         logger.trace("Showing history menu");
@@ -633,7 +585,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 menuItem.addActionListener(event -> {
                     // Hide overlay and enable input field and deep scan button
                     commandInputOverlay.hideOverlay();
-                    setCommandInputAndDeepScanEnabled(true);
+                    instructionsArea.setEnabled(true);
 
                     // Set text and request focus
                     instructionsArea.setText(item);
@@ -720,22 +672,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public void requestCommandInputFocus() {
         SwingUtilities.invokeLater(instructionsArea::requestFocus);
-    }
-
-    /**
-     * Sets the text of the command result label.
-     * Moved from HistoryOutputPanel.
-     */
-    public void setCommandResultText(String text) {
-        SwingUtilities.invokeLater(() -> commandResultLabel.setText(text));
-    }
-
-    /**
-     * Clears the text of the command result label.
-     * Moved from HistoryOutputPanel.
-     */
-    public void clearCommandResultText() {
-        SwingUtilities.invokeLater(() -> commandResultLabel.setText(" ")); // Set back to space to maintain height
     }
 
     // --- Private Execution Logic ---
@@ -866,10 +802,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return;
             }
 
+            // Set our snapshot as the new semantic baseline
+            this.lastCheckedInputText = snapshot;
+            this.lastCheckedEmbeddings = newEmbeddings;
+
+            // process the recommendations
             var fileRefs = recommendations.fragments().stream()
                     .flatMap(f -> f.files().stream()) // No analyzer
                     .distinct()
-                    .map(pf -> new FileReferenceData(pf.getFileName(), pf.toString(), (ProjectFile) pf)) // Cast to ProjectFile
+                    .map(pf -> new FileReferenceData(pf.getFileName(), pf.toString(), pf))
                     .toList();
             if (fileRefs.isEmpty()) {
                 logger.debug("Task {} found no relevant files.", myGen);
@@ -885,10 +826,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else {
                 pendingQuickContext = fileRefs;
             }
-
-            // Set our snapshot as the new semantic baseline
-            this.lastCheckedInputText = snapshot;
-            this.lastCheckedEmbeddings = newEmbeddings;
         } catch (InterruptedException ex) {
             // shouldn't happen
             throw new RuntimeException(ex);
@@ -992,36 +929,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Triggered by the "Deep Scan" button click.
-     * Runs the Deep Scan agents and shows the results dialog.
-     * Delegates the core logic to the DeepScanDialog class.
-     */
-    private void triggerDeepScan(ActionEvent e) {
-        var goal = getInstructions();
-        deepScanButton.setLoading(true, "Scanning…");
-
-        DeepScanDialog.triggerDeepScan(chrome, goal)
-                .whenComplete((Void v, @Nullable Throwable throwable) -> {
-                    // This callback runs when the analysis phase (ContextAgent, ValidationAgent) is complete.
-                    SwingUtilities.invokeLater(() -> {
-                        deepScanButton.setLoading(false, null); // Restores button state
-
-                        if (throwable != null) {
-                            if (throwable instanceof InterruptedException ||
-                                (throwable.getCause() instanceof InterruptedException)) {
-                                logger.info("Deep Scan analysis was cancelled or interrupted.");
-                            } else {
-                                logger.error("Deep Scan analysis failed.", throwable);
-                                chrome.toolError("Deep Scan analysis encountered an error: " + throwable.getMessage());
-                            }
-                        }
-                        this.contextManager.checkBalanceAndNotify();
-                        notifyActionComplete("Deep Scan"); // General notification that the "Deep Scan" action initiated here has concluded its primary phase.
-                    });
-                });
-    }
-
-    /**
      * Executes the core logic for the "Code" command.
      * This runs inside the Runnable passed to contextManager.submitUserTask.
      */
@@ -1063,7 +970,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return executeAskCommand(llm, messages, cm, question);
     }
 
-    public static @NotNull TaskResult executeAskCommand(Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
+    public static TaskResult executeAskCommand(Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
@@ -1404,11 +1311,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         prepareAndRunAskCommand(contextManager.getAskModel(), input);
     }
 
-    // Public entry point for selected Ask model from SplitButton
-    private void runAskCommand(StreamingChatModel modelToUse) {
-        prepareAndRunAskCommand(modelToUse, getInstructions());
-    }
-
     // Core method to prepare and submit the Ask action
     private void prepareAndRunAskCommand(StreamingChatModel modelToUse, String input) {
         if (input.isBlank()) {
@@ -1517,10 +1419,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     void disableButtons() {
         architectButton.setEnabled(false);
         codeButton.setEnabled(false);
-        askButton.setEnabled(false);
         searchButton.setEnabled(false);
         runButton.setEnabled(false);
-        deepScanButton.setEnabled(false);
         stopButton.setEnabled(true);
     }
 
@@ -1530,27 +1430,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         boolean gitAvailable = chrome.getProject().hasGit();
-        // boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees(); // No longer needed here
 
-        // Architect Button
+        // Architect
         architectButton.setEnabled(true);
-            architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
-        // Worktree option is now part of ArchitectOptionsDialog
+        architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
 
-        // Code Button
+        // Code
         if (!gitAvailable) {
             codeButton.setEnabled(false);
             codeButton.setToolTipText("Code feature requires Git integration for this project.");
         } else {
             codeButton.setEnabled(true);
-            // Default tooltip is set during initialization, no need to reset unless it changed
         }
 
-        askButton.setEnabled(true);
+        // Search (SplitButton)
         searchButton.setEnabled(true);
+
+        // Run in Shell
         runButton.setEnabled(true);
-        // Enable deepScanButton only if instructionsArea is also enabled
-        deepScanButton.setEnabled(instructionsArea.isEnabled());
+
         // Stop is only enabled when an action is running
         stopButton.setEnabled(false);
 
@@ -1594,7 +1492,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void activateCommandInput() {
         commandInputOverlay.hideOverlay(); // Hide the overlay
-        setCommandInputAndDeepScanEnabled(true); // Enable input and deep scan button
+        // Enable input and deep scan button
+        instructionsArea.setEnabled(true);
         // Clear placeholder only if it's still present
         if (instructionsArea.getText().equals(PLACEHOLDER_TEXT)) {
             clearCommandInput();
@@ -1602,14 +1501,78 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionsArea.requestFocusInWindow(); // Give it focus
     }
 
-    /**
-     * Sets the enabled state for both the command input field and the Deep Scan button.
-     *
-     * @param enabled true to enable, false to disable.
-     */
-    void setCommandInputAndDeepScanEnabled(boolean enabled) {
-        instructionsArea.setEnabled(enabled);
-        this.deepScanButton.setEnabled(enabled);
+    private JPopupMenu createSearchMenu() {
+        var popupMenu = new JPopupMenu();
+
+        var answerItem = new JMenuItem("Answer from Current Workspace");
+        answerItem.setToolTipText("Ask the LLM using only the current Workspace context");
+        answerItem.addActionListener(e -> runAskCommand(getInstructions()));
+        popupMenu.add(answerItem);
+
+        var scanItem = new JMenuItem("Scan Project");
+        scanItem.setToolTipText("Scan the repository to add relevant files/summaries to the Workspace");
+        scanItem.addActionListener(e -> runScanProjectCommand());
+        popupMenu.add(scanItem);
+
+        chrome.themeManager.registerPopupMenu(popupMenu);
+        return popupMenu;
+    }
+
+    public void runScanProjectCommand() {
+        var goal = getInstructions();
+        if (goal.isBlank()) {
+            chrome.toolError("Please provide instructions before scanning the project");
+            return;
+        }
+
+        var contextManager = chrome.getContextManager();
+        var models = contextManager.getService();
+        var searchModel = contextManager.getSearchModel();
+
+        if (contextHasImages() && !models.supportsVision(searchModel)) {
+            showVisionSupportErrorDialog(models.nameOf(searchModel) + " (Scan Project)");
+            return;
+        }
+
+        chrome.getProject().addToInstructionsHistory(goal, 20);
+        clearCommandInput();
+
+        submitAction("Scan Project", goal, () -> executeScanProjectCommand(searchModel, goal));
+    }
+
+    private void executeScanProjectCommand(StreamingChatModel model, String goal) {
+        var cm = chrome.getContextManager();
+        try {
+            var contextAgent = new ContextAgent(cm, model, goal, true);
+            var recommendation = contextAgent.getRecommendations(true);
+
+            if (!recommendation.reasoning().isEmpty()) {
+                chrome.llmOutput("\nReasoning for recommendations: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
+            }
+
+            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
+            int finalBudget = cm.getService().getMaxInputTokens(model) / 2;
+
+            if (totalTokens > finalBudget) {
+                var summaries = ContextFragment.getSummary(recommendation.fragments());
+                var msgs = new ArrayList<>(List.of(
+                        new UserMessage("Scan for relevant files"),
+                        new AiMessage("Potentially relevant files:\n" + summaries)
+                ));
+                cm.addToHistory(new TaskResult(cm,
+                                               "Scan for relevant files",
+                                               msgs,
+                                               Set.of(),
+                                               TaskResult.StopReason.SUCCESS),
+                                false);
+                chrome.llmOutput("Scan Project complete: recorded summaries to history (too large to add directly).", ChatMessageType.CUSTOM);
+            } else {
+                WorkspaceTools.addToWorkspace(cm, recommendation);
+                chrome.llmOutput("Scan Project complete: added recommendations to the Workspace.", ChatMessageType.CUSTOM);
+            }
+        } catch (InterruptedException e) {
+            throw new CancellationException(e.getMessage());
+        }
     }
 
     public VoiceInputButton getVoiceInputButton() {

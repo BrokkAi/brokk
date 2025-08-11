@@ -76,7 +76,7 @@ public class ContextAgent {
         this.skipPruningBudget = min(32_000, maxInputTokens / 4);
 
         // non-openai models often use more tokens than our estimation so cap this conservatively
-        int outputTokens = model.defaultRequestParameters().maxOutputTokens(); // TODO override this when we can
+        int outputTokens = model.defaultRequestParameters().maxCompletionTokens(); // TODO override this when we can
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
         this.budgetPruning = (int) (actualInputTokens * 0.65);
@@ -156,7 +156,7 @@ public class ContextAgent {
     /**
      * Calculates the approximate token count for a list of ContextFragments.
      */
-    int calculateFragmentTokens(List<ContextFragment> fragments) {
+    public int calculateFragmentTokens(List<ContextFragment> fragments) {
         int totalTokens = 0;
 
         for (var fragment : fragments) {
@@ -211,7 +211,15 @@ public class ContextAgent {
             debug("budget for pruning is too low ({}); giving up", budgetPruning);
             return new RecommendationResult(false, List.of(), "Workspace is too large", null);
         }
-        var allFiles = cm.getProject().getAllFiles().stream().sorted().toList();
+        var existingFiles = cm.liveContext().allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH || f.getType() == ContextFragment.FragmentType.SKELETON)
+                .flatMap(f -> f.files().stream())
+                .collect(Collectors.toSet());
+        var allFiles = cm.getProject().getAllFiles().stream()
+                .filter(f -> !existingFiles.contains(f))
+                .sorted().toList();
+        debug("Filtered out {} existing files from a total of {}. Considering {} files for context recommendation.",
+              existingFiles.size(), cm.getProject().getAllFiles().size(), allFiles.size());
 
         // Attempt single-pass mode first
         RecommendationResult firstPassResult = RecommendationResult.FAILED_SINGLE_PASS;
@@ -219,7 +227,7 @@ public class ContextAgent {
             if (analyzer.isEmpty()) {
                 firstPassResult = executeWithFileContents(allFiles, workspaceRepresentation, allowSkipPruning);
             } else {
-                firstPassResult = executeWithSummaries(allFiles, workspaceRepresentation, allowSkipPruning);
+                firstPassResult = executeWithSummaries(allFiles, existingFiles, workspaceRepresentation, allowSkipPruning);
             }
             if (firstPassResult.success) {
                 return firstPassResult;
@@ -262,7 +270,7 @@ public class ContextAgent {
             if (analyzer.isEmpty()) {
                 finalResult = executeWithFileContents(prunedFiles, workspaceRepresentation, false);
             } else {
-                finalResult = executeWithSummaries(prunedFiles, workspaceRepresentation, false);
+                finalResult = executeWithSummaries(prunedFiles, existingFiles, workspaceRepresentation, false);
             }
         } catch (ContextTooLargeException e) {
             // The set is still too large; prune once more on filenames only
@@ -290,7 +298,7 @@ public class ContextAgent {
                 if (analyzer.isEmpty()) {
                     finalResult = executeWithFileContents(prunedFiles2, workspaceRepresentation, false);
                 } else {
-                    finalResult = executeWithSummaries(prunedFiles2, workspaceRepresentation, false);
+                    finalResult = executeWithSummaries(prunedFiles2, existingFiles, workspaceRepresentation, false);
                 }
                 cumulativeUsage = addTokenUsage(cumulativeUsage, filenameResult.tokenUsage());
             } catch (ContextTooLargeException fatal) {
@@ -313,6 +321,7 @@ public class ContextAgent {
     // --- Logic branch for using class summaries ---
 
     private RecommendationResult executeWithSummaries(List<ProjectFile> filesToConsider,
+                                                      Set<ProjectFile> existingFiles,
                                                       Collection<ChatMessage> workspaceRepresentation,
                                                       boolean allowSkipPruning)
             throws InterruptedException, ContextTooLargeException
@@ -332,7 +341,8 @@ public class ContextAgent {
             Map<CodeUnit, String> tempSummaries = new HashMap<>();
             for (String fqn : targetFqns) {
                 analyzer.getDefinition(fqn).ifPresent(cu -> {
-                    if (cu.isClass()) {
+                    boolean inWorkspace = analyzer.getFileFor(cu.fqName()).map(existingFiles::contains).orElse(false);
+                    if (cu.isClass() && !inWorkspace) {
                         analyzer.getSkeleton(fqn).ifPresent(skel -> tempSummaries.put(cu, skel));
                     }
                 });
@@ -395,19 +405,7 @@ public class ContextAgent {
         var pathFragments = recommendedFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
-        // Remove fragments that correspond to in-Workspace context
-        var existingFiles = cm.liveContext().allFragments()
-                .flatMap(f -> f.files().stream())
-                .collect(Collectors.toSet());
-        var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
-                .filter(f -> {
-                    Set<ProjectFile> fragmentFiles = f.files();
-                    return fragmentFiles.stream().noneMatch(existingFiles::contains);
-                }).toList();
-        if (combinedFragments.size() < skeletonFragments.size() + pathFragments.size()) {
-            logger.debug("After removing fragments already in Workspace {}, remaining are {}",
-                         ContextFragment.getSummary(cm.topContext().allFragments()), combinedFragments);
-        }
+        var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream()).toList();
 
         return new RecommendationResult(true, combinedFragments, reasoning, llmRecommendation.tokenUsage());
     }
@@ -419,7 +417,7 @@ public class ContextAgent {
                                                                     contextManager, Map<CodeUnit, String> relevantSummaries)
     {
         return relevantSummaries.keySet().stream()
-                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CLASS_SKELETON))
+                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .toList();
     }
 
@@ -837,12 +835,7 @@ public class ContextAgent {
             responseLines = simpleRecommendItems(ContextInputType.FILE_PATHS, filenameString, null, workspaceRepresentation); // No topK for pruning
 
             // Convert response strings back to ProjectFile objects
-            var allFilesMap = cm.getProject().getAllFiles().stream()
-                    .collect(Collectors.toMap(ProjectFile::toString, pf -> pf));
-            recommendedFiles = responseLines.stream()
-                    .map(allFilesMap::get)
-                    .filter(Objects::nonNull)
-                    .toList();
+            recommendedFiles = toProjectFiles(responseLines);
             debug("LLM simple suggested {} relevant files after pruning", recommendedFiles.size());
         }
 

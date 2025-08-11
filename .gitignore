@@ -4,7 +4,7 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
-.idea/
+.idea/**/*
 *.iws
 *.iml
 *.ipr
@@ -62,3 +62,9 @@ cpg.bin
 
 ### LSP Test Files ###
 **/testcode-*/bin/
+
+### JDeploy CONFIGURATION ###
+.jdeploy/
+
+### frontend
+/frontend-mop/node_modules/

@@ -6,9 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.agents.SearchAgent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -27,6 +29,169 @@ public class ToolRegistry {
 
     // Maps tool name to its invocation target (method + instance)
     private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
+
+    /**
+     * Gets human-readable parameter information from a tool call
+     */
+    public static String formatListParameter(Map<String, Object> arguments, String paramName) {
+        @SuppressWarnings("unchecked")
+        List<String> items = (List<String>) arguments.get(paramName);
+        if (items != null && !items.isEmpty()) {
+            // turn it back into a JSON list or the LLM will be lazy too
+            var mapper = new ObjectMapper();
+            try {
+                return "%s=%s".formatted(paramName, mapper.writeValueAsString(items));
+            } catch (IOException e) {
+                logger.error("Error formatting list parameter", e);
+            }
+        }
+        return "";
+    }
+
+    /**
+     * Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting.
+     */
+    public static String getExplanationForToolRequest(ToolExecutionRequest request) {
+        try {
+            // Get tool display metadata
+            var displayMeta = ToolDisplayMeta.fromToolName(request.name());
+
+            // Skip empty explanations for answer/abort
+            if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
+                return "";
+            }
+
+            // Parse the arguments
+            var mapper = new ObjectMapper();
+            Map<String, Object> args = mapper.readValue(request.arguments(), new TypeReference<>() {
+            });
+
+            // Convert to YAML format
+            StringBuilder yamlBuilder = new StringBuilder();
+
+            // Process each argument entry
+            for (var entry : args.entrySet()) {
+                String key = entry.getKey();
+                Object value = entry.getValue();
+
+                // Handle different value types
+                if (value instanceof List<?> list) {
+                    yamlBuilder.append(key).append(":\n");
+                    for (Object item : list) {
+                        yamlBuilder.append("  - ").append(item).append("\n");
+                    }
+                } else if (value instanceof String str && str.contains("\n")) {
+                    // Use YAML block scalar for multi-line strings
+                    yamlBuilder.append(key).append(": |\n");
+                    for (String line : com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
+                        yamlBuilder.append("  ").append(line).append("\n");
+                    }
+                } else {
+                    yamlBuilder.append(key).append(": ").append(value).append("\n");
+                }
+            }
+
+            // Create the Markdown code fence with icon and headline
+            return """
+                   ```%s %s
+                   %s```
+                   """.formatted(displayMeta.getIcon(), displayMeta.getHeadline(), yamlBuilder);
+        } catch (Exception e) {
+            logger.error("Error formatting tool request explanation", e);
+            String paramInfo = getToolParameterInfoFromRequest(request);
+            var displayMeta = ToolDisplayMeta.fromToolName(request.name());
+            return paramInfo.isBlank() ? displayMeta.getHeadline() :
+                   displayMeta.getHeadline() + " (" + paramInfo + ")";
+        }
+    }
+
+    /**
+     * Gets parameter info directly from a request for explanation purposes.
+     */
+    private static String getToolParameterInfoFromRequest(ToolExecutionRequest request) {
+        try {
+            var mapper = new ObjectMapper();
+            var arguments = mapper.readValue(request.arguments(), new TypeReference<Map<String, Object>>() {
+            });
+
+            return switch (request.name()) {
+                case "searchSymbols", "searchSubstrings", "searchFilenames" ->
+                        formatListParameter(arguments, "patterns");
+                case "getFileContents" -> formatListParameter(arguments, "filenames");
+                case "getFileSummaries" -> formatListParameter(arguments, "filePaths");
+                case "getUsages" -> formatListParameter(arguments, "symbols");
+                case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
+                        formatListParameter(arguments, "classNames");
+                case "getMethodSources" -> formatListParameter(arguments, "methodNames");
+                case "getCallGraphTo", "getCallGraphFrom" -> arguments.getOrDefault("methodName", "").toString();
+                case "answerSearch", "abortSearch" -> "";
+                default -> "";
+            };
+        } catch (Exception e) {
+            logger.error("Error getting parameter info for request {}: {}", request.name(), e);
+            return "";
+        }
+    }
+
+    /**
+     * Enum that defines display metadata for each tool
+     */
+    private enum ToolDisplayMeta {
+        SEARCH_SYMBOLS("🔍", "Searching for symbols"),
+        SEARCH_SUBSTRINGS("🔍", "Searching for substrings"),
+        SEARCH_FILENAMES("🔍", "Searching for filenames"),
+        GET_FILE_CONTENTS("🔍", "Getting file contents"),
+        GET_FILE_SUMMARIES("🔍", "Getting file summaries"),
+        GET_USAGES("🔍", "Finding usages"),
+        GET_CLASS_SKELETONS("🔍", "Getting class overview"),
+        GET_CLASS_SOURCES("🔍", "Fetching class source"),
+        GET_METHOD_SOURCES("🔍", "Fetching method source"),
+        GET_RELATED_CLASSES("🔍", "Finding related code"),
+        CALL_GRAPH_TO("🔍", "Getting call graph TO"),
+        CALL_GRAPH_FROM("🔍", "Getting call graph FROM"),
+        ANSWER_SEARCH("", ""),
+        ABORT_SEARCH("", ""),
+        UNKNOWN("❓", "");
+
+        private final String icon;
+        private final String headline;
+
+        ToolDisplayMeta(String icon, String headline) {
+            this.icon = icon;
+            this.headline = headline;
+        }
+
+        public String getIcon() {
+            return icon;
+        }
+
+        public String getHeadline() {
+            return headline;
+        }
+
+        public static ToolDisplayMeta fromToolName(String toolName) {
+            return switch (toolName) {
+                case "searchSymbols" -> SEARCH_SYMBOLS;
+                case "searchSubstrings" -> SEARCH_SUBSTRINGS;
+                case "searchFilenames" -> SEARCH_FILENAMES;
+                case "getFileContents" -> GET_FILE_CONTENTS;
+                case "getFileSummaries" -> GET_FILE_SUMMARIES;
+                case "getUsages" -> GET_USAGES;
+                case "getRelatedClasses" -> GET_RELATED_CLASSES;
+                case "getClassSkeletons" -> GET_CLASS_SKELETONS;
+                case "getClassSources" -> GET_CLASS_SOURCES;
+                case "getMethodSources" -> GET_METHOD_SOURCES;
+                case "getCallGraphTo" -> CALL_GRAPH_TO;
+                case "getCallGraphFrom" -> CALL_GRAPH_FROM;
+                case "answerSearch" -> ANSWER_SEARCH;
+                case "abortSearch" -> ABORT_SEARCH;
+                default -> {
+                    logger.warn("Unknown tool name for display metadata: {}", toolName);
+                    yield UNKNOWN;
+                }
+            };
+        }
+    }
     // private final ContextManager contextManager; // Unused field removed
 
     // Internal record to hold method and the instance it belongs to
