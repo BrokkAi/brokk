@@ -35,11 +35,15 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
                 jdkHomeField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
         });
+
+        // Prevent this panel from stretching vertically inside the BoxLayout container
+        setAlignmentX(Component.LEFT_ALIGNMENT);
+        setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
     }
 
     private static final String PREF_KEY_PREFIX = "analyzer.java.jdkHome.";
     private final JTextField jdkHomeField = new JTextField(30);
-    private final JButton browseButton = new JButton("Browse…");
+    private final JButton browseButton = new JButton("Browse...");
 
 
     /* Preference-key scoped to the current project root so different projects

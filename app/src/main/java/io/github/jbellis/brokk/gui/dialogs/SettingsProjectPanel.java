@@ -477,30 +477,35 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
      * options in the future.
      */
     private JPanel createAnalyzersPanel() {
-        var analyzersPanel = new JPanel(new BorderLayout(5, 5));
+        final var analyzersPanel = new JPanel(new BorderLayout(5, 5));
         analyzersPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         final Set<Language> analyzerLanguages = chrome.getProject().getAnalyzerLanguages();
         final Path projectRoot = chrome.getProject().getRoot();
 
         if (analyzerLanguages.isEmpty()) {
-            var noneLabel = new JLabel("No analyzers configured for this project.");
+            final var noneLabel = new JLabel("No analyzers configured for this project.");
             noneLabel.setHorizontalAlignment(SwingConstants.CENTER);
             analyzersPanel.add(noneLabel, BorderLayout.CENTER);
         } else {
             /* Build a vertical list of sub-panels – one per analyzer */
-            var container = new JPanel();
+            final var container = new JPanel();
             container.setLayout(new BoxLayout(container, BoxLayout.PAGE_AXIS));
+            container.setBorder(BorderFactory.createEmptyBorder());
 
             analyzerLanguages.forEach(language -> {
                 final AnalyzerSettingsPanel panel = AnalyzerSettingsPanel
                         .createAnalyzersPanel(SettingsProjectPanel.this, language, projectRoot);
                 analyzerSettingsPanels.add(panel);
-                panel.setBorder(BorderFactory.createTitledBorder(language.name()));
+                final var languageLabel = new JLabel(language.name());
+                languageLabel.setHorizontalAlignment(SwingConstants.LEFT);
+                container.add(languageLabel);
                 container.add(panel);
             });
 
-            analyzersPanel.add(new JScrollPane(container), BorderLayout.CENTER);
+            final JScrollPane scrollPane = new JScrollPane(container);
+            scrollPane.setBorder(BorderFactory.createEmptyBorder());
+            analyzersPanel.add(scrollPane, BorderLayout.CENTER);
         }
 
         return analyzersPanel;

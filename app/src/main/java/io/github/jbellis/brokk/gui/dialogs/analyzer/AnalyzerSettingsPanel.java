@@ -18,6 +18,7 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
     public AnalyzerSettingsPanel(BorderLayout borderLayout, Language language, Path projectRoot) {
         super(borderLayout);
+        this.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         this.language = language;
         this.projectRoot = projectRoot;
     }
