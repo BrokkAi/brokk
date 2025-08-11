@@ -139,17 +139,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 .filter(pf -> {
                     // Normalize the file path once
                     var filePath = pf.absPath().toAbsolutePath().normalize();
-                    
+
                     // Check if file is under any excluded path
                     var excludedBy = normalizedExcludedPaths.stream()
                             .filter(filePath::startsWith)
                             .findFirst();
-                    
+
                     if (excludedBy.isPresent()) {
                         log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
                         return false;
                     }
-                    
+
                     // Check extension
                     var pathStr = filePath.toString();
                     return validExtensions.stream().anyMatch(pathStr::endsWith);
@@ -421,7 +421,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 reconstructSkeletonRecursive(kid, childIndent, headerOnly, sb);
             }
             if (headerOnly && cu.isClass()) {
-                final var nonFieldKidsSize = childrenByParent.getOrDefault(cu, List.of()).size() -  kids.size();
+                final var nonFieldKidsSize = childrenByParent.getOrDefault(cu, List.of()).size() - kids.size();
                 if (nonFieldKidsSize > 0) {
                     sb.append(childIndent)
                             .append("[...]")
@@ -473,7 +473,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (IOException e) {
             return "";
         }
-        return src.substring(range.startByte(), range.endByte());
+        if (src.length() < range.startByte) {
+            log.warn("getClassSource: Source range larger than given source code's length");
+            return "";
+        } else {
+            return src.substring(range.startByte(), range.endByte());
+        }
     }
 
     @Override
@@ -1479,8 +1484,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error
             log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
-            return src.substring(Math.min(node.getStartByte(), src.length()),
-                    Math.min(node.getEndByte(), src.length()));
+            if (src.length() < node.getStartByte()) {
+                log.warn("textSlice: Source range larger than given source code's length");
+                return "";
+            } else {
+                return src.substring(Math.min(node.getStartByte(), src.length()),
+                        Math.min(node.getEndByte(), src.length()));
+            }
         }
 
         // Extract using correct byte indexing
@@ -1498,8 +1508,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error
             log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
-            return src.substring(Math.min(startByte, src.length()),
-                    Math.min(endByte, src.length()));
+            if (src.length() < startByte) {
+                log.warn("textSlice: Source range larger than given source code's length");
+                return "";
+            } else {
+                return src.substring(Math.min(startByte, src.length()),
+                        Math.min(endByte, src.length()));
+            }
         }
 
         return textSliceFromBytes(startByte, endByte, bytes);
@@ -1545,8 +1560,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         identifierFieldName, decl.getType(), decl.getStartPoint().getRow() + 1);
             }
         } catch (Exception e) {
+            final String snippet;
+            if (decl.getStartByte() > src.length()) {
+                snippet = src.substring(0, Math.min(20, src.length()));
+            } else {
+                snippet = src.substring(decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
+            }
             log.warn("Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
-                    identifierFieldName, decl.getType(), src.substring(decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20)), e.getMessage());
+                    identifierFieldName, decl.getType(), snippet, e.getMessage());
         }
 
         if (nameOpt.isEmpty()) {
