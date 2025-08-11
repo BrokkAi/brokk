@@ -29,6 +29,17 @@ void uses_global_func() {
   global_func(10);
 }
 
+namespace {
+  // Anonymous namespace function for testing
+  int anonymous_helper(int x) {
+    return x * 2;
+  }
+
+  void anonymous_void_func() {
+    int result = anonymous_helper(5);
+  }
+}
+
 namespace shapes {
   void another_in_shapes() {
     Circle c(1.0);

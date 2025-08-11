@@ -80,6 +80,46 @@ public class CppTreeSitterAnalyzerTest {
     }
 
     @Test
+    public void testAnonymousNamespace() {
+        var geometryFile = testProject.getAllFiles().stream()
+            .filter(file -> file.absPath().toString().endsWith("geometry.cpp"))
+            .findFirst()
+            .orElseThrow(() -> new RuntimeException("geometry.cpp not found"));
+
+        var allDeclarations = analyzer.getDeclarationsInFile(geometryFile);
+
+        var allFunctions = allDeclarations.stream()
+            .filter(CodeUnit::isFunction)
+            .collect(Collectors.toList());
+
+        var anonymousNamespaceFunctions = allDeclarations.stream()
+            .filter(CodeUnit::isFunction)
+            .filter(cu -> cu.shortName().contains("anonymous_helper") || cu.shortName().contains("anonymous_void_func"))
+            .collect(Collectors.toList());
+
+        var functionNames = allFunctions.stream()
+            .map(cu -> cu.shortName())
+            .collect(Collectors.toList());
+
+        assertFalse(anonymousNamespaceFunctions.isEmpty(),
+            "Should find function from anonymous namespace. Available functions: " + functionNames);
+
+        var anonymousHelperFunction = anonymousNamespaceFunctions.stream()
+            .filter(cu -> cu.identifier().equals("anonymous_helper"))
+            .findFirst();
+
+        assertTrue(anonymousHelperFunction.isPresent(), "Should find anonymous_helper function from anonymous namespace");
+
+        var skeletons = analyzer.getSkeletons(geometryFile);
+        var functionSkeletons = skeletons.entrySet().stream()
+            .filter(entry -> entry.getKey().isFunction())
+            .filter(entry -> entry.getKey().shortName().contains("anonymous_"))
+            .collect(Collectors.toList());
+
+        assertFalse(functionSkeletons.isEmpty(), "Should generate skeletons for anonymous namespace functions");
+    }
+
+    @Test
     public void testClassAnalysis() {
         var allDeclarations = getAllDeclarations();
 
