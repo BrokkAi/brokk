@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IProject;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -99,5 +100,9 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
         } else {
             return super.update();
         }
+    }
+
+    public Path getProjectRoot() {
+        return this.getProject().getRoot();
     }
 }
