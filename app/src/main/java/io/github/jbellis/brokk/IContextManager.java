@@ -9,150 +9,144 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 
-/**
- * Interface for context manager functionality
- */
+/** Interface for context manager functionality */
 public interface IContextManager {
-    default EditBlockParser getParserForWorkspace() {
-        throw new UnsupportedOperationException();
-    }
+  default EditBlockParser getParserForWorkspace() {
+    throw new UnsupportedOperationException();
+  }
 
-    default ExecutorService getBackgroundTasks() {
-        throw new UnsupportedOperationException();
-    }
+  default ExecutorService getBackgroundTasks() {
+    throw new UnsupportedOperationException();
+  }
 
-    default Collection<? extends ChatMessage> getHistoryMessages() {
-        return List.of();
-    }
+  default Collection<? extends ChatMessage> getHistoryMessages() {
+    return List.of();
+  }
 
-    default String getEditableSummary() {
-        return "";
-    }
+  default String getEditableSummary() {
+    return "";
+  }
 
-    default String getReadOnlySummary() {
-        return "";
-    }
+  default String getReadOnlySummary() {
+    return "";
+  }
 
+  /**
+   * Returns the live, unfrozen context that we can edit.
+   *
+   * @return the live, unfrozen context that we can edit
+   */
+  default Context liveContext() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Returns the frozen counterpart of liveContext.
+   *
+   * @return the frozen counterpart of liveContext
+   */
+  default Context topContext() {
+    throw new UnsupportedOperationException();
+  }
+
+  /** Listener interface for context change events. */
+  interface ContextListener {
     /**
-     * Returns the live, unfrozen context that we can edit.
-     * @return the live, unfrozen context that we can edit
-     */
-    default Context liveContext() {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Returns the frozen counterpart of liveContext.
-     * @return the frozen counterpart of liveContext
-     */
-    default Context topContext() {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Listener interface for context change events.
-     */
-    interface ContextListener {
-        /**
-         * Called when the context has changed.
-         *
-         * @param newCtx The new context state.
-         */
-        void contextChanged(Context newCtx);
-    }
-
-    /**
-     * Adds a listener that will be notified when the context changes.
+     * Called when the context has changed.
      *
-     * @param listener The listener to add. Must not be null.
+     * @param newCtx The new context state.
      */
-    default void addContextListener(ContextListener listener) {
-    }
+    void contextChanged(Context newCtx);
+  }
 
-    default void removeContextListener(ContextListener listener) {
-    }
+  /**
+   * Adds a listener that will be notified when the context changes.
+   *
+   * @param listener The listener to add. Must not be null.
+   */
+  default void addContextListener(ContextListener listener) {}
 
-    default ProjectFile toFile(String relName) {
-        throw new UnsupportedOperationException();
-    }
+  default void removeContextListener(ContextListener listener) {}
 
-    default Set<ProjectFile> getEditableFiles() {
-        throw new UnsupportedOperationException();
-    }
+  default ProjectFile toFile(String relName) {
+    throw new UnsupportedOperationException();
+  }
 
-    default Set<BrokkFile> getReadonlyProjectFiles() {
-        throw new UnsupportedOperationException();
-    }
+  default Set<ProjectFile> getEditableFiles() {
+    throw new UnsupportedOperationException();
+  }
 
-    default <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
-        try {
-            return CompletableFuture.completedFuture(task.call());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
+  default Set<BrokkFile> getReadonlyProjectFiles() {
+    throw new UnsupportedOperationException();
+  }
 
-    default List<ProjectFile> getTestFiles() {
-        Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
-        return allFiles.stream()
-                .filter(ContextManager::isTestFile)
-                .toList();
+  default <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    try {
+      return CompletableFuture.completedFuture(task.call());
+    } catch (Exception e) {
+      throw new RuntimeException(e);
     }
-    
-    default AnalyzerWrapper getAnalyzerWrapper() {
-        throw new UnsupportedOperationException();
-    }
+  }
 
-    default IAnalyzer getAnalyzer() throws InterruptedException {
-        throw new UnsupportedOperationException();
-    }
+  default List<ProjectFile> getTestFiles() {
+    Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
+    return allFiles.stream().filter(ContextManager::isTestFile).toList();
+  }
 
-    default IAnalyzer getAnalyzerUninterrupted() {
-        throw new UnsupportedOperationException();
-    }
+  default AnalyzerWrapper getAnalyzerWrapper() {
+    throw new UnsupportedOperationException();
+  }
 
-    default void requestRebuild() {}
+  default IAnalyzer getAnalyzer() throws InterruptedException {
+    throw new UnsupportedOperationException();
+  }
 
-    default IGitRepo getRepo() {
-        return getProject().getRepo();
-    }
+  default IAnalyzer getAnalyzerUninterrupted() {
+    throw new UnsupportedOperationException();
+  }
 
-    default Service getService() {
-        throw new UnsupportedOperationException();
-    }
+  default void requestRebuild() {}
 
-    default void editFiles(Collection<ProjectFile> path) {
-    }
+  default IGitRepo getRepo() {
+    return getProject().getRepo();
+  }
 
-    default IProject getProject() {
-        return new IProject() {};
-    }
+  default Service getService() {
+    throw new UnsupportedOperationException();
+  }
 
-    default IConsoleIO getIo() {
-        throw new UnsupportedOperationException();
-    }
+  default void editFiles(Collection<ProjectFile> path) {}
 
-    default ToolRegistry getToolRegistry() {
-        throw new UnsupportedOperationException();
-    }
+  default IProject getProject() {
+    return new IProject() {};
+  }
 
-    /**
-     * Create a new LLM instance for the given model and description
-     */
-    default Llm getLlm(StreamingChatModel model, String taskDescription) {
-        return getLlm(model, taskDescription, false);
-    }
+  default IConsoleIO getIo() {
+    throw new UnsupportedOperationException();
+  }
 
-    /**
-     * Create a new LLM instance for the given model and description
-     */
-    default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
-        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
-    }
+  default ToolRegistry getToolRegistry() {
+    throw new UnsupportedOperationException();
+  }
+
+  /** Create a new LLM instance for the given model and description */
+  default Llm getLlm(StreamingChatModel model, String taskDescription) {
+    return getLlm(model, taskDescription, false);
+  }
+
+  /** Create a new LLM instance for the given model and description */
+  default Llm getLlm(
+      StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
+    return new Llm(
+        model,
+        taskDescription,
+        this,
+        allowPartialResponses,
+        getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
+  }
 }

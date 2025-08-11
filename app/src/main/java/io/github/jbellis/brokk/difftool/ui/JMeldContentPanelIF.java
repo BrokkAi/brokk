@@ -1,19 +1,16 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
 public interface JMeldContentPanelIF {
 
-    boolean isUndoEnabled();
+  boolean isUndoEnabled();
 
-    void doUndo();
+  void doUndo();
 
-    boolean isRedoEnabled();
+  boolean isRedoEnabled();
 
-    void doRedo();
+  void doRedo();
 
+  void doUp();
 
-    void doUp();
-
-    void doDown();
-
+  void doDown();
 }

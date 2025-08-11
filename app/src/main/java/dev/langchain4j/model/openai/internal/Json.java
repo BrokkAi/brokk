@@ -8,23 +8,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 class Json {
 
-    static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .enable(INDENT_OUTPUT)
-            .disable(FAIL_ON_IGNORED_PROPERTIES);
+  static final ObjectMapper OBJECT_MAPPER =
+      new ObjectMapper().enable(INDENT_OUTPUT).disable(FAIL_ON_IGNORED_PROPERTIES);
 
-    static String toJson(Object o) {
-        try {
-            return OBJECT_MAPPER.writeValueAsString(o);
-        } catch (JsonProcessingException jpe) {
-            throw new RuntimeException(jpe);
-        }
+  static String toJson(Object o) {
+    try {
+      return OBJECT_MAPPER.writeValueAsString(o);
+    } catch (JsonProcessingException jpe) {
+      throw new RuntimeException(jpe);
     }
+  }
 
-    static <T> T fromJson(String json, Class<T> type) {
-        try {
-            return OBJECT_MAPPER.readValue(json, type);
-        } catch (JsonProcessingException jpe) {
-            throw new RuntimeException(jpe);
-        }
+  static <T> T fromJson(String json, Class<T> type) {
+    try {
+      return OBJECT_MAPPER.readValue(json, type);
+    } catch (JsonProcessingException jpe) {
+      throw new RuntimeException(jpe);
     }
+  }
 }

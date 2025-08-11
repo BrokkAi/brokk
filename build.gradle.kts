@@ -25,6 +25,7 @@ fun getVersionFromGit(): String {
 
 plugins {
     alias(libs.plugins.dependency.analysis)
+    alias(libs.plugins.spotless)
 }
 
 dependencyAnalysis {
@@ -58,6 +59,17 @@ tasks.register("printVersion") {
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "com.autonomousapps.dependency-analysis")
+    apply(plugin = "com.diffplug.spotless")
+
+    // Spotless formatting rules
+    spotless {
+        java {
+            // Format all Java sources, excluding generated or build outputs
+            target("src/**/*.java")
+            targetExclude("**/build/**", "**/test/resources/**", "**/generated/**")
+            googleJavaFormat()
+        }
+    }
 
     repositories {
         mavenCentral()

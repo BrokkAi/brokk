@@ -3,8 +3,7 @@ package dev.langchain4j.data.message;
 import dev.langchain4j.model.chat.StreamingChatModel;
 
 /**
- * Represents a chat message.
- * Used together with {@link StreamingChatModel}.
+ * Represents a chat message. Used together with {@link StreamingChatModel}.
  *
  * @see SystemMessage
  * @see UserMessage
@@ -14,10 +13,10 @@ import dev.langchain4j.model.chat.StreamingChatModel;
  */
 public interface ChatMessage {
 
-    /**
-     * The type of the message.
-     *
-     * @return the type of the message
-     */
-    ChatMessageType type();
+  /**
+   * The type of the message.
+   *
+   * @return the type of the message
+   */
+  ChatMessageType type();
 }

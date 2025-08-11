@@ -4,13 +4,13 @@ import java.time.Duration;
 
 public interface HttpClientBuilder {
 
-    Duration connectTimeout();
+  Duration connectTimeout();
 
-    HttpClientBuilder connectTimeout(Duration timeout);
+  HttpClientBuilder connectTimeout(Duration timeout);
 
-    Duration readTimeout();
+  Duration readTimeout();
 
-    HttpClientBuilder readTimeout(Duration timeout);
+  HttpClientBuilder readTimeout(Duration timeout);
 
-    HttpClient build();
+  HttpClient build();
 }

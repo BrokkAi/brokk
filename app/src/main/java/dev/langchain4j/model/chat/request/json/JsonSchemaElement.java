@@ -16,5 +16,5 @@ package dev.langchain4j.model.chat.request.json;
  */
 public interface JsonSchemaElement {
 
-    String description();
+  String description();
 }
