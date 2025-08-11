@@ -1642,6 +1642,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
         service.reinit(project);
     }
 
+    public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
+        analyzerWrapper.pause();
+        try {
+            return callable.call();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            analyzerWrapper.resume();
+        }
+    }
+
     @FunctionalInterface
     public interface TaskRunner {
         /**
