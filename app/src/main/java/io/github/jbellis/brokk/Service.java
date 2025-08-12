@@ -243,7 +243,8 @@ public class Service {
             fetchAvailableModels(policy, tempModelLocations, tempModelInfoMap);
         } catch (IOException e) {
             logger.error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
-            // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
+            // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this
+            // case
         }
 
         if (tempModelLocations.isEmpty()) {
@@ -434,8 +435,12 @@ public class Service {
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
-                throw new IOException("Failed to fetch model info: " + response.code() + " " + response.message()
-                        + " - " + errorBody);
+                throw new IOException("Failed to fetch model info: "
+                        + response.code()
+                        + " "
+                        + response.message()
+                        + " - "
+                        + errorBody);
             }
 
             ResponseBody responseBodyObj = response.body();
@@ -585,10 +590,13 @@ public class Service {
             value = (Integer) info.get("max_output_tokens");
         }
 
-        // Most providers subtract the max output tokens from the input token budget. Since we very infrequently
-        // need the entire output token budget, and even when we might we can recover and retry starting from where
+        // Most providers subtract the max output tokens from the input token budget. Since we very
+        // infrequently
+        // need the entire output token budget, and even when we might we can recover and retry starting
+        // from where
         // we left off, we limit the output tokens to 1/8 of the input token budget.
-        // (Previously we hard-capped this at 32k, but gpt5-mini and gpt5-nano with reasoning=high will blow past that,
+        // (Previously we hard-capped this at 32k, but gpt5-mini and gpt5-nano with reasoning=high will
+        // blow past that,
         // causing request failures. So now it's uncapped.)
         int ceiling = min(value, getMaxInputTokens(location) / 8);
         int floor = min(8192, value);
@@ -780,11 +788,13 @@ public class Service {
         var info = getModelInfo(location);
 
         if (location.contains("gemini")) {
-            // buildToolCallsSchema can't build a valid properties map for `arguments` without `oneOf` schema support.
+            // buildToolCallsSchema can't build a valid properties map for `arguments` without `oneOf`
+            // schema support.
             // o3mini is fine with this but gemini models are not.
             return false;
         }
-        // hack for o3-mini not being able to combine json schema with argument descriptions in the text body
+        // hack for o3-mini not being able to combine json schema with argument descriptions in the text
+        // body
         if (location.contains("o3-mini")) {
             return false;
         }
@@ -827,10 +837,12 @@ public class Service {
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
-        // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with
+        // mostly we force models that don't support parallel calls to use our emulation, but o3 does so
+        // poorly with
         // that
         // that serial calls is the lesser evil
-        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can
+        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api
+        // working so we can
         // do parallel calls
         var location = model.defaultRequestParameters().modelName();
         return !location.contains("gemini")
@@ -1018,7 +1030,9 @@ public class Service {
 
         try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
             if (!response.isSuccessful()) {
-                throw new IOException("Failed to send feedback: " + response.code() + " - "
+                throw new IOException("Failed to send feedback: "
+                        + response.code()
+                        + " - "
                         + (response.body() != null ? response.body().string() : "(no body)"));
             }
             logger.debug("Feedback sent successfully");

@@ -50,6 +50,7 @@ public class CodeAgent {
 
     @VisibleForTesting
     static final int MAX_APPLY_FAILURES = 3;
+
     /** maximum consecutive build failures before giving up */
     @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
@@ -213,7 +214,8 @@ public class CodeAgent {
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                 ? loopContext.userGoal()
                 : loopContext.userGoal() + " [" + stopDetails.reason().name() + "]";
-        // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
+        // architect auto-compresses the task entry so let's give it the full history to work with,
+        // quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = forArchitect
                 ? List.copyOf(io.getLlmRawMessages())
@@ -448,7 +450,8 @@ public class CodeAgent {
                 continue;
             }
 
-            // We're creating a new file so resolveProjectFile is complexity we don't need, just use the filename
+            // We're creating a new file so resolveProjectFile is complexity we don't need, just use the
+            // filename
             ProjectFile file = contextManager.toFile(block.filename());
             newFiles.add(file);
 
@@ -510,7 +513,8 @@ public class CodeAgent {
         coder.setOutput(io);
 
         // Use up to 5 related classes as context
-        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment
+        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for
+        // SkeletonFragment
         // directly
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
@@ -812,7 +816,8 @@ public class CodeAgent {
                 return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
             }
         } catch (EditStopException e) {
-            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or applyEditBlocks (IO)
+            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or
+            // applyEditBlocks (IO)
             // Log appropriate messages based on e.stopDetails.reason()
             if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
                 // already reported by applyBlocksAndHandleErrors
