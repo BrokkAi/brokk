@@ -50,7 +50,6 @@ public class CodeAgent {
 
     @VisibleForTesting
     static final int MAX_APPLY_FAILURES = 3;
-
     /** maximum consecutive build failures before giving up */
     @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
@@ -214,8 +213,7 @@ public class CodeAgent {
         String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                 ? loopContext.userGoal()
                 : loopContext.userGoal() + " [" + stopDetails.reason().name() + "]";
-        // architect auto-compresses the task entry so let's give it the full history to work with,
-        // quickModel is cheap
+        // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = forArchitect
                 ? List.copyOf(io.getLlmRawMessages())
@@ -400,7 +398,7 @@ public class CodeAgent {
         }
 
         // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
-        var updatedConsecutiveParseFailures = 0;
+        int updatedConsecutiveParseFailures = 0;
         var mutablePendingBlocks = new ArrayList<>(ws.pendingBlocks());
         mutablePendingBlocks.addAll(newlyParsedBlocks);
 
@@ -409,10 +407,16 @@ public class CodeAgent {
             UserMessage messageForRetry;
             String consoleLogForRetry;
             if (newlyParsedBlocks.isEmpty()) {
+                // Treat "partial with no blocks" as a parse failure subject to MAX_PARSE_ATTEMPTS
+                updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
+                if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                    reportComplete("Parse error limit reached; ending task.");
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+                }
                 messageForRetry = new UserMessage(
                         "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
                 consoleLogForRetry =
-                        "LLM indicated response was partial before any blocks (no parse error); asking to continue";
+                        "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
             } else {
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
@@ -444,8 +448,7 @@ public class CodeAgent {
                 continue;
             }
 
-            // We're creating a new file so resolveProjectFile is complexity we don't need, just use the
-            // filename
+            // We're creating a new file so resolveProjectFile is complexity we don't need, just use the filename
             ProjectFile file = contextManager.toFile(block.filename());
             newFiles.add(file);
 
@@ -507,8 +510,8 @@ public class CodeAgent {
         coder.setOutput(io);
 
         // Use up to 5 related classes as context
-        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for
-        // SkeletonFragment directly
+        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment
+        // directly
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents;
@@ -809,8 +812,7 @@ public class CodeAgent {
                 return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
             }
         } catch (EditStopException e) {
-            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or
-            // applyEditBlocks (IO)
+            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or applyEditBlocks (IO)
             // Log appropriate messages based on e.stopDetails.reason()
             if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
                 // already reported by applyBlocksAndHandleErrors
