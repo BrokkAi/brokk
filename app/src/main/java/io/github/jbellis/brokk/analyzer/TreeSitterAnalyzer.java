@@ -471,12 +471,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (IOException e) {
             return "";
         }
-        if (src.length() < range.startByte) {
-            log.warn("getClassSource: Source range larger than given source code's length");
-            return "";
-        } else {
-            return src.substring(range.startByte(), range.endByte());
-        }
+        return ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
     }
 
     @Override
@@ -500,14 +495,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
-                        // Ensure range is within fileContent bounds, though it should be by construction.
-                        int startByte = Math.max(0, range.startByte());
-                        int endByte = Math.min(fileContent.length(), range.endByte());
-                        if (startByte < endByte) {
-                            individualMethodSources.add(fileContent.substring(startByte, endByte));
+                        String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, range.startByte(), range.endByte());
+                        if (!methodSource.isEmpty()) {
+                            individualMethodSources.add(methodSource);
                         } else {
-                            log.warn("Invalid range [{}, {}] for CU {} (fqName {}) in file of length {}. Skipping this range.",
-                                    range.startByte(), range.endByte(), cu, fqName, fileContent.length());
+                            log.warn("Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                                    range.startByte(), range.endByte(), cu, fqName);
                         }
                     }
 
@@ -1514,15 +1507,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         try {
             bytes = src.getBytes(StandardCharsets.UTF_8);
         } catch (Exception e) {
-            // Fallback in case of encoding error
-            log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
-            if (src.length() < node.getStartByte()) {
-                log.warn("textSlice: Source range larger than given source code's length");
-                return "";
-            } else {
-                return src.substring(Math.min(node.getStartByte(), src.length()),
-                        Math.min(node.getEndByte(), src.length()));
-            }
+            // Fallback in case of encoding error - use safe conversion method
+            log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
+            return ASTTraversalUtils.safeSubstringFromByteOffsets(src, node.getStartByte(), node.getEndByte());
         }
 
         // Extract using correct byte indexing
@@ -1538,15 +1525,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         try {
             bytes = src.getBytes(StandardCharsets.UTF_8);
         } catch (Exception e) {
-            // Fallback in case of encoding error
-            log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
-            if (src.length() < startByte) {
-                log.warn("textSlice: Source range larger than given source code's length");
-                return "";
-            } else {
-                return src.substring(Math.min(startByte, src.length()),
-                        Math.min(endByte, src.length()));
-            }
+            // Fallback in case of encoding error - use safe conversion method
+            log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
+            return ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
         }
 
         return textSliceFromBytes(startByte, endByte, bytes);
@@ -1565,6 +1546,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         int len = endByte - startByte;
         return new String(bytes, startByte, len, StandardCharsets.UTF_8);
     }
+
 
 
     /* ---------- helpers ---------- */
@@ -1586,20 +1568,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         try {
             TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
             if (nameNode != null && !nameNode.isNull()) {
-                nameOpt = Optional.of(src.substring(nameNode.getStartByte(), nameNode.getEndByte()));
+                nameOpt = Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(src, nameNode.getStartByte(), nameNode.getEndByte()));
             } else {
                 log.warn("getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
                         identifierFieldName, decl.getType(), decl.getStartPoint().getRow() + 1);
             }
         } catch (Exception e) {
-            final String snippet;
-            if (decl.getStartByte() > src.length()) {
-                snippet = src.substring(0, Math.min(20, src.length()));
-            } else {
-                snippet = src.substring(decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
-            }
+            final String snippet = ASTTraversalUtils.safeSubstringFromByteOffsets(src, decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
             log.warn("Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
-                    identifierFieldName, decl.getType(), snippet, e.getMessage());
+                    identifierFieldName, decl.getType(), snippet.isEmpty() ? "EMPTY" : snippet, e.getMessage());
         }
 
         if (nameOpt.isEmpty()) {

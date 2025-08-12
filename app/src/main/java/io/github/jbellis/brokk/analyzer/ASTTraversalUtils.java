@@ -87,6 +87,7 @@ public class ASTTraversalUtils {
 
     /**
      * Extracts text from a TSNode using the file content.
+     * Properly handles UTF-8 byte offset to character position conversion.
      */
     public static String extractNodeText(@Nullable TSNode node, @Nullable String fileContent) {
         if (node == null || node.isNull() || fileContent == null) {
@@ -96,11 +97,44 @@ public class ASTTraversalUtils {
         int startByte = node.getStartByte();
         int endByte = node.getEndByte();
 
-        if (startByte < 0 || endByte > fileContent.length() || startByte > endByte) {
+        if (startByte < 0 || startByte > endByte) {
             return "";
         }
 
-        return fileContent.substring(startByte, endByte).trim();
+        return safeSubstringFromByteOffsets(fileContent, startByte, endByte).trim();
+    }
+
+    /**
+     * Converts UTF-8 byte offset to Java string character position.
+     * This is needed because TreeSitter provides byte offsets but Java strings use character positions.
+     */
+    public static int byteOffsetToCharPosition(int byteOffset, String source) {
+        if (byteOffset <= 0) return 0;
+
+        byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (byteOffset >= sourceBytes.length) return source.length();
+
+        // Create substring from bytes and get its character length
+        String substring = new String(sourceBytes, 0, byteOffset, java.nio.charset.StandardCharsets.UTF_8);
+        return substring.length();
+    }
+
+    /**
+     * Safely extracts substring using UTF-8 byte offsets converted to character positions.
+     * This method should be used instead of direct String.substring() with byte offsets.
+     */
+    public static String safeSubstringFromByteOffsets(String source, int startByte, int endByte) {
+        if (startByte < 0 || endByte < startByte) {
+            return "";
+        }
+
+        int startChar = byteOffsetToCharPosition(startByte, source);
+        int endChar = byteOffsetToCharPosition(endByte, source);
+
+        if (startChar >= source.length()) return "";
+        if (endChar > source.length()) endChar = source.length();
+
+        return source.substring(startChar, endChar);
     }
 
     /**
