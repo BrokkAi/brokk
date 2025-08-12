@@ -62,7 +62,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         gbc.gridx = 0;
         gbc.gridy = 1;
         gbc.weightx = 0.0;
-        contentPanel.add(new JLabel("Language Server Memory (MB):"), gbc);
+        contentPanel.add(new JLabel("Memory (MB):"), gbc);
 
         // Calculate max memory based on system
         long maxMemoryMB = Runtime.getRuntime().maxMemory() / (1024 * 1024);
@@ -71,18 +71,17 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             maxMemoryMB = Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
         }
         memorySpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int) Math.min(maxMemoryMB, 32768), 256));
+        memorySpinner.setPreferredSize(new Dimension(80, memorySpinner.getPreferredSize().height));
 
-        gbc.gridx = 1;
-        gbc.gridy = 1;
-        gbc.gridwidth = 1;
-        gbc.weightx = 0.5;
-        contentPanel.add(memorySpinner, gbc);
+        // Create a panel to hold the spinner and warning together
+        var memoryPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        memoryPanel.add(memorySpinner);
 
         // Memory warning label
         memoryWarningLabel = new JLabel("<html><font color='orange'>⚠ Restart required</font> - <a href='#'>Restart now</a></html>");
         memoryWarningLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
         memoryWarningLabel.setVisible(false);
-        memoryWarningLabel.addMouseListener(new java.awt.event.MouseAdapter() {
+        memoryWarningLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(java.awt.event.MouseEvent e) {
                 int result = JOptionPane.showConfirmDialog(
@@ -102,11 +101,13 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             }
         });
 
-        gbc.gridx = 2;
+        memoryPanel.add(memoryWarningLabel);
+        
+        gbc.gridx = 1;
         gbc.gridy = 1;
-        gbc.gridwidth = 1;
-        gbc.weightx = 0.5;
-        contentPanel.add(memoryWarningLabel, gbc);
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        contentPanel.add(memoryPanel, gbc);
 
         // Add change listener to memory spinner
         memorySpinner.addChangeListener(e -> {
