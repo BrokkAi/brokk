@@ -20,19 +20,51 @@ import java.util.prefs.Preferences;
 public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
     private static final String PREF_KEY_PREFIX = "analyzer.java.jdkHome.";
+    private static final String PREF_MEMORY_KEY_PREFIX = "analyzer.java.memory.";
+    private static final int DEFAULT_MEMORY_MB = 2048;
+    private static final int MIN_MEMORY_MB = 512;
+    
     private final JTextField jdkHomeField = new JTextField(30);
     private final JButton browseButton = new JButton("Browse...");
+    private final JSpinner memorySpinner;
 
     public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
-        super(new BorderLayout(5, 5), language, projectRoot, io);
+        super(new BorderLayout(), language, projectRoot, io);
         logger.debug("JavaAnalyzerConfigPanel initialised");
 
-        add(new JLabel("JDK Home:"), BorderLayout.WEST);
+        // Create a panel with GridBagLayout for the actual content
+        var contentPanel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 2, 2, 2);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        var centre = new JPanel(new BorderLayout(5, 0));
-        centre.add(jdkHomeField, BorderLayout.CENTER);
-        centre.add(browseButton, BorderLayout.EAST);
-        add(centre, BorderLayout.CENTER);
+        // JDK Home row
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
+        contentPanel.add(new JLabel("JDK Home:"), gbc);
+
+        gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
+        contentPanel.add(jdkHomeField, gbc);
+
+        gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
+        contentPanel.add(browseButton, gbc);
+
+        // Memory row
+        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
+        contentPanel.add(new JLabel("Language Server Memory (MB):"), gbc);
+
+        // Calculate max memory based on system
+        long maxMemoryMB = Runtime.getRuntime().maxMemory() / (1024 * 1024);
+        // If maxMemory returns Long.MAX_VALUE, use total memory instead
+        if (maxMemoryMB > 100000) {
+            maxMemoryMB = Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
+        }
+        memorySpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int)Math.min(maxMemoryMB, 32768), 256));
+        
+        gbc.gridx = 1; gbc.gridy = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
+        contentPanel.add(memorySpinner, gbc);
+
+        // Add the content panel to this BorderLayout panel
+        add(contentPanel, BorderLayout.CENTER);
 
         loadSettings();
 
@@ -55,6 +87,10 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         return PREF_KEY_PREFIX + Integer.toHexString(projectRoot.hashCode());
     }
 
+    private String getMemoryPrefKey() {
+        return PREF_MEMORY_KEY_PREFIX + Integer.toHexString(projectRoot.hashCode());
+    }
+
     private void loadSettings() {
         final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
         String jdkHome = prefs.get(getPrefKey(), "");
@@ -62,6 +98,9 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             jdkHome = System.getProperty("java.home");
         }
         jdkHomeField.setText(jdkHome);
+        
+        int memory = prefs.getInt(getMemoryPrefKey(), DEFAULT_MEMORY_MB);
+        memorySpinner.setValue(memory);
     }
 
     @Override
@@ -129,6 +168,13 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
         // Persist the preference (even if unchanged, to ensure it's saved)
         prefs.put(getPrefKey(), value);
+        
+        // Save memory setting
+        int memoryMB = (Integer) memorySpinner.getValue();
+        prefs.putInt(getMemoryPrefKey(), memoryMB);
+        
+        // Update the SharedJdtLspServer with the new memory setting
+        SharedJdtLspServer.getInstance().setMemoryMB(memoryMB);
     }
 
 }

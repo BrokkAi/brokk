@@ -20,6 +20,7 @@ public final class SharedJdtLspServer extends LspServer {
 
     private static final SharedJdtLspServer INSTANCE = new SharedJdtLspServer();
     private @Nullable JdtLanguageClient languageClient;
+    private volatile int memoryMB = 2048; // Default 2GB
 
     private SharedJdtLspServer() {
         super(SupportedLspServer.JDT);
@@ -47,6 +48,18 @@ public final class SharedJdtLspServer extends LspServer {
         return INSTANCE;
     }
 
+    /**
+     * Sets the memory allocation for the JDT LSP server process.
+     * This will take effect on the next server restart.
+     *
+     * @param memoryMB the memory in megabytes (must be >= 512)
+     */
+    public void setMemoryMB(int memoryMB) {
+        if (memoryMB >= 512) {
+            this.memoryMB = memoryMB;
+        }
+    }
+
     @Override
     protected ProcessBuilder createProcessBuilder(Path cache) throws IOException {
         final Path serverHome = LspFileUtilities.unpackLspServer("jdt");
@@ -68,7 +81,7 @@ public final class SharedJdtLspServer extends LspServer {
                 "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-DDetectVMInstallsJob.disabled=true",
                 // Memory arguments
-                "-Xmx2g",
+                "-Xmx" + memoryMB + "m",
                 "-Xms100m",
                 "-XX:+UseParallelGC",
                 "-XX:GCTimeRatio=4",
