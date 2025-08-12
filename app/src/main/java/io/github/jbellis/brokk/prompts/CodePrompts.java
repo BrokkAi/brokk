@@ -54,11 +54,40 @@ public abstract class CodePrompts {
             before immediately jumping into taking further action.
             """.stripIndent();
 
-    // Now takes a Models instance
-    public static String reminderForModel(Service service, StreamingChatModel model) {
-        return service.isLazy(model)
-                ? LAZY_REMINDER
-                : OVEREAGER_REMINDER;
+    public static final String GPT5_MARKDOWN_REMINDER = """
+            Use Markdown **only where semantically correct** (e.g., `inline code`, ```code fences```, lists, tables, headings).
+            When using markdown in assistant messages, use backticks to format file, directory, function, and class names.
+            """.stripIndent();
+
+    public String codeReminder(Service service, StreamingChatModel model) {
+        var baseReminder = service.isLazy(model)
+                                 ? LAZY_REMINDER
+                                 : OVEREAGER_REMINDER;
+
+        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
+        if (modelName.startsWith("gpt-5")) {
+            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
+        }
+        return baseReminder;
+    }
+
+    public String architectReminder(Service service, StreamingChatModel model) {
+        var baseReminder = ARCHITECT_REMINDER;
+
+        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
+        if (modelName.startsWith("gpt-5")) {
+            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
+        }
+        return baseReminder;
+    }
+
+    public String askReminder(IContextManager cm, StreamingChatModel model) {
+        var service = cm.getService();
+        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
+        if (modelName.startsWith("gpt-5")) {
+            return GPT5_MARKDOWN_REMINDER;
+        }
+        return "";
     }
 
     /**
@@ -108,7 +137,7 @@ public abstract class CodePrompts {
     throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
-        var reminder = reminderForModel(cm.getService(), model);
+        var reminder = codeReminder(cm.getService(), model);
 
         messages.add(systemMessage(cm, reminder));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
@@ -202,10 +231,10 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
+    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input, StreamingChatModel model) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(systemMessage(cm, ""));
+        messages.add(systemMessage(cm, askReminder(cm, model)));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
         messages.addAll(getHistoryMessages(cm.topContext()));
         messages.add(askRequest(input));
