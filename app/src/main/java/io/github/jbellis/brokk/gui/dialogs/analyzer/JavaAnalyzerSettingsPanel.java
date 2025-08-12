@@ -7,9 +7,9 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 
 import javax.swing.*;
 import java.awt.*;
-import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.prefs.Preferences;
 
 /**
@@ -23,7 +23,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
     private static final String PREF_MEMORY_KEY_PREFIX = "analyzer.java.memory.";
     private static final int DEFAULT_MEMORY_MB = 2048;
     private static final int MIN_MEMORY_MB = 512;
-    
+
     private final JTextField jdkHomeField = new JTextField(30);
     private final JButton browseButton = new JButton("Browse...");
     private final JSpinner memorySpinner;
@@ -39,17 +39,25 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         // JDK Home row
-        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0.0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.weightx = 0.0;
         contentPanel.add(new JLabel("JDK Home:"), gbc);
 
-        gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0;
         contentPanel.add(jdkHomeField, gbc);
 
-        gbc.gridx = 2; gbc.gridy = 0; gbc.weightx = 0.0;
+        gbc.gridx = 2;
+        gbc.gridy = 0;
+        gbc.weightx = 0.0;
         contentPanel.add(browseButton, gbc);
 
         // Memory row
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0.0;
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0.0;
         contentPanel.add(new JLabel("Language Server Memory (MB):"), gbc);
 
         // Calculate max memory based on system
@@ -58,9 +66,12 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         if (maxMemoryMB > 100000) {
             maxMemoryMB = Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
         }
-        memorySpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int)Math.min(maxMemoryMB, 32768), 256));
-        
-        gbc.gridx = 1; gbc.gridy = 1; gbc.gridwidth = 2; gbc.weightx = 1.0;
+        memorySpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int) Math.min(maxMemoryMB, 32768), 256));
+
+        gbc.gridx = 1;
+        gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
         contentPanel.add(memorySpinner, gbc);
 
         // Add the content panel to this BorderLayout panel
@@ -98,7 +109,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             jdkHome = System.getProperty("java.home");
         }
         jdkHomeField.setText(jdkHome);
-        
+
         int memory = prefs.getInt(getMemoryPrefKey(), DEFAULT_MEMORY_MB);
         memorySpinner.setValue(memory);
     }
@@ -168,11 +179,11 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
         // Persist the preference (even if unchanged, to ensure it's saved)
         prefs.put(getPrefKey(), value);
-        
+
         // Save memory setting
         int memoryMB = (Integer) memorySpinner.getValue();
         prefs.putInt(getMemoryPrefKey(), memoryMB);
-        
+
         // Update the SharedJdtLspServer with the new memory setting
         SharedJdtLspServer.getInstance().setMemoryMB(memoryMB);
     }
