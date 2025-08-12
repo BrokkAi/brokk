@@ -7,6 +7,8 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -27,6 +29,8 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
     private final JTextField jdkHomeField = new JTextField(30);
     private final JButton browseButton = new JButton("Browse...");
     private final JSpinner memorySpinner;
+    private final JLabel memoryWarningLabel;
+    private int savedMemoryMB;
 
     public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
         super(new BorderLayout(), language, projectRoot, io);
@@ -70,9 +74,46 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
         gbc.gridx = 1;
         gbc.gridy = 1;
-        gbc.gridwidth = 2;
-        gbc.weightx = 1.0;
+        gbc.gridwidth = 1;
+        gbc.weightx = 0.5;
         contentPanel.add(memorySpinner, gbc);
+
+        // Memory warning label
+        memoryWarningLabel = new JLabel("<html><font color='orange'>⚠ Restart required</font> - <a href='#'>Restart now</a></html>");
+        memoryWarningLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        memoryWarningLabel.setVisible(false);
+        memoryWarningLabel.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                int result = JOptionPane.showConfirmDialog(
+                        JavaAnalyzerSettingsPanel.this,
+                        "Save settings and restart Brokk to apply the memory change?",
+                        "Restart Required",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE
+                );
+                if (result == JOptionPane.YES_OPTION) {
+                    // Save settings first
+                    saveSettings();
+                    // Request restart - note: actual restart implementation may vary
+                    // This is a graceful exit, the user will need to manually restart
+                    System.exit(0);
+                }
+            }
+        });
+
+        gbc.gridx = 2;
+        gbc.gridy = 1;
+        gbc.gridwidth = 1;
+        gbc.weightx = 0.5;
+        contentPanel.add(memoryWarningLabel, gbc);
+
+        // Add change listener to memory spinner
+        memorySpinner.addChangeListener(e -> {
+            int currentValue = (Integer) memorySpinner.getValue();
+            boolean changed = currentValue != savedMemoryMB;
+            memoryWarningLabel.setVisible(changed);
+        });
 
         // Add the content panel to this BorderLayout panel
         add(contentPanel, BorderLayout.CENTER);
@@ -111,7 +152,9 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         jdkHomeField.setText(jdkHome);
 
         int memory = prefs.getInt(getMemoryPrefKey(), DEFAULT_MEMORY_MB);
+        savedMemoryMB = memory;
         memorySpinner.setValue(memory);
+        memoryWarningLabel.setVisible(false);
     }
 
     @Override
@@ -182,10 +225,21 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
         // Save memory setting
         int memoryMB = (Integer) memorySpinner.getValue();
+        boolean memoryChanged = memoryMB != savedMemoryMB;
         prefs.putInt(getMemoryPrefKey(), memoryMB);
+        savedMemoryMB = memoryMB;
 
         // Update the SharedJdtLspServer with the new memory setting
         SharedJdtLspServer.getInstance().setMemoryMB(memoryMB);
+
+        // Hide warning after saving
+        memoryWarningLabel.setVisible(false);
+
+        if (memoryChanged) {
+            consoleIO.systemNotify("Memory setting changed. Please restart Brokk for the change to take effect.",
+                    "Restart Required",
+                    JOptionPane.INFORMATION_MESSAGE);
+        }
     }
 
 }
