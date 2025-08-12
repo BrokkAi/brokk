@@ -56,29 +56,10 @@ tasks.register("printVersion") {
     }
 }
 
-tasks.register("installGitHooks") {
-    description = "Installs Git hooks from .githooks/ into .git/hooks/"
-    group = "build setup"
-
-    val hooksSrcDir = file("$rootDir/.githooks")
-    val gitHooksDir = file("$rootDir/.git/hooks")
-
-    inputs.dir(hooksSrcDir)
-    outputs.dir(gitHooksDir)
-
-    doLast {
-        if (!gitHooksDir.exists()) return@doLast
-        hooksSrcDir.listFiles()?.forEach { src ->
-            val dest = File(gitHooksDir, src.name)
-            src.copyTo(dest, overwrite = true)
-            dest.setExecutable(true)
-        }
-    }
-}
-
-/* Ensure hooks are present whenever we build the project locally or in CI */
-tasks.named("build") {
-    dependsOn("installGitHooks")
+tasks.register("tidy") {
+    description = "Formats code using Spotless (alias for spotlessApply)"
+    group = "formatting"
+    dependsOn("spotlessApply")
 }
 
 subprojects {
