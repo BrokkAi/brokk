@@ -1,23 +1,13 @@
 #!/usr/bin/env bash
 #
-# Adds an alias for Brokk that allocates 1/4 of available RAM to the JVM.
-# Safe to re-run: aborts if the alias already exists.
+# Installs the Brokk command using JBang with dynamic memory allocation (1/4 of available RAM).
+# Safe to re-run: aborts if the command already exists.
 
 set -euo pipefail
 
-# Choose the RC file based on the current shell
-shell_name="$(basename "${SHELL:-bash}")"
-rc_file="$HOME/.${shell_name}rc"
-
-# Abort if alias already present
-if grep -qE '^alias +brokk=' "$rc_file" 2>/dev/null; then
-  echo "Alias 'brokk' already exists in $rc_file. Aborting."
-  exit 1
-fi
-
-# Ensure curl exists
-if ! command -v curl >/dev/null 2>&1; then
-  echo "'curl' is required but was not found. Please install curl and re-run."
+# Check if brokk command already exists via JBang
+if command -v jbang >/dev/null 2>&1 && jbang list 2>/dev/null | grep -q '^brokk\s'; then
+  echo "Command 'brokk' is already installed via JBang. Aborting."
   exit 1
 fi
 
@@ -25,6 +15,11 @@ fi
 if ! command -v jbang >/dev/null 2>&1; then
   read -rp "JBang is not installed. Install it now? [y/N] " reply
   if [[ "$reply" =~ ^[Yy]$ ]]; then
+    # Check for curl only when we need to install JBang
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "'curl' is required to install JBang but was not found. Please install curl and re-run."
+      exit 1
+    fi
     echo "Installing JBang …"
     curl -Ls https://sh.jbang.dev | bash -s - app setup
     # Make JBang available for this script run (might already be on PATH after installer)
@@ -58,10 +53,8 @@ else
   fi
 fi
 
-alias_line="alias brokk=\"jbang run --java-options -Xmx${xmx} brokk@brokkai/brokk\""
+echo "Installing brokk command with -Xmx${xmx}..."
+jbang app install --name brokk --java-options "-Xmx${xmx}" brokk@brokkai/brokk
 
-echo "Adding alias to $rc_file:"
-echo "  $alias_line"
-echo "$alias_line" >> "$rc_file"
-
-echo "Success! Re-open your terminal or run:  source \"$rc_file\""
+echo "Success! The 'brokk' command is now available in your PATH."
+echo "You can run it from any terminal with: brokk"

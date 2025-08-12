@@ -22,8 +22,12 @@ There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and sugg
       ```bash
       bash <(curl -Ls https://raw.githubusercontent.com/BrokkAi/brokk/refs/heads/master/INSTALL.sh)
       ```
-   This will create a convenient `brokk` alias (`jbang run --java-options -Xmx<auto> brokk@brokkai/brokk`) in your 
-   shell’s startup file.
+   This will install the `brokk` command globally using JBang with automatic memory allocation
+   (1/4 of your available RAM). To adjust the memory setting, you can manually run:
+   ```bash
+   jbang app install --name brokk --java-options "-Xmx8G" brokk@brokkai/brokk
+   ```
+   (Replace `8G` with your desired memory allocation)
 
 # Documentation
 
