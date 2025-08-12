@@ -114,11 +114,6 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public Service.ModelConfig getAskModelConfig() {
-        return parent.getAskModelConfig();
-    }
-
-    @Override
     public void setAskModelConfig(Service.ModelConfig config) {
         parent.setAskModelConfig(config);
     }

@@ -1308,7 +1308,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
         var contextManager = chrome.getContextManager();
-        prepareAndRunAskCommand(contextManager.getAskModel(), input);
+        prepareAndRunAskCommand(contextManager.getSearchModel(), input);
     }
 
     // Core method to prepare and submit the Ask action

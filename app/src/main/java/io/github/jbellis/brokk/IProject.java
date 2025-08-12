@@ -92,10 +92,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default Service.ModelConfig getAskModelConfig() {
-        throw new UnsupportedOperationException();
-    }
-
     default Service.ModelConfig getSearchModelConfig() {
         throw new UnsupportedOperationException();
     }

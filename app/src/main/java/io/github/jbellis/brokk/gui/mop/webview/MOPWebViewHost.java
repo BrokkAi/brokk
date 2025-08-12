@@ -61,6 +61,7 @@ public final class MOPWebViewHost extends JPanel {
 
         Platform.runLater(() -> {
             var view = new WebView();
+            view.setContextMenuEnabled(false);
             webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);

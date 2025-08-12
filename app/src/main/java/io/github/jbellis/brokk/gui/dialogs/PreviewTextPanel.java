@@ -854,59 +854,61 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * @return true if the save was successful, false otherwise.
      */
     private boolean performSave(@Nullable JButton buttonToDisable) {
-        requireNonNull(file,"Attempted to save but no ProjectFile is associated with this panel");
+        requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
-
-        var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
-
-        if (contentChangedFromInitial) {
+        return contextManager.withFileChangeNotificationsPaused(() -> {
             try {
-                // Generate a unified diff from the initial state to the current state
-                var originalLines = contentBeforeSave.lines().collect(Collectors.toList());
-                var newLines = newContent.lines().collect(Collectors.toList());
-                var patch = DiffUtils.diff(originalLines, newLines);
-                var fileNameForDiff = file.toString();
-                var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(fileNameForDiff,
-                                                                              fileNameForDiff,
-                                                                              originalLines,
-                                                                              patch,
-                                                                              3);
-                // Create the SessionResult representing the net change
-                var actionDescription = "Edited " + fileNameForDiff;
-                // Include quick edit messages accumulated since last save + the current diff
-                var messagesForHistory = new ArrayList<>(quickEditMessages);
-                messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
-                var saveResult = new TaskResult(contextManager,
-                                                actionDescription,
-                                                messagesForHistory,
-                                                Set.of(file),
-                                                TaskResult.StopReason.SUCCESS);
-                contextManager.addToHistory(saveResult, false); // Add the single entry
-                logger.debug("Added history entry for changes in: {}", file);
-            } catch (Exception e) {
-                logger.error("Failed to generate diff or add history entry for {}", file, e);
-            }
-        }
+                // Write the new content to the file first
+                file.write(newContent);
 
-        try {
-            // Write the new content to the file, regardless of whether it matched initial content,
-            // because saveButton being enabled implies it's different from last saved state.
-            file.write(newContent);
-            if (buttonToDisable != null) {
-                buttonToDisable.setEnabled(false); // Disable after successful save
+                // Then, add a history entry for the change.
+                var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
+                if (contentChangedFromInitial) {
+                    try {
+                        // Generate a unified diff from the initial state to the current state
+                        var originalLines = contentBeforeSave.lines().collect(Collectors.toList());
+                        var newLines = newContent.lines().collect(Collectors.toList());
+                        var patch = DiffUtils.diff(originalLines, newLines);
+                        var fileNameForDiff = file.toString();
+                        var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(fileNameForDiff,
+                                fileNameForDiff,
+                                originalLines,
+                                patch,
+                                3);
+                        // Create the SessionResult representing the net change
+                        var actionDescription = "Edited " + fileNameForDiff;
+                        // Include quick edit messages accumulated since last save + the current diff
+                        var messagesForHistory = new ArrayList<>(quickEditMessages);
+                        messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
+                        var saveResult = new TaskResult(contextManager,
+                                actionDescription,
+                                messagesForHistory,
+                                Set.of(file),
+                                TaskResult.StopReason.SUCCESS);
+                        contextManager.addToHistory(saveResult, false); // Add the single entry
+                        logger.debug("Added history entry for changes in: {}", file);
+                    } catch (Exception e) {
+                        logger.error("Failed to generate diff or add history entry for {}", file, e);
+                    }
+                }
+
+                if (buttonToDisable != null) {
+                    buttonToDisable.setEnabled(false); // Disable after successful save
+                }
+                quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+                logger.debug("File saved: " + file);
+                return true; // Save successful
+
+            } catch (IOException ex) {
+                // If save fails, button remains enabled and messages are not cleared.
+                logger.error("Error saving file {}", file, ex);
+                JOptionPane.showMessageDialog(this,
+                        "Error saving file: " + ex.getMessage(),
+                        "Save Error",
+                        JOptionPane.ERROR_MESSAGE);
+                return false; // Save failed
             }
-            quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
-            logger.debug("File saved: " + file);
-            return true; // Save successful
-        } catch (IOException ex) {
-            // If save fails, button remains enabled and messages are not cleared.
-            logger.error("Error saving file {}", file, ex);
-            JOptionPane.showMessageDialog(this,
-                                          "Error saving file: " + ex.getMessage(),
-                                          "Save Error",
-                                          JOptionPane.ERROR_MESSAGE);
-            return false; // Save failed
-        }
+        });
     }
 
 }
