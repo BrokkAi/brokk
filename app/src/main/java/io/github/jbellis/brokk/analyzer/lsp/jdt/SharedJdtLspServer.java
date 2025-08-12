@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
+import io.github.jbellis.brokk.gui.dialogs.analyzer.JavaAnalyzerSettingsPanel;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.jetbrains.annotations.Nullable;
 
@@ -20,7 +21,6 @@ public final class SharedJdtLspServer extends LspServer {
 
     private static final SharedJdtLspServer INSTANCE = new SharedJdtLspServer();
     private @Nullable JdtLanguageClient languageClient;
-    private volatile int memoryMB = 2048; // Default 2GB
 
     private SharedJdtLspServer() {
         super(SupportedLspServer.JDT);
@@ -48,23 +48,14 @@ public final class SharedJdtLspServer extends LspServer {
         return INSTANCE;
     }
 
-    /**
-     * Sets the memory allocation for the JDT LSP server process.
-     * This will take effect on the next server restart.
-     *
-     * @param memoryMB the memory in megabytes (must be >= 512)
-     */
-    public void setMemoryMB(int memoryMB) {
-        if (memoryMB >= 512) {
-            this.memoryMB = memoryMB;
-        }
-    }
-
     @Override
     protected ProcessBuilder createProcessBuilder(Path cache) throws IOException {
         final Path serverHome = LspFileUtilities.unpackLspServer("jdt");
         final Path launcherJar = LspFileUtilities.findFile(serverHome, "org.eclipse.equinox.launcher_");
         final Path configDir = LspFileUtilities.findConfigDir(serverHome);
+        final int memoryMB = JavaAnalyzerSettingsPanel.getSavedMemoryValueMb();
+        logger.debug("Creating JDT LSP process with a max heap size of {} Mb", memoryMB);
+
         return new ProcessBuilder(
                 "java",
                 // Java module system args for compatibility

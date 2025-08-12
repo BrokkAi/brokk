@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 
 public abstract class LspServer {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    protected final Logger logger = LoggerFactory.getLogger(this.getClass());
 
     @Nullable
     private Process serverProcess;

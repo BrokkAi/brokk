@@ -140,10 +140,6 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         return PREF_KEY_PREFIX + Integer.toHexString(projectRoot.hashCode());
     }
 
-    private String getMemoryPrefKey() {
-        return PREF_MEMORY_KEY_PREFIX + Integer.toHexString(projectRoot.hashCode());
-    }
-
     private void loadSettings() {
         final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
         String jdkHome = prefs.get(getPrefKey(), "");
@@ -152,10 +148,18 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         }
         jdkHomeField.setText(jdkHome);
 
-        int memory = prefs.getInt(getMemoryPrefKey(), DEFAULT_MEMORY_MB);
+        int memory = prefs.getInt(PREF_MEMORY_KEY_PREFIX, DEFAULT_MEMORY_MB);
         savedMemoryMB = memory;
         memorySpinner.setValue(memory);
         memoryWarningLabel.setVisible(false);
+    }
+
+    /**
+     * @return the saved memory value in MB.
+     */
+    public static int getSavedMemoryValueMb() {
+        final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
+        return prefs.getInt(PREF_MEMORY_KEY_PREFIX, DEFAULT_MEMORY_MB);
     }
 
     @Override
@@ -227,11 +231,8 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         // Save memory setting
         int memoryMB = (Integer) memorySpinner.getValue();
         boolean memoryChanged = memoryMB != savedMemoryMB;
-        prefs.putInt(getMemoryPrefKey(), memoryMB);
+        prefs.putInt(PREF_MEMORY_KEY_PREFIX, memoryMB);
         savedMemoryMB = memoryMB;
-
-        // Update the SharedJdtLspServer with the new memory setting
-        SharedJdtLspServer.getInstance().setMemoryMB(memoryMB);
 
         // Hide warning after saving
         memoryWarningLabel.setVisible(false);
