@@ -117,7 +117,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
 
     @Override
     public void setIo(IConsoleIO io) {
-        SharedJdtLspServer.getInstance(io); // give singleton the IO
+        SharedJdtLspServer.setIo(io); // give singleton the IO
     }
 
     /**

@@ -36,16 +36,14 @@ public final class SharedJdtLspServer extends LspServer {
     }
 
     /**
-     * Returns the singleton instance with the given {@link IConsoleIO} instance as the IO to use for future diagostics.
+     * Sets the singleton instance with the given {@link IConsoleIO} instance as the IO to use for future diagnostics.
      *
      * @param io the IO instance to use. If `null`, user-facing diagnostics will be disabled.
-     * @return the singleton LSP client instance.
      */
-    public static SharedJdtLspServer getInstance(@Nullable IConsoleIO io) {
+    public static void setIo(@Nullable IConsoleIO io) {
         if (INSTANCE.languageClient != null) {
             INSTANCE.languageClient.setIo(io);
         }
-        return INSTANCE;
     }
 
     @Override
