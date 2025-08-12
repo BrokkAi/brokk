@@ -9,8 +9,8 @@ import java.util.*;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
-    public JavaTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, Language.JAVA, excludedFiles);
+    public JavaTreeSitterAnalyzer(IProject project) {
+        super(project, Language.JAVA, project.getExcludedDirectories());
     }
 
     @Override

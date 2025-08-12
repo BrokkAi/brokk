@@ -11,9 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
@@ -26,6 +24,7 @@ public final class JdtLanguageClient implements LanguageClient {
     private final String language;
     private final int ERROR_LOG_LINE_LIMIT = 4;
     private @Nullable IConsoleIO io;
+    private final Set<String> accumulatedErrors = new HashSet<>();
 
     public JdtLanguageClient(
             String language,
@@ -42,11 +41,18 @@ public final class JdtLanguageClient implements LanguageClient {
      */
     public void setIo(@Nullable IConsoleIO io) {
         this.io = io;
+        if (!accumulatedErrors.isEmpty()) {
+            final var accumulatedMessage = String.join(System.lineSeparator(), accumulatedErrors);
+            alertUser(accumulatedMessage);
+            accumulatedErrors.clear();
+        }
     }
 
     private void alertUser(String message) {
         if (io != null) {
-            io.systemOutput(message);
+            io.toolError(message);
+        } else {
+            accumulatedErrors.add(message);
         }
     }
 
@@ -82,32 +88,7 @@ public final class JdtLanguageClient implements LanguageClient {
     @Override
     public void logMessage(MessageParams message) {
         switch (message.getType()) {
-            case Error -> {
-                var messageLines = message.getMessage().lines().toList();
-                // Avoid chained stack trace spam, these are recorded in the LSP logs elsewhere anyway
-                if (messageLines.size() > ERROR_LOG_LINE_LIMIT) {
-                    final var conciseMessageLines = new ArrayList<>(messageLines.stream().limit(ERROR_LOG_LINE_LIMIT).toList());
-                    final var cachePath = LspServer.getCacheForLsp(language)
-                            .resolve(".metadata")
-                            .resolve(".log");
-                    conciseMessageLines.add("See logs at '" + cachePath + "' for more details.");
-                    messageLines = conciseMessageLines;
-                }
-                final var messageBody = messageLines.stream().collect(Collectors.joining(System.lineSeparator()));
-
-                logger.error("[LSP-SERVER-LOG] {}", messageBody);
-                
-                // There is the possibility that the message indicates a complete failure, we should countdown the
-                // latches to unblock the clients
-                if (messageBody.contains("Failed to import projects")) {
-                    logger.warn("Failed to import projects, counting down all latches");
-                    alertUser("Failed to import Java project, code analysis will be limited.\nPlease ensure the project can build via Gradle, Maven, or Eclipse.");
-                    workspaceReadyLatchMap.forEach((workspace, latch) -> {
-                        logger.debug("Marking {} as ready", workspace);
-                        latch.countDown();
-                    });
-                }
-            }
+            case Error -> handleSystemError(message);
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
             case Info -> {
                 logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
@@ -137,6 +118,37 @@ public final class JdtLanguageClient implements LanguageClient {
         }
     }
 
+    private void handleSystemError(MessageParams message) {
+        var messageLines = message.getMessage().lines().toList();
+        // Avoid chained stack trace spam, these are recorded in the LSP logs elsewhere anyway
+        if (messageLines.size() > ERROR_LOG_LINE_LIMIT) {
+            final var conciseMessageLines = new ArrayList<>(messageLines.stream().limit(ERROR_LOG_LINE_LIMIT).toList());
+            final var cachePath = LspServer.getCacheForLsp(language)
+                    .resolve(".metadata")
+                    .resolve(".log");
+            conciseMessageLines.add("See logs at '" + cachePath + "' for more details.");
+            messageLines = conciseMessageLines;
+        }
+        final var messageBody = messageLines.stream().collect(Collectors.joining(System.lineSeparator()));
+
+        logger.error("[LSP-SERVER-LOG] {}", messageBody);
+
+        // There is the possibility that the message indicates a complete failure, we should countdown the
+        // latches to unblock the clients
+        if (failedToImportProject(message)) {
+            logger.warn("Failed to import projects, counting down all latches");
+            alertUser("Failed to import Java project, code analysis will be limited.\nPlease ensure the project can build via Gradle, Maven, or Eclipse.");
+            workspaceReadyLatchMap.forEach((workspace, latch) -> {
+                logger.debug("Marking {} as ready", workspace);
+                latch.countDown();
+            });
+        } else if (isOutOfMemoryError(message)) {
+            alertUser("The Java Language Server ran out of memory. Consider increasing this under 'Settings' -> 'Analyzers' -> 'Java'.");
+        } else if (isUnhandledError(message)) {
+            alertUser("Failed to import Java project due to unknown error. Please look at $HOME/.brokk/debug.log.");
+        }
+    }
+
     @JsonNotification("language/status")
     public void languageStatus(LspStatus message) {
         final var kind = message.type();
@@ -151,4 +163,18 @@ public final class JdtLanguageClient implements LanguageClient {
         logger.info("Server requested to register capabilities: {}", params.getRegistrations());
         return CompletableFuture.completedFuture(null);
     }
+
+    private boolean failedToImportProject(MessageParams message) {
+        return message.getMessage().contains("Failed to import projects") ||
+                message.getMessage().contains("Problems occurred when invoking code from plug-in:");
+    }
+
+    private boolean isOutOfMemoryError(MessageParams message) {
+        return  message.getMessage().contains("Java heap space");
+    }
+
+    private boolean isUnhandledError(MessageParams message) {
+        return message.getMessage().contains("Unhandled error");
+    }
+
 }

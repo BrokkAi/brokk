@@ -41,7 +41,7 @@ public class JavaTreeSitterAnalyzerGitInverseCooccurenceTest {
 
         testProject = new TestProject(testPath, Language.JAVA);
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
-        analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new JavaTreeSitterAnalyzer(testProject);
     }
 
     @AfterAll

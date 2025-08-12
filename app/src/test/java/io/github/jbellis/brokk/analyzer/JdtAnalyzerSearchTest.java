@@ -26,8 +26,8 @@ public class JdtAnalyzerSearchTest {
 
     @BeforeAll
     public static void setup() throws IOException {
-        testProject = createTestProject("testcode-java", Language.JAVA);
-        analyzer = new JdtAnalyzer(testProject.getRoot(), Collections.emptySet());
+        testProject = createTestProject("testcode-java");
+        analyzer = new JdtAnalyzer(testProject);
     }
     
     @AfterAll
@@ -44,7 +44,7 @@ public class JdtAnalyzerSearchTest {
         }
     }
 
-    private static IProject createTestProject(String subDir, Language lang) {
+    public static IProject createTestProject(String subDir) {
         var testDir = Path.of("./src/test/resources", subDir);
         assertTrue(Files.exists(testDir), String.format("Test resource dir missing: %s", testDir));
         assertTrue(Files.isDirectory(testDir), String.format("%s is not a directory", testDir));

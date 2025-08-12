@@ -135,7 +135,7 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return new JavaAnalyzer(project);
+            return JavaAnalyzer.create(project);
         }
 
         @Override

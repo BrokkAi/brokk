@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
@@ -24,18 +25,14 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
     private final SharedJdtLspServer sharedServer;
     private boolean useEclipseBuildFiles = false;
 
-    @Nullable
-    private IConsoleIO io;
-
     /**
      * Creates an analyzer for a specific project workspace.
      *
-     * @param projectPath   The path to the Java project to be analyzed.
-     * @param excludedPaths A set of glob patterns to exclude from analysis (e.g., "build", "**\/target").
+     * @param project the IProject file containing the necessary project information.
      * @throws IOException if the server cannot be started.
      */
-    public JdtAnalyzer(Path projectPath, Set<String> excludedPaths) throws IOException {
-        this.projectRoot = projectPath.toAbsolutePath().normalize();
+    public JdtAnalyzer(IProject project) throws IOException {
+        this.projectRoot = project.getRoot().toAbsolutePath().normalize();
         if (!this.projectRoot.toFile().exists()) {
             throw new FileNotFoundException("Project directory does not exist: " + projectRoot);
         } else {
@@ -45,8 +42,8 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
                 logger.warn("Error validating and creating project build files for: {}. Attempting to continue.", projectRoot, e);
             }
             this.workspace = this.projectRoot.toUri().toString();
-            this.sharedServer = SharedJdtLspServer.getInstance(io);
-            this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions(), getLanguage());
+            this.sharedServer = SharedJdtLspServer.getInstance();
+            this.sharedServer.registerClient(this.projectRoot, project.getExcludedDirectories(), getInitializationOptions(), getLanguage());
             this.sharedServer.refreshWorkspace().join();
             try {
                 // Indexing generally completes within a couple of seconds, but larger projects need grace
@@ -120,7 +117,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
 
     @Override
     public void setIo(IConsoleIO io) {
-        this.io = io;
+        SharedJdtLspServer.getInstance(io); // give singleton the IO
     }
 
     /**

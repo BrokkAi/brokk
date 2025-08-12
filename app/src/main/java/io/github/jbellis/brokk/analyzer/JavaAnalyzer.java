@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
+import org.jspecify.annotations.NullMarked;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
@@ -23,36 +24,30 @@ import java.util.concurrent.CompletableFuture;
 public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCapabilities, CanCommunicate {
 
     private @Nullable JdtAnalyzer jdtAnalyzer;
-    private @Nullable IConsoleIO io;
-    private final CompletableFuture<Boolean> jdtAnalyzerFuture;
+    private final CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture;
 
-    public JavaAnalyzer(IProject project) {
-        this(project, project.getExcludedDirectories());
-    }
-
-    public JavaAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
-        this.jdtAnalyzerFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-                log.debug("Creating JDT LSP Analyzer in the background.");
-                this.jdtAnalyzer = new JdtAnalyzer(project.getRoot(), excludedFiles);
-                this.jdtAnalyzer.setIo(io);
-                return true;
-            } catch (IOException e) {
-                log.error("Exception encountered while creating JDT analyzer");
-                return false;
-            }
+    private JavaAnalyzer(IProject project, CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture) {
+        super(project);
+        this.jdtAnalyzerFuture = jdtAnalyzerFuture.thenApply(analyzer -> {
+            this.jdtAnalyzer = analyzer;
+            return analyzer;
         });
     }
 
     @Override
     public CompletableFuture<Boolean> isAdvancedAnalysisReady() {
-        return this.jdtAnalyzerFuture;
+        // If no exception raised, we're good to use the JDT analyzer
+        return this.jdtAnalyzerFuture
+                .handleAsync((JdtAnalyzer result, @Nullable Throwable exception) -> exception == null);
     }
 
     @Override
     public void setIo(IConsoleIO io) {
-        this.io = io;
+        if (this.jdtAnalyzer != null) this.jdtAnalyzer.setIo(io);
+        else if (!jdtAnalyzerFuture.isDone()) jdtAnalyzerFuture.thenApply(analyzer -> {
+            analyzer.setIo(io);
+            return analyzer;
+        });
     }
 
     @Override
@@ -112,4 +107,18 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
     public Path getProjectRoot() {
         return this.getProject().getRoot();
     }
+
+    public static JavaAnalyzer create(IProject project) {
+        final var jdtAnalyzerFuture = CompletableFuture.supplyAsync(() -> {
+            try {
+                log.debug("Creating JDT LSP Analyzer in the background.");
+                return new JdtAnalyzer(project);
+            } catch (IOException e) {
+                log.error("Exception encountered while creating JDT analyzer");
+                throw new RuntimeException(e);
+            }
+        });
+        return new JavaAnalyzer(project, jdtAnalyzerFuture);
+    }
+
 }

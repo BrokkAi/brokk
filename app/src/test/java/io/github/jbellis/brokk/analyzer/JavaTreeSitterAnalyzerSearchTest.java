@@ -29,7 +29,7 @@ public class JavaTreeSitterAnalyzerSearchTest {
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
         testProject = new TestProject(testPath, Language.JAVA);
         logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
-        analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new JavaTreeSitterAnalyzer(testProject);
     }
 
     @AfterAll

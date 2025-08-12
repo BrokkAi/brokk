@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.IProject;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -9,11 +10,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -25,18 +24,48 @@ public class JdtAnalyzerTest {
 
     @Nullable
     private static JdtAnalyzer analyzer = null;
+    private static IProject testProject;
 
     @BeforeAll
     public static void setup() throws IOException {
-        final var testPath = Path.of("src/test/resources/testcode-java");
-        logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
-        analyzer = new JdtAnalyzer(testPath, new HashSet<>());
+        testProject = createTestProject("testcode-java");
+        logger.debug("Setting up analyzer with test code from {}", testProject.getRoot().toAbsolutePath().normalize());
+        analyzer = new JdtAnalyzer(testProject);
+    }
+
+    public static IProject createTestProject(String subDir) {
+        var testDir = Path.of("./src/test/resources", subDir);
+        assertTrue(Files.exists(testDir), String.format("Test resource dir missing: %s", testDir));
+        assertTrue(Files.isDirectory(testDir), String.format("%s is not a directory", testDir));
+
+        return new IProject() {
+            @Override
+            public Path getRoot() {
+                return testDir.toAbsolutePath();
+            }
+
+            @Override
+            public Set<ProjectFile> getAllFiles() {
+                var files = testDir.toFile().listFiles();
+                if (files == null) {
+                    return Collections.emptySet();
+                }
+                return Arrays.stream(files)
+                        .map(file -> new ProjectFile(testDir, file.toPath()))
+                        .collect(Collectors.toSet());
+            }
+        };
     }
 
     @AfterAll
     public static void teardown() {
         if (analyzer != null) {
             analyzer.close();
+        }
+        try {
+            testProject.close();
+        } catch (Exception e) {
+            logger.error("Exception encountered while closing the test project at the end of testing", e);
         }
     }
 
