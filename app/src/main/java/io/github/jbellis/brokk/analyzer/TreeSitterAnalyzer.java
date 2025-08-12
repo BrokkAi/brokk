@@ -526,7 +526,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     } catch (IOException e) {
       return "";
     }
-    return src.substring(range.startByte(), range.endByte());
+    if (src.length() < range.startByte) {
+      log.warn("getClassSource: Source range larger than given source code's length");
+      return "";
+    } else {
+      return src.substring(range.startByte(), range.endByte());
+    }
   }
 
   @Override
@@ -1803,8 +1808,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
       log.warn(
           "Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)",
           e.getMessage());
-      return src.substring(
-          Math.min(node.getStartByte(), src.length()), Math.min(node.getEndByte(), src.length()));
+      if (src.length() < node.getStartByte()) {
+        log.warn("textSlice: Source range larger than given source code's length");
+        return "";
+      } else {
+        return src.substring(
+            Math.min(node.getStartByte(), src.length()), Math.min(node.getEndByte(), src.length()));
+      }
     }
 
     // Extract using correct byte indexing
@@ -1822,7 +1832,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
       log.warn(
           "Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)",
           e.getMessage());
-      return src.substring(Math.min(startByte, src.length()), Math.min(endByte, src.length()));
+      if (src.length() < startByte) {
+        log.warn("textSlice: Source range larger than given source code's length");
+        return "";
+      } else {
+        return src.substring(Math.min(startByte, src.length()), Math.min(endByte, src.length()));
+      }
     }
 
     return textSliceFromBytes(startByte, endByte, bytes);
@@ -1873,11 +1888,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             decl.getStartPoint().getRow() + 1);
       }
     } catch (Exception e) {
+      final String snippet;
+      if (decl.getStartByte() > src.length()) {
+        snippet = src.substring(0, Math.min(20, src.length()));
+      } else {
+        snippet =
+            src.substring(
+                decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
+      }
       log.warn(
           "Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
           identifierFieldName,
           decl.getType(),
-          src.substring(decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20)),
+          snippet,
           e.getMessage());
     }
 

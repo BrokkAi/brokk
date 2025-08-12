@@ -1,8 +1,8 @@
 // Get the version from the latest git tag and current version
 fun getVersionFromGit(): String {
     return try {
-        // First, try to get exact tag match
-        val exactTagProcess = ProcessBuilder("git", "describe", "--tags", "--exact-match", "HEAD")
+        // First, try to get exact tag match with version pattern
+        val exactTagProcess = ProcessBuilder("git", "describe", "--tags", "--exact-match", "--match", "[0-9]*", "HEAD")
             .directory(rootDir)
             .start()
         exactTagProcess.waitFor()
@@ -11,8 +11,8 @@ fun getVersionFromGit(): String {
             // On exact tag - clean release version
             exactTagProcess.inputStream.bufferedReader().readText().trim()
         } else {
-            // Not on exact tag - get development version
-            val devVersionProcess = ProcessBuilder("git", "describe", "--tags", "--always", "--dirty=-SNAPSHOT")
+            // Not on exact tag - get development version with version tags only
+            val devVersionProcess = ProcessBuilder("git", "describe", "--tags", "--always", "--match", "[0-9]*", "--dirty=-SNAPSHOT")
                 .directory(rootDir)
                 .start()
             devVersionProcess.waitFor()

@@ -578,12 +578,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     return getModelOrDefault(config, "Code");
   }
 
-  /** Returns the configured Ask model, falling back to the system model if unavailable. */
-  public StreamingChatModel getAskModel() {
-    var config = project.getAskModelConfig();
-    return getModelOrDefault(config, "Ask");
-  }
-
   /** Returns the configured Search model, falling back to the system model if unavailable. */
   public StreamingChatModel getSearchModel() {
     var config = project.getSearchModelConfig();
@@ -1776,6 +1770,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     service.reinit(project);
   }
 
+  public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
+    analyzerWrapper.pause();
+    try {
+      return callable.call();
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    } finally {
+      analyzerWrapper.resume();
+    }
+  }
+
   @FunctionalInterface
   public interface TaskRunner {
     /**
@@ -1878,7 +1883,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             .stripIndent()
                             .formatted(codeForLLM)));
 
-            var result = getLlm(getAskModel(), "Generate style guide").sendRequest(messages);
+            var result = getLlm(getSearchModel(), "Generate style guide").sendRequest(messages);
             if (result.error() != null || result.originalResponse() == null) {
               io.systemOutput(
                   "Failed to generate style guide: "

@@ -453,11 +453,6 @@ public final class MainProject extends AbstractProject {
   }
 
   @Override
-  public ModelConfig getAskModelConfig() {
-    return getModelConfigInternal("Ask");
-  }
-
-  @Override
   public void setAskModelConfig(ModelConfig config) {
     setModelConfigInternal("Ask", config);
   }

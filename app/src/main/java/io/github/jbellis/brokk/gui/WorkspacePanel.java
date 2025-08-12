@@ -1279,7 +1279,7 @@ public class WorkspacePanel extends JPanel {
         List.of(
             project.getArchitectModelConfig(),
             project.getCodeModelConfig(),
-            project.getAskModelConfig(),
+            project.getSearchModelConfig(),
             project.getSearchModelConfig());
 
     for (var config : configuredModelChecks) {
@@ -2128,7 +2128,7 @@ public class WorkspacePanel extends JPanel {
     List<Service.ModelConfig> configsToCheck =
         List.of(
             project.getCodeModelConfig(),
-            project.getAskModelConfig(),
+            project.getSearchModelConfig(),
             project.getArchitectModelConfig());
 
     for (var config : configsToCheck) {

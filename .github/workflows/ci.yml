@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
 
     - name: Set up Java 21
       uses: actions/setup-java@v4
@@ -33,24 +35,6 @@ jobs:
     - name: Build assembly
       run: ./gradlew shadowJar
 
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: gradle
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Run build
-        run: ./gradlew build
 
   formatting:
     runs-on: ubuntu-latest
@@ -78,6 +62,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -91,3 +77,53 @@ jobs:
 
       - name: Run dependency analysis
         run: ./gradlew buildHealth
+
+  frontend-sync-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend-mop/package-lock.json
+
+      - name: Check frontend assets are up-to-date
+        run: |
+          echo "--- Setting up frontend environment ---"
+          cd frontend-mop
+          npm ci
+
+          echo "--- Patching svelte-exmarkdown package.json export paths ---"
+          sed -i 's|"./dist/contexts\.d\.ts"|"./dist/contexts.svelte.d.ts"|g' node_modules/svelte-exmarkdown/package.json
+          sed -i 's|"./dist/contexts\.js"|"./dist/contexts.svelte.js"|g' node_modules/svelte-exmarkdown/package.json
+          cd ..
+
+          echo "--- Building frontend assets for verification ---"
+          (cd frontend-mop && npm run build)
+
+          echo "--- Verifying that built assets match committed assets ---"
+          GIT_STATUS=$(git status --porcelain app/src/main/resources/mop-web/)
+
+          if [ -n "$GIT_STATUS" ]; then
+            echo "❌ ERROR: Stale frontend assets detected."
+            echo "The committed assets in 'app/src/main/resources/mop-web/' are out of sync with the source in 'frontend-mop/'."
+            echo "To fix this, run the frontend build locally and commit the updated files:"
+            echo "  cd frontend-mop"
+            echo "  npm run build"
+            echo "  cd .."
+            echo "  git add app/src/main/resources/mop-web/"
+            echo "  git commit -m \"build: Update frontend assets\""
+            echo ""
+            echo "Detected changes:"
+            git diff app/src/main/resources/mop-web/
+            exit 1
+          else
+            echo "✅ SUCCESS: Frontend assets are up-to-date."
+            exit 0
+          fi
