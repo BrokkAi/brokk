@@ -15,6 +15,15 @@ There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and sugg
 
 1. Sign up at [Brokk.ai](https://brokk.ai/)
 1. Follow the instructions to install jbang and run Brokk
+1. Already have a Brokk token and want a quicker setup?  
+   a. Clone this repo and run `./INSTALL.sh`, or  
+   b. Run the installer directly without cloning:
+
+      ```bash
+      bash <(curl -Ls https://raw.githubusercontent.com/BrokkAi/brokk/refs/heads/master/INSTALL.sh)
+      ```
+   This will create a convenient `brokk` alias (`jbang run --java-options -Xmx<auto> brokk@brokkai/brokk`) in your 
+   shell’s startup file.
 
 # Documentation
 
