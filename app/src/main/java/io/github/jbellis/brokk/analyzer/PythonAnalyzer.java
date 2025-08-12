@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,10 +16,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_definition"),
-            Set.of("function_definition"),
-            Set.of("assignment", "typed_parameter"),
-            Set.of("decorator"),
+            Set.of(CLASS_DEFINITION),
+            Set.of(FUNCTION_DEFINITION),
+            Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(DECORATOR),
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName
@@ -84,10 +86,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 }
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's
-                    // expectation of a "."
-                    // This also makes it consistent with how top-level functions are named
-                    // (moduleName.funcName)
+                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of
+                    // a "."
+                    // This also makes it consistent with how top-level functions are named (moduleName.funcName)
                     finalShortName = moduleName + "." + simpleName;
                 } else {
                     finalShortName = classChain + "." + simpleName;
@@ -161,8 +162,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
-        // The definitionNode, rootNode, and src parameters are not used for Python package
-        // determination.
+        // The definitionNode, rootNode, and src parameters are not used for Python package determination.
         var absPath = file.absPath();
         var projectRoot = getProject().getRoot();
         var parentDir = absPath.getParent();
@@ -190,8 +190,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             rootForRelativize = projectRoot;
         }
 
-        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot,
-        // effectivePackageRoot is deeper due to missing __init__.py)
+        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot, effectivePackageRoot is deeper
+        // due to missing __init__.py)
         // or if parentDir is the same as rootForRelativize, then there's no relative package path.
         if (!parentDir.startsWith(rootForRelativize) || parentDir.equals(rootForRelativize)) {
             return "";

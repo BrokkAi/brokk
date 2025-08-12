@@ -205,8 +205,7 @@ public class MultiFileSelectionDialog extends JDialog {
                         return List.of(); // Or throw a runtime exception if preferred
                     }
                 },
-                backgroundExecutor); // Use an executor to avoid blocking GUI thread if original future is
-        // slow
+                backgroundExecutor); // Use an executor to avoid blocking GUI thread if original future is slow
     }
 
     /** Creates the panel containing components for class selection. (Largely unchanged) */
@@ -348,7 +347,7 @@ public class MultiFileSelectionDialog extends JDialog {
         }
 
         Map<String, CodeUnit> knownClasses = Completions.completeSymbols("", activeAnalyzer).stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .filter(CodeUnit::isClass)
                 .collect(Collectors.toMap(CodeUnit::fqName, cu -> cu, (cu1, cu2) -> cu1));
 
         for (String className : classNames) {
@@ -403,8 +402,7 @@ public class MultiFileSelectionDialog extends JDialog {
         return selectionResult;
     }
 
-    // getCurrentTokenText is now handled by FileSelectionPanel's internal completion provider for its
-    // JTextArea
+    // getCurrentTokenText is now handled by FileSelectionPanel's internal completion provider for its JTextArea
     // FileCompletionProvider (inner class for files) is now part of FileSelectionPanel.
 
     /**
@@ -423,7 +421,7 @@ public class MultiFileSelectionDialog extends JDialog {
             this.completionsFuture = backgroundExecutor.submit(() -> {
                 try {
                     return Completions.completeSymbols("", analyzerWrapperField.get()).stream()
-                            .filter(c -> c.kind() == CodeUnitType.CLASS)
+                            .filter(CodeUnit::isClass)
                             .toList();
                 } catch (Exception e) {
                     logger.error("Error loading symbol completions in background", e);
@@ -469,8 +467,8 @@ public class MultiFileSelectionDialog extends JDialog {
             if (tokenStart < 0) tokenStart = 0;
 
             String currentToken = text.substring(tokenStart, caretPos);
-            // Simplified logic: if the token starts with a quote and we are effectively inside quotes
-            // (odd number of quotes from tokenStart to caretPos)
+            // Simplified logic: if the token starts with a quote and we are effectively inside quotes (odd number of
+            // quotes from tokenStart to caretPos)
             // then the pattern for completion is what's after the opening quote.
             // This is a common behavior for completion within quoted strings.
             if (currentToken.startsWith("\"")) {

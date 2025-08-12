@@ -400,8 +400,7 @@ public interface Language {
 
             venvs.stream()
                     .map(this::sitePackagesDir)
-                    .filter(Files::isDirectory) // Filter out empty paths returned by sitePackagesDir if not
-                    // found
+                    .filter(Files::isDirectory) // Filter out empty paths returned by sitePackagesDir if not found
                     .forEach(dir -> {
                         logger.debug("Scanning site-packages directory: {}", dir);
                         try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
@@ -535,6 +534,45 @@ public interface Language {
         }
     };
 
+    Language CPP_TREESITTER = new Language() {
+        private final List<String> extensions = List.of("cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "C++ (TreeSitter)";
+        }
+
+        @Override
+        public String internalName() {
+            return "CPP_TREESITTER";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
+            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
+        }
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return Language.super.getDependencyCandidates(project);
+        }
+    };
+
     Language RUST = new Language() {
         private final List<String> extensions = List.of("rs");
 
@@ -593,8 +631,7 @@ public interface Language {
             Path cargoDir = projectRoot.resolve(".cargo");
             return !Files.isDirectory(cargoDir)
                     || !normalizedPathToImport.startsWith(
-                            cargoDir); // Default: if under project root and not in typical build/dependency
-            // dirs
+                            cargoDir); // Default: if under project root and not in typical build/dependency dirs
         }
     };
 
@@ -786,6 +823,7 @@ public interface Language {
             JAVASCRIPT,
             PYTHON,
             C_CPP,
+            CPP_TREESITTER,
             GO,
             RUST,
             PHP,
@@ -840,8 +878,7 @@ public interface Language {
     static Language valueOf(String name) {
         Objects.requireNonNull(name, "Name is null");
         for (Language lang : ALL_LANGUAGES) {
-            // Check current human-friendly name first, then old programmatic name for backward
-            // compatibility.
+            // Check current human-friendly name first, then old programmatic name for backward compatibility.
             if (lang.name().equals(name) || lang.internalName().equals(name)) {
                 return lang;
             }

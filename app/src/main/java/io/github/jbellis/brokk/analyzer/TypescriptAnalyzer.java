@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
+
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
 import java.util.ArrayList;
@@ -25,47 +27,46 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     // Fast lookups for type checks
     private static final Set<String> FUNCTION_NODE_TYPES =
-            Set.of("function_declaration", "generator_function_declaration", "function_signature");
+            Set.of(FUNCTION_DECLARATION, GENERATOR_FUNCTION_DECLARATION, FUNCTION_SIGNATURE);
 
     // Class keyword mapping for fast lookup
     private static final Map<String, String> CLASS_KEYWORDS = Map.of(
-            "interface_declaration", "interface",
-            "enum_declaration", "enum",
-            "module", "namespace",
-            "internal_module", "namespace",
-            "ambient_declaration", "namespace",
-            "abstract_class_declaration", "abstract class");
+            INTERFACE_DECLARATION, INTERFACE,
+            ENUM_DECLARATION, ENUM,
+            MODULE, NAMESPACE,
+            INTERNAL_MODULE, NAMESPACE,
+            AMBIENT_DECLARATION, NAMESPACE,
+            ABSTRACT_CLASS_DECLARATION, ABSTRACT_CLASS);
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
             Set.of(
-                    "class_declaration",
-                    "interface_declaration",
-                    "enum_declaration",
-                    "abstract_class_declaration",
-                    "module",
-                    "internal_module"),
+                    CLASS_DECLARATION,
+                    INTERFACE_DECLARATION,
+                    ENUM_DECLARATION,
+                    ABSTRACT_CLASS_DECLARATION,
+                    MODULE,
+                    INTERNAL_MODULE),
             // functionLikeNodeTypes
             Set.of(
-                    "function_declaration",
-                    "method_definition",
-                    "arrow_function",
-                    "generator_function_declaration",
-                    "function_signature",
-                    "method_signature",
-                    "abstract_method_signature"), // function_signature for overloads, method_signature
-            // for interfaces, abstract_method_signature for
-            // abstract classes
+                    FUNCTION_DECLARATION,
+                    METHOD_DEFINITION,
+                    ARROW_FUNCTION,
+                    GENERATOR_FUNCTION_DECLARATION,
+                    FUNCTION_SIGNATURE,
+                    METHOD_SIGNATURE,
+                    ABSTRACT_METHOD_SIGNATURE), // function_signature for overloads, method_signature for interfaces,
+            // abstract_method_signature for abstract classes
             // fieldLikeNodeTypes
             Set.of(
-                    "variable_declarator",
-                    "public_field_definition",
-                    "property_signature",
-                    "enum_member",
-                    "lexical_declaration",
-                    "variable_declaration"), // type_alias_declaration will be ALIAS_LIKE
+                    VARIABLE_DECLARATOR,
+                    PUBLIC_FIELD_DEFINITION,
+                    PROPERTY_SIGNATURE,
+                    ENUM_MEMBER,
+                    LEXICAL_DECLARATION,
+                    VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
-            Set.of("decorator"),
+            Set.of(DECORATOR),
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -87,8 +88,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
             // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
-            // Used in TreeSitterAnalyzer.buildSignatureString to gather modifiers by inspecting
-            // children.
+            // Used in TreeSitterAnalyzer.buildSignatureString to gather modifiers by inspecting children.
             Set.of(
                     "export",
                     "default",
@@ -104,8 +104,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     "override" // "override" might be via override_modifier
                     // Note: "public", "private", "protected" themselves are not node types here,
                     // but "accessibility_modifier" is the node type whose text content is one of these.
-                    // "const", "let" are token types for the `kind` of a lexical_declaration, often its
-                    // first child.
+                    // "const", "let" are token types for the `kind` of a lexical_declaration, often its first child.
                     // "var" is a token type, often first child of variable_declaration.
                     ));
 
@@ -155,8 +154,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                             captureName,
                             file,
                             classChain);
-                    // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no
-                    // var name found
+                    // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name
+                    // found
                 }
                 finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 return CodeUnit.fn(file, packageName, finalShortName);
@@ -193,8 +192,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         if (text.startsWith(":")) {
             return text.substring(1).strip();
         }
-        return text; // Should not happen if TS grammar for return_type capture is specific to
-        // type_annotation
+        return text; // Should not happen if TS grammar for return_type capture is specific to type_annotation
     }
 
     @Override
@@ -230,7 +228,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
         // For arrow functions, handle specially
-        if ("arrow_function".equals(funcNode.getType())) {
+        if (ARROW_FUNCTION.equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
             String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
@@ -274,8 +272,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         var parts = new ArrayList<String>();
         if (!prefix.isEmpty()) parts.add(prefix);
         if (!keyword.isEmpty()) parts.add(keyword);
-        // For construct signatures, keyword is "new" and functionName is also "new", so skip
-        // functionName
+        // For construct signatures, keyword is "new" and functionName is also "new", so skip functionName
         if (!functionName.isEmpty() && !keyword.equals(functionName)) {
             parts.add(functionName + typeParamsText);
         } else if (keyword.equals("constructor")) {
@@ -288,7 +285,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // For construct signatures, we need a space before params
-        boolean needsSpaceBeforeParams = "construct_signature".equals(funcNode.getType());
+        boolean needsSpaceBeforeParams = CONSTRUCT_SIGNATURE.equals(funcNode.getType());
 
         String signature = String.join(" ", parts);
         if (!paramsText.isEmpty()) {
@@ -529,8 +526,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
             // Fix duplicate interface headers within skeleton
             if (skeleton.contains("interface ") && skeleton.contains("export interface ")) {
-                // Remove lines that are just "interface Name {" when we already have "export interface Name
-                // {"
+                // Remove lines that are just "interface Name {" when we already have "export interface Name {"
                 var lines = List.of(skeleton.split("\n"));
                 var filteredLines = new ArrayList<String>();
                 boolean foundExportInterface = false;
@@ -728,8 +724,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 String line = lines.get(i);
                 String trimmed = line.strip();
 
-                // Remove semicolons from function overload signatures (lines ending with ; that don't have
-                // {)
+                // Remove semicolons from function overload signatures (lines ending with ; that don't have {)
                 if (trimmed.startsWith("export function") && trimmed.endsWith(";") && !trimmed.contains("{")) {
                     line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
                 }

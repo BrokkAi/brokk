@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
 import java.util.Collections;
 import java.util.Set;
@@ -19,8 +21,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
     // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("type_spec"), // classLikeNodeTypes
-            Set.of("function_declaration", "method_declaration"), // functionLikeNodeTypes
+            Set.of(TYPE_SPEC), // classLikeNodeTypes
+            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
             "name", // identifierFieldName (used as fallback if specific .name capture is missing)
@@ -37,8 +39,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                     "method.definition", SkeletonType.FUNCTION_LIKE,
                     "interface.method.definition", SkeletonType.FUNCTION_LIKE // Added for interface methods
                     ), // captureConfiguration
-            "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func
-            // signature)
+            "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)
             );
 
@@ -85,8 +86,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         if (this.packageQuery != null) { // Check if GoAnalyzer constructor has initialized the ThreadLocal field
             currentPackageQuery = this.packageQuery.get();
         } else {
-            // This block executes if determinePackageName is called during TreeSitterAnalyzer's
-            // constructor,
+            // This block executes if determinePackageName is called during TreeSitterAnalyzer's constructor,
             // before this.packageQuery (ThreadLocal) is initialized in GoAnalyzer's constructor.
             log.trace(
                     "GoAnalyzer.determinePackageName: packageQuery ThreadLocal is null, creating temporary query for file {}",
@@ -110,8 +110,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
             if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    // The query "(package_clause (package_identifier) @name)" captures the package_identifier
-                    // node with name "name"
+                    // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with
+                    // name "name"
                     if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null && !nameNode.isNull()) {
@@ -177,8 +177,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
             case "method.definition" -> {
-                // simpleName is now expected to be ReceiverType.MethodName due to adjustments in
-                // TreeSitterAnalyzer
+                // simpleName is now expected to be ReceiverType.MethodName due to adjustments in TreeSitterAnalyzer
                 // classChain is now expected to be ReceiverType
                 log.trace(
                         "Creating FN CodeUnit for Go method: File='{}', Pkg='{}', Name='{}', ClassChain (Receiver)='{}'",
@@ -186,16 +185,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                         packageName,
                         simpleName,
                         classChain);
-                // CodeUnit.fn will create FQN = packageName + "." + simpleName (e.g.,
-                // declpkg.MyStruct.GetFieldA)
+                // CodeUnit.fn will create FQN = packageName + "." + simpleName (e.g., declpkg.MyStruct.GetFieldA)
                 // The parent-child relationship will be established by TreeSitterAnalyzer using classChain.
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
             case "struct.field.definition" -> {
                 // simpleName is FieldName (e.g., "FieldA")
                 // classChain is StructName (e.g., "MyStruct")
-                // We want the CodeUnit's shortName to be "StructName.FieldName" for uniqueness and
-                // parenting.
+                // We want the CodeUnit's shortName to be "StructName.FieldName" for uniqueness and parenting.
                 String fieldShortName = classChain + "." + simpleName;
                 log.trace(
                         "Creating FIELD CodeUnit for Go struct field: File='{}', Pkg='{}', Struct='{}', Field='{}', Resulting ShortName='{}'",
@@ -250,7 +247,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 returnTypeText);
         String rt = !returnTypeText.isEmpty() ? " " + returnTypeText : "";
         String signature;
-        if ("method_declaration".equals(funcNode.getType())) {
+        if (METHOD_DECLARATION.equals(funcNode.getType())) {
             TSNode receiverNode = funcNode.getChildByFieldName("receiver");
             String receiverText = "";
             if (receiverNode != null && !receiverNode.isNull()) {
@@ -260,7 +257,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             // For methods, paramsText is for the method's own parameters, not the receiver.
             signature = String.format("func %s %s%s%s%s", receiverText, functionName, typeParamsText, paramsText, rt);
             return signature + " { " + bodyPlaceholder() + " }";
-        } else if ("method_elem".equals(funcNode.getType())) { // Interface method
+        } else if (METHOD_ELEM.equals(funcNode.getType())) { // Interface method
             // Interface methods don't have 'func', receiver, or body placeholder in their definition.
             // functionName is the method name.
             // paramsText is the parameters (e.g., "()", "(p int)").
@@ -279,12 +276,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             TSNode classNode, String src, String exportPrefix, String signatureTextParam, String baseIndent) {
         // classNode is the type_declaration node.
         // We need to extract "type Name kind" (e.g., "type MyStruct struct").
-        // The signatureTextParam passed from TreeSitterAnalyzer might be too broad (containing the
-        // whole body).
+        // The signatureTextParam passed from TreeSitterAnalyzer might be too broad (containing the whole body).
         TSNode typeSpecNode = null;
         for (int i = 0; i < classNode.getNamedChildCount(); i++) {
             TSNode child = classNode.getNamedChild(i);
-            if ("type_spec".equals(child.getType())) {
+            if (TYPE_SPEC.equals(child.getType())) {
                 typeSpecNode = child;
                 break;
             }
@@ -311,9 +307,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         String kindText;
         String kindNodeType = kindNode.getType();
 
-        if ("struct_type".equals(kindNodeType)) {
+        if (STRUCT_TYPE.equals(kindNodeType)) {
             kindText = "struct";
-        } else if ("interface_type".equals(kindNodeType)) {
+        } else if (INTERFACE_TYPE.equals(kindNodeType)) {
             kindText = "interface";
         } else {
             log.warn(

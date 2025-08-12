@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -366,8 +365,8 @@ public final class BrokkCli implements Callable<Integer> {
             io.toolError(
                     result.stopDetails().explanation(),
                     result.stopDetails().reason().toString());
-            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent
-            // to let harness see how we did
+            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
+            // harness see how we did
         }
 
         return 0;
@@ -395,9 +394,8 @@ public final class BrokkCli implements Callable<Integer> {
         if (inputs.isEmpty()) {
             return List.of();
         }
-        Supplier<Collection<CodeUnit>> source = () -> analyzer.getAllDeclarations().stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
-                .toList();
+        Supplier<Collection<CodeUnit>> source = () ->
+                analyzer.getAllDeclarations().stream().filter(CodeUnit::isClass).toList();
         return inputs.stream()
                 .map(input -> resolve(input, source, List::of, CodeUnit::fqName, entityType))
                 .flatMap(Optional::stream)

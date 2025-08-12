@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,19 +11,15 @@ import org.treesitter.*;
 public final class PhpAnalyzer extends TreeSitterAnalyzer {
     // PHP_LANGUAGE field removed, createTSLanguage will provide new instances.
 
-    private static final String NODE_TYPE_NAMESPACE_DEFINITION = "namespace_definition";
     private static final String NODE_TYPE_PHP_TAG = "php_tag";
-    private static final String NODE_TYPE_DECLARE_STATEMENT = "declare_statement";
-    private static final String NODE_TYPE_COMPOUND_STATEMENT = "compound_statement";
     private static final String NODE_TYPE_REFERENCE_MODIFIER = "reference_modifier";
     private static final String NODE_TYPE_READONLY_MODIFIER = "readonly_modifier";
 
     private static final LanguageSyntaxProfile PHP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_declaration", "interface_declaration", "trait_declaration"), // classLikeNodeTypes
-            Set.of("function_definition", "method_declaration"), // functionLikeNodeTypes
-            Set.of("property_declaration", "const_declaration"), // fieldLikeNodeTypes (capturing the whole declaration)
-            Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in
-            // attribute_list)
+            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION), // classLikeNodeTypes
+            Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
+            Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
+            Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
             "name", // identifierFieldName
             "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
             "parameters", // parametersFieldName
@@ -130,8 +128,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             currentPhpNamespaceQuery = this.phpNamespaceQuery.get();
         } else {
             // This block executes if computeFilePackageName is called (likely via determinePackageName)
-            // during the super() constructor phase, before this.phpNamespaceQuery (ThreadLocal) is
-            // initialized.
+            // during the super() constructor phase, before this.phpNamespaceQuery (ThreadLocal) is initialized.
             log.trace(
                     "PhpAnalyzer.computeFilePackageName: phpNamespaceQuery ThreadLocal is null, creating temporary query for file {}",
                     file);
@@ -166,7 +163,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // Fallback to manual scan if query fails or no match, though query is preferred
         for (int i = 0; i < rootNode.getChildCount(); i++) {
             TSNode current = rootNode.getChild(i);
-            if (current != null && NODE_TYPE_NAMESPACE_DEFINITION.equals(current.getType())) {
+            if (current != null && NAMESPACE_DEFINITION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null) {
                     return textSlice(nameNode, src).replace('\\', '.');
@@ -174,8 +171,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             }
             if (current != null
                     && !NODE_TYPE_PHP_TAG.equals(current.getType())
-                    && !NODE_TYPE_NAMESPACE_DEFINITION.equals(current.getType())
-                    && !NODE_TYPE_DECLARE_STATEMENT.equals(current.getType())
+                    && !NAMESPACE_DEFINITION.equals(current.getType())
+                    && !DECLARE_STATEMENT.equals(current.getType())
                     && i > 5) {
                 break; // Stop searching after a few top-level elements
             }
@@ -189,18 +186,15 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         // If this.fileScopedPackageNames is null, it means this method is being called
         // from the superclass (TreeSitterAnalyzer) constructor, before this PhpAnalyzer
-        // instance's fields (like fileScopedPackageNames or phpNamespaceQueryInstance) have been
-        // initialized.
+        // instance's fields (like fileScopedPackageNames or phpNamespaceQueryInstance) have been initialized.
         // In this specific scenario, we cannot use the instance cache for fileScopedPackageNames.
-        // We must compute the package name directly. computeFilePackageName will handle query
-        // initialization.
+        // We must compute the package name directly. computeFilePackageName will handle query initialization.
         if (this.fileScopedPackageNames == null) {
             log.trace("PhpAnalyzer.determinePackageName called during super-constructor for file: {}", file);
             return computeFilePackageName(file, rootNode, src);
         }
 
-        // If fileScopedPackageNames is not null, the PhpAnalyzer instance is (likely) fully
-        // initialized,
+        // If fileScopedPackageNames is not null, the PhpAnalyzer instance is (likely) fully initialized,
         // and we can use the caching mechanism.
         return fileScopedPackageNames.computeIfAbsent(file, f -> computeFilePackageName(f, rootNode, src));
     }
@@ -297,7 +291,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         TSNode bodyNode = funcNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         // If bodyNode is null or not a compound statement, it's an abstract/interface method.
-        if (bodyNode != null && !bodyNode.isNull() && NODE_TYPE_COMPOUND_STATEMENT.equals(bodyNode.getType())) {
+        if (bodyNode != null && !bodyNode.isNull() && COMPOUND_STATEMENT.equals(bodyNode.getType())) {
             return mainSignaturePart + " { " + bodyPlaceholder() + " }";
         } else {
             // Abstract method or interface method (no body, ends with ';')

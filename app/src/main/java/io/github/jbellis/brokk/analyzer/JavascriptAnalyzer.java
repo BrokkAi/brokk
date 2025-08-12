@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,11 +20,10 @@ import org.treesitter.TreeSitterJavascript;
 public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_declaration", "class_expression", "class"),
-            Set.of("function_declaration", "arrow_function", "method_definition", "function_expression"),
-            Set.of("variable_declarator"),
-            Set.of(), // JS standard decorators not captured as simple preceding nodes by current
-            // query.
+            Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
+            Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
+            Set.of(VARIABLE_DECLARATOR),
+            Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName
@@ -109,8 +110,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // or "function.definition" for relevant skeleton-producing captures.
         // The primaryCaptureName from the query is expected to be "class.definition"
         // or "function.definition" for relevant skeleton-producing captures.
-        // This method is now implemented in the base class using captureConfiguration from
-        // LanguageSyntaxProfile.
+        // This method is now implemented in the base class using captureConfiguration from LanguageSyntaxProfile.
         // This override can be removed.
         return super.getSkeletonTypeForCapture(captureName);
     }
@@ -135,8 +135,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // If super.getProject().findFile(sourcePath) could be used, it would require sourcePath.
 
         // Infer JSX.Element return type if no explicit return type is present AND:
-        // 1. It's an exported function/component starting with an uppercase letter (common React
-        // convention).
+        // 1. It's an exported function/component starting with an uppercase letter (common React convention).
         // OR
         // 2. It's a method named "render" (classic React class component method).
         boolean isExported = exportPrefix.trim().startsWith("export");
@@ -204,12 +203,10 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // TSLanguage and TSQuery are not AutoCloseable.
         TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
         try {
-            // Query for return statements that directly return a JSX element, or one wrapped in
-            // parentheses.
+            // Query for return statements that directly return a JSX element, or one wrapped in parentheses.
             // Each line is a separate pattern; the query matches if any of them are found.
             // The @jsx_return capture is on the JSX node itself.
-            // Queries for return statements that directly return a JSX element or one wrapped in
-            // parentheses.
+            // Queries for return statements that directly return a JSX element or one wrapped in parentheses.
             // Note: Removed jsx_fragment queries as they were causing TSQueryErrorField,
             // potentially due to grammar version or query engine specifics.
             // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
@@ -231,8 +228,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 return true; // Found a JSX return
             }
         } catch (TSQueryException e) {
-            // Log specific query exceptions, which usually indicate a problem with the query string
-            // itself.
+            // Log specific query exceptions, which usually indicate a problem with the query string itself.
             log.error("Invalid TSQuery for JSX return type inference: {}", e.getMessage(), e);
         } catch (Exception e) { // Catch other broader exceptions during query execution
             log.error("Error during JSX return type inference query execution: {}", e.getMessage(), e);
@@ -294,8 +290,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
         TSNode parent = node.getParent();
         if (parent != null && !parent.isNull()) {
-            // Check if 'node' is a variable_declarator and its parent is lexical_declaration or
-            // variable_declaration
+            // Check if 'node' is a variable_declarator and its parent is lexical_declaration or variable_declaration
             // This is for field definitions like `const a = 1;` or `export let b = 2;`
             // where `node` is the `variable_declarator` (e.g., `a = 1`).
             if (("lexical_declaration".equals(parent.getType()) || "variable_declaration".equals(parent.getType()))
@@ -328,20 +323,16 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 return prefixBuilder.toString();
             }
 
-            // Original logic for other types of nodes (e.g., class_declaration, function_declaration,
-            // arrow_function)
-            // Case 1: node is class_declaration, function_declaration, etc., and its parent is an
-            // export_statement.
+            // Original logic for other types of nodes (e.g., class_declaration, function_declaration, arrow_function)
+            // Case 1: node is class_declaration, function_declaration, etc., and its parent is an export_statement.
             if ("export_statement".equals(parent.getType())) {
                 // This handles `export class Foo {}`, `export function bar() {}`
                 return "export ";
             }
 
-            // Case 2: node is the value of a variable declarator (e.g., an arrow_function or
-            // class_expression),
+            // Case 2: node is the value of a variable declarator (e.g., an arrow_function or class_expression),
             // and the containing lexical_declaration or variable_declaration is exported.
-            // e.g., `export const foo = () => {}` -> `node` is `arrow_function`, `parent` is
-            // `variable_declarator`.
+            // e.g., `export const foo = () => {}` -> `node` is `arrow_function`, `parent` is `variable_declarator`.
             if ("variable_declarator".equals(parent.getType())) {
                 TSNode lexicalOrVarDeclNode = parent.getParent();
                 if (lexicalOrVarDeclNode != null
@@ -353,8 +344,8 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                             && !exportStatementNode.isNull()
                             && "export_statement".equals(exportStatementNode.getType())) {
                         // For `export const Foo = () => {}`, this returns "export "
-                        // The `const` part is not included here; it's part of the arrow function's name
-                        // construction logic if needed,
+                        // The `const` part is not included here; it's part of the arrow function's name construction
+                        // logic if needed,
                         // or implicit in the fact it's a const declaration.
                         // Current `renderFunctionDeclaration` for arrow functions does:
                         // `String.format("%s%s%s%s%s =>", exportPrefix, asyncPrefix, functionName, paramsText,
@@ -384,8 +375,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String determinePackageName(ProjectFile file, TSNode definitionNode, TSNode rootNode, String src) {
         // JavaScript package naming is directory-based, relative to the project root.
-        // The definitionNode, rootNode, and src parameters are not used for JS package determination
-        // here.
+        // The definitionNode, rootNode, and src parameters are not used for JS package determination here.
         var projectRoot = getProject().getRoot();
         var filePath = file.absPath();
         var parentDir = filePath.getParent();
