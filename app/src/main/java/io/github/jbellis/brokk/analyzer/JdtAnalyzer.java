@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
@@ -7,7 +8,6 @@ import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
 import org.eclipse.lsp4j.SymbolKind;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.FileNotFoundException;
@@ -17,15 +17,15 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-public class JdtAnalyzer implements LspAnalyzer {
+public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
 
-    @NotNull
     private final Path projectRoot;
-    @NotNull
     private final String workspace;
-    @NotNull
     private final SharedJdtLspServer sharedServer;
     private boolean useEclipseBuildFiles = false;
+
+    @Nullable
+    private IConsoleIO io;
 
     /**
      * Creates an analyzer for a specific project workspace.
@@ -45,7 +45,7 @@ public class JdtAnalyzer implements LspAnalyzer {
                 logger.warn("Error validating and creating project build files for: {}. Attempting to continue.", projectRoot, e);
             }
             this.workspace = this.projectRoot.toUri().toString();
-            this.sharedServer = SharedJdtLspServer.getInstance();
+            this.sharedServer = SharedJdtLspServer.getInstance(io);
             this.sharedServer.registerClient(this.projectRoot, excludedPaths, getInitializationOptions(), getLanguage());
             this.sharedServer.refreshWorkspace().join();
             try {
@@ -64,27 +64,27 @@ public class JdtAnalyzer implements LspAnalyzer {
     }
 
     @Override
-    public @NotNull Path getProjectRoot() {
+    public Path getProjectRoot() {
         return this.projectRoot;
     }
 
     @Override
-    public @NotNull String getWorkspace() {
+    public String getWorkspace() {
         return this.workspace;
     }
 
     @Override
-    public @NotNull LspServer getServer() {
+    public LspServer getServer() {
         return this.sharedServer;
     }
 
     @Override
-    public @NotNull String getLanguage() {
+    public String getLanguage() {
         return "java";
     }
 
     @Override
-    public @NotNull Map<String, Object> getInitializationOptions() {
+    public Map<String, Object> getInitializationOptions() {
         final var options = new HashMap<String, Object>();
         final var javaOptions = new HashMap<String, Object>();
         final var server = new HashMap<String, Object>();
@@ -118,6 +118,11 @@ public class JdtAnalyzer implements LspAnalyzer {
         return options;
     }
 
+    @Override
+    public void setIo(IConsoleIO io) {
+        this.io = io;
+    }
+
     /**
      * Strips the method signature (parentheses and parameters) from a method name string.
      *
@@ -125,7 +130,7 @@ public class JdtAnalyzer implements LspAnalyzer {
      * @return The clean method name without the signature (e.g., "myMethod").
      */
     @Override
-    public @NotNull String resolveMethodName(@NotNull String methodName) {
+    public String resolveMethodName(String methodName) {
         final var cleanedName = methodName.replace('$', '.');
         int parenIndex = cleanedName.indexOf('(');
 
@@ -139,14 +144,14 @@ public class JdtAnalyzer implements LspAnalyzer {
     }
 
     @Override
-    public @Nullable String getClassSource(@NotNull String classFullName) {
+    public @Nullable String getClassSource(String classFullName) {
         // JSP containers are dot-delimited and get rid of the '$'
         final String cleanedName = classFullName.replace('$', '.');
         return LspAnalyzer.super.getClassSource(cleanedName);
     }
 
     @Override
-    public @NotNull String sanitizeType(String typeName) {
+    public String sanitizeType(String typeName) {
         // Check if the type has generic parameters
         if (typeName.contains("<")) {
             final String mainType = typeName.substring(0, typeName.indexOf('<'));
@@ -247,7 +252,7 @@ public class JdtAnalyzer implements LspAnalyzer {
     );
 
     @Override
-    public boolean isAnonymousClass(@NotNull SymbolKind kind, @NotNull String name) {
+    public boolean isAnonymousClass(SymbolKind kind, String name) {
         if (kind == SymbolKind.Class || kind == SymbolKind.Method) {
             if (name.isEmpty()) {
                 return true;

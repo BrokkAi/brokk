@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
 
 import javax.annotation.Nullable;
@@ -19,10 +20,10 @@ import java.util.concurrent.CompletableFuture;
  * @see io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer
  * @see io.github.jbellis.brokk.analyzer.JdtAnalyzer
  */
-public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCapabilities {
+public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCapabilities, CanCommunicate {
 
-    @Nullable
-    private JdtAnalyzer jdtAnalyzer;
+    private @Nullable JdtAnalyzer jdtAnalyzer;
+    private @Nullable IConsoleIO io;
     private final CompletableFuture<Boolean> jdtAnalyzerFuture;
 
     public JavaAnalyzer(IProject project) {
@@ -35,6 +36,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
             try {
                 log.debug("Creating JDT LSP Analyzer in the background.");
                 this.jdtAnalyzer = new JdtAnalyzer(project.getRoot(), excludedFiles);
+                this.jdtAnalyzer.setIo(io);
                 return true;
             } catch (IOException e) {
                 log.error("Exception encountered while creating JDT analyzer");
@@ -46,6 +48,11 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
     @Override
     public CompletableFuture<Boolean> isAdvancedAnalysisReady() {
         return this.jdtAnalyzerFuture;
+    }
+
+    @Override
+    public void setIo(IConsoleIO io) {
+        this.io = io;
     }
 
     @Override

@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.lsp.jdt;
 
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.LspStatus;
 import org.eclipse.lsp4j.*;
@@ -24,6 +25,7 @@ public final class JdtLanguageClient implements LanguageClient {
     private final Map<String, CountDownLatch> workspaceReadyLatchMap;
     private final String language;
     private final int ERROR_LOG_LINE_LIMIT = 4;
+    private @Nullable IConsoleIO io;
 
     public JdtLanguageClient(
             String language,
@@ -32,6 +34,20 @@ public final class JdtLanguageClient implements LanguageClient {
         this.language = language;
         this.serverReadyLatch = serverReadyLatch;
         this.workspaceReadyLatchMap = workspaceReadyLatchMap;
+    }
+
+    /**
+     * Sets the IO to report client-facing diagnostics with.
+     * @param io the IO object to use.
+     */
+    public void setIo(@Nullable IConsoleIO io) {
+        this.io = io;
+    }
+
+    private void alertUser(String message) {
+        if (io != null) {
+            io.systemOutput(message);
+        }
     }
 
     @Override
@@ -85,6 +101,7 @@ public final class JdtLanguageClient implements LanguageClient {
                 // latches to unblock the clients
                 if (messageBody.contains("Failed to import projects")) {
                     logger.warn("Failed to import projects, counting down all latches");
+                    alertUser("Failed to import Java project, code analysis will be limited.\nPlease ensure the project can build via Gradle, Maven, or Eclipse.");
                     workspaceReadyLatchMap.forEach((workspace, latch) -> {
                         logger.debug("Marking {} as ready", workspace);
                         latch.countDown();

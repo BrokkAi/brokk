@@ -152,7 +152,7 @@ public abstract class LspServer {
      * @param language the target programming language.
      * @return a language client to monitor and handle server communication.
      */
-    protected abstract LanguageClient createLanguageClient(
+    protected abstract LanguageClient getLanguageClient(
             String language,
             CountDownLatch serverReadyLatch,
             Map<String, CountDownLatch> workspaceReadyLatchMap
@@ -190,7 +190,7 @@ public abstract class LspServer {
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
         final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
-                createLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches),
+                getLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches),
                 serverProcess.getInputStream(),
                 serverProcess.getOutputStream(),
                 this.lspExecutor,

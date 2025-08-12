@@ -268,10 +268,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
-        var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
-
         this.io = new Chrome(this);
+
+        var analyzerListener = createAnalyzerListener();
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener, this.getIo());
 
         // Load saved context history or create a new one
         var contextTask = submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
@@ -2164,7 +2164,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.io = new HeadlessConsole();
 
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null);
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null, this.io);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {
