@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.util.Environment;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
@@ -50,6 +51,20 @@ public final class MOPWebViewHost extends JPanel {
 
         // Defer JFXPanel creation to avoid EDT event pumping during construction
         SwingUtilities.invokeLater(this::initializeFxPanel);
+    }
+
+    /**
+     * Determines the appropriate scroll speed factor based on the current platform.
+     * Different operating systems have different scroll sensitivities.
+     */
+    private static double getPlatformScrollSpeedFactor() {
+        if (Environment.isMacOs()) {
+            return 0.3; // macOS trackpads are very sensitive
+        } else if (Environment.isWindows()) {
+            return 1.2; // Windows needs moderate adjustment
+        } else {
+            return 1.7; // Linux and other platforms
+        }
     }
 
     private void initializeFxPanel() {
@@ -118,14 +133,16 @@ public final class MOPWebViewHost extends JPanel {
                     };
                 })();
                 """);
-                    // Install wheel event override for adjusted scroll speed
+                    // Install wheel event override for platform-specific scroll speed
             view.getEngine().executeScript("""
                 (function() {
                     try {
-                        // Scroll behavior configuration
-                        var scrollSpeedFactor = 0.5;        // < 1 slows down, > 1 speeds up
+                        // Platform-specific scroll behavior configuration
+                        var scrollSpeedFactor = %f;         // Platform-specific scroll speed factor
                         var minScrollThreshold = 0.5;       // Minimum delta to process (prevents jitter)
-                        var smoothingFactor = 0.8;          // Smoothing for very small movements
+                        var smoothingFactor = 0.8;          // Smoothing for very small movements"""
+                                              .formatted(getPlatformScrollSpeedFactor()) // replace scroll speed
+                + """
 
                         var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
                         var momentum = new Map();      // Track momentum per element
