@@ -11,17 +11,17 @@ import java.lang.annotation.Target;
 @Target({PARAMETER})
 public @interface P {
 
-  /**
-   * Description of a parameter
-   *
-   * @return the description of a parameter
-   */
-  String value();
+    /**
+     * Description of a parameter
+     *
+     * @return the description of a parameter
+     */
+    String value();
 
-  /**
-   * Whether the parameter is required
-   *
-   * @return true if the parameter is required, false otherwise Default is true.
-   */
-  boolean required() default true;
+    /**
+     * Whether the parameter is required
+     *
+     * @return true if the parameter is required, false otherwise Default is true.
+     */
+    boolean required() default true;
 }

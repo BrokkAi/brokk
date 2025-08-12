@@ -9,31 +9,29 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public final class FileUtil {
-  private static final Logger logger = LogManager.getLogger(FileUtil.class);
+    private static final Logger logger = LogManager.getLogger(FileUtil.class);
 
-  private FileUtil() {
-    /* utility class – no instances */
-  }
-
-  /**
-   * Deletes {@code path} and everything beneath it. Does **not** follow symlinks; logs but ignores
-   * individual delete failures.
-   */
-  public static void deleteRecursively(Path path) throws IOException {
-    if (!Files.exists(path)) {
-      return;
+    private FileUtil() {
+        /* utility class – no instances */
     }
 
-    try (Stream<Path> walk = Files.walk(path)) {
-      walk.sorted(Comparator.reverseOrder())
-          .forEach(
-              p -> {
+    /**
+     * Deletes {@code path} and everything beneath it. Does **not** follow symlinks; logs but ignores individual delete
+     * failures.
+     */
+    public static void deleteRecursively(Path path) throws IOException {
+        if (!Files.exists(path)) {
+            return;
+        }
+
+        try (Stream<Path> walk = Files.walk(path)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
-                  Files.delete(p);
+                    Files.delete(p);
                 } catch (IOException e) {
-                  logger.warn("Failed to delete {}", p, e);
+                    logger.warn("Failed to delete {}", p, e);
                 }
-              });
+            });
+        }
     }
-  }
 }

@@ -8,26 +8,25 @@ import java.util.List;
 import java.util.stream.Stream;
 
 public abstract class CopyExternalPrompts extends CodePrompts {
-  public static final CopyExternalPrompts instance = new CopyExternalPrompts() {};
+    public static final CopyExternalPrompts instance = new CopyExternalPrompts() {};
 
-  public List<ChatMessage> collectMessages(ContextManager cm) throws InterruptedException {
-    // omits edit instructions and examples
-    return Streams.concat(
-            Stream.of(systemMessage(cm, CodePrompts.LAZY_REMINDER)),
-            collectMessagesInternal(cm).stream())
-        .toList();
-  }
+    public List<ChatMessage> collectMessages(ContextManager cm) throws InterruptedException {
+        // omits edit instructions and examples
+        return Streams.concat(
+                        Stream.of(systemMessage(cm, CodePrompts.LAZY_REMINDER)), collectMessagesInternal(cm).stream())
+                .toList();
+    }
 
-  private List<ChatMessage> collectMessagesInternal(ContextManager cm) {
-    var messages = new ArrayList<ChatMessage>();
-    messages.addAll(cm.getHistoryMessagesForCopy());
-    messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()));
-    return messages;
-  }
+    private List<ChatMessage> collectMessagesInternal(ContextManager cm) {
+        var messages = new ArrayList<ChatMessage>();
+        messages.addAll(cm.getHistoryMessagesForCopy());
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()));
+        return messages;
+    }
 
-  @Override
-  public String systemIntro(String reminder) {
-    return """
+    @Override
+    public String systemIntro(String reminder) {
+        return """
         Act as an expert software engineer. Study the change request and the current code.
         Describe how to modify the code to complete the request.
 
@@ -46,6 +45,6 @@ public abstract class CopyExternalPrompts extends CodePrompts {
 
         **Output Format Hint:** Structure your response by identifying the file, then the method/block, then providing the code for that method/block.
        """
-        .stripIndent();
-  }
+                .stripIndent();
+    }
 }

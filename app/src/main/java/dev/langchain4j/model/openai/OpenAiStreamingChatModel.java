@@ -29,356 +29,340 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Represents an OpenAI language model with a chat completion interface, such as gpt-4o-mini and o3.
- * The model's response is streamed token by token and should be handled with {@link
- * StreamingResponseHandler}. You can find description of parameters <a
- * href="https://platform.openai.com/docs/api-reference/chat/create">here</a>.
+ * Represents an OpenAI language model with a chat completion interface, such as gpt-4o-mini and o3. The model's
+ * response is streamed token by token and should be handled with {@link StreamingResponseHandler}. You can find
+ * description of parameters <a href="https://platform.openai.com/docs/api-reference/chat/create">here</a>.
  */
 public class OpenAiStreamingChatModel implements StreamingChatModel {
 
-  private final OpenAiClient client;
-  private final OpenAiChatRequestParameters defaultRequestParameters;
-  private final Boolean strictJsonSchema;
-  private final Boolean strictTools;
+    private final OpenAiClient client;
+    private final OpenAiChatRequestParameters defaultRequestParameters;
+    private final Boolean strictJsonSchema;
+    private final Boolean strictTools;
 
-  @SuppressWarnings("unchecked")
-  public OpenAiStreamingChatModel(OpenAiStreamingChatModelBuilder builder) {
-    this.client =
-        OpenAiClient.builder()
-            .httpClientBuilder(builder.httpClientBuilder)
-            .baseUrl(getOrDefault(builder.baseUrl, DEFAULT_OPENAI_URL))
-            .apiKey(builder.apiKey)
-            .organizationId(builder.organizationId)
-            .projectId(builder.projectId)
-            .connectTimeout(getOrDefault(builder.timeout, ofSeconds(15)))
-            .readTimeout(getOrDefault(builder.timeout, ofSeconds(60)))
-            .logRequests(getOrDefault(builder.logRequests, false))
-            .logResponses(getOrDefault(builder.logResponses, false))
-            .userAgent(DEFAULT_USER_AGENT)
-            .customHeaders(builder.customHeaders)
-            .build();
+    @SuppressWarnings("unchecked")
+    public OpenAiStreamingChatModel(OpenAiStreamingChatModelBuilder builder) {
+        this.client = OpenAiClient.builder()
+                .httpClientBuilder(builder.httpClientBuilder)
+                .baseUrl(getOrDefault(builder.baseUrl, DEFAULT_OPENAI_URL))
+                .apiKey(builder.apiKey)
+                .organizationId(builder.organizationId)
+                .projectId(builder.projectId)
+                .connectTimeout(getOrDefault(builder.timeout, ofSeconds(15)))
+                .readTimeout(getOrDefault(builder.timeout, ofSeconds(60)))
+                .logRequests(getOrDefault(builder.logRequests, false))
+                .logResponses(getOrDefault(builder.logResponses, false))
+                .userAgent(DEFAULT_USER_AGENT)
+                .customHeaders(builder.customHeaders)
+                .build();
 
-    OpenAiChatRequestParameters defaultParameters =
-        builder.defaultRequestParameters == null
-            ? OpenAiChatRequestParameters.EMPTY
-            : builder.defaultRequestParameters;
+        OpenAiChatRequestParameters defaultParameters = builder.defaultRequestParameters == null
+                ? OpenAiChatRequestParameters.EMPTY
+                : builder.defaultRequestParameters;
 
-    this.defaultRequestParameters =
-        OpenAiChatRequestParameters.builder()
-            // common parameters
-            .modelName(getOrDefault(builder.modelName, defaultParameters.modelName()))
-            .temperature(getOrDefault(builder.temperature, defaultParameters.temperature()))
-            .topP(getOrDefault(builder.topP, defaultParameters.topP()))
-            .frequencyPenalty(
-                getOrDefault(builder.frequencyPenalty, defaultParameters.frequencyPenalty()))
-            .presencePenalty(
-                getOrDefault(builder.presencePenalty, defaultParameters.presencePenalty()))
-            .maxOutputTokens(getOrDefault(builder.maxTokens, defaultParameters.maxOutputTokens()))
-            .stopSequences(getOrDefault(builder.stop, defaultParameters.stopSequences()))
-            .toolSpecifications(defaultParameters.toolSpecifications())
-            .toolChoice(defaultParameters.toolChoice())
-            .responseFormat(
-                getOrDefault(
-                    fromOpenAiResponseFormat(builder.responseFormat),
-                    defaultParameters.responseFormat()))
-            // OpenAI-specific parameters
-            .maxCompletionTokens(
-                getOrDefault(builder.maxCompletionTokens, defaultParameters.maxCompletionTokens()))
-            .logitBias(getOrDefault(builder.logitBias, defaultParameters.logitBias()))
-            .parallelToolCalls(
-                getOrDefault(builder.parallelToolCalls, defaultParameters.parallelToolCalls()))
-            .seed(getOrDefault(builder.seed, defaultParameters.seed()))
-            .user(getOrDefault(builder.user, defaultParameters.user()))
-            .store(getOrDefault(builder.store, defaultParameters.store()))
-            .metadata(getOrDefault(builder.metadata, defaultParameters.metadata()))
-            .serviceTier(getOrDefault(builder.serviceTier, defaultParameters.serviceTier()))
-            .reasoningEffort(defaultParameters.reasoningEffort())
-            .build();
-    this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
-    this.strictTools = getOrDefault(builder.strictTools, false);
-  }
+        this.defaultRequestParameters = OpenAiChatRequestParameters.builder()
+                // common parameters
+                .modelName(getOrDefault(builder.modelName, defaultParameters.modelName()))
+                .temperature(getOrDefault(builder.temperature, defaultParameters.temperature()))
+                .topP(getOrDefault(builder.topP, defaultParameters.topP()))
+                .frequencyPenalty(getOrDefault(builder.frequencyPenalty, defaultParameters.frequencyPenalty()))
+                .presencePenalty(getOrDefault(builder.presencePenalty, defaultParameters.presencePenalty()))
+                .maxOutputTokens(getOrDefault(builder.maxTokens, defaultParameters.maxOutputTokens()))
+                .stopSequences(getOrDefault(builder.stop, defaultParameters.stopSequences()))
+                .toolSpecifications(defaultParameters.toolSpecifications())
+                .toolChoice(defaultParameters.toolChoice())
+                .responseFormat(getOrDefault(
+                        fromOpenAiResponseFormat(builder.responseFormat), defaultParameters.responseFormat()))
+                // OpenAI-specific parameters
+                .maxCompletionTokens(getOrDefault(builder.maxCompletionTokens, defaultParameters.maxCompletionTokens()))
+                .logitBias(getOrDefault(builder.logitBias, defaultParameters.logitBias()))
+                .parallelToolCalls(getOrDefault(builder.parallelToolCalls, defaultParameters.parallelToolCalls()))
+                .seed(getOrDefault(builder.seed, defaultParameters.seed()))
+                .user(getOrDefault(builder.user, defaultParameters.user()))
+                .store(getOrDefault(builder.store, defaultParameters.store()))
+                .metadata(getOrDefault(builder.metadata, defaultParameters.metadata()))
+                .serviceTier(getOrDefault(builder.serviceTier, defaultParameters.serviceTier()))
+                .reasoningEffort(defaultParameters.reasoningEffort())
+                .build();
+        this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
+        this.strictTools = getOrDefault(builder.strictTools, false);
+    }
 
-  @Override
-  public OpenAiChatRequestParameters defaultRequestParameters() {
-    return defaultRequestParameters;
-  }
+    @Override
+    public OpenAiChatRequestParameters defaultRequestParameters() {
+        return defaultRequestParameters;
+    }
 
-  @Override
-  public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
+    @Override
+    public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
 
-    OpenAiChatRequestParameters parameters = (OpenAiChatRequestParameters) chatRequest.parameters();
+        OpenAiChatRequestParameters parameters = (OpenAiChatRequestParameters) chatRequest.parameters();
 
-    ChatCompletionRequest openAiRequest =
-        toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema).stream(true)
-            .streamOptions(StreamOptions.builder().includeUsage(true).build())
-            .build();
+        ChatCompletionRequest openAiRequest =
+                toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema).stream(true)
+                        .streamOptions(
+                                StreamOptions.builder().includeUsage(true).build())
+                        .build();
 
-    OpenAiStreamingResponseBuilder openAiResponseBuilder = new OpenAiStreamingResponseBuilder();
+        OpenAiStreamingResponseBuilder openAiResponseBuilder = new OpenAiStreamingResponseBuilder();
 
-    client
-        .chatCompletion(openAiRequest)
-        .onPartialResponse(
-            partialResponse -> {
-              openAiResponseBuilder.append(partialResponse);
-              handle(partialResponse, handler);
-            })
-        .onComplete(
-            () -> {
-              ChatResponse chatResponse = openAiResponseBuilder.build();
-              try {
-                handler.onCompleteResponse(chatResponse);
-              } catch (Exception e) {
+        client.chatCompletion(openAiRequest)
+                .onPartialResponse(partialResponse -> {
+                    openAiResponseBuilder.append(partialResponse);
+                    handle(partialResponse, handler);
+                })
+                .onComplete(() -> {
+                    ChatResponse chatResponse = openAiResponseBuilder.build();
+                    try {
+                        handler.onCompleteResponse(chatResponse);
+                    } catch (Exception e) {
+                        withLoggingExceptions(() -> handler.onError(e));
+                    }
+                })
+                .onError(throwable -> {
+                    RuntimeException mappedException = ExceptionMapper.DEFAULT.mapException(throwable);
+                    withLoggingExceptions(() -> handler.onError(mappedException));
+                })
+                .execute();
+    }
+
+    private static void handle(ChatCompletionResponse partialResponse, StreamingChatResponseHandler handler) {
+        if (partialResponse == null) {
+            return;
+        }
+
+        List<ChatCompletionChoice> choices = partialResponse.choices();
+        if (choices == null || choices.isEmpty()) {
+            return;
+        }
+
+        ChatCompletionChoice chatCompletionChoice = choices.get(0);
+        if (chatCompletionChoice == null) {
+            return;
+        }
+
+        Delta delta = chatCompletionChoice.delta();
+        if (delta == null) {
+            return;
+        }
+
+        String content = delta.content();
+        if (!isNullOrEmpty(content)) {
+            try {
+                handler.onPartialResponse(content);
+            } catch (Exception e) {
                 withLoggingExceptions(() -> handler.onError(e));
-              }
-            })
-        .onError(
-            throwable -> {
-              RuntimeException mappedException = ExceptionMapper.DEFAULT.mapException(throwable);
-              withLoggingExceptions(() -> handler.onError(mappedException));
-            })
-        .execute();
-  }
+            }
+        }
 
-  private static void handle(
-      ChatCompletionResponse partialResponse, StreamingChatResponseHandler handler) {
-    if (partialResponse == null) {
-      return;
+        String reasoningContent = delta.reasoningContent();
+        if (!isNullOrEmpty(reasoningContent)) {
+            try {
+                handler.onReasoningResponse(reasoningContent);
+            } catch (Exception e) {
+                withLoggingExceptions(() -> handler.onError(e));
+            }
+        }
     }
 
-    List<ChatCompletionChoice> choices = partialResponse.choices();
-    if (choices == null || choices.isEmpty()) {
-      return;
+    @Override
+    public ModelProvider provider() {
+        return OPEN_AI;
     }
 
-    ChatCompletionChoice chatCompletionChoice = choices.get(0);
-    if (chatCompletionChoice == null) {
-      return;
+    public static OpenAiStreamingChatModelBuilder builder() {
+        return new OpenAiStreamingChatModelBuilder();
     }
 
-    Delta delta = chatCompletionChoice.delta();
-    if (delta == null) {
-      return;
+    public static class OpenAiStreamingChatModelBuilder {
+
+        private HttpClientBuilder httpClientBuilder;
+        private String baseUrl;
+        private String apiKey;
+        private String organizationId;
+        private String projectId;
+
+        private OpenAiChatRequestParameters defaultRequestParameters;
+        private String modelName;
+        private Double temperature;
+        private Double topP;
+        private List<String> stop;
+        private Integer maxTokens;
+        private Integer maxCompletionTokens;
+        private Double presencePenalty;
+        private Double frequencyPenalty;
+        private Map<String, Integer> logitBias;
+        private String responseFormat;
+        private Boolean strictJsonSchema;
+        private Integer seed;
+        private String user;
+        private Boolean strictTools;
+        private Boolean parallelToolCalls;
+        private Boolean store;
+        private Map<String, String> metadata;
+        private String serviceTier;
+        private Duration timeout;
+        private Boolean logRequests;
+        private Boolean logResponses;
+        private Map<String, String> customHeaders;
+
+        public OpenAiStreamingChatModelBuilder() {
+            // This is public so it can be extended
+        }
+
+        public OpenAiStreamingChatModelBuilder httpClientBuilder(HttpClientBuilder httpClientBuilder) {
+            this.httpClientBuilder = httpClientBuilder;
+            return this;
+        }
+
+        /**
+         * Sets default common {@link OpenAiChatRequestParameters} or OpenAI-specific
+         * {@link OpenAiChatRequestParameters}. <br>
+         * When a parameter is set via an individual builder method (e.g., {@link #modelName(String)}), its value takes
+         * precedence over the same parameter set via {@link OpenAiChatRequestParameters}.
+         */
+        public OpenAiStreamingChatModelBuilder defaultRequestParameters(OpenAiChatRequestParameters parameters) {
+            this.defaultRequestParameters = parameters;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder modelName(String modelName) {
+            this.modelName = modelName;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder modelName(OpenAiChatModelName modelName) {
+            this.modelName = modelName.toString();
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder baseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder apiKey(String apiKey) {
+            this.apiKey = apiKey;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder organizationId(String organizationId) {
+            this.organizationId = organizationId;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder projectId(String projectId) {
+            this.projectId = projectId;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder temperature(Double temperature) {
+            this.temperature = temperature;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder topP(Double topP) {
+            this.topP = topP;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder stop(List<String> stop) {
+            this.stop = stop;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder maxTokens(Integer maxTokens) {
+            this.maxTokens = maxTokens;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder maxCompletionTokens(Integer maxCompletionTokens) {
+            this.maxCompletionTokens = maxCompletionTokens;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder presencePenalty(Double presencePenalty) {
+            this.presencePenalty = presencePenalty;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder frequencyPenalty(Double frequencyPenalty) {
+            this.frequencyPenalty = frequencyPenalty;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder logitBias(Map<String, Integer> logitBias) {
+            this.logitBias = logitBias;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder responseFormat(String responseFormat) {
+            this.responseFormat = responseFormat;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder strictJsonSchema(Boolean strictJsonSchema) {
+            this.strictJsonSchema = strictJsonSchema;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder seed(Integer seed) {
+            this.seed = seed;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder user(String user) {
+            this.user = user;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder strictTools(Boolean strictTools) {
+            this.strictTools = strictTools;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder parallelToolCalls(Boolean parallelToolCalls) {
+            this.parallelToolCalls = parallelToolCalls;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder store(Boolean store) {
+            this.store = store;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder metadata(Map<String, String> metadata) {
+            this.metadata = metadata;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder serviceTier(String serviceTier) {
+            this.serviceTier = serviceTier;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder timeout(Duration timeout) {
+            this.timeout = timeout;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder logRequests(Boolean logRequests) {
+            this.logRequests = logRequests;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder logResponses(Boolean logResponses) {
+            this.logResponses = logResponses;
+            return this;
+        }
+
+        public OpenAiStreamingChatModelBuilder customHeaders(Map<String, String> customHeaders) {
+            this.customHeaders = customHeaders;
+            return this;
+        }
+
+        public OpenAiStreamingChatModel build() {
+            return new OpenAiStreamingChatModel(this);
+        }
     }
-
-    String content = delta.content();
-    if (!isNullOrEmpty(content)) {
-      try {
-        handler.onPartialResponse(content);
-      } catch (Exception e) {
-        withLoggingExceptions(() -> handler.onError(e));
-      }
-    }
-
-    String reasoningContent = delta.reasoningContent();
-    if (!isNullOrEmpty(reasoningContent)) {
-      try {
-        handler.onReasoningResponse(reasoningContent);
-      } catch (Exception e) {
-        withLoggingExceptions(() -> handler.onError(e));
-      }
-    }
-  }
-
-  @Override
-  public ModelProvider provider() {
-    return OPEN_AI;
-  }
-
-  public static OpenAiStreamingChatModelBuilder builder() {
-    return new OpenAiStreamingChatModelBuilder();
-  }
-
-  public static class OpenAiStreamingChatModelBuilder {
-
-    private HttpClientBuilder httpClientBuilder;
-    private String baseUrl;
-    private String apiKey;
-    private String organizationId;
-    private String projectId;
-
-    private OpenAiChatRequestParameters defaultRequestParameters;
-    private String modelName;
-    private Double temperature;
-    private Double topP;
-    private List<String> stop;
-    private Integer maxTokens;
-    private Integer maxCompletionTokens;
-    private Double presencePenalty;
-    private Double frequencyPenalty;
-    private Map<String, Integer> logitBias;
-    private String responseFormat;
-    private Boolean strictJsonSchema;
-    private Integer seed;
-    private String user;
-    private Boolean strictTools;
-    private Boolean parallelToolCalls;
-    private Boolean store;
-    private Map<String, String> metadata;
-    private String serviceTier;
-    private Duration timeout;
-    private Boolean logRequests;
-    private Boolean logResponses;
-    private Map<String, String> customHeaders;
-
-    public OpenAiStreamingChatModelBuilder() {
-      // This is public so it can be extended
-    }
-
-    public OpenAiStreamingChatModelBuilder httpClientBuilder(HttpClientBuilder httpClientBuilder) {
-      this.httpClientBuilder = httpClientBuilder;
-      return this;
-    }
-
-    /**
-     * Sets default common {@link OpenAiChatRequestParameters} or OpenAI-specific {@link
-     * OpenAiChatRequestParameters}. <br>
-     * When a parameter is set via an individual builder method (e.g., {@link #modelName(String)}),
-     * its value takes precedence over the same parameter set via {@link
-     * OpenAiChatRequestParameters}.
-     */
-    public OpenAiStreamingChatModelBuilder defaultRequestParameters(
-        OpenAiChatRequestParameters parameters) {
-      this.defaultRequestParameters = parameters;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder modelName(String modelName) {
-      this.modelName = modelName;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder modelName(OpenAiChatModelName modelName) {
-      this.modelName = modelName.toString();
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder baseUrl(String baseUrl) {
-      this.baseUrl = baseUrl;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder apiKey(String apiKey) {
-      this.apiKey = apiKey;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder organizationId(String organizationId) {
-      this.organizationId = organizationId;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder projectId(String projectId) {
-      this.projectId = projectId;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder temperature(Double temperature) {
-      this.temperature = temperature;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder topP(Double topP) {
-      this.topP = topP;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder stop(List<String> stop) {
-      this.stop = stop;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder maxTokens(Integer maxTokens) {
-      this.maxTokens = maxTokens;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder maxCompletionTokens(Integer maxCompletionTokens) {
-      this.maxCompletionTokens = maxCompletionTokens;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder presencePenalty(Double presencePenalty) {
-      this.presencePenalty = presencePenalty;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder frequencyPenalty(Double frequencyPenalty) {
-      this.frequencyPenalty = frequencyPenalty;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder logitBias(Map<String, Integer> logitBias) {
-      this.logitBias = logitBias;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder responseFormat(String responseFormat) {
-      this.responseFormat = responseFormat;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder strictJsonSchema(Boolean strictJsonSchema) {
-      this.strictJsonSchema = strictJsonSchema;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder seed(Integer seed) {
-      this.seed = seed;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder user(String user) {
-      this.user = user;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder strictTools(Boolean strictTools) {
-      this.strictTools = strictTools;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder parallelToolCalls(Boolean parallelToolCalls) {
-      this.parallelToolCalls = parallelToolCalls;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder store(Boolean store) {
-      this.store = store;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder metadata(Map<String, String> metadata) {
-      this.metadata = metadata;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder serviceTier(String serviceTier) {
-      this.serviceTier = serviceTier;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder timeout(Duration timeout) {
-      this.timeout = timeout;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder logRequests(Boolean logRequests) {
-      this.logRequests = logRequests;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder logResponses(Boolean logResponses) {
-      this.logResponses = logResponses;
-      return this;
-    }
-
-    public OpenAiStreamingChatModelBuilder customHeaders(Map<String, String> customHeaders) {
-      this.customHeaders = customHeaders;
-      return this;
-    }
-
-    public OpenAiStreamingChatModel build() {
-      return new OpenAiStreamingChatModel(this);
-    }
-  }
 }

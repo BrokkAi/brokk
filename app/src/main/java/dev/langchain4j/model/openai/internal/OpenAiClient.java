@@ -8,115 +8,113 @@ import java.util.Map;
 
 public abstract class OpenAiClient {
 
-  public abstract SyncOrAsyncOrStreaming<ChatCompletionResponse> chatCompletion(
-      ChatCompletionRequest request);
+    public abstract SyncOrAsyncOrStreaming<ChatCompletionResponse> chatCompletion(ChatCompletionRequest request);
 
-  @SuppressWarnings("rawtypes")
-  public static Builder builder() {
-    return DefaultOpenAiClient.builder();
-  }
-
-  @SuppressWarnings("unchecked")
-  public abstract static class Builder<T extends OpenAiClient, B extends Builder<T, B>> {
-
-    public HttpClientBuilder httpClientBuilder;
-    public String baseUrl;
-    public String organizationId;
-    public String projectId;
-    public String apiKey;
-    public Duration connectTimeout;
-    public Duration readTimeout;
-    public String userAgent;
-    public boolean logRequests;
-    public boolean logResponses;
-    public Map<String, String> customHeaders;
-
-    public abstract T build();
-
-    public B httpClientBuilder(HttpClientBuilder httpClientBuilder) {
-      this.httpClientBuilder = httpClientBuilder;
-      return (B) this;
+    @SuppressWarnings("rawtypes")
+    public static Builder builder() {
+        return DefaultOpenAiClient.builder();
     }
 
-    /**
-     * @param baseUrl Base URL of OpenAI API. For example: "https://api.openai.com/v1/"
-     * @return builder
-     */
-    public B baseUrl(String baseUrl) {
-      this.baseUrl = baseUrl;
-      return (B) this;
-    }
+    @SuppressWarnings("unchecked")
+    public abstract static class Builder<T extends OpenAiClient, B extends Builder<T, B>> {
 
-    /**
-     * @param organizationId The OpenAI Organization ID. More info <a
-     *     href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
-     * @return builder
-     */
-    public B organizationId(String organizationId) {
-      this.organizationId = organizationId;
-      return (B) this;
-    }
+        public HttpClientBuilder httpClientBuilder;
+        public String baseUrl;
+        public String organizationId;
+        public String projectId;
+        public String apiKey;
+        public Duration connectTimeout;
+        public Duration readTimeout;
+        public String userAgent;
+        public boolean logRequests;
+        public boolean logResponses;
+        public Map<String, String> customHeaders;
 
-    /**
-     * @param projectId The OpenAI Project ID. More info <a
-     *     href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
-     * @return builder
-     */
-    public B projectId(String projectId) {
-      this.projectId = projectId;
-      return (B) this;
-    }
+        public abstract T build();
 
-    /**
-     * @param apiKey OpenAI API key. Will be injected in HTTP headers like this: "Authorization:
-     *     Bearer ${apiKey}"
-     * @return builder
-     */
-    public B apiKey(String apiKey) {
-      this.apiKey = apiKey;
-      return (B) this;
-    }
+        public B httpClientBuilder(HttpClientBuilder httpClientBuilder) {
+            this.httpClientBuilder = httpClientBuilder;
+            return (B) this;
+        }
 
-    public B connectTimeout(Duration connectTimeout) {
-      this.connectTimeout = connectTimeout;
-      return (B) this;
-    }
+        /**
+         * @param baseUrl Base URL of OpenAI API. For example: "https://api.openai.com/v1/"
+         * @return builder
+         */
+        public B baseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+            return (B) this;
+        }
 
-    public B readTimeout(Duration readTimeout) {
-      this.readTimeout = readTimeout;
-      return (B) this;
-    }
+        /**
+         * @param organizationId The OpenAI Organization ID. More info <a
+         *     href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
+         * @return builder
+         */
+        public B organizationId(String organizationId) {
+            this.organizationId = organizationId;
+            return (B) this;
+        }
 
-    public B userAgent(String userAgent) {
-      this.userAgent = userAgent;
-      return (B) this;
-    }
+        /**
+         * @param projectId The OpenAI Project ID. More info <a
+         *     href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
+         * @return builder
+         */
+        public B projectId(String projectId) {
+            this.projectId = projectId;
+            return (B) this;
+        }
 
-    public B logRequests(Boolean logRequests) {
-      if (logRequests == null) {
-        logRequests = false;
-      }
-      this.logRequests = logRequests;
-      return (B) this;
-    }
+        /**
+         * @param apiKey OpenAI API key. Will be injected in HTTP headers like this: "Authorization: Bearer ${apiKey}"
+         * @return builder
+         */
+        public B apiKey(String apiKey) {
+            this.apiKey = apiKey;
+            return (B) this;
+        }
 
-    public B logResponses(Boolean logResponses) {
-      if (logResponses == null) {
-        logResponses = false;
-      }
-      this.logResponses = logResponses;
-      return (B) this;
-    }
+        public B connectTimeout(Duration connectTimeout) {
+            this.connectTimeout = connectTimeout;
+            return (B) this;
+        }
 
-    /**
-     * Custom headers to be added to each HTTP request.
-     *
-     * @param customHeaders a map of headers
-     * @return builder
-     */
-    public B customHeaders(Map<String, String> customHeaders) {
-      this.customHeaders = customHeaders;
-      return (B) this;
+        public B readTimeout(Duration readTimeout) {
+            this.readTimeout = readTimeout;
+            return (B) this;
+        }
+
+        public B userAgent(String userAgent) {
+            this.userAgent = userAgent;
+            return (B) this;
+        }
+
+        public B logRequests(Boolean logRequests) {
+            if (logRequests == null) {
+                logRequests = false;
+            }
+            this.logRequests = logRequests;
+            return (B) this;
+        }
+
+        public B logResponses(Boolean logResponses) {
+            if (logResponses == null) {
+                logResponses = false;
+            }
+            this.logResponses = logResponses;
+            return (B) this;
+        }
+
+        /**
+         * Custom headers to be added to each HTTP request.
+         *
+         * @param customHeaders a map of headers
+         * @return builder
+         */
+        public B customHeaders(Map<String, String> customHeaders) {
+            this.customHeaders = customHeaders;
+            return (B) this;
+        }
     }
-  }
 }

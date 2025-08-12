@@ -5,17 +5,17 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 
 public abstract class ArchitectPrompts extends CodePrompts {
-  public static final ArchitectPrompts instance = new ArchitectPrompts() {};
-  public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
-  public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
+    public static final ArchitectPrompts instance = new ArchitectPrompts() {};
+    public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
+    public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
-  @Override
-  public SystemMessage systemMessage(IContextManager cm, String reminder) {
-    var workspaceSummary = formatWorkspaceDescriptions(cm);
-    var styleGuide = cm.getProject().getStyleGuide();
+    @Override
+    public SystemMessage systemMessage(IContextManager cm, String reminder) {
+        var workspaceSummary = formatWorkspaceDescriptions(cm);
+        var styleGuide = cm.getProject().getStyleGuide();
 
-    var text =
-        """
+        var text =
+                """
           <instructions>
           %s
           </instructions>
@@ -26,15 +26,15 @@ public abstract class ArchitectPrompts extends CodePrompts {
           %s
           </style_guide>
           """
-            .stripIndent()
-            .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-            .trim();
-    return new SystemMessage(text);
-  }
+                        .stripIndent()
+                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .trim();
+        return new SystemMessage(text);
+    }
 
-  @Override
-  public String systemIntro(String reminder) {
-    return """
+    @Override
+    public String systemIntro(String reminder) {
+        return """
         You are the Architect Agent. You solve problems by breaking them down into manageable pieces
         in an evolving long-range plan.
 
@@ -129,20 +129,19 @@ public abstract class ArchitectPrompts extends CodePrompts {
         evaluate the workspace contents INDEPENDENTLY at each step and drop irrelevant fragments for
         the next step in your plan!
         """
-        .stripIndent();
-  }
+                .stripIndent();
+    }
 
-  public String getFinalInstructions(
-      ContextManager cm, String goal, int workspaceTokenSize, int minInputTokenLimit) {
-    String workspaceWarning = "";
-    if (minInputTokenLimit > 0) {
-      double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit;
-      double warningLimit = WORKSPACE_WARNING_THRESHOLD * minInputTokenLimit;
-      double percentage = (double) workspaceTokenSize / minInputTokenLimit * 100;
+    public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int minInputTokenLimit) {
+        String workspaceWarning = "";
+        if (minInputTokenLimit > 0) {
+            double criticalLimit = WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit;
+            double warningLimit = WORKSPACE_WARNING_THRESHOLD * minInputTokenLimit;
+            double percentage = (double) workspaceTokenSize / minInputTokenLimit * 100;
 
-      if (workspaceTokenSize > criticalLimit) {
-        workspaceWarning =
-            """
+            if (workspaceTokenSize > criticalLimit) {
+                workspaceWarning =
+                        """
                     CRITICAL WORKSPACE NOTICE:
                     The current workspace size is %,d tokens. Your effective context limit for complex reasoning is %,d tokens.
                     The workspace is consuming %.0f%% of this limit. This is critically high and may lead to errors or degraded performance.
@@ -155,11 +154,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
                     A lean, focused workspace is essential for complex tasks.
                     """
-                .stripIndent()
-                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
-      } else if (workspaceTokenSize > warningLimit) {
-        workspaceWarning =
-            """
+                                .stripIndent()
+                                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
+            } else if (workspaceTokenSize > warningLimit) {
+                workspaceWarning =
+                        """
                     IMPORTANT WORKSPACE NOTICE:
                     The current workspace size is %,d tokens. Your maximum context limit for complex reasoning is %,d tokens.
                     The workspace is consuming %.0f%% of this limit.
@@ -172,12 +171,12 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
                     A lean, focused workspace is crucial for complex tasks.
                     """
-                .stripIndent()
-                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
-      }
-    }
+                                .stripIndent()
+                                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
+            }
+        }
 
-    return """
+        return """
             <goal>
             %s
             </goal>
@@ -204,7 +203,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
 
             %s
             """
-        .stripIndent()
-        .formatted(goal, formatWorkspaceDescriptions(cm), workspaceWarning);
-  }
+                .stripIndent()
+                .formatted(goal, formatWorkspaceDescriptions(cm), workspaceWarning);
+    }
 }

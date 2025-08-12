@@ -27,90 +27,87 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class GeminiThinkingTest {
 
-  public static void main(String[] args) throws InterruptedException {
-    // Check command line arguments
-    String model = null;
-    if (args.length > 0) {
-      model = args[0].toLowerCase();
+    public static void main(String[] args) throws InterruptedException {
+        // Check command line arguments
+        String model = null;
+        if (args.length > 0) {
+            model = args[0].toLowerCase();
+        }
+
+        // Test specific model or both
+        if ("pro".equals(model)) {
+            testGeminiModel("gemini-2.5-pro", "http://localhost:4000");
+        } else if ("flash".equals(model)) {
+            testGeminiModel("gemini-2.5-flash", "http://localhost:4000");
+        } else {
+            // Test both models if no specific model requested
+            testGeminiModel("gemini-2.5-pro", "http://localhost:4000");
+            testGeminiModel("gemini-2.5-flash", "http://localhost:4000");
+        }
     }
 
-    // Test specific model or both
-    if ("pro".equals(model)) {
-      testGeminiModel("gemini-2.5-pro", "http://localhost:4000");
-    } else if ("flash".equals(model)) {
-      testGeminiModel("gemini-2.5-flash", "http://localhost:4000");
-    } else {
-      // Test both models if no specific model requested
-      testGeminiModel("gemini-2.5-pro", "http://localhost:4000");
-      testGeminiModel("gemini-2.5-flash", "http://localhost:4000");
-    }
-  }
+    private static void testGeminiModel(String modelName, String baseUrl) throws InterruptedException {
+        System.out.println("\n=== Testing " + modelName + " ===");
 
-  private static void testGeminiModel(String modelName, String baseUrl)
-      throws InterruptedException {
-    System.out.println("\n=== Testing " + modelName + " ===");
+        var model = OpenAiStreamingChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey("dummy-key") // LiteLLM manages the actual keys
+                .modelName(modelName)
+                .timeout(java.time.Duration.ofSeconds(120))
+                .build();
 
-    var model =
-        OpenAiStreamingChatModel.builder()
-            .baseUrl(baseUrl)
-            .apiKey("dummy-key") // LiteLLM manages the actual keys
-            .modelName(modelName)
-            .timeout(java.time.Duration.ofSeconds(120))
-            .build();
+        var latch = new CountDownLatch(1);
+        var completed = new AtomicBoolean(false);
+        var error = new AtomicReference<Throwable>();
+        var responseBuilder = new StringBuilder();
+        var startTime = System.currentTimeMillis();
 
-    var latch = new CountDownLatch(1);
-    var completed = new AtomicBoolean(false);
-    var error = new AtomicReference<Throwable>();
-    var responseBuilder = new StringBuilder();
-    var startTime = System.currentTimeMillis();
-
-    var handler =
-        new StreamingChatResponseHandler() {
-          @Override
-          public void onPartialResponse(String token) {
-            System.out.print(token);
-            responseBuilder.append(token);
-          }
-
-          @Override
-          public void onCompleteResponse(ChatResponse response) {
-            var duration = System.currentTimeMillis() - startTime;
-            System.out.println("\n\nCompleted in " + duration + "ms");
-            System.out.println("Total response length: " + responseBuilder.length() + " chars");
-            switch (response.tokenUsage()) {
-              case OpenAiTokenUsage usage ->
-                  System.out.println(
-                      "This is null for gemini: " + usage.inputTokensDetails().cachedTokens());
-              default -> {}
+        var handler = new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String token) {
+                System.out.print(token);
+                responseBuilder.append(token);
             }
-            completed.set(true);
-            latch.countDown();
-          }
 
-          @Override
-          public void onError(Throwable throwable) {
-            var duration = System.currentTimeMillis() - startTime;
-            System.err.println("\n\nError after " + duration + "ms: " + throwable.getMessage());
-            throwable.printStackTrace();
-            error.set(throwable);
-            latch.countDown();
-          }
+            @Override
+            public void onCompleteResponse(ChatResponse response) {
+                var duration = System.currentTimeMillis() - startTime;
+                System.out.println("\n\nCompleted in " + duration + "ms");
+                System.out.println("Total response length: " + responseBuilder.length() + " chars");
+                switch (response.tokenUsage()) {
+                    case OpenAiTokenUsage usage ->
+                        System.out.println("This is null for gemini: "
+                                + usage.inputTokensDetails().cachedTokens());
+                    default -> {}
+                }
+                completed.set(true);
+                latch.countDown();
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                var duration = System.currentTimeMillis() - startTime;
+                System.err.println("\n\nError after " + duration + "ms: " + throwable.getMessage());
+                throwable.printStackTrace();
+                error.set(throwable);
+                latch.countDown();
+            }
         };
 
-    System.out.println("Sending request...");
-    List<ChatMessage> messages = List.of(UserMessage.from("What is 2+2? Think step by step."));
-    var request = ChatRequest.builder().messages(messages).build();
-    model.chat(request, handler);
+        System.out.println("Sending request...");
+        List<ChatMessage> messages = List.of(UserMessage.from("What is 2+2? Think step by step."));
+        var request = ChatRequest.builder().messages(messages).build();
+        model.chat(request, handler);
 
-    // Wait up to 2 minutes
-    var finished = latch.await(120, TimeUnit.SECONDS);
+        // Wait up to 2 minutes
+        var finished = latch.await(120, TimeUnit.SECONDS);
 
-    if (!finished) {
-      System.err.println("\n\nTIMEOUT: Request did not complete within 2 minutes");
-    } else if (error.get() != null) {
-      System.err.println("Request failed with error");
-    } else if (completed.get()) {
-      System.out.println("Request completed successfully");
+        if (!finished) {
+            System.err.println("\n\nTIMEOUT: Request did not complete within 2 minutes");
+        } else if (error.get() != null) {
+            System.err.println("Request failed with error");
+        } else if (completed.get()) {
+            System.out.println("Request completed successfully");
+        }
     }
-  }
 }

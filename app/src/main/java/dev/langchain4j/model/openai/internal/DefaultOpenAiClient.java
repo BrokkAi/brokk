@@ -17,88 +17,80 @@ import java.util.Map;
 
 public class DefaultOpenAiClient extends OpenAiClient {
 
-  private final HttpClient httpClient;
-  private final String baseUrl;
-  private final Map<String, String> defaultHeaders;
+    private final HttpClient httpClient;
+    private final String baseUrl;
+    private final Map<String, String> defaultHeaders;
 
-  public DefaultOpenAiClient(Builder builder) {
+    public DefaultOpenAiClient(Builder builder) {
 
-    HttpClientBuilder httpClientBuilder = JdkHttpClient.builder();
+        HttpClientBuilder httpClientBuilder = JdkHttpClient.builder();
 
-    HttpClient httpClient =
-        httpClientBuilder
-            .connectTimeout(
-                getOrDefault(
-                    getOrDefault(builder.connectTimeout, httpClientBuilder.connectTimeout()),
-                    ofSeconds(15)))
-            .readTimeout(
-                getOrDefault(
-                    getOrDefault(builder.readTimeout, httpClientBuilder.readTimeout()),
-                    ofSeconds(60)))
-            .build();
+        HttpClient httpClient = httpClientBuilder
+                .connectTimeout(getOrDefault(
+                        getOrDefault(builder.connectTimeout, httpClientBuilder.connectTimeout()), ofSeconds(15)))
+                .readTimeout(
+                        getOrDefault(getOrDefault(builder.readTimeout, httpClientBuilder.readTimeout()), ofSeconds(60)))
+                .build();
 
-    if (builder.logRequests || builder.logResponses) {
-      this.httpClient =
-          new LoggingHttpClient(httpClient, builder.logRequests, builder.logResponses);
-    } else {
-      this.httpClient = httpClient;
+        if (builder.logRequests || builder.logResponses) {
+            this.httpClient = new LoggingHttpClient(httpClient, builder.logRequests, builder.logResponses);
+        } else {
+            this.httpClient = httpClient;
+        }
+
+        this.baseUrl = ensureNotBlank(builder.baseUrl, "baseUrl");
+
+        Map<String, String> defaultHeaders = new HashMap<>();
+        if (builder.apiKey != null) {
+            defaultHeaders.put("Authorization", "Bearer " + builder.apiKey);
+        }
+        if (builder.organizationId != null) {
+            defaultHeaders.put("OpenAI-Organization", builder.organizationId);
+        }
+        if (builder.projectId != null) {
+            defaultHeaders.put("OpenAI-Project", builder.projectId);
+        }
+        if (builder.userAgent != null) {
+            defaultHeaders.put("User-Agent", builder.userAgent);
+        }
+        if (builder.customHeaders != null) {
+            defaultHeaders.putAll(builder.customHeaders);
+        }
+        this.defaultHeaders = defaultHeaders;
     }
 
-    this.baseUrl = ensureNotBlank(builder.baseUrl, "baseUrl");
-
-    Map<String, String> defaultHeaders = new HashMap<>();
-    if (builder.apiKey != null) {
-      defaultHeaders.put("Authorization", "Bearer " + builder.apiKey);
+    public static Builder builder() {
+        return new Builder();
     }
-    if (builder.organizationId != null) {
-      defaultHeaders.put("OpenAI-Organization", builder.organizationId);
+
+    public static class Builder extends OpenAiClient.Builder<DefaultOpenAiClient, Builder> {
+
+        public DefaultOpenAiClient build() {
+            return new DefaultOpenAiClient(this);
+        }
     }
-    if (builder.projectId != null) {
-      defaultHeaders.put("OpenAI-Project", builder.projectId);
+
+    @Override
+    public SyncOrAsyncOrStreaming<ChatCompletionResponse> chatCompletion(ChatCompletionRequest request) {
+
+        HttpRequest httpRequest = HttpRequest.builder()
+                .method(POST)
+                .url(baseUrl, "chat/completions")
+                .addHeader("Content-Type", "application/json")
+                .addHeaders(defaultHeaders)
+                .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(false)
+                        .build()))
+                .build();
+
+        HttpRequest streamingHttpRequest = HttpRequest.builder()
+                .method(POST)
+                .url(baseUrl, "chat/completions")
+                .addHeader("Content-Type", "application/json")
+                .addHeaders(defaultHeaders)
+                .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(true)
+                        .build()))
+                .build();
+
+        return new RequestExecutor<>(httpClient, httpRequest, streamingHttpRequest, ChatCompletionResponse.class);
     }
-    if (builder.userAgent != null) {
-      defaultHeaders.put("User-Agent", builder.userAgent);
-    }
-    if (builder.customHeaders != null) {
-      defaultHeaders.putAll(builder.customHeaders);
-    }
-    this.defaultHeaders = defaultHeaders;
-  }
-
-  public static Builder builder() {
-    return new Builder();
-  }
-
-  public static class Builder extends OpenAiClient.Builder<DefaultOpenAiClient, Builder> {
-
-    public DefaultOpenAiClient build() {
-      return new DefaultOpenAiClient(this);
-    }
-  }
-
-  @Override
-  public SyncOrAsyncOrStreaming<ChatCompletionResponse> chatCompletion(
-      ChatCompletionRequest request) {
-
-    HttpRequest httpRequest =
-        HttpRequest.builder()
-            .method(POST)
-            .url(baseUrl, "chat/completions")
-            .addHeader("Content-Type", "application/json")
-            .addHeaders(defaultHeaders)
-            .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(false).build()))
-            .build();
-
-    HttpRequest streamingHttpRequest =
-        HttpRequest.builder()
-            .method(POST)
-            .url(baseUrl, "chat/completions")
-            .addHeader("Content-Type", "application/json")
-            .addHeaders(defaultHeaders)
-            .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(true).build()))
-            .build();
-
-    return new RequestExecutor<>(
-        httpClient, httpRequest, streamingHttpRequest, ChatCompletionResponse.class);
-  }
 }

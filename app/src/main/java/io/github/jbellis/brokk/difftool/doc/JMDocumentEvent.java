@@ -4,44 +4,47 @@ import javax.swing.event.DocumentEvent;
 import org.jetbrains.annotations.Nullable;
 
 public class JMDocumentEvent {
-  private final AbstractBufferDocument document;
-  @Nullable private DocumentEvent de;
-  private int startLine;
-  private int numberOfLines;
+    private final AbstractBufferDocument document;
 
-  public JMDocumentEvent(AbstractBufferDocument document) {
-    this.document = document;
-    // this.de remains null
-  }
+    @Nullable
+    private DocumentEvent de;
 
-  public JMDocumentEvent(AbstractBufferDocument document, DocumentEvent de) {
-    this(document);
+    private int startLine;
+    private int numberOfLines;
 
-    this.de = de;
-  }
+    public JMDocumentEvent(AbstractBufferDocument document) {
+        this.document = document;
+        // this.de remains null
+    }
 
-  public AbstractBufferDocument getDocument() {
-    return document;
-  }
+    public JMDocumentEvent(AbstractBufferDocument document, DocumentEvent de) {
+        this(document);
 
-  @Nullable
-  public DocumentEvent getDocumentEvent() {
-    return de;
-  }
+        this.de = de;
+    }
 
-  public void setStartLine(int startLine) {
-    this.startLine = startLine;
-  }
+    public AbstractBufferDocument getDocument() {
+        return document;
+    }
 
-  public int getStartLine() {
-    return startLine;
-  }
+    @Nullable
+    public DocumentEvent getDocumentEvent() {
+        return de;
+    }
 
-  public void setNumberOfLines(int numberOfLines) {
-    this.numberOfLines = numberOfLines;
-  }
+    public void setStartLine(int startLine) {
+        this.startLine = startLine;
+    }
 
-  public int getNumberOfLines() {
-    return numberOfLines;
-  }
+    public int getStartLine() {
+        return startLine;
+    }
+
+    public void setNumberOfLines(int numberOfLines) {
+        this.numberOfLines = numberOfLines;
+    }
+
+    public int getNumberOfLines() {
+        return numberOfLines;
+    }
 }

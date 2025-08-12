@@ -15,73 +15,68 @@ import org.slf4j.LoggerFactory;
 
 public class LoggingHttpClient implements HttpClient {
 
-  private static final Logger log = LoggerFactory.getLogger(LoggingHttpClient.class);
+    private static final Logger log = LoggerFactory.getLogger(LoggingHttpClient.class);
 
-  private final HttpClient delegateHttpClient;
-  private final boolean logRequests;
-  private final boolean logResponses;
+    private final HttpClient delegateHttpClient;
+    private final boolean logRequests;
+    private final boolean logResponses;
 
-  public LoggingHttpClient(
-      HttpClient delegateHttpClient, Boolean logRequests, Boolean logResponses) {
-    this.delegateHttpClient = ensureNotNull(delegateHttpClient, "delegateHttpClient");
-    this.logRequests = getOrDefault(logRequests, false);
-    this.logResponses = getOrDefault(logResponses, false);
-  }
-
-  @Override
-  public SuccessfulHttpResponse execute(HttpRequest request) throws HttpException {
-
-    if (logRequests) {
-      HttpRequestLogger.log(log, request);
+    public LoggingHttpClient(HttpClient delegateHttpClient, Boolean logRequests, Boolean logResponses) {
+        this.delegateHttpClient = ensureNotNull(delegateHttpClient, "delegateHttpClient");
+        this.logRequests = getOrDefault(logRequests, false);
+        this.logResponses = getOrDefault(logResponses, false);
     }
 
-    SuccessfulHttpResponse response = delegateHttpClient.execute(request);
+    @Override
+    public SuccessfulHttpResponse execute(HttpRequest request) throws HttpException {
 
-    if (logResponses) {
-      HttpResponseLogger.log(log, response);
+        if (logRequests) {
+            HttpRequestLogger.log(log, request);
+        }
+
+        SuccessfulHttpResponse response = delegateHttpClient.execute(request);
+
+        if (logResponses) {
+            HttpResponseLogger.log(log, response);
+        }
+
+        return response;
     }
 
-    return response;
-  }
+    @Override
+    public void execute(HttpRequest request, ServerSentEventParser parser, ServerSentEventListener delegateListener) {
 
-  @Override
-  public void execute(
-      HttpRequest request, ServerSentEventParser parser, ServerSentEventListener delegateListener) {
+        if (logRequests) {
+            HttpRequestLogger.log(log, request);
+        }
 
-    if (logRequests) {
-      HttpRequestLogger.log(log, request);
-    }
+        this.delegateHttpClient.execute(request, parser, new ServerSentEventListener() {
 
-    this.delegateHttpClient.execute(
-        request,
-        parser,
-        new ServerSentEventListener() {
-
-          @Override
-          public void onOpen(SuccessfulHttpResponse response) {
-            if (logResponses) {
-              HttpResponseLogger.log(log, response);
+            @Override
+            public void onOpen(SuccessfulHttpResponse response) {
+                if (logResponses) {
+                    HttpResponseLogger.log(log, response);
+                }
+                delegateListener.onOpen(response);
             }
-            delegateListener.onOpen(response);
-          }
 
-          @Override
-          public void onEvent(ServerSentEvent event) {
-            if (logResponses) {
-              log.debug("{}", event);
+            @Override
+            public void onEvent(ServerSentEvent event) {
+                if (logResponses) {
+                    log.debug("{}", event);
+                }
+                delegateListener.onEvent(event);
             }
-            delegateListener.onEvent(event);
-          }
 
-          @Override
-          public void onError(Throwable throwable) {
-            delegateListener.onError(throwable);
-          }
+            @Override
+            public void onError(Throwable throwable) {
+                delegateListener.onError(throwable);
+            }
 
-          @Override
-          public void onClose() {
-            delegateListener.onClose();
-          }
+            @Override
+            public void onClose() {
+                delegateListener.onClose();
+            }
         });
-  }
+    }
 }

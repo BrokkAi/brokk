@@ -25,304 +25,302 @@ import org.jetbrains.annotations.Unmodifiable;
  *   <li>Does NOT support null elements
  * </ul>
  *
- * Please note that since weak references can be collected at any time, index-based methods (like
- * get(index)) or size-based methods (like size()) are dangerous, misleading, error-inducing and are
- * not supported. Instead, please use {@link #add(T)} and {@link #iterator()}.
+ * Please note that since weak references can be collected at any time, index-based methods (like get(index)) or
+ * size-based methods (like size()) are dangerous, misleading, error-inducing and are not supported. Instead, please use
+ * {@link #add(T)} and {@link #iterator()}.
  */
 public final class WeakList<T> extends AbstractCollection<T> {
 
-  final List<WeakList.MyReference<T>> myList;
-  private final ReferenceQueue<T> myQueue = new ReferenceQueue<>();
-  private int myAlive;
-  private int modCount;
+    final List<WeakList.MyReference<T>> myList;
+    private final ReferenceQueue<T> myQueue = new ReferenceQueue<>();
+    private int myAlive;
+    private int modCount;
 
-  private static final class MyReference<T> extends WeakReference<T> {
-    private final int index;
+    private static final class MyReference<T> extends WeakReference<T> {
+        private final int index;
 
-    private MyReference(int index, T referent, ReferenceQueue<? super T> queue) {
-      super(referent, queue);
-      this.index = index;
+        private MyReference(int index, T referent, ReferenceQueue<? super T> queue) {
+            super(referent, queue);
+            this.index = index;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            return this == obj || (obj != null && Objects.equals(get(), ((Reference<?>) obj).get()));
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(get());
+        }
     }
 
-    @Override
-    public boolean equals(Object obj) {
-      return this == obj || (obj != null && Objects.equals(get(), ((Reference<?>) obj).get()));
+    public WeakList() {
+        myList = new ArrayList<>();
     }
 
-    @Override
-    public int hashCode() {
-      return Objects.hash(get());
+    public WeakList(int initialCapacity) {
+        myList = new ArrayList<>(initialCapacity);
     }
-  }
 
-  public WeakList() {
-    myList = new ArrayList<>();
-  }
-
-  public WeakList(int initialCapacity) {
-    myList = new ArrayList<>(initialCapacity);
-  }
-
-  @SuppressWarnings("unchecked")
-  public boolean processQueue() {
-    boolean processed = false;
-    MyReference<T> reference;
-    //noinspection unchecked
-    while ((reference = (MyReference<T>) myQueue.poll()) != null) {
-      int index = reference.index;
-      // list may have changed while the reference was dangling in queue
-      if (index < myList.size() && reference.equals(myList.get(index))) {
-        nullizeAt(index);
-      }
-      processed = true;
+    @SuppressWarnings("unchecked")
+    public boolean processQueue() {
+        boolean processed = false;
+        MyReference<T> reference;
+        //noinspection unchecked
+        while ((reference = (MyReference<T>) myQueue.poll()) != null) {
+            int index = reference.index;
+            // list may have changed while the reference was dangling in queue
+            if (index < myList.size() && reference.equals(myList.get(index))) {
+                nullizeAt(index);
+            }
+            processed = true;
+        }
+        if (myAlive < myList.size() / 2) {
+            reduceCapacity();
+        }
+        return processed;
     }
-    if (myAlive < myList.size() / 2) {
-      reduceCapacity();
-    }
-    return processed;
-  }
 
-  private void nullizeAt(int index) {
-    myList.set(index, null);
-    myAlive--;
-    // do not increment modCount here because every iterator().remove() usages will throw
-  }
-
-  private void reduceCapacity() {
-    int toSaveAlive = 0;
-    for (int i = 0; i < myList.size(); i++) {
-      MyReference<T> reference = myList.get(i);
-      if (reference == null) continue;
-      T t = reference.get();
-      if (t == null) {
+    private void nullizeAt(int index) {
+        myList.set(index, null);
         myAlive--;
-        continue;
-      }
-      if (toSaveAlive != i) {
-        myList.set(toSaveAlive, new MyReference<>(toSaveAlive, t, myQueue));
-      }
-      toSaveAlive++;
+        // do not increment modCount here because every iterator().remove() usages will throw
     }
-    if (toSaveAlive != myList.size()) {
-      myList.subList(toSaveAlive, myList.size()).clear();
-      modCount++;
-    }
-    myAlive = toSaveAlive;
-  }
 
-  private void append(T element) {
-    myList.add(new MyReference<>(myList.size(), element, myQueue));
-    myAlive++;
-    modCount++;
-  }
-
-  @Override
-  public boolean add(T element) {
-    synchronized (myList) {
-      processQueue();
-      append(element);
-      return true;
-    }
-  }
-
-  @Override
-  public boolean addAll(Collection<? extends T> c) {
-    synchronized (myList) {
-      processQueue();
-      return super.addAll(c);
-    }
-  }
-
-  public boolean addIfAbsent(T element) {
-    synchronized (myList) {
-      processQueue();
-      if (contains(element)) return false;
-      append(element);
-      return true;
-    }
-  }
-
-  @Override
-  public void clear() {
-    synchronized (myList) {
-      processQueue();
-      myList.clear();
-      myAlive = 0;
-      modCount++;
-    }
-  }
-
-  @Override
-  public boolean contains(Object o) {
-    synchronized (myList) {
-      return !isEmpty() && super.contains(o);
-    }
-  }
-
-  @Override
-  public boolean remove(Object o) {
-    synchronized (myList) {
-      processQueue();
-      for (int i = 0; i < myList.size(); i++) {
-        Reference<T> ref = myList.get(i);
-        T t = ref == null ? null : ref.get();
-        if (t != null && t.equals(o)) {
-          nullizeAt(i);
-          modCount++;
-          return true;
+    private void reduceCapacity() {
+        int toSaveAlive = 0;
+        for (int i = 0; i < myList.size(); i++) {
+            MyReference<T> reference = myList.get(i);
+            if (reference == null) continue;
+            T t = reference.get();
+            if (t == null) {
+                myAlive--;
+                continue;
+            }
+            if (toSaveAlive != i) {
+                myList.set(toSaveAlive, new MyReference<>(toSaveAlive, t, myQueue));
+            }
+            toSaveAlive++;
         }
-      }
-      return false;
-    }
-  }
-
-  @Override
-  public boolean removeAll(Collection<?> c) {
-    synchronized (myList) {
-      processQueue();
-      return super.removeAll(c);
-    }
-  }
-
-  @Override
-  public boolean isEmpty() {
-    synchronized (myList) {
-      if (myList.isEmpty()) {
-        return true;
-      }
-
-      for (MyReference<T> value : myList) {
-        if (value != null && value.get() != null) {
-          return false;
+        if (toSaveAlive != myList.size()) {
+            myList.subList(toSaveAlive, myList.size()).clear();
+            modCount++;
         }
-      }
-      return true;
-    }
-  }
-
-  private final class MyIterator implements Iterator<T> {
-    private final int startModCount;
-    private int curIndex;
-    private @Nullable T curElement;
-
-    private int nextIndex = -1;
-    private @Nullable T nextElement;
-    private boolean
-        modified; // set this flag on modification and update modCount in the very end of iteration
-
-    // to avoid CME on each remove()
-
-    private MyIterator() {
-      startModCount = modCount;
-      findNext();
+        myAlive = toSaveAlive;
     }
 
-    private void findNext() {
-      if (modCount != startModCount) throw new ConcurrentModificationException();
-      curIndex = nextIndex;
-      curElement = nextElement;
-      nextElement = null;
-      nextIndex = -1;
-      for (int i = curIndex + 1; i < myList.size(); i++) {
-        Reference<T> ref = myList.get(i);
-        T t = ref == null ? null : ref.get();
-        if (t != null) {
-          nextElement = t;
-          nextIndex = i;
-          break;
-        }
-      }
-      if (nextIndex == -1 && modified) {
+    private void append(T element) {
+        myList.add(new MyReference<>(myList.size(), element, myQueue));
+        myAlive++;
         modCount++;
-      }
     }
 
     @Override
-    public boolean hasNext() {
-      return nextElement != null;
+    public boolean add(T element) {
+        synchronized (myList) {
+            processQueue();
+            append(element);
+            return true;
+        }
     }
 
     @Override
-    @Nullable
-    public T next() {
-      if (!hasNext()) throw new NoSuchElementException();
-      findNext();
-      return curElement;
+    public boolean addAll(Collection<? extends T> c) {
+        synchronized (myList) {
+            processQueue();
+            return super.addAll(c);
+        }
+    }
+
+    public boolean addIfAbsent(T element) {
+        synchronized (myList) {
+            processQueue();
+            if (contains(element)) return false;
+            append(element);
+            return true;
+        }
     }
 
     @Override
-    public void remove() {
-      if (curElement == null) throw new NoSuchElementException();
-      int index = curIndex;
-      nullizeAt(index);
-      modified = true;
-    }
-  }
-
-  @Override
-  public Iterator<T> iterator() {
-    final Iterator<T> iterator;
-    synchronized (myList) {
-      iterator = new MyIterator();
-    }
-    return new Iterator<>() {
-      @Override
-      public boolean hasNext() {
+    public void clear() {
         synchronized (myList) {
-          return iterator.hasNext();
+            processQueue();
+            myList.clear();
+            myAlive = 0;
+            modCount++;
         }
-      }
-
-      @Override
-      public T next() {
-        synchronized (myList) {
-          return iterator.next();
-        }
-      }
-
-      @Override
-      public void remove() {
-        synchronized (myList) {
-          iterator.remove();
-        }
-      }
-    };
-  }
-
-  public @Unmodifiable List<T> toStrongList() {
-    synchronized (myList) {
-      if (myList.isEmpty()) {
-        return new ArrayList<>();
-      }
-
-      List<T> result = new ArrayList<>(myList.size());
-      for (MyReference<T> t : myList) {
-        T o = t == null ? null : t.get();
-        if (o != null) {
-          result.add(o);
-        }
-      }
-      return result;
     }
-  }
 
-  /**
-   * @deprecated Since weak references can be collected at any time, this method considered
-   *     dangerous, misleading, error-inducing and is not supported. Instead, please use {@link
-   *     #add(T)} and {@link #iterator()}.
-   */
-  @Override
-  @Deprecated
-  public int size() {
-    throw new UnsupportedOperationException(
-        "index/size-based operations in UnsafeWeakList are not supported because they don't make sense in the presence of weak references. Use .iterator() (which retains its elements to avoid sudden GC) instead.");
-  }
-
-  public @Unmodifiable List<T> copyAndClear() {
-    synchronized (myList) {
-      List<T> result = toStrongList();
-      clear();
-      return result;
+    @Override
+    public boolean contains(Object o) {
+        synchronized (myList) {
+            return !isEmpty() && super.contains(o);
+        }
     }
-  }
+
+    @Override
+    public boolean remove(Object o) {
+        synchronized (myList) {
+            processQueue();
+            for (int i = 0; i < myList.size(); i++) {
+                Reference<T> ref = myList.get(i);
+                T t = ref == null ? null : ref.get();
+                if (t != null && t.equals(o)) {
+                    nullizeAt(i);
+                    modCount++;
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    @Override
+    public boolean removeAll(Collection<?> c) {
+        synchronized (myList) {
+            processQueue();
+            return super.removeAll(c);
+        }
+    }
+
+    @Override
+    public boolean isEmpty() {
+        synchronized (myList) {
+            if (myList.isEmpty()) {
+                return true;
+            }
+
+            for (MyReference<T> value : myList) {
+                if (value != null && value.get() != null) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    private final class MyIterator implements Iterator<T> {
+        private final int startModCount;
+        private int curIndex;
+        private @Nullable T curElement;
+
+        private int nextIndex = -1;
+        private @Nullable T nextElement;
+        private boolean modified; // set this flag on modification and update modCount in the very end of iteration
+
+        // to avoid CME on each remove()
+
+        private MyIterator() {
+            startModCount = modCount;
+            findNext();
+        }
+
+        private void findNext() {
+            if (modCount != startModCount) throw new ConcurrentModificationException();
+            curIndex = nextIndex;
+            curElement = nextElement;
+            nextElement = null;
+            nextIndex = -1;
+            for (int i = curIndex + 1; i < myList.size(); i++) {
+                Reference<T> ref = myList.get(i);
+                T t = ref == null ? null : ref.get();
+                if (t != null) {
+                    nextElement = t;
+                    nextIndex = i;
+                    break;
+                }
+            }
+            if (nextIndex == -1 && modified) {
+                modCount++;
+            }
+        }
+
+        @Override
+        public boolean hasNext() {
+            return nextElement != null;
+        }
+
+        @Override
+        @Nullable
+        public T next() {
+            if (!hasNext()) throw new NoSuchElementException();
+            findNext();
+            return curElement;
+        }
+
+        @Override
+        public void remove() {
+            if (curElement == null) throw new NoSuchElementException();
+            int index = curIndex;
+            nullizeAt(index);
+            modified = true;
+        }
+    }
+
+    @Override
+    public Iterator<T> iterator() {
+        final Iterator<T> iterator;
+        synchronized (myList) {
+            iterator = new MyIterator();
+        }
+        return new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                synchronized (myList) {
+                    return iterator.hasNext();
+                }
+            }
+
+            @Override
+            public T next() {
+                synchronized (myList) {
+                    return iterator.next();
+                }
+            }
+
+            @Override
+            public void remove() {
+                synchronized (myList) {
+                    iterator.remove();
+                }
+            }
+        };
+    }
+
+    public @Unmodifiable List<T> toStrongList() {
+        synchronized (myList) {
+            if (myList.isEmpty()) {
+                return new ArrayList<>();
+            }
+
+            List<T> result = new ArrayList<>(myList.size());
+            for (MyReference<T> t : myList) {
+                T o = t == null ? null : t.get();
+                if (o != null) {
+                    result.add(o);
+                }
+            }
+            return result;
+        }
+    }
+
+    /**
+     * @deprecated Since weak references can be collected at any time, this method considered dangerous, misleading,
+     *     error-inducing and is not supported. Instead, please use {@link #add(T)} and {@link #iterator()}.
+     */
+    @Override
+    @Deprecated
+    public int size() {
+        throw new UnsupportedOperationException(
+                "index/size-based operations in UnsafeWeakList are not supported because they don't make sense in the presence of weak references. Use .iterator() (which retains its elements to avoid sudden GC) instead.");
+    }
+
+    public @Unmodifiable List<T> copyAndClear() {
+        synchronized (myList) {
+            List<T> result = toStrongList();
+            clear();
+            return result;
+        }
+    }
 }

@@ -13,10 +13,10 @@ import dev.langchain4j.model.chat.StreamingChatModel;
  */
 public interface ChatMessage {
 
-  /**
-   * The type of the message.
-   *
-   * @return the type of the message
-   */
-  ChatMessageType type();
+    /**
+     * The type of the message.
+     *
+     * @return the type of the message
+     */
+    ChatMessageType type();
 }

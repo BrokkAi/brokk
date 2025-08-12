@@ -25,113 +25,103 @@ import org.eclipse.aether.transport.http.HttpTransporterFactory;
 import org.jetbrains.annotations.Nullable;
 
 public class MavenArtifactFetcher {
-  private static final Logger logger = LogManager.getLogger(MavenArtifactFetcher.class);
+    private static final Logger logger = LogManager.getLogger(MavenArtifactFetcher.class);
 
-  private final RepositorySystem system;
-  private final RepositorySystemSession session;
-  private final List<RemoteRepository> repositories;
+    private final RepositorySystem system;
+    private final RepositorySystemSession session;
+    private final List<RemoteRepository> repositories;
 
-  public MavenArtifactFetcher() {
-    this.system = newRepositorySystem();
-    this.session = newRepositorySystemSession(system);
-    this.repositories =
-        List.of(
-            new RemoteRepository.Builder(
-                    "central", "default", "https://repo.maven.apache.org/maven2/")
-                .build());
-  }
+    public MavenArtifactFetcher() {
+        this.system = newRepositorySystem();
+        this.session = newRepositorySystemSession(system);
+        this.repositories = List.of(
+                new RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2/").build());
+    }
 
-  @SuppressWarnings("deprecation")
-  private static RepositorySystem newRepositorySystem() {
-    var locator = MavenRepositorySystemUtils.newServiceLocator();
-    locator.addService(RepositoryConnectorFactory.class, BasicRepositoryConnectorFactory.class);
-    locator.addService(TransporterFactory.class, HttpTransporterFactory.class);
-    locator.setErrorHandler(
-        new DefaultServiceLocator.ErrorHandler() {
-          @Override
-          public void serviceCreationFailed(Class<?> type, Class<?> impl, Throwable exception) {
-            logger.error(
-                "Service creation failed for type {} with implementation {}",
-                type,
-                impl,
-                exception);
-          }
+    @SuppressWarnings("deprecation")
+    private static RepositorySystem newRepositorySystem() {
+        var locator = MavenRepositorySystemUtils.newServiceLocator();
+        locator.addService(RepositoryConnectorFactory.class, BasicRepositoryConnectorFactory.class);
+        locator.addService(TransporterFactory.class, HttpTransporterFactory.class);
+        locator.setErrorHandler(new DefaultServiceLocator.ErrorHandler() {
+            @Override
+            public void serviceCreationFailed(Class<?> type, Class<?> impl, Throwable exception) {
+                logger.error("Service creation failed for type {} with implementation {}", type, impl, exception);
+            }
         });
-    return locator.getService(RepositorySystem.class);
-  }
-
-  @SuppressWarnings("deprecation")
-  private static RepositorySystemSession newRepositorySystemSession(RepositorySystem system) {
-    var session = MavenRepositorySystemUtils.newSession();
-    var localRepoPath = Path.of(System.getProperty("user.home"), ".m2", "repository");
-    var localRepo = new LocalRepository(localRepoPath.toFile());
-    session.setLocalRepositoryManager(system.newLocalRepositoryManager(session, localRepo));
-    session.setTransferListener(new LoggingTransferListener());
-    return session;
-  }
-
-  public Optional<Path> fetch(String coordinates, @Nullable String classifier) {
-    Artifact artifact;
-    try {
-      var baseArtifact = new DefaultArtifact(coordinates);
-      if (classifier != null && !classifier.isBlank()) {
-        artifact =
-            new DefaultArtifact(
-                baseArtifact.getGroupId(),
-                baseArtifact.getArtifactId(),
-                classifier,
-                baseArtifact.getExtension(),
-                baseArtifact.getVersion());
-      } else {
-        artifact = baseArtifact;
-      }
-    } catch (IllegalArgumentException e) {
-      logger.warn("Invalid artifact coordinates: {}", coordinates, e);
-      return Optional.empty();
+        return locator.getService(RepositorySystem.class);
     }
 
-    var artifactRequest = new ArtifactRequest();
-    artifactRequest.setArtifact(artifact);
-    artifactRequest.setRepositories(repositories);
-
-    try {
-      logger.info("Resolving artifact: {}", artifact);
-      ArtifactResult artifactResult = system.resolveArtifact(session, artifactRequest);
-      Path filePath = artifactResult.getArtifact().getFile().toPath();
-      logger.info("Resolved artifact {} to {}", artifact, filePath);
-      return Optional.of(filePath);
-    } catch (ArtifactResolutionException e) {
-      if (e.getResults().stream().anyMatch(ArtifactResult::isMissing)) {
-        logger.info("Artifact not found: {}", artifact);
-      } else {
-        logger.warn("Could not resolve artifact: {}", artifact, e);
-      }
-      return Optional.empty();
-    }
-  }
-
-  private static class LoggingTransferListener extends AbstractTransferListener {
-    @Override
-    public void transferInitiated(TransferEvent event) {
-      var resource = event.getResource();
-      logger.info("Downloading {}{}", resource.getRepositoryUrl(), resource.getResourceName());
+    @SuppressWarnings("deprecation")
+    private static RepositorySystemSession newRepositorySystemSession(RepositorySystem system) {
+        var session = MavenRepositorySystemUtils.newSession();
+        var localRepoPath = Path.of(System.getProperty("user.home"), ".m2", "repository");
+        var localRepo = new LocalRepository(localRepoPath.toFile());
+        session.setLocalRepositoryManager(system.newLocalRepositoryManager(session, localRepo));
+        session.setTransferListener(new LoggingTransferListener());
+        return session;
     }
 
-    @Override
-    public void transferSucceeded(TransferEvent event) {
-      var resource = event.getResource();
-      logger.info(
-          "Download complete for {}{}", resource.getRepositoryUrl(), resource.getResourceName());
+    public Optional<Path> fetch(String coordinates, @Nullable String classifier) {
+        Artifact artifact;
+        try {
+            var baseArtifact = new DefaultArtifact(coordinates);
+            if (classifier != null && !classifier.isBlank()) {
+                artifact = new DefaultArtifact(
+                        baseArtifact.getGroupId(),
+                        baseArtifact.getArtifactId(),
+                        classifier,
+                        baseArtifact.getExtension(),
+                        baseArtifact.getVersion());
+            } else {
+                artifact = baseArtifact;
+            }
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid artifact coordinates: {}", coordinates, e);
+            return Optional.empty();
+        }
+
+        var artifactRequest = new ArtifactRequest();
+        artifactRequest.setArtifact(artifact);
+        artifactRequest.setRepositories(repositories);
+
+        try {
+            logger.info("Resolving artifact: {}", artifact);
+            ArtifactResult artifactResult = system.resolveArtifact(session, artifactRequest);
+            Path filePath = artifactResult.getArtifact().getFile().toPath();
+            logger.info("Resolved artifact {} to {}", artifact, filePath);
+            return Optional.of(filePath);
+        } catch (ArtifactResolutionException e) {
+            if (e.getResults().stream().anyMatch(ArtifactResult::isMissing)) {
+                logger.info("Artifact not found: {}", artifact);
+            } else {
+                logger.warn("Could not resolve artifact: {}", artifact, e);
+            }
+            return Optional.empty();
+        }
     }
 
-    @Override
-    public void transferFailed(TransferEvent event) {
-      var resource = event.getResource();
-      logger.warn(
-          "Download failed for {}{}",
-          resource.getRepositoryUrl(),
-          resource.getResourceName(),
-          event.getException());
+    private static class LoggingTransferListener extends AbstractTransferListener {
+        @Override
+        public void transferInitiated(TransferEvent event) {
+            var resource = event.getResource();
+            logger.info("Downloading {}{}", resource.getRepositoryUrl(), resource.getResourceName());
+        }
+
+        @Override
+        public void transferSucceeded(TransferEvent event) {
+            var resource = event.getResource();
+            logger.info("Download complete for {}{}", resource.getRepositoryUrl(), resource.getResourceName());
+        }
+
+        @Override
+        public void transferFailed(TransferEvent event) {
+            var resource = event.getResource();
+            logger.warn(
+                    "Download failed for {}{}",
+                    resource.getRepositoryUrl(),
+                    resource.getResourceName(),
+                    event.getException());
+        }
     }
-  }
 }

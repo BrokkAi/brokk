@@ -92,7 +92,9 @@ subprojects {
             // Format all Java sources, excluding generated or build outputs
             target("src/**/*.java")
             targetExclude("**/build/**", "**/test/resources/**", "**/generated/**")
-            googleJavaFormat()
+            // Use the IntelliJ IDEA formatter (Spotless IntelliJ engine)
+            palantirJavaFormat(libs.versions.palantirJavaFormat.get())
+                .formatJavadoc(true)
         }
     }
 

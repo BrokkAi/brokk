@@ -15,70 +15,73 @@ import java.util.Objects;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class ResponseFormat {
 
-  @JsonProperty private final ResponseFormatType type;
-  @JsonProperty private final JsonSchema jsonSchema;
+    @JsonProperty
+    private final ResponseFormatType type;
 
-  @JsonCreator
-  public ResponseFormat(Builder builder) {
-    this.type = builder.type;
-    this.jsonSchema = builder.jsonSchema;
-  }
+    @JsonProperty
+    private final JsonSchema jsonSchema;
 
-  public ResponseFormatType type() {
-    return type;
-  }
-
-  public JsonSchema jsonSchema() {
-    return jsonSchema;
-  }
-
-  @Override
-  public boolean equals(Object another) {
-    if (this == another) return true;
-    return another instanceof ResponseFormat && equalTo((ResponseFormat) another);
-  }
-
-  private boolean equalTo(ResponseFormat another) {
-    return Objects.equals(type, another.type) && Objects.equals(jsonSchema, another.jsonSchema);
-  }
-
-  @Override
-  public int hashCode() {
-    int h = 5381;
-    h += (h << 5) + Objects.hashCode(type);
-    h += (h << 5) + Objects.hashCode(jsonSchema);
-    return h;
-  }
-
-  @Override
-  public String toString() {
-    return "ResponseFormat{" + "type=" + type + ", jsonSchema=" + jsonSchema + "}";
-  }
-
-  public static Builder builder() {
-    return new Builder();
-  }
-
-  @JsonPOJOBuilder(withPrefix = "")
-  @JsonIgnoreProperties(ignoreUnknown = true)
-  @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
-  public static class Builder {
-
-    private ResponseFormatType type;
-    private JsonSchema jsonSchema;
-
-    public Builder type(ResponseFormatType type) {
-      this.type = type;
-      return this;
+    @JsonCreator
+    public ResponseFormat(Builder builder) {
+        this.type = builder.type;
+        this.jsonSchema = builder.jsonSchema;
     }
 
-    public Builder jsonSchema(JsonSchema jsonSchema) {
-      this.jsonSchema = jsonSchema;
-      return this;
+    public ResponseFormatType type() {
+        return type;
     }
 
-    public ResponseFormat build() {
-      return new ResponseFormat(this);
+    public JsonSchema jsonSchema() {
+        return jsonSchema;
     }
-  }
+
+    @Override
+    public boolean equals(Object another) {
+        if (this == another) return true;
+        return another instanceof ResponseFormat && equalTo((ResponseFormat) another);
+    }
+
+    private boolean equalTo(ResponseFormat another) {
+        return Objects.equals(type, another.type) && Objects.equals(jsonSchema, another.jsonSchema);
+    }
+
+    @Override
+    public int hashCode() {
+        int h = 5381;
+        h += (h << 5) + Objects.hashCode(type);
+        h += (h << 5) + Objects.hashCode(jsonSchema);
+        return h;
+    }
+
+    @Override
+    public String toString() {
+        return "ResponseFormat{" + "type=" + type + ", jsonSchema=" + jsonSchema + "}";
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    @JsonPOJOBuilder(withPrefix = "")
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
+    public static class Builder {
+
+        private ResponseFormatType type;
+        private JsonSchema jsonSchema;
+
+        public Builder type(ResponseFormatType type) {
+            this.type = type;
+            return this;
+        }
+
+        public Builder jsonSchema(JsonSchema jsonSchema) {
+            this.jsonSchema = jsonSchema;
+            return this;
+        }
+
+        public ResponseFormat build() {
+            return new ResponseFormat(this);
+        }
+    }
 }

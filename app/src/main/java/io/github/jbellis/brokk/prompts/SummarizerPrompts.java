@@ -8,20 +8,20 @@ import java.util.List;
 import java.util.Set;
 
 public class SummarizerPrompts {
-  public static final SummarizerPrompts instance = new SummarizerPrompts() {};
+    public static final SummarizerPrompts instance = new SummarizerPrompts() {};
 
-  public static final int WORD_BUDGET_3 = 3;
-  public static final int WORD_BUDGET_5 = 5;
-  public static final int WORD_BUDGET_12 = 12;
+    public static final int WORD_BUDGET_3 = 3;
+    public static final int WORD_BUDGET_5 = 5;
+    public static final int WORD_BUDGET_12 = 12;
 
-  private SummarizerPrompts() {}
+    private SummarizerPrompts() {}
 
-  public List<ChatMessage> collectMessages(String actionTxt, int wordBudget) {
-    assert !actionTxt.isBlank();
-    assert Set.of(WORD_BUDGET_3, WORD_BUDGET_5, WORD_BUDGET_12).contains(wordBudget) : wordBudget;
+    public List<ChatMessage> collectMessages(String actionTxt, int wordBudget) {
+        assert !actionTxt.isBlank();
+        assert Set.of(WORD_BUDGET_3, WORD_BUDGET_5, WORD_BUDGET_12).contains(wordBudget) : wordBudget;
 
-    var example =
-        """
+        var example =
+                """
         # What Brokk can do
 
         1. Ridiculously good agentic search / code retrieval. Better than Claude Code, better than Sourcegraph,
@@ -41,26 +41,26 @@ public class SummarizerPrompts {
           of the error and the full source of the methods involved.  Find the bug."
         - "Here are the usages of Foo.bar.  Is parameter zep always loaded from cache?"
         """;
-    var exampleRequest = getRequest(example, wordBudget);
-    var exampleResponse =
-        switch (wordBudget) {
-          case WORD_BUDGET_3 -> "Brokk: code intelligence";
-          case WORD_BUDGET_5 -> "Brokk: context management, agentic search";
-          case WORD_BUDGET_12 ->
-              "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration";
-          default -> throw new AssertionError(wordBudget);
-        };
+        var exampleRequest = getRequest(example, wordBudget);
+        var exampleResponse =
+                switch (wordBudget) {
+                    case WORD_BUDGET_3 -> "Brokk: code intelligence";
+                    case WORD_BUDGET_5 -> "Brokk: context management, agentic search";
+                    case WORD_BUDGET_12 ->
+                        "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration";
+                    default -> throw new AssertionError(wordBudget);
+                };
 
-    var request = getRequest(actionTxt, wordBudget);
-    return List.of(
-        new SystemMessage(systemIntro()),
-        new UserMessage(exampleRequest),
-        new AiMessage(exampleResponse),
-        new UserMessage(request));
-  }
+        var request = getRequest(actionTxt, wordBudget);
+        return List.of(
+                new SystemMessage(systemIntro()),
+                new UserMessage(exampleRequest),
+                new AiMessage(exampleResponse),
+                new UserMessage(request));
+    }
 
-  private static String getRequest(String actionTxt, int wordBudget) {
-    return """
+    private static String getRequest(String actionTxt, int wordBudget) {
+        return """
         <text>
         %s
         </text>
@@ -68,22 +68,22 @@ public class SummarizerPrompts {
         Summarize the text in %d words or fewer.
         </goal>
         """
-        .stripIndent()
-        .formatted(actionTxt, wordBudget);
-  }
+                .stripIndent()
+                .formatted(actionTxt, wordBudget);
+    }
 
-  public String systemIntro() {
-    return """
+    public String systemIntro() {
+        return """
                You are an expert software engineer that generates concise summaries of code-related text.
 
                Reply only with the summary, without any additional text, explanations, or line breaks.
                """
-        .stripIndent();
-  }
+                .stripIndent();
+    }
 
-  public List<ChatMessage> compressHistory(String entryText) {
-    var instructions =
-        """
+    public List<ChatMessage> compressHistory(String entryText) {
+        var instructions =
+                """
         Give a detailed but concise summary of this task.
         A third party should be able to understand what happened without reference to the original.
         Focus on information that would be useful for someone doing further work on the project described in the task.
@@ -91,35 +91,35 @@ public class SummarizerPrompts {
         Here is the task to summarize. Do not include XML tags or other markup.
         %s
         """
-            .stripIndent()
-            .formatted(entryText);
-    return List.of(new SystemMessage(systemIntro()), new UserMessage(instructions));
-  }
+                        .stripIndent()
+                        .formatted(entryText);
+        return List.of(new SystemMessage(systemIntro()), new UserMessage(instructions));
+    }
 
-  public List<ChatMessage> collectPrDescriptionMessages(String diff) {
-    return List.of(
-        new SystemMessage(
-            """
+    public List<ChatMessage> collectPrDescriptionMessages(String diff) {
+        return List.of(
+                new SystemMessage(
+                        """
                     You are an expert software engineer writing clear pull-request descriptions.
                     Describe the intent, behaviour changes and key implementation ideas in human language.
                     Use bullet points or short paragraphs. 75–150 words is ideal. Just focus on the most important changes.
                     """
-                .stripIndent()),
-        new UserMessage("<diff>\n" + diff + "\n</diff>"));
-  }
+                                .stripIndent()),
+                new UserMessage("<diff>\n" + diff + "\n</diff>"));
+    }
 
-  public List<ChatMessage> collectPrDescriptionFromCommitMsgs(List<String> commitMsgs) {
-    String body = String.join("\n\n", commitMsgs);
+    public List<ChatMessage> collectPrDescriptionFromCommitMsgs(List<String> commitMsgs) {
+        String body = String.join("\n\n", commitMsgs);
 
-    return List.of(
-        new SystemMessage(
-            """
+        return List.of(
+                new SystemMessage(
+                        """
                 You are an expert software engineer writing clear pull-request descriptions.
                 Use ONLY the commit messages below.  Summarise the intent, major behaviour
                 changes, and key implementation ideas. 75–150 words, ideal.
                 Do NOT include raw commit messages verbatim.
                 """
-                .stripIndent()),
-        new UserMessage("<commits>\n" + body + "\n</commits>"));
-  }
+                                .stripIndent()),
+                new UserMessage("<commits>\n" + body + "\n</commits>"));
+    }
 }

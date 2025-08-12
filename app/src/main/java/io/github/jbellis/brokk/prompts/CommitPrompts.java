@@ -7,38 +7,38 @@ import io.github.jbellis.brokk.IProject;
 import java.util.List;
 
 public class CommitPrompts {
-  public static final CommitPrompts instance = new CommitPrompts() {};
+    public static final CommitPrompts instance = new CommitPrompts() {};
 
-  private CommitPrompts() {}
+    private CommitPrompts() {}
 
-  public List<ChatMessage> collectMessages(IProject project, String diffTxt) {
-    if (diffTxt.isEmpty()) {
-      return List.of();
-    }
+    public List<ChatMessage> collectMessages(IProject project, String diffTxt) {
+        if (diffTxt.isEmpty()) {
+            return List.of();
+        }
 
-    var formatInstructions = project.getCommitMessageFormat();
+        var formatInstructions = project.getCommitMessageFormat();
 
-    var context =
-        """
+        var context = """
         <diff>
         %s
         </diff>
-        """.stripIndent().formatted(diffTxt);
-
-    var instructions =
         """
+                .stripIndent()
+                .formatted(diffTxt);
+
+        var instructions =
+                """
         <goal>
         Here is my diff, please give me a concise commit message based on the format instructions provided in the system prompt.
         </goal>
         """
-            .stripIndent();
-    return List.of(
-        new SystemMessage(systemIntro(formatInstructions)),
-        new UserMessage(context + "\n\n" + instructions));
-  }
+                        .stripIndent();
+        return List.of(
+                new SystemMessage(systemIntro(formatInstructions)), new UserMessage(context + "\n\n" + instructions));
+    }
 
-  private String systemIntro(String formatInstructions) {
-    return """
+    private String systemIntro(String formatInstructions) {
+        return """
                You are an expert software engineer that generates concise,
                one-line Git commit messages based on the provided diffs.
                Review the provided context and diffs which are about to be committed to a git repo.
@@ -56,6 +56,6 @@ public class CommitPrompts {
                Reply only with the one-line commit message, without any additional text, explanations,
                or line breaks.
                """
-        .formatted(formatInstructions);
-  }
+                .formatted(formatInstructions);
+    }
 }

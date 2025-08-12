@@ -14,50 +14,51 @@ import org.jetbrains.annotations.Nullable;
 
 public final class StubService extends Service {
 
-  public StubService(IProject project) {
-    super(project);
-  }
+    public StubService(IProject project) {
+        super(project);
+    }
 
-  @Override
-  protected void fetchAvailableModels(
-      MainProject.DataRetentionPolicy policy,
-      Map<String, String> locationsTarget,
-      Map<String, Map<String, Object>> infoTarget)
-      throws IOException {}
+    @Override
+    protected void fetchAvailableModels(
+            MainProject.DataRetentionPolicy policy,
+            Map<String, String> locationsTarget,
+            Map<String, Map<String, Object>> infoTarget)
+            throws IOException {}
 
-  @Override
-  public String nameOf(@Nullable StreamingChatModel model) {
-    return "stub-model";
-  }
+    @Override
+    public String nameOf(@Nullable StreamingChatModel model) {
+        return "stub-model";
+    }
 
-  @Override
-  public boolean isLazy(@Nullable StreamingChatModel model) {
-    return false;
-  }
+    @Override
+    public boolean isLazy(@Nullable StreamingChatModel model) {
+        return false;
+    }
 
-  @Override
-  public boolean isReasoning(@Nullable StreamingChatModel model) {
-    return false;
-  }
+    @Override
+    public boolean isReasoning(@Nullable StreamingChatModel model) {
+        return false;
+    }
 
-  @Override
-  public boolean requiresEmulatedTools(@Nullable StreamingChatModel model) {
-    return false;
-  }
+    @Override
+    public boolean requiresEmulatedTools(@Nullable StreamingChatModel model) {
+        return false;
+    }
 
-  @Override
-  public boolean supportsJsonSchema(@Nullable StreamingChatModel model) {
-    return true;
-  }
+    @Override
+    public boolean supportsJsonSchema(@Nullable StreamingChatModel model) {
+        return true;
+    }
 
-  @Override
-  public StreamingChatModel getModel(String modelName, Service.ReasoningLevel reasoningLevel) {
-    return new StreamingChatModel() {
-      @Override
-      public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
-        handler.onCompleteResponse(
-            ChatResponse.builder().aiMessage(new AiMessage("```\nnew content\n```")).build());
-      }
-    };
-  }
+    @Override
+    public StreamingChatModel getModel(String modelName, Service.ReasoningLevel reasoningLevel) {
+        return new StreamingChatModel() {
+            @Override
+            public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
+                handler.onCompleteResponse(ChatResponse.builder()
+                        .aiMessage(new AiMessage("```\nnew content\n```"))
+                        .build());
+            }
+        };
+    }
 }

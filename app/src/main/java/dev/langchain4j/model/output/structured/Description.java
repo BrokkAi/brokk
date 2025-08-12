@@ -12,11 +12,11 @@ import java.lang.annotation.Target;
 @Retention(RUNTIME)
 public @interface Description {
 
-  /**
-   * The description can be defined in one line or multiple lines. If the description is defined in
-   * multiple lines, the lines will be joined with a space (" ") automatically.
-   *
-   * @return The description.
-   */
-  String[] value();
+    /**
+     * The description can be defined in one line or multiple lines. If the description is defined in multiple lines,
+     * the lines will be joined with a space (" ") automatically.
+     *
+     * @return The description.
+     */
+    String[] value();
 }

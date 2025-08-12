@@ -10,87 +10,87 @@ import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * Abstraction for a filename relative to the repo. This exists to make it less difficult to ensure
- * that different filename objects can be meaningfully compared, unlike bare Paths which may or may
- * not be absolute, or may be relative to the jvm root rather than the repo root.
+ * Abstraction for a filename relative to the repo. This exists to make it less difficult to ensure that different
+ * filename objects can be meaningfully compared, unlike bare Paths which may or may not be absolute, or may be relative
+ * to the jvm root rather than the repo root.
  */
 public class ProjectFile implements BrokkFile {
-  private final transient Path root;
-  private final transient Path relPath;
+    private final transient Path root;
+    private final transient Path relPath;
 
-  /** root must be pre-normalized; we will normalize relPath if it is not already */
-  @JsonCreator
-  public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
-    // Validation and normalization
-    if (!root.isAbsolute()) {
-      throw new IllegalArgumentException("Root must be absolute, got " + root);
+    /** root must be pre-normalized; we will normalize relPath if it is not already */
+    @JsonCreator
+    public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
+        // Validation and normalization
+        if (!root.isAbsolute()) {
+            throw new IllegalArgumentException("Root must be absolute, got " + root);
+        }
+        if (!root.equals(root.normalize())) {
+            throw new IllegalArgumentException("Root must be normalized, got " + root);
+        }
+        if (relPath.isAbsolute()) {
+            throw new IllegalArgumentException("RelPath must be relative, got " + relPath);
+        }
+
+        this.root = root;
+        this.relPath = relPath.normalize();
     }
-    if (!root.equals(root.normalize())) {
-      throw new IllegalArgumentException("Root must be normalized, got " + root);
-    }
-    if (relPath.isAbsolute()) {
-      throw new IllegalArgumentException("RelPath must be relative, got " + relPath);
+
+    public ProjectFile(Path root, String relName) {
+        this(root, Path.of(relName));
     }
 
-    this.root = root;
-    this.relPath = relPath.normalize();
-  }
+    // JsonGetter methods for Jackson serialization since fields are transient
+    @JsonGetter("root")
+    public Path getRoot() {
+        return root;
+    }
 
-  public ProjectFile(Path root, String relName) {
-    this(root, Path.of(relName));
-  }
+    @JsonGetter("relPath")
+    public Path getRelPath() {
+        return relPath;
+    }
 
-  // JsonGetter methods for Jackson serialization since fields are transient
-  @JsonGetter("root")
-  public Path getRoot() {
-    return root;
-  }
+    @Override
+    public Path absPath() {
+        return root.resolve(relPath);
+    }
 
-  @JsonGetter("relPath")
-  public Path getRelPath() {
-    return relPath;
-  }
+    public void create() throws IOException {
+        Files.createDirectories(absPath().getParent());
+        Files.createFile(absPath());
+    }
 
-  @Override
-  public Path absPath() {
-    return root.resolve(relPath);
-  }
+    public void write(String st) throws IOException {
+        Files.createDirectories(absPath().getParent());
+        Files.writeString(absPath(), st);
+    }
 
-  public void create() throws IOException {
-    Files.createDirectories(absPath().getParent());
-    Files.createFile(absPath());
-  }
+    /** Also relative (but unlike raw Path.getParent, ours returns empty path instead of null) */
+    @JsonIgnore
+    public Path getParent() {
+        // since this is the *relative* path component I think it's more correct to return empty than
+        // null;
+        // the other alternative is to wrap in Optional, but then comparing with an empty path is
+        // messier
+        var p = relPath.getParent();
+        return p == null ? Path.of("") : p;
+    }
 
-  public void write(String st) throws IOException {
-    Files.createDirectories(absPath().getParent());
-    Files.writeString(absPath(), st);
-  }
+    @Override
+    public String toString() {
+        return relPath.toString();
+    }
 
-  /** Also relative (but unlike raw Path.getParent, ours returns empty path instead of null) */
-  @JsonIgnore
-  public Path getParent() {
-    // since this is the *relative* path component I think it's more correct to return empty than
-    // null;
-    // the other alternative is to wrap in Optional, but then comparing with an empty path is
-    // messier
-    var p = relPath.getParent();
-    return p == null ? Path.of("") : p;
-  }
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof ProjectFile projectFile)) return false;
+        return Objects.equals(root, projectFile.root) && Objects.equals(relPath, projectFile.relPath);
+    }
 
-  @Override
-  public String toString() {
-    return relPath.toString();
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (this == o) return true;
-    if (!(o instanceof ProjectFile projectFile)) return false;
-    return Objects.equals(root, projectFile.root) && Objects.equals(relPath, projectFile.relPath);
-  }
-
-  @Override
-  public int hashCode() {
-    return relPath.hashCode();
-  }
+    @Override
+    public int hashCode() {
+        return relPath.hashCode();
+    }
 }

@@ -10,217 +10,216 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public final class WorktreeProject extends AbstractProject {
-  private final MainProject parent;
+    private final MainProject parent;
 
-  public WorktreeProject(Path root, MainProject parent) {
-    super(root);
-    this.parent = parent;
-  }
+    public WorktreeProject(Path root, MainProject parent) {
+        super(root);
+        this.parent = parent;
+    }
 
-  @Override
-  public MainProject getParent() {
-    return parent;
-  }
+    @Override
+    public MainProject getParent() {
+        return parent;
+    }
 
-  @Override
-  public Path getMasterRootPathForConfig() {
-    return parent.getMasterRootPathForConfig();
-  }
+    @Override
+    public Path getMasterRootPathForConfig() {
+        return parent.getMasterRootPathForConfig();
+    }
 
-  @Override
-  public Set<Language> getAnalyzerLanguages() {
-    return parent.getAnalyzerLanguages();
-  }
+    @Override
+    public Set<Language> getAnalyzerLanguages() {
+        return parent.getAnalyzerLanguages();
+    }
 
-  @Override
-  public void setAnalyzerLanguages(Set<Language> languages) {
-    parent.setAnalyzerLanguages(languages);
-  }
+    @Override
+    public void setAnalyzerLanguages(Set<Language> languages) {
+        parent.setAnalyzerLanguages(languages);
+    }
 
-  @Override
-  public BuildAgent.BuildDetails loadBuildDetails() {
-    return parent.loadBuildDetails();
-  }
+    @Override
+    public BuildAgent.BuildDetails loadBuildDetails() {
+        return parent.loadBuildDetails();
+    }
 
-  @Override
-  public void saveBuildDetails(BuildAgent.BuildDetails details) {
-    parent.saveBuildDetails(details);
-  }
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        parent.saveBuildDetails(details);
+    }
 
-  @Override
-  public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
-    return parent.getBuildDetailsFuture();
-  }
+    @Override
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return parent.getBuildDetailsFuture();
+    }
 
-  @Override
-  public BuildAgent.BuildDetails awaitBuildDetails() {
-    return parent.awaitBuildDetails();
-  }
+    @Override
+    public BuildAgent.BuildDetails awaitBuildDetails() {
+        return parent.awaitBuildDetails();
+    }
 
-  @Override
-  public boolean hasBuildDetails() {
-    return parent.hasBuildDetails();
-  }
+    @Override
+    public boolean hasBuildDetails() {
+        return parent.hasBuildDetails();
+    }
 
-  @Override
-  public DataRetentionPolicy getDataRetentionPolicy() {
-    return parent.getDataRetentionPolicy();
-  }
+    @Override
+    public DataRetentionPolicy getDataRetentionPolicy() {
+        return parent.getDataRetentionPolicy();
+    }
 
-  @Override
-  public void setDataRetentionPolicy(DataRetentionPolicy policy) {
-    parent.setDataRetentionPolicy(policy);
-  }
+    @Override
+    public void setDataRetentionPolicy(DataRetentionPolicy policy) {
+        parent.setDataRetentionPolicy(policy);
+    }
 
-  @Override
-  public String getStyleGuide() {
-    return parent.getStyleGuide();
-  }
+    @Override
+    public String getStyleGuide() {
+        return parent.getStyleGuide();
+    }
 
-  @Override
-  public void saveStyleGuide(String styleGuide) {
-    parent.saveStyleGuide(styleGuide);
-  }
+    @Override
+    public void saveStyleGuide(String styleGuide) {
+        parent.saveStyleGuide(styleGuide);
+    }
 
-  @Override
-  public String getReviewGuide() {
-    return parent.getReviewGuide();
-  }
+    @Override
+    public String getReviewGuide() {
+        return parent.getReviewGuide();
+    }
 
-  @Override
-  public void saveReviewGuide(String reviewGuide) {
-    parent.saveReviewGuide(reviewGuide);
-  }
+    @Override
+    public void saveReviewGuide(String reviewGuide) {
+        parent.saveReviewGuide(reviewGuide);
+    }
 
-  @Override
-  public Service.ModelConfig getArchitectModelConfig() {
-    return parent.getArchitectModelConfig();
-  }
+    @Override
+    public Service.ModelConfig getArchitectModelConfig() {
+        return parent.getArchitectModelConfig();
+    }
 
-  @Override
-  public void setArchitectModelConfig(Service.ModelConfig config) {
-    parent.setArchitectModelConfig(config);
-  }
+    @Override
+    public void setArchitectModelConfig(Service.ModelConfig config) {
+        parent.setArchitectModelConfig(config);
+    }
 
-  @Override
-  public Service.ModelConfig getCodeModelConfig() {
-    return parent.getCodeModelConfig();
-  }
+    @Override
+    public Service.ModelConfig getCodeModelConfig() {
+        return parent.getCodeModelConfig();
+    }
 
-  @Override
-  public void setCodeModelConfig(Service.ModelConfig config) {
-    parent.setCodeModelConfig(config);
-  }
+    @Override
+    public void setCodeModelConfig(Service.ModelConfig config) {
+        parent.setCodeModelConfig(config);
+    }
 
-  @Override
-  public void setAskModelConfig(Service.ModelConfig config) {
-    parent.setAskModelConfig(config);
-  }
+    @Override
+    public void setAskModelConfig(Service.ModelConfig config) {
+        parent.setAskModelConfig(config);
+    }
 
-  @Override
-  public Service.ModelConfig getSearchModelConfig() {
-    return parent.getSearchModelConfig();
-  }
+    @Override
+    public Service.ModelConfig getSearchModelConfig() {
+        return parent.getSearchModelConfig();
+    }
 
-  @Override
-  public void setSearchModelConfig(Service.ModelConfig config) {
-    parent.setSearchModelConfig(config);
-  }
+    @Override
+    public void setSearchModelConfig(Service.ModelConfig config) {
+        parent.setSearchModelConfig(config);
+    }
 
-  @Override
-  public CpgRefresh getAnalyzerRefresh() {
-    return parent.getAnalyzerRefresh();
-  }
+    @Override
+    public CpgRefresh getAnalyzerRefresh() {
+        return parent.getAnalyzerRefresh();
+    }
 
-  @Override
-  public void setAnalyzerRefresh(CpgRefresh value) {
-    parent.setAnalyzerRefresh(value);
-  }
+    @Override
+    public void setAnalyzerRefresh(CpgRefresh value) {
+        parent.setAnalyzerRefresh(value);
+    }
 
-  @Override
-  public boolean isDataShareAllowed() {
-    return parent.isDataShareAllowed();
-  }
+    @Override
+    public boolean isDataShareAllowed() {
+        return parent.isDataShareAllowed();
+    }
 
-  @Override
-  public String getCommitMessageFormat() {
-    return parent.getCommitMessageFormat();
-  }
+    @Override
+    public String getCommitMessageFormat() {
+        return parent.getCommitMessageFormat();
+    }
 
-  @Override
-  public void setCommitMessageFormat(String format) {
-    parent.setCommitMessageFormat(format);
-  }
+    @Override
+    public void setCommitMessageFormat(String format) {
+        parent.setCommitMessageFormat(format);
+    }
 
-  @Override
-  public CodeAgentTestScope getCodeAgentTestScope() {
-    return parent.getCodeAgentTestScope();
-  }
+    @Override
+    public CodeAgentTestScope getCodeAgentTestScope() {
+        return parent.getCodeAgentTestScope();
+    }
 
-  @Override
-  public boolean isGitHubRepo() {
-    return parent.isGitHubRepo();
-  }
+    @Override
+    public boolean isGitHubRepo() {
+        return parent.isGitHubRepo();
+    }
 
-  @Override
-  public boolean isGitIgnoreSet() {
-    return parent.isGitIgnoreSet();
-  }
+    @Override
+    public boolean isGitIgnoreSet() {
+        return parent.isGitIgnoreSet();
+    }
 
-  @Override
-  public void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {
-    parent.setCodeAgentTestScope(selectedScope);
-  }
+    @Override
+    public void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {
+        parent.setCodeAgentTestScope(selectedScope);
+    }
 
-  @Override
-  public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
-    return parent.getIssuesProvider();
-  }
+    @Override
+    public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+        return parent.getIssuesProvider();
+    }
 
-  @Override
-  public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
-    parent.setIssuesProvider(provider);
-  }
+    @Override
+    public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+        parent.setIssuesProvider(provider);
+    }
 
-  @Override
-  public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
-    return parent.getArchitectOptions();
-  }
+    @Override
+    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
+        return parent.getArchitectOptions();
+    }
 
-  @Override
-  public boolean getArchitectRunInWorktree() {
-    return parent.getArchitectRunInWorktree();
-  }
+    @Override
+    public boolean getArchitectRunInWorktree() {
+        return parent.getArchitectRunInWorktree();
+    }
 
-  @Override
-  public void setArchitectOptions(
-      io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options,
-      boolean runInWorktree) {
-    parent.setArchitectOptions(options, runInWorktree);
-  }
+    @Override
+    public void setArchitectOptions(
+            io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+        parent.setArchitectOptions(options, runInWorktree);
+    }
 
-  @Override
-  public Set<ProjectFile> getLiveDependencies() {
-    return parent.getLiveDependencies();
-  }
+    @Override
+    public Set<ProjectFile> getLiveDependencies() {
+        return parent.getLiveDependencies();
+    }
 
-  @Override
-  public void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
-    parent.saveLiveDependencies(dependencyTopLevelDirs);
-  }
+    @Override
+    public void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        parent.saveLiveDependencies(dependencyTopLevelDirs);
+    }
 
-  @Override
-  public List<List<String>> loadBlitzHistory() {
-    return parent.loadBlitzHistory();
-  }
+    @Override
+    public List<List<String>> loadBlitzHistory() {
+        return parent.loadBlitzHistory();
+    }
 
-  @Override
-  public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
-    return parent.addToBlitzHistory(parallel, post, maxItems);
-  }
+    @Override
+    public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
+        return parent.addToBlitzHistory(parallel, post, maxItems);
+    }
 
-  @Override
-  public SessionManager getSessionManager() {
-    return parent.getSessionManager();
-  }
+    @Override
+    public SessionManager getSessionManager() {
+        return parent.getSessionManager();
+    }
 }

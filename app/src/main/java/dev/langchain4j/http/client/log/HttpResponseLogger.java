@@ -7,20 +7,20 @@ import org.slf4j.Logger;
 
 class HttpResponseLogger {
 
-  static void log(Logger log, SuccessfulHttpResponse response) {
-    try {
-      log.info(
-          """
+    static void log(Logger log, SuccessfulHttpResponse response) {
+        try {
+            log.info(
+                    """
                             HTTP response:
                             - status code: {}
                             - headers: {}
                             - body: {}
                             """,
-          response.statusCode(),
-          format(response.headers()),
-          response.body());
-    } catch (Exception e) {
-      log.warn("Exception occurred while logging HTTP response: {}", e.getMessage());
+                    response.statusCode(),
+                    format(response.headers()),
+                    response.body());
+        } catch (Exception e) {
+            log.warn("Exception occurred while logging HTTP response: {}", e.getMessage());
+        }
     }
-  }
 }
