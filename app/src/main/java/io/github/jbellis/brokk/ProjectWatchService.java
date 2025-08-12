@@ -28,7 +28,7 @@ public class ProjectWatchService implements IWatchService {
     private final Listener listener;
 
     private volatile boolean running = true;
-    private volatile boolean paused = false;
+    private volatile int pauseCount = 0;
 
     public ProjectWatchService(Path root,
                                @Nullable Path gitRepoRoot,
@@ -74,7 +74,7 @@ public class ProjectWatchService implements IWatchService {
             // Watch for events, debounce them, and handle them
             while (running) {
                 // Wait if paused
-                while (paused) {
+                while (pauseCount > 0) {
                     Thread.onSpinWait();
                 }
 
@@ -193,7 +193,7 @@ public class ProjectWatchService implements IWatchService {
     @Override
     public synchronized void pause() {
         logger.debug("Pausing file watcher");
-        paused = true;
+        pauseCount++;
     }
 
     /**
@@ -202,13 +202,15 @@ public class ProjectWatchService implements IWatchService {
     @Override
     public synchronized void resume() {
         logger.debug("Resuming file watcher");
-        paused = false;
+        if (pauseCount > 0) {
+            pauseCount--;
+        }
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         running = false;
-        resume(); // Ensure any waiting thread is woken up to exit
+        pauseCount = 0; // Ensure any waiting thread is woken up to exit
     }
 
 

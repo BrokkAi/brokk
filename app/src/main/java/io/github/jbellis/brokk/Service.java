@@ -574,9 +574,14 @@ public class Service {
             value = (Integer) info.get("max_output_tokens");
         }
 
-        // some models can output a lot of tokens, but if you ask for them it gets subtracted from the input budget
+        // Most providers subtract the max output tokens from the input token budget. Since we very infrequently
+        // need the entire output token budget, and even when we might we can recover and retry starting from where
+        // we left off, we limit the output tokens to 1/8 of the input token budget.
+        // (Previously we hard-capped this at 32k, but gpt5-mini and gpt5-nano with reasoning=high will blow past that,
+        // causing request failures. So now it's uncapped.)
+        int ceiling = min(value, getMaxInputTokens(location) / 8);
         int floor = min(8192, value);
-        return max(floor, min(32768, value / 8));
+        return max(floor, ceiling);
     }
 
     /**
@@ -585,6 +590,10 @@ public class Service {
      */
     public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
+        return getMaxInputTokens(location);
+    }
+
+    private int getMaxInputTokens(String location) {
         var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);

@@ -160,8 +160,7 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            case "DEBUG" -> logger.debug("JS: {}", message);
-            default -> logger.info("JS: {}", message);
+            default -> logger.trace("JS: {}", message);
         }
     }
 

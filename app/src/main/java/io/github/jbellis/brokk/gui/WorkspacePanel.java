@@ -1173,7 +1173,7 @@ public class WorkspacePanel extends JPanel {
         List<Service.ModelConfig> configuredModelChecks = List.of(
                 project.getArchitectModelConfig(),
                 project.getCodeModelConfig(),
-                project.getAskModelConfig(),
+                project.getSearchModelConfig(),
                 project.getSearchModelConfig()
         );
 
@@ -1969,7 +1969,7 @@ public class WorkspacePanel extends JPanel {
         // Get the three configured models in order: code, ask, architect
         List<Service.ModelConfig> configsToCheck = List.of(
                 project.getCodeModelConfig(),
-                project.getAskModelConfig(),
+                project.getSearchModelConfig(),
                 project.getArchitectModelConfig()
         );
 

@@ -11,7 +11,7 @@
 
 ; Annotation declarations
 (annotation_type_declaration
-  body: (_)) @annotation.definition
+  name: (identifier) @annotation.name) @annotation.definition
 
 ; Class declarations
 (class_declaration

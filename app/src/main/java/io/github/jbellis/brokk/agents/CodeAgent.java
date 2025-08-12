@@ -397,7 +397,7 @@ public class CodeAgent {
         }
 
         // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
-        var updatedConsecutiveParseFailures = 0;
+        int updatedConsecutiveParseFailures = 0;
         var mutablePendingBlocks = new ArrayList<>(ws.pendingBlocks());
         mutablePendingBlocks.addAll(newlyParsedBlocks);
 
@@ -406,8 +406,14 @@ public class CodeAgent {
             UserMessage messageForRetry;
             String consoleLogForRetry;
             if (newlyParsedBlocks.isEmpty()) {
+                // Treat "partial with no blocks" as a parse failure subject to MAX_PARSE_ATTEMPTS
+                updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
+                if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                    reportComplete("Parse error limit reached; ending task.");
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+                }
                 messageForRetry = new UserMessage("It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                consoleLogForRetry = "LLM indicated response was partial before any blocks (no parse error); asking to continue";
+                consoleLogForRetry = "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
             } else {
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());

@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.issues;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import org.jetbrains.annotations.Nullable;
@@ -22,6 +24,7 @@ public sealed interface IssuesProviderConfig
     record NoneConfig() implements IssuesProviderConfig {}
 
     /** GitHub provider */
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GithubConfig(@Nullable String owner, @Nullable String repo, @Nullable String host) implements IssuesProviderConfig {
         /** Convenience ctor -> default to current repo on github.com */
         public GithubConfig() { this("", "", ""); }
@@ -30,6 +33,7 @@ public sealed interface IssuesProviderConfig
          * Checks if this configuration represents the default (i.e., derive from current project's git remote on github.com).
          * @return true if owner, repo, and host are blank or null, indicating default behavior.
          */
+        @JsonIgnore
         public boolean isDefault() {
             return (owner == null || owner.isBlank()) &&
                    (repo == null || repo.isBlank()) &&

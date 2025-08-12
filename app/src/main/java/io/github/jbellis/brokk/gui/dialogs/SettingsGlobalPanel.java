@@ -47,8 +47,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JComboBox<Service.ReasoningLevel> architectReasoningComboBox = new JComboBox<>();
     private JComboBox<String> codeModelComboBox = new JComboBox<>();
     private JComboBox<Service.ReasoningLevel> codeReasoningComboBox = new JComboBox<>();
-    private JComboBox<String> askModelComboBox = new JComboBox<>();
-    private JComboBox<Service.ReasoningLevel> askReasoningComboBox = new JComboBox<>();
     private JComboBox<String> searchModelComboBox = new JComboBox<>();
     private JComboBox<Service.ReasoningLevel> searchReasoningComboBox = new JComboBox<>();
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
@@ -119,7 +117,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var service = chrome.getContextManager().getService();
         updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, service);
         updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, service);
-        updateReasoningComboBox(askModelComboBox, askReasoningComboBox, service);
         updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, service);
     }
 
@@ -420,7 +417,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         Runnable updateReasoningAndTooltipState = () -> {
             updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, models);
             updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, models);
-            updateReasoningComboBox(askModelComboBox, askReasoningComboBox, models);
             updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, models);
 
             if (architectModelComboBox.getSelectedItem() instanceof String modelName)
@@ -430,10 +426,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             if (codeModelComboBox.getSelectedItem() instanceof String modelName)
                 codeModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
             else codeModelComboBox.setToolTipText(null);
-
-            if (askModelComboBox.getSelectedItem() instanceof String modelName)
-                askModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
-            else askModelComboBox.setToolTipText(null);
 
             if (searchModelComboBox.getSelectedItem() instanceof String modelName)
                 searchModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
@@ -455,13 +447,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         addHoverTooltipUpdater(codeModelComboBox, models);
         codeReasoningComboBox = new JComboBox<>(reasoningLevels);
         row = addModelSection(panel, gbc, row, "Code", codeModelComboBox, codeReasoningComboBox, "Used when invoking the Code Agent manually or via Architect");
-
-        askModelComboBox = new JComboBox<>(availableModels);
-        askModelComboBox.setRenderer(modelComboRenderer);
-        askModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
-        addHoverTooltipUpdater(askModelComboBox, models);
-        askReasoningComboBox = new JComboBox<>(reasoningLevels);
-        row = addModelSection(panel, gbc, row, "Ask", askModelComboBox, askReasoningComboBox, "Answers questions about the current Workspace contents");
 
         searchModelComboBox = new JComboBox<>(availableModels);
         searchModelComboBox.setRenderer(modelComboRenderer);
@@ -672,10 +657,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         codeModelComboBox.setSelectedItem(codeConfig.name());
         codeReasoningComboBox.setSelectedItem(codeConfig.reasoning());
 
-        var askConfig = project.getAskModelConfig();
-        askModelComboBox.setSelectedItem(askConfig.name());
-        askReasoningComboBox.setSelectedItem(askConfig.reasoning());
-
         var searchConfig = project.getSearchModelConfig();
         searchModelComboBox.setSelectedItem(searchConfig.name());
         searchReasoningComboBox.setSelectedItem(searchConfig.reasoning());
@@ -684,7 +665,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var service = chrome.getContextManager().getService();
         updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, service);
         updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, service);
-        updateReasoningComboBox(askModelComboBox, askReasoningComboBox, service);
         updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, service);
         updateModelsPanelEnablement(); // Re-check enablement based on project presence
 
@@ -750,7 +730,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         applyModelConfig(architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
         applyModelConfig(codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
-        applyModelConfig(askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
         applyModelConfig(searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
 
         // Quick Models Tab

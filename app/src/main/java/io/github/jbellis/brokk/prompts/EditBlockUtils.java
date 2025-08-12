@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui.mop.stream.flex;
+package io.github.jbellis.brokk.prompts;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.jetbrains.annotations.Nullable;

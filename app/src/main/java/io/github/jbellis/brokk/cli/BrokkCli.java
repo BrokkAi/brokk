@@ -322,7 +322,8 @@ public final class BrokkCli implements Callable<Integer> {
                 var agent = new CodeAgent(cm, effectiveModel);
                 result = agent.runTask(codePrompt, false);
             } else if (askPrompt != null) {
-                var askModel = taskModelOverride == null ? cm.getAskModel() : taskModelOverride;
+                StreamingChatModel askModel;
+                askModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
                 result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
             } else { // searchPrompt != null
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
