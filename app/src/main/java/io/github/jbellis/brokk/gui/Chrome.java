@@ -240,8 +240,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         bottomSplitPane.setLeftComponent(leftTabbedPanel);
         bottomSplitPane.setRightComponent(outputStackSplit);
-        bottomSplitPane.setResizeWeight(0.35);   // keep roughly 35% for the left tabs when resizing
-        bottomSplitPane.setDividerLocation(0.35); // initial 35% divider
+        bottomSplitPane.setResizeWeight(0.40);   // keep roughly 40% for the left tabs when resizing
+        bottomSplitPane.setDividerLocation(0.40); // initial 40% divider
 
         bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
