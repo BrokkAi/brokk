@@ -12,107 +12,19 @@ import javax.swing.table.TableColumn;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public final class TableUtils {
-
-    /**
-     * Returns the preferred row height for a table cell that renders
-     * a {@link FileReferenceList}, by measuring a sample rendered cell.
-     *
-     * @param table The JTable for which to calculate the row height.
-     * @return The preferred row height based on measurement.
-     */
     /**
      * Shows a popup displaying all file references when there are more than can fit in the table cell.
      *
-     * @param anchor The component that anchors the popup (usually the table or cell).
+     * @param chrome The application's main window.
+     * @param table The table containing the cell.
+     * @param row The row of the cell.
+     * @param col The column of the cell.
      * @param files The complete list of file references to display.
      */
-    /**
-     * A subclass of FileReferenceList that implements Scrollable to ensure badges wrap
-     * to match the viewport width.
-     */
-    private static class WrappingFileReferenceList extends FileReferenceList implements Scrollable {
-        public WrappingFileReferenceList(List<FileReferenceData> files) {
-            super(files);
-            // Make the flow layout respect width constraints
-            setLayout(new FlowLayout(FlowLayout.LEFT, 4, 2) {
-                @Override
-                public Dimension preferredLayoutSize(Container target) {
-                    // Get the constrained width if in a viewport
-                    int targetWidth = target.getWidth();
-                    if (target.getParent() instanceof JViewport) {
-                        targetWidth = ((JViewport) target.getParent()).getExtentSize().width;
-                    }
-
-                    // If we have zero width, use the superclass calculation
-                    if (targetWidth <= 0) {
-                        return super.preferredLayoutSize(target);
-                    }
-
-                    // Calculate the height given the constrained width
-                    int hgap = getHgap();
-                    int vgap = getVgap();
-                    int maxWidth = targetWidth - (target.getInsets().left + target.getInsets().right);
-
-                    // Calculate how many rows we need
-                    int numRows = 1;
-                    int x = 0;
-
-                    for (int i = 0; i < target.getComponentCount(); i++) {
-                        Component c = target.getComponent(i);
-                        if (!c.isVisible()) continue;
-
-                        Dimension d = c.getPreferredSize();
-                        if (x + d.width > maxWidth && x > 0) {
-                            numRows++;
-                            x = 0;
-                        }
-
-                        x += d.width + hgap;
-                    }
-
-                    // Calculate total height for all rows
-                    int height = 0;
-                    if (numRows > 0) {
-                        Component c = target.getComponent(0);
-                        if (c.isVisible()) {
-                            height = c.getPreferredSize().height * numRows + vgap * (numRows - 1);
-                        }
-                    }
-
-                    return new Dimension(targetWidth, height + target.getInsets().top + target.getInsets().bottom);
-                }
-            });
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true; // Force component to match viewport width
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return false; // Let vertical scrolling work normally
-        }
-
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 10;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
-        }
-    }
-
     public static void showOverflowPopup(Chrome chrome, JTable table, int row, int col, List<FileReferenceList.FileReferenceData> files) {
         // Ensure we're on EDT
         if (!SwingUtilities.isEventDispatchThread()) {
@@ -121,8 +33,10 @@ public final class TableUtils {
         }
         
         // Create a wrapping FileReferenceList with all files
-        var fullList = new WrappingFileReferenceList(files);
+        var fullList = new FileReferenceList(files);
         fullList.setOpaque(false); // For visual continuity
+        // Add a border to provide a safety margin against clipping in the popup
+        fullList.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Add listeners directly to each badge component
         for (Component c : fullList.getComponents()) {
@@ -175,45 +89,64 @@ public final class TableUtils {
             }
         }
 
-        // Calculate the proper row height using the first badge as reference
-        int rowHeight = 0;
-        if (!files.isEmpty()) {
-            // Create a temporary badge label to measure its height
-            JLabel sampleLabel = fullList.createBadgeLabel(files.get(0).getFileName());
-            rowHeight = sampleLabel.getPreferredSize().height + 4; // Add a small padding
+        // Calculate the popup's preferred size based on a 4x3 grid of badges.
+        int viewportW;
+        int viewportH;
+        if (files.isEmpty()) {
+            viewportW = 100;
+            viewportH = 25;
         } else {
-            // Fallback to a reasonable default if no files
-            rowHeight = 25;
+            var sampleBadge = fullList.createBadgeLabel("sample");
+            var sampleBadgeSize = sampleBadge.getPreferredSize();
+            var layout = (FlowLayout) fullList.getLayout();
+            var insets = fullList.getInsets();
+
+            var fm = sampleBadge.getFontMetrics(sampleBadge.getFont());
+            var badgeInsets = sampleBadge.getInsets();
+            int badgeHorizontalInsets = badgeInsets.left + badgeInsets.right;
+
+            // Calculate metrics for badge widths
+            int maxTextWidth = 0;
+            double avgTextWidth = 0;
+            if (!files.isEmpty()) {
+                var textWidths = files.stream()
+                        .mapToInt(f -> fm.stringWidth(f.getFileName()))
+                        .toArray();
+                maxTextWidth = Arrays.stream(textWidths).max().orElse(0);
+                avgTextWidth = Arrays.stream(textWidths).average().orElse(0);
+            }
+
+            int maxBadgeWidth = maxTextWidth + badgeHorizontalInsets;
+            int avgBadgeWidth = (int) avgTextWidth + badgeHorizontalInsets;
+
+            int badgesPerRow = 4;
+            int badgeCount = files.size();
+            // If there are fewer files than our target per row, adjust the target
+            if (badgeCount > 0 && badgeCount < badgesPerRow) {
+                badgesPerRow = badgeCount;
+            }
+
+            // Calculate a width that accommodates N average badges, but is at least as wide as the single widest badge
+            int widthForAvgBadges = avgBadgeWidth * badgesPerRow + layout.getHgap() * (badgesPerRow - 1);
+            int desiredContentWidth = Math.max(widthForAvgBadges, maxBadgeWidth);
+            viewportW = desiredContentWidth + insets.left + insets.right;
+
+            // Desired viewport height ≈ height of 3 rows + 2 v-gaps + insets
+            viewportH = sampleBadgeSize.height * 3 + layout.getVgap() * 2 + insets.top + insets.bottom + 4;
         }
-
-        // Find the exact column width using the table and column index
-        int colWidth = table.getColumnModel().getColumn(col).getWidth();
-
-        // Set visible rows with a maximum
-        int visibleRows = Math.min(4, Math.max(1, files.size())); // At least 1 row, at most 4
-        // Add explicit padding for bottom border to prevent clipping
-        int borderPadding = (int) Math.ceil(FileReferenceList.BORDER_THICKNESS * 2); // Account for top and bottom border
-        int preferredHeight = rowHeight * visibleRows + 6 + borderPadding;
 
         // Create a scrollable container with explicit scrollbar policies
         var scroll = new JScrollPane(fullList);
         scroll.setBorder(null);
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        scroll.setPreferredSize(new Dimension(colWidth, preferredHeight));
+        scroll.setPreferredSize(new Dimension(viewportW, viewportH));
 
         // Create and configure the popup
         var popup = new JPopupMenu();
         popup.setLayout(new BorderLayout());
         popup.add(scroll);
 
-        // Force layout to calculate proper wrapping AFTER being added to the container
-        SwingUtilities.invokeLater(() -> {
-            fullList.invalidate();
-            fullList.revalidate();
-            fullList.doLayout();
-            scroll.revalidate();
-        });
 
         // Apply theme using existing theme colors with fallbacks
         boolean isDarkTheme = UIManager.getBoolean("laf.dark");
@@ -245,6 +178,13 @@ public final class TableUtils {
         popup.show(table, cellRect.x, cellRect.y + cellRect.height);
     }
 
+    /**
+     * Returns the preferred row height for a table cell that renders
+     * a {@link FileReferenceList}, by measuring a sample rendered cell.
+     *
+     * @param table The JTable for which to calculate the row height.
+     * @return The preferred row height based on measurement.
+     */
     public static int measuredBadgeRowHeight(JTable table) {
         var sampleData = new FileReferenceList.FileReferenceData("sample.txt", "/sample.txt", null);
         var renderer = new FileReferencesTableCellRenderer();
@@ -279,6 +219,18 @@ public final class TableUtils {
 
         column.setPreferredWidth(width);
         column.setMaxWidth(width);
+    }
+
+    public static void setRowHeight(JTable table, int row, int componentHeight) {
+        // To prevent clipping on macOS and other platforms, we need to account for the table's
+        // own furniture (row margin) in addition to the component's height.
+        // Aqua L&F on macOS, for example, splits the row margin above and below the cell.
+        int prefHeight = componentHeight
+                         + table.getRowMargin() * 2;
+
+        if (table.getRowHeight(row) != prefHeight) {
+            table.setRowHeight(row, prefHeight);
+        }
     }
 
     /**
@@ -317,14 +269,18 @@ public final class TableUtils {
             // Ensure the component is properly painted in the table
             component.setOpaque(true);
 
-            // Set border to match the editor's border for consistency when transitioning
-            component.setBorder(BorderFactory.createEmptyBorder(1, 2, 1, 2));
+            // Set border to provide padding, preventing clipping issues on some L&Fs.
+            component.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-            // Update row height if necessary to fit the component, but only if there are file references
-            // This preserves reasonable row height for other columns when no badges are present
-            int prefHeight = component.getPreferredSize().height;
-            if (!fileRefs.isEmpty() && table.getRowHeight(row) != prefHeight) {
-                table.setRowHeight(row, prefHeight);
+            // Update row height if necessary to fit the component, but only if there are file references.
+            // This preserves reasonable row height for other columns when no badges are present.
+            // We do this asynchronously because the component's true preferred height is only known after
+            // it has been laid out within the table cell's bounds.
+            if (!fileRefs.isEmpty()) {
+                SwingUtilities.invokeLater(() -> {
+                    component.doLayout();
+                    TableUtils.setRowHeight(table, row, component.getPreferredSize().height);
+                });
             }
 
             return component;
@@ -350,7 +306,7 @@ public final class TableUtils {
     /**
      * Component to display and interact with a list of file references.
      */
-    public static class FileReferenceList extends JPanel {
+    public static class FileReferenceList extends JPanel implements Scrollable {
         private final List<FileReferenceData> fileReferences = new ArrayList<>();
         private boolean selected = false;
 
@@ -358,7 +314,61 @@ public final class TableUtils {
         public static final float BORDER_THICKNESS = 1.5f; // Made public
 
         public FileReferenceList() {
-            setLayout(new FlowLayout(FlowLayout.LEFT, 4, 2));
+            setLayout(new FlowLayout(FlowLayout.LEFT, 4, 2) {
+                @Override
+                public Dimension preferredLayoutSize(Container target) {
+                    // Get the constrained width if in a viewport or from the component itself
+                    int targetWidth = target.getWidth();
+                    if (targetWidth <= 0 && target.getParent() instanceof JViewport) {
+                        targetWidth = ((JViewport) target.getParent()).getExtentSize().width;
+                    }
+
+                    // If we have zero width, use the superclass calculation
+                    if (targetWidth <= 0) {
+                        return super.preferredLayoutSize(target);
+                    }
+
+                    // Calculate the height given the constrained width
+                    int hgap = getHgap();
+                    int vgap = getVgap();
+                    int maxWidth = targetWidth - (target.getInsets().left + target.getInsets().right);
+
+                    // Calculate how many rows we need
+                    int numRows = 1;
+                    int x = 0;
+
+                    for (int i = 0; i < target.getComponentCount(); i++) {
+                        Component c = target.getComponent(i);
+                        if (!c.isVisible()) continue;
+
+                        Dimension d = c.getPreferredSize();
+                        if (x + d.width > maxWidth && x > 0) {
+                            numRows++;
+                            x = 0;
+                        }
+
+                        x += d.width + hgap;
+                    }
+
+                    // Calculate total height for all rows
+                    int height = 0;
+                    if (numRows > 0 && target.getComponentCount() > 0) {
+                        // Find a visible component to get the row height.
+                        Component sample = null;
+                        for (int i = 0; i < target.getComponentCount(); i++) {
+                            if (target.getComponent(i).isVisible()) {
+                                sample = target.getComponent(i);
+                                break;
+                            }
+                        }
+                        if (sample != null) {
+                            height = sample.getPreferredSize().height * numRows + vgap * (numRows - 1);
+                        }
+                    }
+
+                    return new Dimension(targetWidth, height + target.getInsets().top + target.getInsets().bottom);
+                }
+            });
             setOpaque(true);
         }
 
@@ -591,9 +601,10 @@ public final class TableUtils {
                     // Use a thicker stroke for the border
                     g2d.setStroke(new BasicStroke(BORDER_THICKNESS));
 
-                    // Draw rounded rectangle border only
-                    g2d.draw(new RoundRectangle2D.Float(BORDER_THICKNESS / 2, BORDER_THICKNESS / 2,
-                                                        getWidth() - BORDER_THICKNESS, getHeight() - BORDER_THICKNESS,
+                    // Draw rounded rectangle border only, inset to avoid clipping on some L&Fs
+                    var s = BORDER_THICKNESS;
+                    g2d.draw(new RoundRectangle2D.Float(s, s,
+                                                        getWidth() - s * 2, getHeight() - s * 2,
                                                         BADGE_ARC_WIDTH, BADGE_ARC_WIDTH));
 
                     g2d.dispose();
@@ -624,6 +635,31 @@ public final class TableUtils {
                                             borderStrokeInset + textPaddingHorizontal));
 
             return label;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true; // Force component to match viewport width
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false; // Let vertical scrolling work normally
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 10;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
         }
 
         /**
