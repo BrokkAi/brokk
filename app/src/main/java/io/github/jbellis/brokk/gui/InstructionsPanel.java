@@ -135,17 +135,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
         this.commandInputUndoManager = new UndoManager();
-        commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
-        // Place the guidance text at the top for multi-line instructions.
-        commandInputOverlay.setTextAlignmentTop(true);
+        commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), PLACEHOLDER_TEXT       // show full guidance text in the overlay
+        );
+        commandInputOverlay.setTextAlignmentTop(true);   // draw it at the top
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
-        // If the area already contains text, start with the overlay hidden
-        if (!instructionsArea.getText().isBlank()) {
-            commandInputOverlay.hideOverlay();
-        }
+        // (no need to hide the overlay here – it shows the placeholder itself)
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
@@ -292,7 +289,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setRows(3); // Initial rows
         area.setMinimumSize(new Dimension(100, 80));
         area.setEnabled(false); // Start disabled
-        area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
+        // Start empty; the OverlayPanel now shows the placeholder guidance text
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
         ((AbstractDocument) area.getDocument()).setDocumentFilter(new AtTriggerFilter());
 

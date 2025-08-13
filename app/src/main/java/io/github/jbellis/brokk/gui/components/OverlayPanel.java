@@ -11,6 +11,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
 import org.jetbrains.annotations.Nullable;
+import java.util.regex.Pattern;
 
 /**
  * A reusable overlay panel that can be placed over other components to make them appear disabled while optionally
@@ -81,6 +82,7 @@ public class OverlayPanel extends JPanel {
     }
 
     @Override
+    @SuppressWarnings("StringSplitter")   // we handle wrapping manually, the warning is benign
     protected void paintComponent(Graphics g) {
         Graphics2D g2d = (Graphics2D) g.create();
         g2d.setColor(overlayColor); // overlayColor is never null
@@ -90,16 +92,62 @@ public class OverlayPanel extends JPanel {
         if (isActive && tooltipText != null && !tooltipText.isBlank()) {
             g2d.setColor(Color.GRAY);
             FontMetrics fm = g2d.getFontMetrics();
-            int x = 5; // left-aligned with small padding
+
+            int lineHeight = fm.getHeight();
+            int x          = 5;                       // left padding
+            int maxWidth   = getWidth() - x - 5;      // keep 5-px right padding
+
+            /* ------------------------------------------------------------------
+               Build a list of lines to draw, honouring explicit '\n' breaks and
+               wrapping long lines so they fit inside maxWidth.
+            ------------------------------------------------------------------ */
+            java.util.List<String> wrappedLines = new java.util.ArrayList<>();
+
+            // First split on explicit newlines (preserve empty paragraphs)
+            for (String paragraph : Pattern.compile("\\R").split(tooltipText, -1)) {
+                if (paragraph.isEmpty()) {
+                    wrappedLines.add("");
+                    continue;
+                }
+
+                StringBuilder lineBuilder = new StringBuilder();
+                for (String word : Pattern.compile("\\s+").split(paragraph)) {
+                    String candidate = (lineBuilder.length() == 0)
+                                       ? word
+                                       : lineBuilder + " " + word;
+
+                    if (fm.stringWidth(candidate) > maxWidth && lineBuilder.length() > 0) {
+                        // Current word would overflow ⇒ commit the line and start anew
+                        wrappedLines.add(lineBuilder.toString());
+                        lineBuilder.setLength(0);
+                        lineBuilder.append(word);
+                    } else {
+                        if (lineBuilder.length() == 0) {
+                            lineBuilder.append(word);
+                        } else {
+                            lineBuilder.append(' ').append(word);
+                        }
+                    }
+                }
+                wrappedLines.add(lineBuilder.toString());
+            }
+
+            /* ------------------------------------------------------------------
+               Vertical positioning: either top-aligned or centred as before.
+            ------------------------------------------------------------------ */
+            int totalBlockHeight = lineHeight * wrappedLines.size();
             int y;
             if (alignTop) {
-                // A little padding from the top edge
-                y = fm.getAscent() + 2;
+                y = fm.getAscent() + 2;               // small top padding
             } else {
-                // Vertically centred
-                y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+                y = (getHeight() - totalBlockHeight) / 2 + fm.getAscent();
             }
-            g2d.drawString(tooltipText, x, y);
+
+            // Finally draw each prepared line
+            for (String line : wrappedLines) {
+                g2d.drawString(line, x, y);
+                y += lineHeight;
+            }
         }
 
         g2d.dispose();
