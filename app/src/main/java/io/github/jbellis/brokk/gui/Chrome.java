@@ -9,6 +9,9 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.FrozenFragment;
+import io.github.jbellis.brokk.gui.components.VerticalLabel;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
@@ -1332,65 +1335,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var title = tabbedPane.getTitleAt(i);
             var vertLabel = new VerticalLabel(title);
             tabbedPane.setTabComponentAt(i, vertLabel);
-        }
-    }
-
-    /**
-     * JLabel that renders its text vertically (top-to-bottom) by drawing one
-     * character per line.  This avoids the clipping problems seen with long
-     * captions such as “Project Files”.
-     */
-    private static final class VerticalLabel extends JLabel
-    {
-        private static final int PAD_V = 4;
-        private static final int PAD_H = 2;
-
-        VerticalLabel(String text) {
-            super(text);
-            setBorder(BorderFactory.createEmptyBorder(PAD_V, PAD_H, PAD_V, PAD_H));
-            setFont(UIManager.getFont("TabbedPane.font"));
-            setHorizontalAlignment(SwingConstants.CENTER);
-            setVerticalAlignment(SwingConstants.CENTER);
-        }
-
-        @Override
-        public Dimension getPreferredSize() {
-            FontMetrics fm = getFontMetrics(getFont());
-            int stringWidth  = fm.stringWidth(getText());
-            int stringHeight = fm.getHeight();
-
-            Insets insets = getInsets();
-            // After rotation the logical width is the font height; height is the string width
-            // Width is font height plus horizontal padding
-            int width  = stringHeight + insets.left + insets.right - 4;
-            int height = stringWidth  + insets.top  + insets.bottom;
-            return new Dimension(width, height);
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            // Paint background
-            if (isOpaque()) {
-                g.setColor(getBackground());
-                g.fillRect(0, 0, getWidth(), getHeight());
-            }
-
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-            FontMetrics fm    = g2.getFontMetrics();
-            Insets insets     = getInsets();
-
-            // Rotate 90° counter-clockwise to paint text sideways
-            g2.rotate(Math.toRadians(-90));
-            // After rotation, translate so the text starts inside the original component bounds
-            g2.translate(-getHeight() + insets.top, insets.left);
-
-            g2.setColor(getForeground());
-            g2.drawString(getText(), 0, fm.getAscent());
-
-            g2.dispose();
         }
     }
 
