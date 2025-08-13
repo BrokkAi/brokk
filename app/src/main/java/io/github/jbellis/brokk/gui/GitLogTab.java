@@ -7,36 +7,32 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepo.MergeMode;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.time.Duration;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ProgressMonitor;
 
-import javax.swing.*;
-import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableCellRenderer;
-import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.*;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.time.ZonedDateTime;
-import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
-import java.time.Duration;
-
 /**
- * Panel that contains the "Log" tab UI and related functionality:
- * - Branch tables (local & remote)
- * - Commits table
- * - Tree of changed files (per commit)
- * - Search functionality
+ * Panel that contains the "Log" tab UI and related functionality: - Branch tables (local & remote) - Commits table -
+ * Tree of changed files (per commit) - Search functionality
  */
 public class GitLogTab extends JPanel {
 
@@ -48,9 +44,7 @@ public class GitLogTab extends JPanel {
     private final Chrome chrome;
     private final ContextManager contextManager;
 
-    /**
-     * Schedules a refresh shortly after midnight so relative dates stay correct.
-     */
+    /** Schedules a refresh shortly after midnight so relative dates stay correct. */
     private final ScheduledExecutorService midnightRefreshScheduler;
 
     // Branches
@@ -69,9 +63,7 @@ public class GitLogTab extends JPanel {
 
     private GitCommitBrowserPanel gitCommitBrowserPanel;
 
-    /**
-     * Constructor. Builds and arranges the UI components for the Log tab.
-     */
+    /** Constructor. Builds and arranges the UI components for the Log tab. */
     public GitLogTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -82,7 +74,8 @@ public class GitLogTab extends JPanel {
         var showCreatePrButton = project.isGitHubRepo();
         var panelOptions = new GitCommitBrowserPanel.Options(true, true, showCreatePrButton);
 
-        this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);
+        this.gitCommitBrowserPanel =
+                new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);
         buildLogTabUI();
 
         this.midnightRefreshScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -94,21 +87,17 @@ public class GitLogTab extends JPanel {
     }
 
     /**
-     * Creates and arranges all the "Log" tab sub-panels:
-     * - Branches (local + remote)
-     * - Commits
-     * - Changes tree
-     * - Simple text search
+     * Creates and arranges all the "Log" tab sub-panels: - Branches (local + remote) - Commits - Changes tree - Simple
+     * text search
      */
-    private void buildLogTabUI()
-    {
+    private void buildLogTabUI() {
         // Main container uses GridBagLayout
         JPanel logPanel = new JPanel(new GridBagLayout());
         add(logPanel, BorderLayout.CENTER);
 
         GridBagConstraints constraints = new GridBagConstraints();
         constraints.fill = GridBagConstraints.BOTH;
-        constraints.weighty = 1.0;  // always fill vertically
+        constraints.weighty = 1.0; // always fill vertically
 
         // ============ Branches Panel (left ~20%) ============
         JPanel branchesPanel = new JPanel(new BorderLayout());
@@ -156,7 +145,7 @@ public class GitLogTab extends JPanel {
 
         // Remote branches panel
         JPanel remoteBranchPanel = new JPanel(new BorderLayout());
-        remoteBranchTableModel = new DefaultTableModel(new Object[]{"Branch"}, 0) {
+        remoteBranchTableModel = new DefaultTableModel(new Object[] {"Branch"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -178,12 +167,19 @@ public class GitLogTab extends JPanel {
 
         // Tags panel
         JPanel tagsPanel = new JPanel(new BorderLayout());
-        tagsTableModel = new DefaultTableModel(new Object[]{"Tag"}, 0) {
-            @Override public boolean isCellEditable(int r,int c){return false;}
-            @Override public Class<?> getColumnClass(int i){return String.class;}
+        tagsTableModel = new DefaultTableModel(new Object[] {"Tag"}, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int i) {
+                return String.class;
+            }
         };
         tagsTable = new JTable(tagsTableModel);
-        tagsTable.setFont(new Font(Font.MONOSPACED,Font.PLAIN,13));
+        tagsTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         tagsTable.setRowHeight(18);
         tagsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         tagsPanel.add(new JScrollPane(tagsTable), BorderLayout.CENTER);
@@ -192,10 +188,9 @@ public class GitLogTab extends JPanel {
         branchesPanel.add(branchTabbedPane, BorderLayout.CENTER);
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var fetchButton = new LoadingButton("Fetch",
-                                            null, // no idle icon
-                                            chrome,
-                                            null); // ActionListener added below
+        var fetchButton = new LoadingButton(
+                "Fetch", null, // no idle icon
+                chrome, null); // ActionListener added below
         branchButtonPanel.add(fetchButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
 
@@ -214,14 +209,15 @@ public class GitLogTab extends JPanel {
                 } finally {
                     SwingUtilities.invokeLater(() -> {
                         fetchButton.setLoading(false, null); // restore label + enable
-                        update();                            // local rescan
+                        update(); // local rescan
                     });
                 }
-                return null;       // submitBackgroundTask expects a Callable result
+                return null; // submitBackgroundTask expects a Callable result
             });
         });
 
-        // The GitCommitBrowserPanel (this.gitCommitBrowserPanel) now handles commits, search, changes tree, and related actions.
+        // The GitCommitBrowserPanel (this.gitCommitBrowserPanel) now handles commits, search, changes tree, and related
+        // actions.
         // The old code for "Commits Panel" and "Changes Panel" that was here is removed.
 
         // ============ Add sub-panels to logPanel with GridBag ============
@@ -337,7 +333,9 @@ public class GitLogTab extends JPanel {
                     currentActualBranch = getRepo().getCurrentBranch();
                 } catch (Exception ex) {
                     logger.error("Could not get current branch for diff operation", ex);
-                    chrome.toolError("Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
+                    chrome.toolError(
+                            "Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(),
+                            "Error");
                     return;
                 }
                 if (selectedBranch.equals(currentActualBranch)) return;
@@ -439,41 +437,45 @@ public class GitLogTab extends JPanel {
         JMenuItem tagNewBranchItem = new JMenuItem("New Branch From This");
         tagContextMenu.add(tagNewBranchItem);
 
-        tagsTable.addMouseListener(new MouseAdapter(){
-            private void handle(MouseEvent e){
-                if(e.isPopupTrigger()){
-                    int r=tagsTable.rowAtPoint(e.getPoint());
-                    if(r>=0&&!tagsTable.isRowSelected(r))
-                        tagsTable.setRowSelectionInterval(r,r);
-                    SwingUtilities.invokeLater(
-                            ()->tagContextMenu.show(tagsTable,e.getX(),e.getY()));
+        tagsTable.addMouseListener(new MouseAdapter() {
+            private void handle(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int r = tagsTable.rowAtPoint(e.getPoint());
+                    if (r >= 0 && !tagsTable.isRowSelected(r)) tagsTable.setRowSelectionInterval(r, r);
+                    SwingUtilities.invokeLater(() -> tagContextMenu.show(tagsTable, e.getX(), e.getY()));
                 }
             }
-            @Override public void mousePressed(MouseEvent e){handle(e);}
-            @Override public void mouseReleased(MouseEvent e){handle(e);}
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handle(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handle(e);
+            }
         });
-        tagNewBranchItem.addActionListener(e->{
-            int r=tagsTable.getSelectedRow();
-            if(r!=-1){
-                String tag=(String)tagsTableModel.getValueAt(r,0);
+        tagNewBranchItem.addActionListener(e -> {
+            int r = tagsTable.getSelectedRow();
+            if (r != -1) {
+                String tag = (String) tagsTableModel.getValueAt(r, 0);
                 createNewBranchFrom(tag);
             }
         });
     }
 
     /**
-     * Schedule a daily refresh right after local midnight so that formatted
-     * dates like "Today" and "Yesterday" stay current.
+     * Schedule a daily refresh right after local midnight so that formatted dates like "Today" and "Yesterday" stay
+     * current.
      */
     private void scheduleMidnightRefresh() {
         var now = ZonedDateTime.now(ZoneId.systemDefault());
         var nextMidnight = now.plusDays(1).truncatedTo(ChronoUnit.DAYS);
         long initialDelayMs = Duration.between(now, nextMidnight).toMillis() + 1;
 
-        midnightRefreshScheduler.scheduleAtFixedRate(this::reloadCurrentBranchOrContext,
-                                                     initialDelayMs,
-                                                     TimeUnit.DAYS.toMillis(1),
-                                                     TimeUnit.MILLISECONDS);
+        midnightRefreshScheduler.scheduleAtFixedRate(
+                this::reloadCurrentBranchOrContext, initialDelayMs, TimeUnit.DAYS.toMillis(1), TimeUnit.MILLISECONDS);
     }
 
     // Methods getFilePathFromTreePath, isFileNode, hasFileNodesSelected, getSelectedFilePaths
@@ -482,22 +484,23 @@ public class GitLogTab extends JPanel {
     // Thus, these specific helper methods are removed from GitLogTab.
 
     /**
-     * Update the branch list (local + remote), attempting to preserve the selection.
-     * If the previously selected branch no longer exists, it selects the current git branch.
+     * Update the branch list (local + remote), attempting to preserve the selection. If the previously selected branch
+     * no longer exists, it selects the current git branch.
      */
     public void update() {
         // Use invokeAndWait with a Runnable and an external holder for the result
-        var previouslySelectedBranch = SwingUtil.runOnEdt(() -> {
-            int selectedRow = branchTable.getSelectedRow();
-            if (selectedRow != -1) {
-                // Ensure the row index is still valid before accessing model
-                if (selectedRow < branchTableModel.getRowCount()) {
-                    return (String) branchTableModel.getValueAt(selectedRow, 1);
-                }
-            }
-            return "";
-        }, "");
-
+        var previouslySelectedBranch = SwingUtil.runOnEdt(
+                () -> {
+                    int selectedRow = branchTable.getSelectedRow();
+                    if (selectedRow != -1) {
+                        // Ensure the row index is still valid before accessing model
+                        if (selectedRow < branchTableModel.getRowCount()) {
+                            return (String) branchTableModel.getValueAt(selectedRow, 1);
+                        }
+                    }
+                    return "";
+                },
+                "");
 
         contextManager.submitBackgroundTask("Fetching git branches", () -> {
             try {
@@ -517,7 +520,7 @@ public class GitLogTab extends JPanel {
                     // Just check if the list is non-empty, avoid fetching full info yet
                     hasStashes = !getRepo().listStashes().isEmpty();
                     if (hasStashes) {
-                        localBranchRows.add(new Object[]{"", STASHES_VIRTUAL_BRANCH});
+                        localBranchRows.add(new Object[] {"", STASHES_VIRTUAL_BRANCH});
                         if (STASHES_VIRTUAL_BRANCH.equals(targetBranchToSelect)) {
                             targetSelectionIndex = 0; // If stashes was selected, mark its index
                         }
@@ -539,7 +542,7 @@ public class GitLogTab extends JPanel {
                     } else {
                         checkmark = "";
                     }
-                    localBranchRows.add(new Object[]{checkmark, branch});
+                    localBranchRows.add(new Object[] {checkmark, branch});
                     // If this branch was the target (previously selected) and we haven't found it yet
                     if (branch.equals(targetBranchToSelect) && targetSelectionIndex == -1) {
                         targetSelectionIndex = localBranchRows.size() - 1;
@@ -561,22 +564,23 @@ public class GitLogTab extends JPanel {
                 }
 
                 List<Object[]> remoteBranchRows = remoteBranches.stream()
-                        .map(branch -> new Object[]{branch})
+                        .map(branch -> new Object[] {branch})
                         .toList();
 
-                List<Object[]> tagRows = tags.stream()
-                        .map(t -> new Object[]{t})
-                        .toList();
+                List<Object[]> tagRows =
+                        tags.stream().map(t -> new Object[] {t}).toList();
 
                 var branchRows = localBranchRows.stream()
                         .map(arr -> new LocalBranchTableModel.BranchRow((String) arr[0], (String) arr[1]))
                         .toList();
 
                 final int finalTargetSelectionIndex = targetSelectionIndex;
-                final String finalSelectedBranchName = targetBranchToSelect; // The branch name we actually selected/targeted
+                final String finalSelectedBranchName =
+                        targetBranchToSelect; // The branch name we actually selected/targeted
 
                 SwingUtilities.invokeLater(() -> {
-                    // gitCommitBrowserPanel.clearCommitView(); // This will be handled by updateCommitsForBranch or if no branch selected
+                    // gitCommitBrowserPanel.clearCommitView(); // This will be handled by updateCommitsForBranch or if
+                    // no branch selected
 
                     ((LocalBranchTableModel) branchTableModel).setRows(branchRows);
                     remoteBranchTableModel.setRowCount(0);
@@ -593,18 +597,22 @@ public class GitLogTab extends JPanel {
                         branchTable.setRowSelectionInterval(finalTargetSelectionIndex, finalTargetSelectionIndex);
                         // Ensure selected branch is visible by scrolling to it
                         branchTable.scrollRectToVisible(branchTable.getCellRect(finalTargetSelectionIndex, 0, true));
-                        updateCommitsForBranch(finalSelectedBranchName); // Load commits for the branch we ended up selecting
+                        updateCommitsForBranch(
+                                finalSelectedBranchName); // Load commits for the branch we ended up selecting
                     } else {
                         // This case might happen if the repo becomes empty or only has remote branches initially
-                        logger.warn("Could not select any local branch (target: {}, current git: {}). Clearing commits.",
-                                    previouslySelectedBranch, currentGitBranch);
+                        logger.warn(
+                                "Could not select any local branch (target: {}, current git: {}). Clearing commits.",
+                                previouslySelectedBranch,
+                                currentGitBranch);
                         gitCommitBrowserPanel.clearCommitView();
                     }
                 });
             } catch (Exception e) {
                 logger.error("Error fetching branches", e);
                 SwingUtilities.invokeLater(() -> {
-                    var errorRow = new LocalBranchTableModel.BranchRow("", "Error fetching branches: " + e.getMessage());
+                    var errorRow =
+                            new LocalBranchTableModel.BranchRow("", "Error fetching branches: " + e.getMessage());
                     ((LocalBranchTableModel) branchTableModel).setRows(List.of(errorRow));
                     remoteBranchTableModel.setRowCount(0);
                     gitCommitBrowserPanel.clearCommitView();
@@ -613,9 +621,7 @@ public class GitLogTab extends JPanel {
         });
     }
 
-    /**
-     * Update commits list for the given branch and highlights unpushed commits if applicable.
-     */
+    /** Update commits list for the given branch and highlights unpushed commits if applicable. */
     private void updateCommitsForBranch(String branchName) {
         contextManager.submitBackgroundTask("Fetching commits for " + branchName, () -> {
             try {
@@ -646,7 +652,10 @@ public class GitLogTab extends JPanel {
                                 unpushedCommitIds.addAll(getRepo().getUnpushedCommitIds(branchName));
                                 canPush = !unpushedCommitIds.isEmpty(); // Push if unpushed commits and upstream exists
                             } catch (GitAPIException e) {
-                                logger.warn("Could not check for unpushed commits for branch {}: {}", branchName, e.getMessage());
+                                logger.warn(
+                                        "Could not check for unpushed commits for branch {}: {}",
+                                        branchName,
+                                        e.getMessage());
                             }
                         } else {
                             // No upstream, so we can "push" to create it.
@@ -666,18 +675,15 @@ public class GitLogTab extends JPanel {
                 logger.error("Error fetching commits for branch: " + branchName, e);
                 // Display error in the panel if possible, or clear it
                 SwingUtilities.invokeLater(() -> {
-                    var errorCommit = List.of(
-                            new ICommitInfo.CommitInfoStub("Error fetching commits: " + e.getMessage())
-                    );
+                    var errorCommit =
+                            List.of(new ICommitInfo.CommitInfoStub("Error fetching commits: " + e.getMessage()));
                     gitCommitBrowserPanel.setCommits(errorCommit, Collections.emptySet(), false, false, branchName);
                 });
             }
         });
     }
 
-    /**
-     * Check out a branch (local or remote).
-     */
+    /** Check out a branch (local or remote). */
     private void checkoutBranch(String branchName) {
         contextManager.submitUserTask("Checking out branch: " + branchName, () -> {
             try {
@@ -707,7 +713,8 @@ public class GitLogTab extends JPanel {
         }
 
         if (branchToMerge.equals(currentBranch)) {
-            chrome.systemNotify("Cannot merge '" + branchToMerge + "' into itself.", "Merge Info", JOptionPane.INFORMATION_MESSAGE);
+            chrome.systemNotify(
+                    "Cannot merge '" + branchToMerge + "' into itself.", "Merge Info", JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
@@ -719,14 +726,13 @@ public class GitLogTab extends JPanel {
             if (!result.hasConflicts()) {
                 mergeBranchIntoHead(branchToMerge, result.mergeMode());
             } else {
-                chrome.toolError("Merge cancelled due to conflicts or error: " + result.conflictMessage(), "Merge Cancelled");
+                chrome.toolError(
+                        "Merge cancelled due to conflicts or error: " + result.conflictMessage(), "Merge Cancelled");
             }
         }
     }
 
-    /**
-     * Merge a branch into HEAD using the specified mode.
-     */
+    /** Merge a branch into HEAD using the specified mode. */
     private void mergeBranchIntoHead(String branchName, MergeMode mode) {
         contextManager.submitUserTask("Merging branch: " + branchName + " (" + mode + ")", () -> {
             var repo = getRepo();
@@ -737,20 +743,26 @@ public class GitLogTab extends JPanel {
                 var status = mergeResult.getMergeStatus();
 
                 if (GitRepo.isMergeSuccessful(mergeResult, mode)) {
-                    String modeDescription = switch (mode) {
-                        case MERGE_COMMIT -> "merged";
-                        case SQUASH_COMMIT -> "squash merged";
-                        case REBASE_MERGE -> "rebase-merged";
-                    };
-                    chrome.systemOutput("Branch '" + branchName + "' successfully " + modeDescription + " into '" + targetBranch + "'.");
+                    String modeDescription =
+                            switch (mode) {
+                                case MERGE_COMMIT -> "merged";
+                                case SQUASH_COMMIT -> "squash merged";
+                                case REBASE_MERGE -> "rebase-merged";
+                            };
+                    chrome.systemOutput("Branch '" + branchName + "' successfully " + modeDescription + " into '"
+                            + targetBranch + "'.");
                 } else if (status == MergeResult.MergeStatus.CONFLICTING) {
                     String conflictingFiles = Objects.requireNonNull(mergeResult.getConflicts()).keySet().stream()
                             .map(s -> "  - " + s)
                             .collect(Collectors.joining("\n"));
-                    chrome.toolError("Merge conflicts for '" + branchName + "' into '" + targetBranch + "'.\n" +
-                                     "Resolve manually and commit.\nConflicting files:\n" + conflictingFiles, "Merge Conflict");
+                    chrome.toolError(
+                            "Merge conflicts for '" + branchName + "' into '" + targetBranch + "'.\n"
+                                    + "Resolve manually and commit.\nConflicting files:\n" + conflictingFiles,
+                            "Merge Conflict");
                 } else {
-                    chrome.toolError("Merge of '" + branchName + "' into '" + targetBranch + "' failed: " + status, "Merge Error");
+                    chrome.toolError(
+                            "Merge of '" + branchName + "' into '" + targetBranch + "' failed: " + status,
+                            "Merge Error");
                 }
 
                 update(); // Refresh UI to reflect new state
@@ -763,23 +775,20 @@ public class GitLogTab extends JPanel {
         });
     }
 
-
-    /**
-     * Creates a new branch from an existing one and checks it out.
-     */
+    /** Creates a new branch from an existing one and checks it out. */
     private void createNewBranchFrom(String sourceBranch) {
         var newName = JOptionPane.showInputDialog(
                 this,
                 "Enter name for new branch from '" + sourceBranch + "':",
                 "Create New Branch",
-                JOptionPane.QUESTION_MESSAGE
-        );
+                JOptionPane.QUESTION_MESSAGE);
         if (newName != null && !newName.trim().isEmpty()) {
             contextManager.submitUserTask("Creating new branch: " + newName + " from " + sourceBranch, () -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
                     update();
-                    chrome.systemOutput("Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
+                    chrome.systemOutput(
+                            "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
                     logger.error("Error creating new branch from {}: {}", sourceBranch, e);
                     chrome.toolError("Error creating new branch: " + e.getMessage(), "Branch Error");
@@ -788,9 +797,7 @@ public class GitLogTab extends JPanel {
         }
     }
 
-    /**
-     * Delete a local branch (with checks for merges).
-     */
+    /** Delete a local branch (with checks for merges). */
     private void deleteBranch(String branchName) {
         contextManager.submitUserTask("Checking branch merge status", () -> {
             try {
@@ -802,8 +809,7 @@ public class GitLogTab extends JPanel {
                                 "Are you sure you want to delete branch '" + branchName + "'?",
                                 "Delete Branch",
                                 JOptionPane.YES_NO_OPTION,
-                                JOptionPane.WARNING_MESSAGE
-                        );
+                                JOptionPane.WARNING_MESSAGE);
                         if (result == JOptionPane.YES_OPTION) {
                             performBranchDeletion(branchName, false);
                         }
@@ -811,16 +817,15 @@ public class GitLogTab extends JPanel {
                         Object[] options = {"Force Delete", "Cancel"};
                         int result = JOptionPane.showOptionDialog(
                                 this,
-                                "Branch '" + branchName + "' is not fully merged.\n" +
-                                        "Changes on this branch will be lost if deleted.\n" +
-                                        "Do you want to force delete it?",
+                                "Branch '" + branchName + "' is not fully merged.\n"
+                                        + "Changes on this branch will be lost if deleted.\n"
+                                        + "Do you want to force delete it?",
                                 "Unmerged Branch",
                                 JOptionPane.YES_NO_OPTION,
                                 JOptionPane.WARNING_MESSAGE,
                                 null,
                                 options,
-                                options[1]
-                        );
+                                options[1]);
                         if (result == 0) { // Force Delete
                             performBranchDeletion(branchName, true);
                         }
@@ -833,14 +838,11 @@ public class GitLogTab extends JPanel {
         });
     }
 
-    /**
-     * Perform the actual branch deletion with or without force.
-     */
+    /** Perform the actual branch deletion with or without force. */
     private void performBranchDeletion(String branchName, boolean force) {
         contextManager.submitUserTask("Deleting branch: " + branchName, () -> {
             try {
-                logger.debug("Initiating {} deletion for branch: {}",
-                             force ? "force" : "normal", branchName);
+                logger.debug("Initiating {} deletion for branch: {}", force ? "force" : "normal", branchName);
 
                 // Check if branch exists before trying to delete
                 List<String> localBranches = getRepo().listLocalBranches();
@@ -879,9 +881,7 @@ public class GitLogTab extends JPanel {
         return (GitRepo) contextManager.getProject().getRepo();
     }
 
-    /**
-     * Enables/Disables items in the local-branch context menu based on selection.
-     */
+    /** Enables/Disables items in the local-branch context menu based on selection. */
     private void checkBranchContextMenuState(JPopupMenu menu) {
         int selectedRow = branchTable.getSelectedRow();
         boolean isAnyItemSelected = (selectedRow != -1);
@@ -905,7 +905,6 @@ public class GitLogTab extends JPanel {
         menu.getComponent(4).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
         menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
 
-
         if (isAnyItemSelected && selectedBranchName != null && !isStashesSelected) {
             captureDiffVsBranchItem.setText("Capture Diff vs " + selectedBranchName);
             captureDiffVsBranchItem.setEnabled(!isCurrentBranch);
@@ -916,8 +915,8 @@ public class GitLogTab extends JPanel {
     }
 
     /**
-     * Reloads the commits for the currently selected branch or context in the GitCommitBrowserPanel.
-     * This is typically called when clearing a search to restore the previous view.
+     * Reloads the commits for the currently selected branch or context in the GitCommitBrowserPanel. This is typically
+     * called when clearing a search to restore the previous view.
      */
     private void performRemoteBranchAction(java.util.function.Consumer<String> action) {
         int selectedRow = remoteBranchTable.getSelectedRow();
@@ -933,7 +932,8 @@ public class GitLogTab extends JPanel {
             GitUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedRemoteBranch);
         } catch (Exception ex) {
             logger.error("Could not get current branch for diff operation", ex);
-            chrome.toolError("Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
+            chrome.toolError(
+                    "Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
         }
     }
 
@@ -966,10 +966,7 @@ public class GitLogTab extends JPanel {
         });
     }
 
-    /**
-     * Selects the current branch in the branch table.
-     * Called after PR checkout to highlight the new branch.
-     */
+    /** Selects the current branch in the branch table. Called after PR checkout to highlight the new branch. */
     public void selectCurrentBranch() {
         contextManager.submitBackgroundTask("Finding current branch", () -> {
             try {
@@ -993,23 +990,21 @@ public class GitLogTab extends JPanel {
         });
     }
 
-    /**
-     * Selects a commit in the commits table by its ID.
-     */
+    /** Selects a commit in the commits table by its ID. */
     public void selectCommitById(String commitId) {
         gitCommitBrowserPanel.selectCommitById(commitId);
     }
 
     /**
-     * A JGit ProgressMonitor that sends updates to an IConsoleIO systemOutput.
-     * This class is nested here as it's closely tied to UI feedback via IConsoleIO,
-     * often provided by UI components like Chrome.
+     * A JGit ProgressMonitor that sends updates to an IConsoleIO systemOutput. This class is nested here as it's
+     * closely tied to UI feedback via IConsoleIO, often provided by UI components like Chrome.
      */
     public static final class IoProgressMonitor implements ProgressMonitor {
         private final IConsoleIO io;
 
         /**
          * Constructs a new IoProgressMonitor.
+         *
          * @param io The IConsoleIO instance to output progress messages to. Must not be null.
          */
         public IoProgressMonitor(IConsoleIO io) {
@@ -1047,14 +1042,13 @@ public class GitLogTab extends JPanel {
         }
     }
 
-    /**
-     * A custom table model for the local branches table that allows for inline renaming of branches.
-     */
+    /** A custom table model for the local branches table that allows for inline renaming of branches. */
     private class LocalBranchTableModel extends AbstractTableModel {
         private static final int COL_MARK = 0;
         private static final int COL_NAME = 1;
 
         record BranchRow(String mark, String name) {}
+
         private List<BranchRow> rows = List.of();
 
         public void setRows(List<BranchRow> newRows) {

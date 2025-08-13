@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
 /**
- * Exception thrown when TreeSitter parsing or analysis operations fail.
- * Provides more specific error handling than generic Exception.
+ * Exception thrown when TreeSitter parsing or analysis operations fail. Provides more specific error handling than
+ * generic Exception.
  */
 public class TreeSitterAnalysisException extends Exception {
     private final ProjectFile file;
@@ -30,7 +30,7 @@ public class TreeSitterAnalysisException extends Exception {
 
     @Override
     public String getMessage() {
-        return String.format("TreeSitter analysis failed during %s for file %s: %s",
-                           operation, file, super.getMessage());
+        return String.format(
+                "TreeSitter analysis failed during %s for file %s: %s", operation, file, super.getMessage());
     }
 }

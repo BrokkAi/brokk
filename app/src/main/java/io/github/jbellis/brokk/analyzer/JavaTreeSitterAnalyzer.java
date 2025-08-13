@@ -1,13 +1,12 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
+import java.util.*;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterJava;
-
-import java.util.*;
-
-import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
@@ -26,7 +25,12 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile JAVA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, ENUM_DECLARATION, RECORD_DECLARATION, ANNOTATION_TYPE_DECLARATION),
+            Set.of(
+                    CLASS_DECLARATION,
+                    INTERFACE_DECLARATION,
+                    ENUM_DECLARATION,
+                    RECORD_DECLARATION,
+                    ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
@@ -43,11 +47,10 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
                     "annotation.definition", SkeletonType.CLASS_LIKE, // for @interface
                     "method.definition", SkeletonType.FUNCTION_LIKE,
                     "constructor.definition", SkeletonType.FUNCTION_LIKE,
-                    "field.definition", SkeletonType.FIELD_LIKE
-            ),
+                    "field.definition", SkeletonType.FIELD_LIKE),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
-    );
+            );
 
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
@@ -55,23 +58,28 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final char delimiter = Optional.ofNullable(JAVA_SYNTAX_PROFILE.captureConfiguration().get(captureName))
-                .stream().anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE)) ? '$' : '.';
+    protected CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+        final char delimiter =
+                Optional.ofNullable(JAVA_SYNTAX_PROFILE.captureConfiguration().get(captureName)).stream()
+                                .anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE))
+                        ? '$'
+                        : '.';
         final String fqName = classChain.isEmpty() ? simpleName : classChain + delimiter + simpleName;
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
-        var type = switch (skeletonType) {
-            case CLASS_LIKE -> CodeUnitType.CLASS;
-            case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
-            case FIELD_LIKE -> CodeUnitType.FIELD;
-            case MODULE_STATEMENT ->  CodeUnitType.MODULE;
-            default -> {
-                // This shouldn't be reached if captureConfiguration is exhaustive
-                log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
-                yield CodeUnitType.CLASS;
-            }
-        };
+        var type =
+                switch (skeletonType) {
+                    case CLASS_LIKE -> CodeUnitType.CLASS;
+                    case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
+                    case FIELD_LIKE -> CodeUnitType.FIELD;
+                    case MODULE_STATEMENT -> CodeUnitType.MODULE;
+                    default -> {
+                        // This shouldn't be reached if captureConfiguration is exhaustive
+                        log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
+                        yield CodeUnitType.CLASS;
+                    }
+                };
 
         return new CodeUnit(file, type, packageName, fqName);
     }
@@ -97,7 +105,8 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+    protected String renderClassHeader(
+            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
         return signatureText + " {";
     }
 
@@ -107,7 +116,16 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportAndModifierPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(
+            TSNode funcNode,
+            String src,
+            String exportAndModifierPrefix,
+            String asyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
         var typeParams = typeParamsText.isEmpty() ? "" : typeParamsText + " ";
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 

@@ -2,31 +2,32 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.Objects;
 import java.util.Optional;
 
-/**
- * Represents a named code element (class, function, field, or module).
- */
+/** Represents a named code element (class, function, field, or module). */
 public class CodeUnit implements Comparable<CodeUnit> {
 
     @JsonProperty("source")
     private final ProjectFile source;
+
     @JsonProperty("kind")
     private final CodeUnitType kind;
+
     @JsonProperty("shortName")
     private final String shortName;
+
     @JsonProperty("packageName")
     private final String packageName;
 
     private final transient String fqName;
 
     @JsonCreator
-    public CodeUnit(@JsonProperty("source") ProjectFile source,
-                    @JsonProperty("kind") CodeUnitType kind,
-                    @JsonProperty("packageName") String packageName,
-                    @JsonProperty("shortName") String shortName) {
+    public CodeUnit(
+            @JsonProperty("source") ProjectFile source,
+            @JsonProperty("kind") CodeUnitType kind,
+            @JsonProperty("packageName") String packageName,
+            @JsonProperty("shortName") String shortName) {
         Objects.requireNonNull(source, "source must not be null");
         Objects.requireNonNull(kind, "kind must not be null");
         Objects.requireNonNull(packageName, "packageName must not be null"); // Allow empty, but not null
@@ -42,8 +43,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns the fully qualified name constructed from package and short name.
-     * For MODULE, shortName is often a fixed placeholder like "_module_", so fqName becomes "packageName._module_".
+     * Returns the fully qualified name constructed from package and short name. For MODULE, shortName is often a fixed
+     * placeholder like "_module_", so fqName becomes "packageName._module_".
      *
      * @return The fully qualified name.
      */
@@ -52,10 +53,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns just the last symbol name component.
-     * For CLASS: simple class name (C, C$D).
-     * For FUNCTION/FIELD: member name (foo from a.b.C.foo).
-     * For MODULE: the shortName itself (e.g., "_module_").
+     * Returns just the last symbol name component. For CLASS: simple class name (C, C$D). For FUNCTION/FIELD: member
+     * name (foo from a.b.C.foo). For MODULE: the shortName itself (e.g., "_module_").
      *
      * @return just the last symbol name component.
      */
@@ -73,10 +72,12 @@ public class CodeUnit implements Comparable<CodeUnit> {
 
     /**
      * Returns the short name component.
+     *
      * <ul>
-     *     <li>For {@link CodeUnitType#CLASS}, this is the simple class name (e.g., "MyClass", "Outer$Inner").</li>
-     *     <li>For {@link CodeUnitType#FUNCTION} or {@link CodeUnitType#FIELD}, this is "className.memberName" (e.g., "MyClass.myMethod") or just "functionName".</li>
-     *     <li>For {@link CodeUnitType#MODULE}, this is typically a placeholder like "_module_" or a file-derived name.</li>
+     *   <li>For {@link CodeUnitType#CLASS}, this is the simple class name (e.g., "MyClass", "Outer$Inner").
+     *   <li>For {@link CodeUnitType#FUNCTION} or {@link CodeUnitType#FIELD}, this is "className.memberName" (e.g.,
+     *       "MyClass.myMethod") or just "functionName".
+     *   <li>For {@link CodeUnitType#MODULE}, this is typically a placeholder like "_module_" or a file-derived name.
      * </ul>
      *
      * @return The short name.
@@ -129,8 +130,9 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns the CodeUnit representing the containing class, if this is a member (function/field).
-     * Returns empty for CLASS or MODULE.
+     * Returns the CodeUnit representing the containing class, if this is a member (function/field). Returns empty for
+     * CLASS or MODULE.
+     *
      * @return The CodeUnit representing the containing class, if this is a member (function/field).
      */
     public Optional<CodeUnit> classUnit() {
@@ -163,9 +165,9 @@ public class CodeUnit implements Comparable<CodeUnit> {
         if (!(obj instanceof CodeUnit other)) return false;
         // Equality based on the derived fully qualified name, kind, AND source file
         // This ensures that classes/interfaces with the same name in different files are distinct
-        return kind == other.kind && 
-               Objects.equals(this.fqName(), other.fqName()) &&
-               Objects.equals(this.source, other.source);
+        return kind == other.kind
+                && Objects.equals(this.fqName(), other.fqName())
+                && Objects.equals(this.source, other.source);
     }
 
     @Override
@@ -188,9 +190,9 @@ public class CodeUnit implements Comparable<CodeUnit> {
     /**
      * Factory method to create a CodeUnit of type CLASS. Assumes correct arguments.
      *
-     * @param source      The source file.
+     * @param source The source file.
      * @param packageName The package name (can be empty).
-     * @param shortName   The simple class name (e.g., "MyClass", "Outer$Inner").
+     * @param shortName The simple class name (e.g., "MyClass", "Outer$Inner").
      */
     public static CodeUnit cls(ProjectFile source, String packageName, String shortName) {
         return new CodeUnit(source, CodeUnitType.CLASS, packageName, shortName);
@@ -199,9 +201,11 @@ public class CodeUnit implements Comparable<CodeUnit> {
     /**
      * Factory method to create a CodeUnit of type FUNCTION. Assumes correct arguments.
      *
-     * @param source      The source file.
-     * @param packageName The package name (e.g., "com.example", or "" for default package). Does NOT include the class name.
-     * @param shortName   The short name including the simple class name and member name (e.g., "MyClass.myMethod", "Outer$Inner.myMethod").
+     * @param source The source file.
+     * @param packageName The package name (e.g., "com.example", or "" for default package). Does NOT include the class
+     *     name.
+     * @param shortName The short name including the simple class name and member name (e.g., "MyClass.myMethod",
+     *     "Outer$Inner.myMethod").
      */
     public static CodeUnit fn(ProjectFile source, String packageName, String shortName) {
         // The shortName for FUNCTION can be a simple function name or ClassName.methodName.
@@ -212,31 +216,34 @@ public class CodeUnit implements Comparable<CodeUnit> {
     /**
      * Factory method to create a CodeUnit of type FIELD. Assumes correct arguments.
      *
-     * @param source      The source file.
-     * @param packageName The package name (e.g., "com.example", or "" for default package). Does NOT include the class name.
-     * @param shortName   The short name. For fields that are members of classes, this should be
-     *                    "ClassName.myField" or "Outer$Inner.myField". For top-level variables/constants,
-     *                    it might be prefixed by a module identifier like "_module_.myVar" if required by analyzers
-     *                    to ensure a "." is present.
+     * @param source The source file.
+     * @param packageName The package name (e.g., "com.example", or "" for default package). Does NOT include the class
+     *     name.
+     * @param shortName The short name. For fields that are members of classes, this should be "ClassName.myField" or
+     *     "Outer$Inner.myField". For top-level variables/constants, it might be prefixed by a module identifier like
+     *     "_module_.myVar" if required by analyzers to ensure a "." is present.
      */
     public static CodeUnit field(ProjectFile source, String packageName, String shortName) {
         // Validate that shortName contains a dot IF it's representing a class member field.
         // Top-level fields (e.g. JS `_module_.myVar`) will also contain a dot.
-        // This validation might be too strict if a language allows fields without a containing structure name in shortName.
+        // This validation might be too strict if a language allows fields without a containing structure name in
+        // shortName.
         // For now, retain the check as it's consistent with current JSAnalyzer practice for top-level vars.
         if (!shortName.contains(".")) {
-             throw new IllegalArgumentException("shortName for FIELD must be in 'ContainingStructure.fieldName' format (e.g. 'MyClass.field' or '_module_.field'), got: " + shortName);
+            throw new IllegalArgumentException(
+                    "shortName for FIELD must be in 'ContainingStructure.fieldName' format (e.g. 'MyClass.field' or '_module_.field'), got: "
+                            + shortName);
         }
         return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName);
     }
 
     /**
-     * Factory method to create a CodeUnit of type MODULE. Assumes correct arguments.
-     * Used to represent file-level constructs like a collection of imports.
+     * Factory method to create a CodeUnit of type MODULE. Assumes correct arguments. Used to represent file-level
+     * constructs like a collection of imports.
      *
-     * @param source      The source file.
+     * @param source The source file.
      * @param packageName The package name (e.g., "com.example", or "" for default package).
-     * @param shortName   A short name for the module, often a placeholder like "_module_" or derived from the filename.
+     * @param shortName A short name for the module, often a placeholder like "_module_" or derived from the filename.
      */
     public static CodeUnit module(ProjectFile source, String packageName, String shortName) {
         return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName);

@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.java;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for Java TreeSitter node type names.
- */
+/** Constants for Java TreeSitter node type names. */
 public final class JavaTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -31,6 +29,5 @@ public final class JavaTreeSitterNodeTypes {
     // Package declaration
     public static final String PACKAGE_DECLARATION = "package_declaration";
 
-    private JavaTreeSitterNodeTypes() {
-    }
+    private JavaTreeSitterNodeTypes() {}
 }

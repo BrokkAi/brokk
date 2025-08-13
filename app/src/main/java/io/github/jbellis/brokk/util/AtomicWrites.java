@@ -12,13 +12,13 @@ import java.util.Properties;
 public class AtomicWrites {
     /**
      * Overwrites the content of a file with the provided text data.
-     * <p>
-     * This method writes the new content to a temporary file in the same directory as the target file,
-     * then attempts to atomically move the temporary file to the target file location. If the atomic move
-     * is not supported by the underlying filesystem, it falls back to a non-atomic move.
+     *
+     * <p>This method writes the new content to a temporary file in the same directory as the target file, then attempts
+     * to atomically move the temporary file to the target file location. If the atomic move is not supported by the
+     * underlying filesystem, it falls back to a non-atomic move.
      *
      * @param targetPath the path to the target file that will be overwritten.
-     * @param content    the text content to write.
+     * @param content the text content to write.
      * @throws IOException if an I/O error occurs during writing or moving the file.
      */
     public static void atomicOverwrite(Path targetPath, String content) throws IOException {
@@ -31,9 +31,7 @@ public class AtomicWrites {
 
             try {
                 // Try to atomically move the temporary file to the target location.
-                Files.move(tempFile, targetPath,
-                           StandardCopyOption.ATOMIC_MOVE,
-                           StandardCopyOption.REPLACE_EXISTING);
+                Files.move(tempFile, targetPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException e) {
                 // Fall back to a non-atomic move if atomic moves are not supported.
                 Files.move(tempFile, targetPath, StandardCopyOption.REPLACE_EXISTING);
@@ -47,9 +45,9 @@ public class AtomicWrites {
 
     /**
      * Atomically saves a Properties object to a file.
-     * <p>
-     * This method serializes the Properties and uses the atomicOverwrite method
-     * to safely write the content to the specified file.
+     *
+     * <p>This method serializes the Properties and uses the atomicOverwrite method to safely write the content to the
+     * specified file.
      *
      * @param path the path to the target file
      * @param properties the Properties to save
@@ -59,12 +57,12 @@ public class AtomicWrites {
     public static void atomicSaveProperties(Path path, Properties properties, String comment) throws IOException {
         // Create parent directories if they don't exist
         Files.createDirectories(path.getParent());
-        
+
         // Serialize the properties to a string
         StringWriter writer = new StringWriter();
         properties.store(writer, comment);
         String content = writer.toString();
-        
+
         // Atomically write the content to the file
         atomicOverwrite(path, content);
     }

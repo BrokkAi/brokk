@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.difftool.utils;
 
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
 
 public class Colors {
     // Light Theme Colors

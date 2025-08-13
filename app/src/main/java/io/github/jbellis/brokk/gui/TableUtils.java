@@ -3,22 +3,21 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableColumn;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableColumn;
+import org.jetbrains.annotations.Nullable;
 
 public final class TableUtils {
 
     /**
-     * Returns the preferred row height for a table cell that renders
-     * a {@link FileReferenceList}, by measuring a sample rendered cell.
+     * Returns the preferred row height for a table cell that renders a {@link FileReferenceList}, by measuring a sample
+     * rendered cell.
      *
      * @param table The JTable for which to calculate the row height.
      * @return The preferred row height based on measurement.
@@ -29,10 +28,7 @@ public final class TableUtils {
      * @param anchor The component that anchors the popup (usually the table or cell).
      * @param files The complete list of file references to display.
      */
-    /**
-     * A subclass of FileReferenceList that implements Scrollable to ensure badges wrap
-     * to match the viewport width.
-     */
+    /** A subclass of FileReferenceList that implements Scrollable to ensure badges wrap to match the viewport width. */
     private static class WrappingFileReferenceList extends FileReferenceList implements Scrollable {
         public WrappingFileReferenceList(List<FileReferenceData> files) {
             super(files);
@@ -113,13 +109,14 @@ public final class TableUtils {
         }
     }
 
-    public static void showOverflowPopup(Chrome chrome, JTable table, int row, int col, List<FileReferenceList.FileReferenceData> files) {
+    public static void showOverflowPopup(
+            Chrome chrome, JTable table, int row, int col, List<FileReferenceList.FileReferenceData> files) {
         // Ensure we're on EDT
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> showOverflowPopup(chrome, table, row, col, files));
             return;
         }
-        
+
         // Create a wrapping FileReferenceList with all files
         var fullList = new WrappingFileReferenceList(files);
         fullList.setOpaque(false); // For visual continuity
@@ -147,7 +144,8 @@ public final class TableUtils {
                             int index = fullList.getComponentZOrder(c);
                             if (index >= 0 && index < files.size()) {
                                 // Find and close the outer popup first
-                                JPopupMenu outerPopup = (JPopupMenu) SwingUtilities.getAncestorOfClass(JPopupMenu.class, c);
+                                JPopupMenu outerPopup =
+                                        (JPopupMenu) SwingUtilities.getAncestorOfClass(JPopupMenu.class, c);
                                 if (outerPopup != null) {
                                     outerPopup.setVisible(false);
                                 }
@@ -165,9 +163,8 @@ public final class TableUtils {
                                         yInFrame,
                                         files.get(index),
                                         chrome,
-                                        () -> {
-                                        }  // No refresh needed for popup
-                                );
+                                        () -> {} // No refresh needed for popup
+                                        );
                             }
                         }
                     }
@@ -192,7 +189,8 @@ public final class TableUtils {
         // Set visible rows with a maximum
         int visibleRows = Math.min(4, Math.max(1, files.size())); // At least 1 row, at most 4
         // Add explicit padding for bottom border to prevent clipping
-        int borderPadding = (int) Math.ceil(FileReferenceList.BORDER_THICKNESS * 2); // Account for top and bottom border
+        int borderPadding =
+                (int) Math.ceil(FileReferenceList.BORDER_THICKNESS * 2); // Account for top and bottom border
         int preferredHeight = rowHeight * visibleRows + 6 + borderPadding;
 
         // Create a scrollable container with explicit scrollbar policies
@@ -254,10 +252,10 @@ public final class TableUtils {
     }
 
     /**
-     * Adjusts the preferred width of the specified column to fit its content.
-     * Also sets a maximum width to prevent columns from becoming too wide.
+     * Adjusts the preferred width of the specified column to fit its content. Also sets a maximum width to prevent
+     * columns from becoming too wide.
      *
-     * @param table    The JTable whose column will be resized.
+     * @param table The JTable whose column will be resized.
      * @param colIndex The index of the column to adjust.
      */
     public static void fitColumnWidth(JTable table, int colIndex) {
@@ -266,8 +264,8 @@ public final class TableUtils {
 
         // Get header width
         TableCellRenderer headerRenderer = table.getTableHeader().getDefaultRenderer();
-        Component headerComp = headerRenderer.getTableCellRendererComponent(
-                table, column.getHeaderValue(), false, false, 0, colIndex);
+        Component headerComp =
+                headerRenderer.getTableCellRendererComponent(table, column.getHeaderValue(), false, false, 0, colIndex);
         width = Math.max(width, headerComp.getPreferredSize().width);
 
         // Get maximum width of cells in this column
@@ -281,18 +279,13 @@ public final class TableUtils {
         column.setMaxWidth(width);
     }
 
-    /**
-     * Table cell renderer for displaying file references.
-     */
+    /** Table cell renderer for displaying file references. */
     static class FileReferencesTableCellRenderer implements TableCellRenderer {
-        public FileReferencesTableCellRenderer() {
-        }
+        public FileReferencesTableCellRenderer() {}
 
         @Override
-        public Component getTableCellRendererComponent(JTable table, Object value,
-                                                       boolean isSelected, boolean hasFocus,
-                                                       int row, int column)
-        {
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Convert the value to a list of FileReferenceData
             List<FileReferenceList.FileReferenceData> fileRefs = convertToFileReferences(value);
 
@@ -330,9 +323,7 @@ public final class TableUtils {
             return component;
         }
 
-        /**
-         * Converts various input types to a list of FileReferenceData objects.
-         */
+        /** Converts various input types to a list of FileReferenceData objects. */
         @SuppressWarnings("unchecked")
         public static List<FileReferenceList.FileReferenceData> convertToFileReferences(@Nullable Object value) {
             if (value == null) {
@@ -342,14 +333,13 @@ public final class TableUtils {
             if (value instanceof List) {
                 return (List<FileReferenceList.FileReferenceData>) value;
             } else {
-                throw new IllegalArgumentException("Input is not supported for FileReferencesTableCellRenderer. Expected List<FileReferenceData>");
+                throw new IllegalArgumentException(
+                        "Input is not supported for FileReferencesTableCellRenderer. Expected List<FileReferenceData>");
             }
         }
     }
 
-    /**
-     * Component to display and interact with a list of file references.
-     */
+    /** Component to display and interact with a list of file references. */
     public static class FileReferenceList extends JPanel {
         private final List<FileReferenceData> fileReferences = new ArrayList<>();
         private boolean selected = false;
@@ -368,8 +358,8 @@ public final class TableUtils {
         }
 
         /**
-         * Adaptive subclass that shows only file references that fit within an available width,
-         * with an optional overflow indicator.
+         * Adaptive subclass that shows only file references that fit within an available width, with an optional
+         * overflow indicator.
          */
         public static class AdaptiveFileReferenceList extends FileReferenceList {
             private final int availableWidth;
@@ -383,9 +373,9 @@ public final class TableUtils {
             /**
              * Creates a new AdaptiveFileReferenceList with the given files and width constraints.
              *
-             * @param files          The complete list of file references
+             * @param files The complete list of file references
              * @param availableWidth The maximum available width in pixels
-             * @param hgap           The horizontal gap between badges
+             * @param hgap The horizontal gap between badges
              */
             public AdaptiveFileReferenceList(List<FileReferenceData> files, int availableWidth, int hgap) {
                 super();
@@ -394,23 +384,17 @@ public final class TableUtils {
                 setFileReferences(files);
             }
 
-            /**
-             * Returns the list of files that are currently visible as individual badges.
-             */
+            /** Returns the list of files that are currently visible as individual badges. */
             public List<FileReferenceData> getVisibleFiles() {
                 return visibleFiles;
             }
 
-            /**
-             * Returns the list of files that are hidden and represented by the overflow badge.
-             */
+            /** Returns the list of files that are hidden and represented by the overflow badge. */
             public List<FileReferenceData> getHiddenFiles() {
                 return hiddenFiles;
             }
 
-            /**
-             * Returns whether this list has an overflow badge.
-             */
+            /** Returns whether this list has an overflow badge. */
             public boolean hasOverflow() {
                 return hasOverflow;
             }
@@ -453,8 +437,8 @@ public final class TableUtils {
                 // Store the results in our fields
                 this.visibleFiles = List.copyOf(visibleFilesList);
                 this.hiddenFiles = remaining > 0
-                                   ? List.copyOf(fileReferences.subList(visibleFilesList.size(), fileReferences.size()))
-                                   : List.of();
+                        ? List.copyOf(fileReferences.subList(visibleFilesList.size(), fileReferences.size()))
+                        : List.of();
                 this.hasOverflow = !hiddenFiles.isEmpty();
 
                 if (hasOverflow) {
@@ -481,7 +465,8 @@ public final class TableUtils {
                     // Update our fields with the adjusted visible/hidden lists
                     if (mutableVisibleFiles.size() != visibleFiles.size()) {
                         this.visibleFiles = List.copyOf(mutableVisibleFiles);
-                        this.hiddenFiles = List.copyOf(fileReferences.subList(mutableVisibleFiles.size(), fileReferences.size()));
+                        this.hiddenFiles =
+                                List.copyOf(fileReferences.subList(mutableVisibleFiles.size(), fileReferences.size()));
                     }
 
                     // Display visible files first
@@ -498,13 +483,9 @@ public final class TableUtils {
                     super.setFileReferences(fileReferences);
                 }
             }
-
         }
 
-
-        /**
-         * Updates the displayed file references
-         */
+        /** Updates the displayed file references */
         public void setFileReferences(List<FileReferenceData> fileReferences) {
             this.fileReferences.clear();
             this.fileReferences.addAll(fileReferences);
@@ -555,9 +536,7 @@ public final class TableUtils {
             repaint();
         }
 
-        /**
-         * Returns whether this component is currently selected
-         */
+        /** Returns whether this component is currently selected */
         public boolean isSelected() {
             return selected;
         }
@@ -592,9 +571,13 @@ public final class TableUtils {
                     g2d.setStroke(new BasicStroke(BORDER_THICKNESS));
 
                     // Draw rounded rectangle border only
-                    g2d.draw(new RoundRectangle2D.Float(BORDER_THICKNESS / 2, BORDER_THICKNESS / 2,
-                                                        getWidth() - BORDER_THICKNESS, getHeight() - BORDER_THICKNESS,
-                                                        BADGE_ARC_WIDTH, BADGE_ARC_WIDTH));
+                    g2d.draw(new RoundRectangle2D.Float(
+                            BORDER_THICKNESS / 2,
+                            BORDER_THICKNESS / 2,
+                            getWidth() - BORDER_THICKNESS,
+                            getHeight() - BORDER_THICKNESS,
+                            BADGE_ARC_WIDTH,
+                            BADGE_ARC_WIDTH));
 
                     g2d.dispose();
 
@@ -618,21 +601,22 @@ public final class TableUtils {
             int borderStrokeInset = (int) Math.ceil(BORDER_THICKNESS);
             int textPaddingVertical = 1;
             int textPaddingHorizontal = 6;
-            label.setBorder(new EmptyBorder(borderStrokeInset + textPaddingVertical,
-                                            borderStrokeInset + textPaddingHorizontal,
-                                            borderStrokeInset + textPaddingVertical,
-                                            borderStrokeInset + textPaddingHorizontal));
+            label.setBorder(new EmptyBorder(
+                    borderStrokeInset + textPaddingVertical,
+                    borderStrokeInset + textPaddingHorizontal,
+                    borderStrokeInset + textPaddingVertical,
+                    borderStrokeInset + textPaddingHorizontal));
 
             return label;
         }
 
-        /**
-         * Represents a file reference with metadata for context menu usage.
-         */
+        /** Represents a file reference with metadata for context menu usage. */
         public static class FileReferenceData {
             private final String fileName;
             private final String fullPath;
-            @Nullable private final ProjectFile projectFile; // Optional, if available
+
+            @Nullable
+            private final ProjectFile projectFile; // Optional, if available
 
             public FileReferenceData(String fileName, String fullPath, @Nullable ProjectFile projectFile) {
                 this.fileName = fileName;
@@ -661,10 +645,10 @@ public final class TableUtils {
 
             @Override
             public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof FileReferenceData that)) return false;
-            return fullPath.equals(that.fullPath);
-        }
+                if (this == o) return true;
+                if (!(o instanceof FileReferenceData that)) return false;
+                return fullPath.equals(that.fullPath);
+            }
 
             @Override
             public int hashCode() {
@@ -672,10 +656,10 @@ public final class TableUtils {
             }
         }
     }
-    
+
     /**
      * Resolves which FileReferenceData badge is under the supplied mouse location.
-     * 
+     *
      * @param pointInTableCoords The point in table coordinates
      * @param row The row index
      * @param column The column index containing the file references
@@ -684,12 +668,12 @@ public final class TableUtils {
      * @return The FileReferenceData under the point, or null if none
      */
     @Nullable
-    public static TableUtils.FileReferenceList.FileReferenceData findClickedReference(Point pointInTableCoords,
-                                                  int row,
-                                                  int column,
-                                                  JTable table,
-                                                  List<TableUtils.FileReferenceList.FileReferenceData> visibleReferences)
-    {
+    public static TableUtils.FileReferenceList.FileReferenceData findClickedReference(
+            Point pointInTableCoords,
+            int row,
+            int column,
+            JTable table,
+            List<TableUtils.FileReferenceList.FileReferenceData> visibleReferences) {
         // Convert to cell-local coordinates
         Rectangle cellRect = table.getCellRect(row, column, false);
         int xInCell = pointInTableCoords.x - cellRect.x;
@@ -702,23 +686,22 @@ public final class TableUtils {
             // Estimate description text height (single line)
             var baseFont = table.getFont();
             var descriptionHeight = table.getFontMetrics(baseFont).getHeight() + 3; // +3 for vertical strut
-            
+
             // Check if click is in the badge area (below description)
             if (yInCell < descriptionHeight) {
                 return null; // Click was in description area, not badges
             }
-            
+
             // Adjust Y coordinate to be relative to badge area
             yInCell -= descriptionHeight;
         }
 
         // Badge layout parameters – keep in sync with FileReferenceList
-        final int hgap = 4;     // FlowLayout hgap in FileReferenceList
+        final int hgap = 4; // FlowLayout hgap in FileReferenceList
 
         // Get the actual renderer component to use its font metrics
-        Component renderer = table.prepareRenderer(
-            table.getCellRenderer(row, column), row, column);
-        
+        Component renderer = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
+
         // Font used inside the badges (85 % of component font size)
         Font componentFont = renderer.getFont();
         if (componentFont == null) {
@@ -746,27 +729,28 @@ public final class TableUtils {
         // Overflow badge detection is handled by the caller checking for null result
         return null;
     }
-    
+
     /**
-     * Checks if the click is likely on the overflow badge area.
-     * This is used when findClickedReference returns null but we have overflow.
+     * Checks if the click is likely on the overflow badge area. This is used when findClickedReference returns null but
+     * we have overflow.
      */
-    public static boolean isClickOnOverflowBadge(Point pointInTableCoords,
-                                                  int row,
-                                                  int column,
-                                                  JTable table,
-                                                  List<TableUtils.FileReferenceList.FileReferenceData> visibleReferences,
-                                                  boolean hasOverflow) {
+    public static boolean isClickOnOverflowBadge(
+            Point pointInTableCoords,
+            int row,
+            int column,
+            JTable table,
+            List<TableUtils.FileReferenceList.FileReferenceData> visibleReferences,
+            boolean hasOverflow) {
         if (!hasOverflow || visibleReferences.isEmpty()) {
             return false;
         }
-        
+
         // Convert to cell-local coordinates
         Rectangle cellRect = table.getCellRect(row, column, false);
         int xInCell = pointInTableCoords.x - cellRect.x;
         int yInCell = pointInTableCoords.y - cellRect.y;
         if (xInCell < 0 || yInCell < 0) return false;
-        
+
         // For WorkspacePanel's new layout where badges are below description text
         if (column == WorkspacePanel.DESCRIPTION_COLUMN) {
             var baseFont = table.getFont();
@@ -776,25 +760,24 @@ public final class TableUtils {
             }
             yInCell -= descriptionHeight;
         }
-        
+
         // Calculate where the overflow badge would be positioned
         final int hgap = 4;
-        
+
         // Get the actual renderer component to use its font metrics
-        Component renderer = table.prepareRenderer(
-            table.getCellRenderer(row, column), row, column);
-        
+        Component renderer = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
+
         Font componentFont = renderer.getFont();
         if (componentFont == null) {
             componentFont = table.getFont(); // Fallback to table font
         }
         var badgeFont = componentFont.deriveFont(Font.PLAIN, componentFont.getSize() * 0.85f);
         var fm = renderer.getFontMetrics(badgeFont);
-        
+
         int borderStrokeInset = (int) Math.ceil(FileReferenceList.BORDER_THICKNESS);
         int textPaddingHorizontal = 6;
         int totalInsetsPerSide = borderStrokeInset + textPaddingHorizontal;
-        
+
         // Calculate position after all visible badges
         int currentX = 0;
         for (var ref : visibleReferences) {
@@ -802,7 +785,7 @@ public final class TableUtils {
             int labelWidth = textWidth + (2 * totalInsetsPerSide);
             currentX += labelWidth + hgap;
         }
-        
+
         // The overflow badge starts at currentX
         // We'll be generous and consider any click past the last visible badge as overflow click
         return xInCell >= currentX - hgap; // -hgap to be more forgiving

@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.csharp;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for C# TreeSitter node type names.
- */
+/** Constants for C# TreeSitter node type names. */
 public final class CSharpTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -35,6 +33,5 @@ public final class CSharpTreeSitterNodeTypes {
     // Namespace declaration
     public static final String NAMESPACE_DECLARATION = "namespace_declaration";
 
-    private CSharpTreeSitterNodeTypes() {
-    }
+    private CSharpTreeSitterNodeTypes() {}
 }

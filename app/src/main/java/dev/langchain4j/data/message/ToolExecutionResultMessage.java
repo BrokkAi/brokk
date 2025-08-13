@@ -4,9 +4,8 @@ import static dev.langchain4j.data.message.ChatMessageType.TOOL_EXECUTION_RESULT
 import static dev.langchain4j.internal.Utils.quoted;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 
-import java.util.Objects;
-
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import java.util.Objects;
 
 /**
  * Represents the result of a tool execution in response to a {@link ToolExecutionRequest}.
@@ -20,6 +19,7 @@ public class ToolExecutionResultMessage implements ChatMessage {
 
     /**
      * Creates a {@link ToolExecutionResultMessage}.
+     *
      * @param id the id of the tool.
      * @param toolName the name of the tool.
      * @param text the result of the tool execution.
@@ -32,6 +32,7 @@ public class ToolExecutionResultMessage implements ChatMessage {
 
     /**
      * Returns the id of the tool.
+     *
      * @return the id of the tool.
      */
     public String id() {
@@ -40,6 +41,7 @@ public class ToolExecutionResultMessage implements ChatMessage {
 
     /**
      * Returns the name of the tool.
+     *
      * @return the name of the tool.
      */
     public String toolName() {
@@ -48,6 +50,7 @@ public class ToolExecutionResultMessage implements ChatMessage {
 
     /**
      * Returns the result of the tool execution.
+     *
      * @return the result of the tool execution.
      */
     public String text() {
@@ -76,15 +79,16 @@ public class ToolExecutionResultMessage implements ChatMessage {
 
     @Override
     public String toString() {
-        return "ToolExecutionResultMessage {" +
-                " id = " + quoted(id) +
-                " toolName = " + quoted(toolName) +
-                " text = " + quoted(text) +
-                " }";
+        return "ToolExecutionResultMessage {" + " id = "
+                + quoted(id) + " toolName = "
+                + quoted(toolName) + " text = "
+                + quoted(text) + " }";
     }
 
     /**
-     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool execution.
+     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool
+     * execution.
+     *
      * @param request the request.
      * @param toolExecutionResult the result of the tool execution.
      * @return the {@link ToolExecutionResultMessage}.
@@ -94,7 +98,9 @@ public class ToolExecutionResultMessage implements ChatMessage {
     }
 
     /**
-     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool execution.
+     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool
+     * execution.
+     *
      * @param id the id of the tool.
      * @param toolName the name of the tool.
      * @param toolExecutionResult the result of the tool execution.
@@ -105,23 +111,29 @@ public class ToolExecutionResultMessage implements ChatMessage {
     }
 
     /**
-     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool execution.
+     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool
+     * execution.
+     *
      * @param request the request.
      * @param toolExecutionResult the result of the tool execution.
      * @return the {@link ToolExecutionResultMessage}.
      */
-    public static ToolExecutionResultMessage toolExecutionResultMessage(ToolExecutionRequest request, String toolExecutionResult) {
+    public static ToolExecutionResultMessage toolExecutionResultMessage(
+            ToolExecutionRequest request, String toolExecutionResult) {
         return from(request, toolExecutionResult);
     }
 
     /**
-     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool execution.
+     * Creates a {@link ToolExecutionResultMessage} from a {@link ToolExecutionRequest} and the result of the tool
+     * execution.
+     *
      * @param id the id of the tool.
      * @param toolName the name of the tool.
      * @param toolExecutionResult the result of the tool execution.
      * @return the {@link ToolExecutionResultMessage}.
      */
-    public static ToolExecutionResultMessage toolExecutionResultMessage(String id, String toolName, String toolExecutionResult) {
+    public static ToolExecutionResultMessage toolExecutionResultMessage(
+            String id, String toolName, String toolExecutionResult) {
         return from(id, toolName, toolExecutionResult);
     }
 }

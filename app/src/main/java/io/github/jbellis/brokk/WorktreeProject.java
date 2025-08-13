@@ -4,10 +4,9 @@ import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-
 import java.nio.file.Path;
-import java.util.Set;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 public final class WorktreeProject extends AbstractProject {
@@ -194,7 +193,8 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+    public void setArchitectOptions(
+            io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         parent.setArchitectOptions(options, runInWorktree);
     }
 

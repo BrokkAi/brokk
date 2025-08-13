@@ -1,15 +1,15 @@
 package io.github.jbellis.brokk.prompts;
 
+import static io.github.jbellis.brokk.prompts.EditBlockUtils.*;
+
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.*;
 import java.util.stream.Stream;
-import static io.github.jbellis.brokk.prompts.EditBlockUtils.*;
+import org.jetbrains.annotations.Nullable;
 
 public class EditBlockParser {
     public static EditBlockParser instance = new EditBlockParser();
@@ -19,7 +19,8 @@ public class EditBlockParser {
     public List<ChatMessage> exampleMessages() {
         return List.of(
                 new UserMessage("Change get_factorial() to use math.factorial"),
-                new AiMessage("""
+                new AiMessage(
+                        """
             To make this change we need to modify `mathweb/flask/app.py` to:
 
             1. Import the math package.
@@ -60,9 +61,11 @@ public class EditBlockParser {
                 return str(math.factorial(n))
             >>>>>>> REPLACE
             ```
-            """.stripIndent()),
+            """
+                                .stripIndent()),
                 new UserMessage("Refactor hello() into its own file."),
-                new AiMessage("""
+                new AiMessage(
+                        """
             To make this change we need to modify `main.py` and make a new file `hello.py`:
 
             1. Make a new hello.py file with hello() in it.
@@ -92,20 +95,20 @@ public class EditBlockParser {
             from hello import hello
             >>>>>>> REPLACE
             ```
-            """.stripIndent())
-        );
+            """
+                                .stripIndent()));
     }
 
     protected final String instructions(String input, @Nullable ProjectFile file, String reminder) {
         return """
         <rules>
         %s
-        
+
         Every *SEARCH* block must *EXACTLY MATCH* the existing filename content, character for character,
         including all comments, docstrings, indentation, etc.
         If the file contains code or other data wrapped in json/xml/quotes or other containers,
         you need to propose edits to the literal contents, including that container markup.
-        
+
         *SEARCH* and *REPLACE* blocks must both contain ONLY the lines to be matched or edited.
         This means no +/- diff markers in particular!
 
@@ -116,7 +119,7 @@ public class EditBlockParser {
         Break large changes into a series of smaller blocks that each change a small portion.
         Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
         You should not need to include the entire function or block to change a line or two.
-       
+
         Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
 
         If you want to move code within a filename, use 2 blocks: one to delete from the old location,
@@ -124,41 +127,43 @@ public class EditBlockParser {
 
         Pay attention to which filenames the user wants you to edit, especially if they are asking
         you to create a new filename.
-        
+
         Important! To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
         block with nothing in between the search and divider marker lines, and the new file's full contents between
         the divider and replace marker lines. Rule of thumb: replace the entire file if you will need to
         change more than half of it.
- 
+
         If the user just says something like "ok" or "go ahead" or "do that", they probably want you
         to make SEARCH/REPLACE blocks for the code changes you just proposed.
         The user will say when they've applied your edits.
         If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-      
+
         NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
         use vanilla ascii single and double quotes.
-        
+
         # General
         Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-       
+
         Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
         %s
         </rules>
-        
+
         <goal%s>
         %s
         </goal>
-        """.formatted(diffFormatInstructions(), 
-                      reminder,
-                      file == null ? "" : " target=\"%s\">".formatted(file),
-                      input);
+        """
+                .formatted(
+                        diffFormatInstructions(),
+                        reminder,
+                        file == null ? "" : " target=\"%s\">".formatted(file),
+                        input);
     }
 
     public String diffFormatInstructions() {
         return """
         # *SEARCH/REPLACE block* Rules:
-        
+
         Every *SEARCH/REPLACE block* must use this format:
         1. The opening fence: ```
         2. The *FULL* file path alone on a line, verbatim. No bold asterisks, no quotes around it, no escaping of characters, etc.
@@ -168,42 +173,42 @@ public class EditBlockParser {
         6. The lines to replace into the source code
         7. The end of the replace block: >>>>>>> REPLACE
         8. The closing fence: ```
-        
+
         Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-        """.stripIndent();
+        """
+                .stripIndent();
     }
 
-    /**
-     * Parses the given content into ParseResult
-     */
+    /** Parses the given content into ParseResult */
     public EditBlock.ParseResult parseEditBlocks(String content, Set<ProjectFile> projectFiles) {
         var all = parse(content, projectFiles);
-        var editBlocks = all.blocks().stream().map(EditBlock.OutputBlock::block).filter(Objects::nonNull).toList();
+        var editBlocks = all.blocks().stream()
+                .map(EditBlock.OutputBlock::block)
+                .filter(Objects::nonNull)
+                .toList();
         return new EditBlock.ParseResult(editBlocks, all.parseError());
     }
 
     /**
-     * Return vanilla EditBlockParser if `text` doesn't contain anything that looks like one of our markers;
-     * if it does, return EditBlockConflictsParser instead.
+     * Return vanilla EditBlockParser if `text` doesn't contain anything that looks like one of our markers; if it does,
+     * return EditBlockConflictsParser instead.
      */
     public static EditBlockParser getParserFor(String text) {
-        return Stream.of("<<<<<", "=====", ">>>>>")
-                       .anyMatch(text::contains)
-               ? EditBlockConflictsParser.instance
-               : EditBlockParser.instance;
+        return Stream.of("<<<<<", "=====", ">>>>>").anyMatch(text::contains)
+                ? EditBlockConflictsParser.instance
+                : EditBlockParser.instance;
     }
 
     /**
-     * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks).
-     * Supports a "forgiving" divider approach if we do not see a standard "filename =======" line
-     * but do see exactly one line of "=======" in the lines between SEARCH and REPLACE.
-     * Malformed blocks do not prevent parsing subsequent blocks.
+     * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks). Supports a
+     * "forgiving" divider approach if we do not see a standard "filename =======" line but do see exactly one line of
+     * "=======" in the lines between SEARCH and REPLACE. Malformed blocks do not prevent parsing subsequent blocks.
      */
     public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {
         var blocks = new ArrayList<EditBlock.OutputBlock>();
 
         var lines = content.split("\n", -1);
-        var plain     = new StringBuilder();
+        var plain = new StringBuilder();
 
         int i = 0;
         String currentFilename = null;
@@ -225,15 +230,15 @@ public class EditBlockParser {
                 }
 
                 // The filename sits on the line immediately after the opening fence
-                var filenameLine   = lines[i + 1];
-                var candidatePath  = stripFilename(filenameLine);
-                currentFilename       = candidatePath != null && !candidatePath.isBlank()
-                                        ? candidatePath
+                var filenameLine = lines[i + 1];
+                var candidatePath = stripFilename(filenameLine);
+                currentFilename = candidatePath != null && !candidatePath.isBlank()
+                        ? candidatePath
                         : findFileNameNearby(lines, i + 2, projectFiles, currentFilename);
 
                 // Advance to the <<<<<<< SEARCH marker
-                i = i + 2;                                             // now at HEAD line
-                i++;                                                   // move past HEAD
+                i = i + 2; // now at HEAD line
+                i++; // move past HEAD
 
                 var beforeLines = new ArrayList<String>();
                 while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
@@ -241,11 +246,10 @@ public class EditBlockParser {
                     i++;
                 }
                 if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks,
-                                                             "Expected ======= divider after <<<<<<< SEARCH");
+                    return new EditBlock.ExtendedParseResult(blocks, "Expected ======= divider after <<<<<<< SEARCH");
                 }
 
-                i++;   // skip ======= divider
+                i++; // skip ======= divider
 
                 var afterLines = new ArrayList<String>();
                 while (i < lines.length
@@ -255,17 +259,16 @@ public class EditBlockParser {
                     i++;
                 }
                 if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks,
-                                                             "Expected >>>>>>> REPLACE or =======");
+                    return new EditBlock.ExtendedParseResult(blocks, "Expected >>>>>>> REPLACE or =======");
                 }
 
-                var beforeJoined = stripQuotedWrapping(String.join("\n", beforeLines),
-                                                          Objects.toString(currentFilename, ""));
-                var afterJoined  = stripQuotedWrapping(String.join("\n", afterLines),
-                                                          Objects.toString(currentFilename, ""));
+                var beforeJoined =
+                        stripQuotedWrapping(String.join("\n", beforeLines), Objects.toString(currentFilename, ""));
+                var afterJoined =
+                        stripQuotedWrapping(String.join("\n", afterLines), Objects.toString(currentFilename, ""));
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
-                if (!afterJoined.isEmpty()  && !afterJoined.endsWith("\n"))  afterJoined  += "\n";
+                if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
                 blocks.add(EditBlock.OutputBlock.edit(
                         new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined)));
@@ -278,7 +281,7 @@ public class EditBlockParser {
                 if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
                     i++;
                 }
-                continue;   // restart main loop
+                continue; // restart main loop
             }
 
             /* ----------------------------------------------------------
@@ -292,18 +295,17 @@ public class EditBlockParser {
 
                 currentFilename = findFileNameNearby(lines, i, projectFiles, currentFilename);
 
-                i++;   // move past <<<<<<< SEARCH
+                i++; // move past <<<<<<< SEARCH
                 var beforeLines = new ArrayList<String>();
                 while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
                     beforeLines.add(lines[i]);
                     i++;
                 }
                 if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks,
-                                                             "Expected ======= divider after <<<<<<< SEARCH");
+                    return new EditBlock.ExtendedParseResult(blocks, "Expected ======= divider after <<<<<<< SEARCH");
                 }
 
-                i++;   // skip ======= divider
+                i++; // skip ======= divider
 
                 var afterLines = new ArrayList<String>();
                 while (i < lines.length
@@ -313,17 +315,16 @@ public class EditBlockParser {
                     i++;
                 }
                 if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks,
-                                                             "Expected >>>>>>> REPLACE or =======");
+                    return new EditBlock.ExtendedParseResult(blocks, "Expected >>>>>>> REPLACE or =======");
                 }
 
-                var beforeJoined = stripQuotedWrapping(String.join("\n", beforeLines),
-                                                          Objects.toString(currentFilename, ""));
-                var afterJoined  = stripQuotedWrapping(String.join("\n", afterLines),
-                                                          Objects.toString(currentFilename, ""));
+                var beforeJoined =
+                        stripQuotedWrapping(String.join("\n", beforeLines), Objects.toString(currentFilename, ""));
+                var afterJoined =
+                        stripQuotedWrapping(String.join("\n", afterLines), Objects.toString(currentFilename, ""));
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
-                if (!afterJoined.isEmpty()  && !afterJoined.endsWith("\n"))  afterJoined  += "\n";
+                if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
                 blocks.add(EditBlock.OutputBlock.edit(
                         new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined)));
@@ -369,12 +370,14 @@ public class EditBlockParser {
                %s%s
                >>>>>>> REPLACE
                %s
-               """.formatted(DEFAULT_FENCE.get(0),
-                             block.filename(),
-                             beforeText,
-                             beforeText.endsWith("\n") ? "" : "\n",
-                             afterText,
-                             afterText.endsWith("\n") ? "" : "\n",
-                             DEFAULT_FENCE.get(1));
+               """
+                .formatted(
+                        DEFAULT_FENCE.get(0),
+                        block.filename(),
+                        beforeText,
+                        beforeText.endsWith("\n") ? "" : "\n",
+                        afterText,
+                        afterText.endsWith("\n") ? "" : "\n",
+                        DEFAULT_FENCE.get(1));
     }
 }

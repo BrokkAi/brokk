@@ -2,9 +2,8 @@ package dev.langchain4j.http.client.log;
 
 import static dev.langchain4j.http.client.log.HttpRequestLogger.format;
 
-import org.slf4j.Logger;
-
 import dev.langchain4j.http.client.SuccessfulHttpResponse;
+import org.slf4j.Logger;
 
 class HttpResponseLogger {
 

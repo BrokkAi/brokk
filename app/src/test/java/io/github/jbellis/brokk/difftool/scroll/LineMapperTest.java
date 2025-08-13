@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.Patch;
+import java.util.List;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-import java.util.stream.IntStream;
-
-import static org.junit.jupiter.api.Assertions.*;
-
 /**
- * Comprehensive tests for the LineMapper class.
- * Tests verify that line mapping algorithms work correctly with different delta types
- * and provide accurate results for scroll synchronization.
+ * Comprehensive tests for the LineMapper class. Tests verify that line mapping algorithms work correctly with different
+ * delta types and provide accurate results for scroll synchronization.
  */
 class LineMapperTest {
 
@@ -35,7 +33,8 @@ class LineMapperTest {
         var emptyPatch = DiffUtils.diff(createNumberedLines(5), createNumberedLines(5));
 
         assertEquals(10, lineMapper.mapLine(emptyPatch, 10, true), "Empty patch should return line unchanged");
-        assertEquals(10, lineMapper.mapLine(emptyPatch, 10, false), "Empty patch should return line unchanged in reverse");
+        assertEquals(
+                10, lineMapper.mapLine(emptyPatch, 10, false), "Empty patch should return line unchanged in reverse");
     }
 
     @Test
@@ -44,7 +43,8 @@ class LineMapperTest {
         var insertPatch = createInsertPatch(10, "new_line");
 
         assertEquals(5, lineMapper.mapLine(insertPatch, 5, true), "Lines before changes should map directly");
-        assertEquals(5, lineMapper.mapLine(insertPatch, 5, false), "Lines before changes should map directly in reverse");
+        assertEquals(
+                5, lineMapper.mapLine(insertPatch, 5, false), "Lines before changes should map directly in reverse");
     }
 
     @Test
@@ -53,7 +53,10 @@ class LineMapperTest {
         var insertPatch = createInsertPatch(5, "new_line");
 
         assertEquals(-1, lineMapper.mapLine(insertPatch, -1, true), "Negative lines should be handled gracefully");
-        assertEquals(-1, lineMapper.mapLine(insertPatch, -1, false), "Negative lines should be handled gracefully in reverse");
+        assertEquals(
+                -1,
+                lineMapper.mapLine(insertPatch, -1, false),
+                "Negative lines should be handled gracefully in reverse");
     }
 
     // =================================================================
@@ -199,8 +202,7 @@ class LineMapperTest {
         // Test findRelevantDeltaIndex directly
         for (int line = 0; line < 30; line++) {
             int index = lineMapper.findRelevantDeltaIndex(deltas, line, true);
-            assertTrue(index >= -1 && index < deltas.size(),
-                      "Delta index should be valid for line " + line);
+            assertTrue(index >= -1 && index < deltas.size(), "Delta index should be valid for line " + line);
         }
     }
 
@@ -262,7 +264,8 @@ class LineMapperTest {
     void testSmoothingCorrection() {
         // Create a patch where smoothing would apply
         var original = List.of("line1", "line2", "old_content_a", "old_content_b", "line5", "line6", "line7");
-        var revised = List.of("line1", "line2", "new_content_x", "new_content_y", "new_content_z", "line5", "line6", "line7");
+        var revised =
+                List.of("line1", "line2", "new_content_x", "new_content_y", "new_content_z", "line5", "line6", "line7");
         var patch = DiffUtils.diff(original, revised);
 
         // Test that smoothing doesn't crash and produces reasonable results
@@ -277,9 +280,7 @@ class LineMapperTest {
     // =================================================================
 
     private List<String> createNumberedLines(int count) {
-        return IntStream.range(0, count)
-                       .mapToObj(i -> "line_" + i)
-                       .collect(java.util.stream.Collectors.toList());
+        return IntStream.range(0, count).mapToObj(i -> "line_" + i).collect(java.util.stream.Collectors.toList());
     }
 
     private Patch<String> createInsertPatch(int position, String... linesToInsert) {
@@ -323,16 +324,40 @@ class LineMapperTest {
 
     private Patch<String> createMultiDeltaPatch() {
         var original = List.of(
-            "line1", "line2", "line3", "line4", "line5",
-            "old_a", "old_b", "line8", "line9", "line10",
-            "delete_me", "line12", "line13", "line14", "line15"
-        );
+                "line1",
+                "line2",
+                "line3",
+                "line4",
+                "line5",
+                "old_a",
+                "old_b",
+                "line8",
+                "line9",
+                "line10",
+                "delete_me",
+                "line12",
+                "line13",
+                "line14",
+                "line15");
 
         var revised = List.of(
-            "line1", "line2", "INSERT", "line3", "line4", "line5",
-            "new_a", "new_b", "new_c", "line8", "line9", "line10",
-            "line12", "line13", "ANOTHER_INSERT", "line14", "line15"
-        );
+                "line1",
+                "line2",
+                "INSERT",
+                "line3",
+                "line4",
+                "line5",
+                "new_a",
+                "new_b",
+                "new_c",
+                "line8",
+                "line9",
+                "line10",
+                "line12",
+                "line13",
+                "ANOTHER_INSERT",
+                "line14",
+                "line15");
 
         return DiffUtils.diff(original, revised);
     }

@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.difftool.ui;
 
+import static java.util.Objects.requireNonNull;
+
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.patch.AbstractDelta;
@@ -7,65 +9,55 @@ import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
 import com.jgoodies.forms.layout.FormLayout;
 import dev.langchain4j.data.message.ChatMessage;
-import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.FileDocument;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
-import io.github.jbellis.brokk.difftool.doc.StringDocument;
 import io.github.jbellis.brokk.difftool.node.BufferNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.util.Messages;
-import io.github.jbellis.brokk.util.SlidingWindowCache;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
+import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.SlidingWindowCache;
+import java.awt.*;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.UndoableEditListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import javax.swing.text.JTextComponent;
 import javax.swing.undo.UndoableEdit;
-import java.awt.*;
-import java.io.IOException;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.concurrent.CompletableFuture;
-import java.util.EnumMap;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * This panel shows the side-by-side file panels, the diff curves, plus search bars.
- * It no longer depends on custom JMRevision/JMDelta but rather on a Patch<String>.
+ * This panel shows the side-by-side file panels, the diff curves, plus search bars. It no longer depends on custom
+ * JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware, SlidingWindowCache.Disposable
-{
+public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware, SlidingWindowCache.Disposable {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
-   /**
-     * Enum representing the two sides of the diff panel.
-     * Provides type safety and clarity compared to magic numbers.
+    /**
+     * Enum representing the two sides of the diff panel. Provides type safety and clarity compared to magic numbers.
      */
-    public enum PanelSide
-    {
+    public enum PanelSide {
         LEFT(BufferDocumentIF.ORIGINAL, 0),
         RIGHT(BufferDocumentIF.REVISED, 1);
 
@@ -92,54 +84,47 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     // Instead of JMRevision:
     @Nullable
     private Patch<String> patch; // from JMDiffNode
+
     @Nullable
     private AbstractDelta<String> selectedDelta;
 
     /**
-     * Ensures that the automatic centering of the first difference executes at
-     * most once per BufferDiffPanel lifecycle.
+     * Ensures that the automatic centering of the first difference executes at most once per BufferDiffPanel lifecycle.
      */
     private volatile boolean initialAutoScrollDone = false;
 
-    /**
-     * Guards against concurrent auto-scroll attempts to prevent interference.
-     */
+    /** Guards against concurrent auto-scroll attempts to prevent interference. */
     private volatile boolean autoScrollInProgress = false;
 
     private int selectedLine;
 
-    /**
-     * Dirty flag that tracks whether there are any unsaved changes.
-     */
+    /** Dirty flag that tracks whether there are any unsaved changes. */
     private boolean dirtySinceOpen = false;
 
-    /**
-     * Tracks applied diff operations that haven't been saved yet.
-     * Maps filename to count of operations applied.
-     */
+    /** Tracks applied diff operations that haven't been saved yet. Maps filename to count of operations applied. */
     private final Map<String, Integer> pendingDiffChanges = new ConcurrentHashMap<>();
 
     /**
-     * Tracks the content of files before any diff changes were applied.
-     * Used to generate unified diffs showing what changes were made.
+     * Tracks the content of files before any diff changes were applied. Used to generate unified diffs showing what
+     * changes were made.
      */
-    private final Map<String, String> contentBeforeChanges = Collections.synchronizedMap(
-        new LinkedHashMap<String, String>(16, 0.75f, true) {
-            private static final int MAX_ENTRIES = 100; // Limit to 100 files
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-                return size() > MAX_ENTRIES;
-            }
-        }
-    );
+    private final Map<String, String> contentBeforeChanges =
+            Collections.synchronizedMap(new LinkedHashMap<String, String>(16, 0.75f, true) {
+                private static final int MAX_ENTRIES = 100; // Limit to 100 files
+
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                    return size() > MAX_ENTRIES;
+                }
+            });
 
     /**
-    * Recalculate dirty status by checking if any FilePanel has unsaved changes.
-    * When the state changes, update tab title and toolbar buttons.
-    */
+     * Recalculate dirty status by checking if any FilePanel has unsaved changes. When the state changes, update tab
+     * title and toolbar buttons.
+     */
     void recalcDirty() {
-            // Check if either side has unsaved changes (document changed since last save)
-            boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
+        // Check if either side has unsaved changes (document changed since last save)
+        boolean newDirty = filePanels.values().stream().anyMatch(FilePanel::isDocumentChanged);
 
         if (dirtySinceOpen != newDirty) {
             dirtySinceOpen = newDirty;
@@ -152,6 +137,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     @Nullable
     private GenericSearchBar leftSearchBar;
+
     @Nullable
     private GenericSearchBar rightSearchBar;
 
@@ -161,39 +147,33 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
+
     @Nullable
     private ScrollSynchronizer scrollSynchronizer;
 
-    public BufferDiffPanel(BrokkDiffPanel mainPanel, GuiTheme theme)
-    {
+    public BufferDiffPanel(BrokkDiffPanel mainPanel, GuiTheme theme) {
         this.mainPanel = mainPanel;
         this.guiTheme = theme;
 
         // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
         mainPanel.setBufferDiffPanel(this);
 
-
         init();
         setFocusable(true);
     }
 
-    public void setDiffNode(@Nullable JMDiffNode diffNode)
-    {
+    public void setDiffNode(@Nullable JMDiffNode diffNode) {
         this.diffNode = diffNode;
         refreshDiffNode();
     }
 
     @Nullable
-    public JMDiffNode getDiffNode()
-    {
+    public JMDiffNode getDiffNode() {
         return diffNode;
     }
 
-    /**
-     * Re-read the patch from the node, re-bind the left & right documents, etc.
-     */
-    private void refreshDiffNode()
-    {
+    /** Re-read the patch from the node, re-bind the left & right documents, etc. */
+    private void refreshDiffNode() {
         if (diffNode == null) {
             return;
         }
@@ -239,7 +219,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             boolean skipAutoScroll = shouldSkipAutoScroll();
 
             if (!skipAutoScroll) {
-                logger.debug("Auto-scrolling to first difference at line {}", selectedDelta.getSource().getPosition());
+                logger.debug(
+                        "Auto-scrolling to first difference at line {}",
+                        selectedDelta.getSource().getPosition());
                 SwingUtilities.invokeLater(this::scrollToFirstDifference);
             }
         } else if (scrollSynchronizer != null) {
@@ -248,8 +230,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Rerun the diff from scratch, if needed. For Phase 2 we re-run if a doc changed
-     * (the old incremental logic is removed).
+     * Rerun the diff from scratch, if needed. For Phase 2 we re-run if a doc changed (the old incremental logic is
+     * removed).
      */
     public void diff() {
         diff(false); // Don't scroll by default (used for document changes)
@@ -257,10 +239,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /**
      * Rerun the diff and optionally scroll to the selected delta.
+     *
      * @param scrollToSelection whether to scroll to the selected delta after recalculation
      */
-    public void diff(boolean scrollToSelection)
-    {
+    public void diff(boolean scrollToSelection) {
         // Typically, we'd just re-call diffNode.diff() then re-pull patch.
         if (diffNode != null) {
             diffNode.diff();
@@ -291,11 +273,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
-    /**
-     * Find the closest delta by line position when the previously selected delta is no longer valid.
-     */
+    /** Find the closest delta by line position when the previously selected delta is no longer valid. */
     @Nullable
-    private AbstractDelta<String> findClosestDelta(AbstractDelta<String> previousDelta, List<AbstractDelta<String>> availableDeltas) {
+    private AbstractDelta<String> findClosestDelta(
+            AbstractDelta<String> previousDelta, List<AbstractDelta<String>> availableDeltas) {
         if (availableDeltas.isEmpty()) {
             return null;
         }
@@ -305,18 +286,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         // Find the delta with the closest line position
         return availableDeltas.stream()
-            .min((d1, d2) -> Integer.compare(
-                Math.abs(d1.getSource().getPosition() - targetLine),
-                Math.abs(d2.getSource().getPosition() - targetLine)
-            ))
-            .orElse(availableDeltas.getFirst());
+                .min((d1, d2) -> Integer.compare(
+                        Math.abs(d1.getSource().getPosition() - targetLine),
+                        Math.abs(d2.getSource().getPosition() - targetLine)))
+                .orElse(availableDeltas.getFirst());
     }
 
-    /**
-     * Tells each FilePanel to re-apply highlights, then repaint the parent panel.
-     */
-    private void reDisplay()
-    {
+    /** Tells each FilePanel to re-apply highlights, then repaint the parent panel. */
+    private void reDisplay() {
         for (var fp : filePanels.values()) {
             fp.reDisplay();
         }
@@ -324,14 +301,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Synchronizes the content of a source Document to a destination Document.
-     * This is a fallback mechanism to ensure documents are identical.
+     * Synchronizes the content of a source Document to a destination Document. This is a fallback mechanism to ensure
+     * documents are identical.
      *
      * @param srcDoc the source document
      * @param dstDoc the destination document
      */
-    public static void synchronizeDocuments(Document srcDoc, Document dstDoc)
-    {
+    public static void synchronizeDocuments(Document srcDoc, Document dstDoc) {
         if (srcDoc != dstDoc) { // copy only when different
             try {
                 var len = srcDoc.getLength();
@@ -345,15 +321,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Synchronizes the BufferDocument's underlying document with the editor's document.
-     * This ensures both documents contain identical content after text modifications.
+     * Synchronizes the BufferDocument's underlying document with the editor's document. This ensures both documents
+     * contain identical content after text modifications.
      */
     private void synchronizeDocuments(JTextComponent editor, BufferDocumentIF bufferDoc) {
         synchronizeDocuments(editor.getDocument(), bufferDoc.getDocument());
     }
 
-    public String getTitle()
-    {
+    public String getTitle() {
         if (diffNode != null && !diffNode.getName().isBlank()) {
             var name = diffNode.getName();
             return isDirty() ? name + " *" : name;
@@ -381,29 +356,20 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return isDirty() ? base + " *" : base;
     }
 
-    /**
-     * Returns true if there are any unsaved changes on either side.
-     */
+    /** Returns true if there are any unsaved changes on either side. */
     public boolean isDirty() {
         return dirtySinceOpen;
     }
 
-
-    /**
-     * Do not try incremental updates. We just re-diff the whole thing.
-     */
-    public boolean revisionChanged(JMDocumentEvent de)
-    {
+    /** Do not try incremental updates. We just re-diff the whole thing. */
+    public boolean revisionChanged(JMDocumentEvent de) {
         // Old incremental logic removed
         diff();
         return true;
     }
 
-    /**
-     * The top-level UI for the left & right file panels plus the "diff scroll component".
-     */
-    private void init()
-    {
+    /** The top-level UI for the left & right file panels plus the "diff scroll component". */
+    private void init() {
         var columns = "3px, pref, 3px, 0:grow, 5px, min, 60px, 0:grow, 25px, min, 3px, pref, 3px";
         var rows = "6px, pref, 3px, fill:0:grow, pref";
 
@@ -418,7 +384,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         add(filePanelComponent, BorderLayout.CENTER);
 
         // Create the scroll synchronizer for the left & right panels
-        scrollSynchronizer = new ScrollSynchronizer(this, requireFilePanel(PanelSide.LEFT), requireFilePanel(PanelSide.RIGHT));
+        scrollSynchronizer =
+                new ScrollSynchronizer(this, requireFilePanel(PanelSide.LEFT), requireFilePanel(PanelSide.RIGHT));
         setSelectedPanel(PanelSide.LEFT);
         mainPanel.updateUndoRedoButtons();
         // Apply initial theme for syntax highlighting (but not diff highlights yet)
@@ -431,8 +398,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Re-establish component resize listeners after file navigation.
-     * This ensures resize events are properly handled after tab operations.
+     * Re-establish component resize listeners after file navigation. This ensures resize events are properly handled
+     * after tab operations.
      */
     public void refreshComponentListeners() {
         // Remove existing listeners to avoid duplicates
@@ -454,11 +421,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         });
     }
 
-    /**
-     * Build the top row that holds search bars.
-     */
-    public JPanel activateBarDialog(String columns)
-    {
+    /** Build the top row that holds search bars. */
+    public JPanel activateBarDialog(String columns) {
         // Use the same FormLayout structure as the file panels to align search bars with text areas
         var rows = "6px, pref";
         var layout = new com.jgoodies.forms.layout.FormLayout(columns, rows);
@@ -468,7 +432,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
         var leftFilePanel = getFilePanel(PanelSide.LEFT);
         var rightFilePanel = getFilePanel(PanelSide.RIGHT);
-        if(leftFilePanel != null && rightFilePanel != null) {
+        if (leftFilePanel != null && rightFilePanel != null) {
             leftSearchBar = new GenericSearchBar(leftFilePanel.createSearchableComponent());
             rightSearchBar = new GenericSearchBar(rightFilePanel.createSearchableComponent());
         }
@@ -486,11 +450,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return barContainer;
     }
 
-    /**
-     * Build the actual file-panels and the center "diff scroll curves".
-     */
-    private JPanel buildFilePanel(String columns, String rows)
-    {
+    /** Build the actual file-panels and the center "diff scroll curves". */
+    private JPanel buildFilePanel(String columns, String rows) {
         var layout = new FormLayout(columns, rows);
         var cc = new CellConstraints();
         var panel = new JPanel(layout);
@@ -521,67 +482,53 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     @Nullable
-    public ScrollSynchronizer getScrollSynchronizer()
-    {   return scrollSynchronizer;
+    public ScrollSynchronizer getScrollSynchronizer() {
+        return scrollSynchronizer;
     }
 
-    public BrokkDiffPanel getMainPanel()
-    {
+    public BrokkDiffPanel getMainPanel() {
         return mainPanel;
     }
 
-    /**
-     * We simply retrieve the patch from the node if needed.
-     */
+    /** We simply retrieve the patch from the node if needed. */
     @Nullable
-    public Patch<String> getPatch()
-    {
+    public Patch<String> getPatch() {
         return patch;
     }
 
-    /**
-     * Return whichever delta is considered "selected" in the UI.
-     */
+    /** Return whichever delta is considered "selected" in the UI. */
     @Nullable
-    public AbstractDelta<String> getSelectedDelta()
-    {
+    public AbstractDelta<String> getSelectedDelta() {
         return selectedDelta;
     }
 
-    /**
-     * Called by `DiffScrollComponent` or `RevisionBar` to set which delta has been clicked.
-     */
-    public void setSelectedDelta(@Nullable AbstractDelta<String> newDelta)
-    {
+    /** Called by `DiffScrollComponent` or `RevisionBar` to set which delta has been clicked. */
+    public void setSelectedDelta(@Nullable AbstractDelta<String> newDelta) {
         this.selectedDelta = newDelta;
         setSelectedLine(newDelta != null ? newDelta.getSource().getPosition() : 0);
     }
 
-    public void setSelectedLine(int line)
-    {
+    public void setSelectedLine(int line) {
         selectedLine = line;
     }
 
-    public int getSelectedLine()
-    {
+    public int getSelectedLine() {
         return selectedLine;
     }
 
     /**
-     * Reset the auto-scroll flag to allow auto-scroll for file navigation.
-     * Called by BrokkDiffPanel when switching between files.
+     * Reset the auto-scroll flag to allow auto-scroll for file navigation. Called by BrokkDiffPanel when switching
+     * between files.
      */
-    public void resetAutoScrollFlag()
-    {
+    public void resetAutoScrollFlag() {
         initialAutoScrollDone = false;
     }
 
     /**
-     * Reset selectedDelta to first difference for consistent file navigation behavior.
-     * Ensures all file navigation goes to first diff regardless of caching.
+     * Reset selectedDelta to first difference for consistent file navigation behavior. Ensures all file navigation goes
+     * to first diff regardless of caching.
      */
-    public void resetToFirstDifference()
-    {
+    public void resetToFirstDifference() {
         if (patch != null && !patch.getDeltas().isEmpty()) {
             selectedDelta = patch.getDeltas().getFirst();
         } else {
@@ -589,26 +536,25 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
-
     /**
      * Type-safe method to get a file panel by side.
+     *
      * @param side the panel side (LEFT or RIGHT)
      * @return the FilePanel for the specified side, or null if not set
      */
     @Nullable
-    public FilePanel getFilePanel(PanelSide side)
-    {
+    public FilePanel getFilePanel(PanelSide side) {
         return filePanels.get(side);
     }
 
     /**
      * Type-safe method to get a file panel, throwing if not initialized.
+     *
      * @param side the panel side (LEFT or RIGHT)
      * @return the FilePanel for the specified side
      * @throws IllegalStateException if the panel is not initialized
      */
-    public FilePanel requireFilePanel(PanelSide side)
-    {
+    public FilePanel requireFilePanel(PanelSide side) {
         var panel = filePanels.get(side);
         if (panel == null) {
             throw new IllegalStateException("FilePanel for " + side + " is not initialized");
@@ -616,37 +562,30 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return panel;
     }
 
-    /**
-     * Gets the currently selected panel side.
-     */
-    public PanelSide getSelectedPanelSide()
-    {
+    /** Gets the currently selected panel side. */
+    public PanelSide getSelectedPanelSide() {
         return selectedPanelSide;
     }
 
-    /**
-     * Gets the currently selected file panel.
-     */
-    public FilePanel getSelectedFilePanel()
-    {
+    /** Gets the currently selected file panel. */
+    public FilePanel getSelectedFilePanel() {
         return requireFilePanel(selectedPanelSide);
     }
 
     /**
-     * Legacy helper method to get a file panel by integer index.
-     * This supports compatibility with existing code that uses integer indices.
+     * Legacy helper method to get a file panel by integer index. This supports compatibility with existing code that
+     * uses integer indices.
+     *
      * @param index 0 for LEFT, 1 for RIGHT (or any other integer for RIGHT)
      * @return the FilePanel for the specified index, or null if not set
      */
     @Nullable
-    public FilePanel getFilePanel(int index)
-    {
+    public FilePanel getFilePanel(int index) {
         var side = (index == 0) ? PanelSide.LEFT : PanelSide.RIGHT;
         return filePanels.get(side);
     }
 
-    void setSelectedPanel(FilePanel fp)
-    {
+    void setSelectedPanel(FilePanel fp) {
         var oldSide = selectedPanelSide;
         PanelSide newSide = null;
 
@@ -663,18 +602,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
-    /**
-     * Type-safe method to set the selected panel by side.
-     */
+    /** Type-safe method to set the selected panel by side. */
     public void setSelectedPanel(PanelSide side) {
         this.selectedPanelSide = side;
     }
 
-    /**
-     * Called by the top-level toolbar "Next" or "Previous" or by mouse wheel in DiffScrollComponent.
-     */
-    public void toNextDelta(boolean next)
-    {
+    /** Called by the top-level toolbar "Next" or "Previous" or by mouse wheel in DiffScrollComponent. */
+    public void toNextDelta(boolean next) {
         if (patch == null || patch.getDeltas().isEmpty()) {
             return;
         }
@@ -699,11 +633,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Scroll so the selectedDelta is visible in the left panel, then the ScrollSynchronizer
-     * will sync the right side.
+     * Scroll so the selectedDelta is visible in the left panel, then the ScrollSynchronizer will sync the right side.
      */
-    private void showSelectedDelta()
-    {
+    private void showSelectedDelta() {
         if (selectedDelta == null) return;
         if (scrollSynchronizer != null) {
             scrollSynchronizer.showDelta(selectedDelta);
@@ -711,11 +643,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Auto-scroll to the first difference when a diff is opened.
-     * Centers the first difference on both panels for optimal user experience.
+     * Auto-scroll to the first difference when a diff is opened. Centers the first difference on both panels for
+     * optimal user experience.
      */
-    private void scrollToFirstDifference()
-    {
+    private void scrollToFirstDifference() {
         if (selectedDelta == null || scrollSynchronizer == null) {
             return;
         }
@@ -734,21 +665,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         scheduleAutoScrollWithRetry();
     }
 
-
-    /**
-     * Schedule auto-scroll with ComponentListener approach to handle UI timing issues.
-     */
-    private void scheduleAutoScrollWithRetry()
-    {
+    /** Schedule auto-scroll with ComponentListener approach to handle UI timing issues. */
+    private void scheduleAutoScrollWithRetry() {
         // Use a different approach: wait for components to become visible
         SwingUtilities.invokeLater(this::executeAutoScrollWhenReady);
     }
 
-    /**
-     * Execute auto-scroll when UI components are ready, using ComponentListener for reliable timing.
-     */
-    private void executeAutoScrollWhenReady()
-    {
+    /** Execute auto-scroll when UI components are ready, using ComponentListener for reliable timing. */
+    private void executeAutoScrollWhenReady() {
         // Re-check nulls for NullAway
         if (selectedDelta == null || scrollSynchronizer == null) {
             autoScrollInProgress = false;
@@ -800,23 +724,20 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         timeoutTimer.start();
     }
 
-    /**
-     * Check if scroll pane components are ready for auto-scroll.
-     */
-    private boolean areComponentsReady(javax.swing.JScrollPane leftScrollPane, javax.swing.JScrollPane rightScrollPane)
-    {
-        boolean leftReady = leftScrollPane.isDisplayable() && leftScrollPane.isShowing() &&
-                          leftScrollPane.getViewport().getSize().height > 0;
-        boolean rightReady = rightScrollPane.isDisplayable() && rightScrollPane.isShowing() &&
-                           rightScrollPane.getViewport().getSize().height > 0;
+    /** Check if scroll pane components are ready for auto-scroll. */
+    private boolean areComponentsReady(
+            javax.swing.JScrollPane leftScrollPane, javax.swing.JScrollPane rightScrollPane) {
+        boolean leftReady = leftScrollPane.isDisplayable()
+                && leftScrollPane.isShowing()
+                && leftScrollPane.getViewport().getSize().height > 0;
+        boolean rightReady = rightScrollPane.isDisplayable()
+                && rightScrollPane.isShowing()
+                && rightScrollPane.getViewport().getSize().height > 0;
         return leftReady && rightReady;
     }
 
-    /**
-     * Perform the actual auto-scroll operation.
-     */
-    private void performAutoScroll()
-    {
+    /** Perform the actual auto-scroll operation. */
+    private void performAutoScroll() {
         try {
             if (selectedDelta != null && scrollSynchronizer != null) {
                 initialAutoScrollDone = true;
@@ -829,11 +750,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Scroll both panels to the top position (line 0).
-     * Used for files without differences to provide consistent starting position.
+     * Scroll both panels to the top position (line 0). Used for files without differences to provide consistent
+     * starting position.
      */
-    private void scrollToTop()
-    {
+    private void scrollToTop() {
         var leftPanel = getFilePanel(PanelSide.LEFT);
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
@@ -857,16 +777,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Determines whether auto-scroll should be skipped for this diff.
-     * Auto-scroll is skipped for:
-     * 1. File additions/deletions (one side ≤ 2 lines)
-     * 2. Massive changes (single large delta from beginning)
-     * 3. Pure INSERT/DELETE deltas with very asymmetric content (< 5 vs > 20 lines)
+     * Determines whether auto-scroll should be skipped for this diff. Auto-scroll is skipped for: 1. File
+     * additions/deletions (one side ≤ 2 lines) 2. Massive changes (single large delta from beginning) 3. Pure
+     * INSERT/DELETE deltas with very asymmetric content (< 5 vs > 20 lines)
      *
      * @return true if auto-scroll should be skipped
      */
-    private boolean shouldSkipAutoScroll()
-    {
+    private boolean shouldSkipAutoScroll() {
         if (patch == null || patch.getDeltas().isEmpty()) {
             return false;
         }
@@ -902,10 +819,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /**
      * Detects file addition or deletion by checking if one side is essentially empty.
+     *
      * @return true if one side has very few lines (likely file addition/deletion)
      */
-    private boolean isFileAdditionOrDeletion()
-    {
+    private boolean isFileAdditionOrDeletion() {
         var leftPanel = getFilePanel(PanelSide.LEFT);
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
@@ -942,10 +859,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /**
      * Detects massive changes that likely represent file restructuring.
+     *
      * @return true if there's a single large delta covering most of the file
      */
-    private boolean isMassiveFileChange()
-    {
+    private boolean isMassiveFileChange() {
         if (patch == null || patch.getDeltas().size() != 1) {
             return false;
         }
@@ -956,25 +873,28 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         // 1. Change starts at the very beginning (position <= 1)
         // 2. AND both source and target have very substantial content (> 50 lines)
         // This catches whole-file replacements but not normal large edits
-        boolean isMassive = delta.getSource().getPosition() <= 1 &&
-               delta.getSource().size() > 50 && delta.getTarget().size() > 50;
+        boolean isMassive = delta.getSource().getPosition() <= 1
+                && delta.getSource().size() > 50
+                && delta.getTarget().size() > 50;
 
         if (isMassive) {
-            logger.debug("Massive file change detected: position={}, sourceSize={}, targetSize={}",
-                       delta.getSource().getPosition(), delta.getSource().size(), delta.getTarget().size());
+            logger.debug(
+                    "Massive file change detected: position={}, sourceSize={}, targetSize={}",
+                    delta.getSource().getPosition(),
+                    delta.getSource().size(),
+                    delta.getTarget().size());
         }
 
         return isMassive;
     }
 
     /**
-     * Detects very asymmetric content where one side is much smaller than the other.
-     * This helps distinguish between normal file modifications with INSERT/DELETE deltas
-     * vs actual file additions/deletions.
+     * Detects very asymmetric content where one side is much smaller than the other. This helps distinguish between
+     * normal file modifications with INSERT/DELETE deltas vs actual file additions/deletions.
+     *
      * @return true if one side has < 3 lines and the other has > 50 lines
      */
-    private boolean isVeryAsymmetricContent()
-    {
+    private boolean isVeryAsymmetricContent() {
         var leftPanel = getFilePanel(PanelSide.LEFT);
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
@@ -1008,7 +928,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         void perform() throws BadLocationException;
     }
 
-    private void applyDelta(AbstractDelta<String> delta, BufferDocumentIF changedDoc, JTextComponent changedEditor, DocumentMutation mutation, String operationType) {
+    private void applyDelta(
+            AbstractDelta<String> delta,
+            BufferDocumentIF changedDoc,
+            JTextComponent changedEditor,
+            DocumentMutation mutation,
+            String operationType) {
         assert SwingUtilities.isEventDispatchThread();
 
         var undoState = captureUndoState(delta);
@@ -1085,10 +1010,16 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         changedDoc.getLines(); // rebuild internal cache
     }
 
-    private void createUndoOperation(AbstractDelta<String> delta, List<UndoableEdit> documentEdits, UndoState undoState, String operationType) {
+    private void createUndoOperation(
+            AbstractDelta<String> delta, List<UndoableEdit> documentEdits, UndoState undoState, String operationType) {
         if (!documentEdits.isEmpty()) {
             var chunkEdit = new ChunkApplicationEdit(
-                this, delta, documentEdits, undoState.originalDeltaIndex(), undoState.selectedDeltaSnapshot(), operationType);
+                    this,
+                    delta,
+                    documentEdits,
+                    undoState.originalDeltaIndex(),
+                    undoState.selectedDeltaSnapshot(),
+                    operationType);
             getUndoHandler().add(chunkEdit);
         }
     }
@@ -1099,16 +1030,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         recalcDirty(); // Update dirty state after document changes
     }
 
-    private record UndoState(@Nullable Integer originalDeltaIndex, @Nullable AbstractDelta<String> selectedDeltaSnapshot) {}
-
+    private record UndoState(
+            @Nullable Integer originalDeltaIndex, @Nullable AbstractDelta<String> selectedDeltaSnapshot) {}
 
     /**
-     * The "change" operation from left->right or right->left.
-     * We replicate the old logic, then remove the used delta from the patch
-     * so it can't be applied repeatedly.
+     * The "change" operation from left->right or right->left. We replicate the old logic, then remove the used delta
+     * from the patch so it can't be applied repeatedly.
      */
-    public void runChange(int fromPanelIndex, int toPanelIndex, boolean shift)
-    {
+    public void runChange(int fromPanelIndex, int toPanelIndex, boolean shift) {
         assert SwingUtilities.isEventDispatchThread();
         var delta = getSelectedDelta();
         if (delta == null) return;
@@ -1136,38 +1065,43 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
         var toEditor = toFilePanel.getEditor();
         var operationType = shift ? "Apply Change (Insert)" : "Apply Change (Replace)";
-        applyDelta(delta, toDoc, toEditor, () -> {
-            var fromPlainDoc = fromDoc.getDocument();
-            var replacedText = fromPlainDoc.getText(fromOffset, toOffset - fromOffset);
+        applyDelta(
+                delta,
+                toDoc,
+                toEditor,
+                () -> {
+                    var fromPlainDoc = fromDoc.getDocument();
+                    var replacedText = fromPlainDoc.getText(fromOffset, toOffset - fromOffset);
 
-            var toLine = targetChunk.getPosition();
-            var toSize = targetChunk.size();
-            var toFromOffset = toDoc.getOffsetForLine(toLine);
-            if (toFromOffset < 0) return;
-            var toToOffset = toDoc.getOffsetForLine(toLine + toSize);
-            if (toToOffset < 0) return;
+                    var toLine = targetChunk.getPosition();
+                    var toSize = targetChunk.size();
+                    var toFromOffset = toDoc.getOffsetForLine(toLine);
+                    if (toFromOffset < 0) return;
+                    var toToOffset = toDoc.getOffsetForLine(toLine + toSize);
+                    if (toToOffset < 0) return;
 
-            // Record that this file was modified by a diff operation BEFORE applying changes
-            recordDiffChange(toDoc);
+                    // Record that this file was modified by a diff operation BEFORE applying changes
+                    recordDiffChange(toDoc);
 
-            toEditor.setSelectionStart(toFromOffset);
-            toEditor.setSelectionEnd(toToOffset);
+                    toEditor.setSelectionStart(toFromOffset);
+                    toEditor.setSelectionEnd(toToOffset);
 
-            if (!shift) {
-                toEditor.replaceSelection(replacedText);
-            } else {
-                toEditor.getDocument().insertString(toToOffset, replacedText, null);
-            }
-            SwingUtilities.invokeLater(() -> {
-                toEditor.setCaretPosition(toFromOffset);
-                destinationViewport.setViewPosition(originalViewPosition);
-            });
-        }, operationType);
+                    if (!shift) {
+                        toEditor.replaceSelection(replacedText);
+                    } else {
+                        toEditor.getDocument().insertString(toToOffset, replacedText, null);
+                    }
+                    SwingUtilities.invokeLater(() -> {
+                        toEditor.setCaretPosition(toFromOffset);
+                        destinationViewport.setViewPosition(originalViewPosition);
+                    });
+                },
+                operationType);
     }
 
     /**
-     * The "delete" operation: remove the chunk from the fromPanel side.
-     * Afterward, remove the delta so it doesn't stay clickable.
+     * The "delete" operation: remove the chunk from the fromPanel side. Afterward, remove the delta so it doesn't stay
+     * clickable.
      */
     public void runDelete(int fromPanelIndex, int toPanelIndex) {
         assert SwingUtilities.isEventDispatchThread();
@@ -1190,23 +1124,24 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         if (toOffset < 0) return;
 
         var editor = fromFilePanel.getEditor();
-        applyDelta(delta, fromDoc, editor, () -> {
-            // Record that this file was modified by a diff operation BEFORE applying changes
-            recordDiffChange(fromDoc);
+        applyDelta(
+                delta,
+                fromDoc,
+                editor,
+                () -> {
+                    // Record that this file was modified by a diff operation BEFORE applying changes
+                    recordDiffChange(fromDoc);
 
-            editor.setSelectionStart(fromOffset);
-            editor.setSelectionEnd(toOffset);
-            editor.replaceSelection("");
-            editor.setCaretPosition(fromOffset);
-
-        }, "Delete Chunk");
+                    editor.setSelectionStart(fromOffset);
+                    editor.setSelectionEnd(toOffset);
+                    editor.replaceSelection("");
+                    editor.setCaretPosition(fromOffset);
+                },
+                "Delete Chunk");
     }
 
-    /**
-     * Writes out any changed documents to disk. Typically invoked after applying changes or undo/redo.
-     */
-    public void doSave()
-    {
+    /** Writes out any changed documents to disk. Typically invoked after applying changes or undo/redo. */
+    public void doSave() {
         for (var fp : filePanels.values()) {
             if (!fp.isDocumentChanged()) continue;
             var doc = requireNonNull(fp.getBufferDocument());
@@ -1220,10 +1155,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
                 doc.write();
             } catch (Exception ex) {
                 logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
-                mainPanel.getConsoleIO().systemNotify(
-                                              "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
-                                              "Problem writing file",
-                                              JOptionPane.ERROR_MESSAGE);
+                mainPanel
+                        .getConsoleIO()
+                        .systemNotify(
+                                "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
+                                "Problem writing file",
+                                JOptionPane.ERROR_MESSAGE);
             }
         }
 
@@ -1236,12 +1173,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
             // Process in background thread
             CompletableFuture.supplyAsync(() -> {
-                generateDiffChangeActivityEntriesAsync(diffChangesCopy, contentBeforeChangesCopy);
-                return null;
-            }).exceptionally(ex -> {
-                logger.error("Failed to generate diff change activity entries in background", ex);
-                return null;
-            });
+                        generateDiffChangeActivityEntriesAsync(diffChangesCopy, contentBeforeChangesCopy);
+                        return null;
+                    })
+                    .exceptionally(ex -> {
+                        logger.error("Failed to generate diff change activity entries in background", ex);
+                        return null;
+                    });
 
             // After processing, update baseline content for next save (like PreviewTextPanel)
             updateBaselineContentAfterSave();
@@ -1251,29 +1189,20 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         recalcDirty();
     }
 
-    /**
-     * The "down arrow" in the toolbar calls doDown().
-     * We step to next delta if possible, or re-scroll from top.
-     */
+    /** The "down arrow" in the toolbar calls doDown(). We step to next delta if possible, or re-scroll from top. */
     @Override
-    public void doDown()
-    {
+    public void doDown() {
         toNextDelta(true);
     }
 
-    /**
-     * The "up arrow" in the toolbar calls doUp().
-     * We step to previous delta if possible, or re-scroll from bottom.
-     */
+    /** The "up arrow" in the toolbar calls doUp(). We step to previous delta if possible, or re-scroll from bottom. */
     @Override
-    public void doUp()
-    {
+    public void doUp() {
         toNextDelta(false);
     }
 
     @Override
-    public void doUndo()
-    {
+    public void doUndo() {
         super.doUndo();
         mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
@@ -1282,8 +1211,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     @Override
-    public void doRedo()
-    {
+    public void doRedo() {
         super.doRedo();
         mainPanel.updateUndoRedoButtons();
         // ChunkApplicationEdit handles its own patch state restoration and diff() calls
@@ -1302,15 +1230,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             mainPanel.refreshTabTitle(BufferDiffPanel.this);
         });
     }
-   /**
-     * ThemeAware implementation - update highlight colours and syntax themes
-     * when the global GUI theme changes.
-     */
+    /** ThemeAware implementation - update highlight colours and syntax themes when the global GUI theme changes. */
     @Override
-    public void applyTheme(GuiTheme guiTheme)
-    {
-        assert javax.swing.SwingUtilities.isEventDispatchThread()
-                : "applyTheme must be invoked on the EDT";
+    public void applyTheme(GuiTheme guiTheme) {
+        assert javax.swing.SwingUtilities.isEventDispatchThread() : "applyTheme must be invoked on the EDT";
         this.guiTheme = guiTheme;
 
         // Refresh RSyntax themes and highlights in each child FilePanel
@@ -1373,9 +1296,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Registers keyboard shortcuts for search functionality.
-     * Cmd+F (or Ctrl+F) focuses the search field in the active panel.
-     * Esc clears search highlights and returns focus to the editor.
+     * Registers keyboard shortcuts for search functionality. Cmd+F (or Ctrl+F) focuses the search field in the active
+     * panel. Esc clears search highlights and returns focus to the editor.
      */
     private void registerSearchKeyBindings() {
         // Cmd+F / Ctrl+F focuses the search field using utility method
@@ -1407,16 +1329,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
-    /**
-     * Registers Ctrl+S / Cmd+S keyboard shortcut for manual saving.
-     */
+    /** Registers Ctrl+S / Cmd+S keyboard shortcut for manual saving. */
     private void registerSaveShortcut() {
         KeyboardShortcutUtil.registerSaveShortcut(this, this::doSave);
     }
 
     /**
-     * Focuses the search field corresponding to the currently active file panel.
-     * Uses real-time focus detection to determine which search bar to focus.
+     * Focuses the search field corresponding to the currently active file panel. Uses real-time focus detection to
+     * determine which search bar to focus.
      */
     private void focusActiveSearchField() {
         // Real-time focus detection: check which editor currently has focus
@@ -1445,10 +1365,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Cleanup method to properly dispose of resources when the panel is no longer needed.
-     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     * Cleanup method to properly dispose of resources when the panel is no longer needed. Should be called when the
+     * BufferDiffPanel is being disposed to prevent memory leaks.
      */
-
     @Override
     public void dispose() {
 
@@ -1489,21 +1408,17 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Returns {@code true} if at least one side is editable (not read-only).
-     * Used by the main toolbar to decide whether undo/redo buttons should be shown.
+     * Returns {@code true} if at least one side is editable (not read-only). Used by the main toolbar to decide whether
+     * undo/redo buttons should be shown.
      */
     public boolean atLeastOneSideEditable() {
-        return filePanels.values().stream()
-                         .anyMatch(fp -> {
-                             var doc = fp.getBufferDocument();
-                             return doc != null && !doc.isReadonly();
-                         });
+        return filePanels.values().stream().anyMatch(fp -> {
+            var doc = fp.getBufferDocument();
+            return doc != null && !doc.isReadonly();
+        });
     }
 
-    /**
-     * Clear caches to free memory while keeping the panel functional.
-     * Used by sliding window memory management.
-     */
+    /** Clear caches to free memory while keeping the panel functional. Used by sliding window memory management. */
     public void clearCaches() {
         // Clear undo history
         var undoManager = getUndoHandler();
@@ -1516,9 +1431,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
-    /**
-     * Records that a diff operation was applied to a file.
-     */
+    /** Records that a diff operation was applied to a file. */
     private void recordDiffChange(BufferDocumentIF doc) {
         var filename = doc.getShortName();
 
@@ -1550,17 +1463,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         pendingDiffChanges.merge(filename, 1, Integer::sum);
     }
 
-    /**
-     * Records a manual edit (typing, paste, etc.) on a document for history tracking.
-     */
+    /** Records a manual edit (typing, paste, etc.) on a document for history tracking. */
     public void recordManualEdit(BufferDocumentIF doc) {
         recordDiffChange(doc);
     }
 
-    /**
-     * Asynchronous version of generateDiffChangeActivityEntries that can run on background threads.
-     */
-    private void generateDiffChangeActivityEntriesAsync(Map<String, Integer> diffChanges, Map<String, String> contentBefore) {
+    /** Asynchronous version of generateDiffChangeActivityEntries that can run on background threads. */
+    private void generateDiffChangeActivityEntriesAsync(
+            Map<String, Integer> diffChanges, Map<String, String> contentBefore) {
         if (diffChanges.isEmpty()) {
             return;
         }
@@ -1667,41 +1577,37 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         messagesForHistory.add(Messages.customSystem("Diff operation: " + actionDescription));
         messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
 
-        var diffResult = new TaskResult(mainPanel.getContextManager(),
-                                      actionDescription,
-                                      messagesForHistory,
-                                      Set.of(fileData.projectFile),
-                                      TaskResult.StopReason.SUCCESS);
+        var diffResult = new TaskResult(
+                mainPanel.getContextManager(),
+                actionDescription,
+                messagesForHistory,
+                Set.of(fileData.projectFile),
+                TaskResult.StopReason.SUCCESS);
 
         // Add to history using standard mechanism (editable file system handles undo)
         mainPanel.getContextManager().addToHistory(diffResult, false);
     }
-
 
     private void logSimpleMessage(String filename, int changeCount) {
         var message = formatDiffActionDescription(changeCount, filename);
         mainPanel.getConsoleIO().systemOutput(message);
     }
 
-    /**
-     * Clears all diff change tracking state.
-     * Should be called when loading a new diff or disposing the panel.
-     */
+    /** Clears all diff change tracking state. Should be called when loading a new diff or disposing the panel. */
     public void clearDiffChangeTracking() {
         pendingDiffChanges.clear();
         contentBeforeChanges.clear();
     }
 
-
     private String formatDiffActionDescription(int changeCount, String filename) {
         return changeCount == 1
-            ? "Applied diff change to " + filename
-            : "Applied " + changeCount + " diff changes to " + filename;
+                ? "Applied diff change to " + filename
+                : "Applied " + changeCount + " diff changes to " + filename;
     }
 
     /**
-     * Updates the baseline content after save to track future changes (like PreviewTextPanel).
-     * This allows multiple saves to each create history entries.
+     * Updates the baseline content after save to track future changes (like PreviewTextPanel). This allows multiple
+     * saves to each create history entries.
      */
     private void updateBaselineContentAfterSave() {
         // Reset counters for next save cycle
@@ -1734,6 +1640,4 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         contentBeforeChanges.clear();
         contentBeforeChanges.putAll(updatedBaseline);
     }
-
-
 }

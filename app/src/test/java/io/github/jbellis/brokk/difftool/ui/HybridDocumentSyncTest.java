@@ -1,15 +1,15 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;
 
-import javax.swing.text.PlainDocument;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.PlainDocument;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
- * Tests for the new hybrid document synchronization logic in FilePanel.
- * Validates the decision-making between incremental sync and fallback sync.
+ * Tests for the new hybrid document synchronization logic in FilePanel. Validates the decision-making between
+ * incremental sync and fallback sync.
  */
 public class HybridDocumentSyncTest {
 
@@ -30,7 +30,7 @@ public class HybridDocumentSyncTest {
         destDoc.insertString(0, initialContent, null);
 
         // Action: Small edit that should use incremental sync
-        sourceDoc.insertString(5, "X", null);  // Insert X after "line1"
+        sourceDoc.insertString(5, "X", null); // Insert X after "line1"
 
         // Simulate the hybrid sync decision
         int offset = 5;
@@ -139,13 +139,12 @@ public class HybridDocumentSyncTest {
         destDoc.insertString(0, initialContent, null);
 
         // Action: Remove content from source
-        int removeOffset = 6;  // Start of "line2"
-        int removeLength = 6;  // "line2\n"
+        int removeOffset = 6; // Start of "line2"
+        int removeLength = 6; // "line2\n"
         sourceDoc.remove(removeOffset, removeLength);
 
         // Check if remove range is valid for destination
-        boolean validRange = removeOffset < destDoc.getLength() &&
-                           removeOffset + removeLength <= destDoc.getLength();
+        boolean validRange = removeOffset < destDoc.getLength() && removeOffset + removeLength <= destDoc.getLength();
 
         assertTrue(validRange, "Remove range should be valid");
 
@@ -169,8 +168,7 @@ public class HybridDocumentSyncTest {
         sourceDoc.remove(1, 3); // Make source even shorter
 
         // Check if remove range is invalid for destination
-        boolean validRange = removeOffset < destDoc.getLength() &&
-                           removeOffset + removeLength <= destDoc.getLength();
+        boolean validRange = removeOffset < destDoc.getLength() && removeOffset + removeLength <= destDoc.getLength();
 
         assertFalse(validRange, "Remove range should be invalid (2 + 10 > 4)");
 

@@ -3,26 +3,24 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
+import java.awt.*;
+import java.awt.event.ActionListener;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.ActionListener;
-
-/**
- * Self-contained merge dialog that handles displaying the merge options,
- * conflict checking, and user interaction.
- */
+/** Self-contained merge dialog that handles displaying the merge options, conflict checking, and user interaction. */
 public class MergeBranchDialogPanel extends JDialog {
     private static final Logger logger = LogManager.getLogger(MergeBranchDialogPanel.class);
 
     private final JComboBox<GitRepo.MergeMode> mergeModeComboBox;
     private final JLabel conflictStatusLabel;
+
     @Nullable
     private JLabel dirtyWorkingTreeLabel = null;
+
     private final String sourceBranch;
     private final String targetBranch;
 
@@ -54,29 +52,27 @@ public class MergeBranchDialogPanel extends JDialog {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.weightx = 1.0;
 
-        var title = new JLabel(String.format("Merge branch '%s' into '%s'",
-                                             sourceBranch,
-                                             targetBranch));
+        var title = new JLabel(String.format("Merge branch '%s' into '%s'", sourceBranch, targetBranch));
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         contentPanel.add(title, gbc);
 
         // --- merge mode selector -------------------------------------------------
         gbc.gridwidth = 1;
-        gbc.weightx   = 0;
+        gbc.weightx = 0;
         contentPanel.add(new JLabel("Merge strategy:"), gbc);
 
-        gbc.gridx    = 1;
-        gbc.weightx  = 1.0;
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
         // mergeModeComboBox already initialized in constructor
         mergeModeComboBox.setSelectedItem(GitRepo.MergeMode.MERGE_COMMIT);
         contentPanel.add(mergeModeComboBox, gbc);
 
         // --- conflict status label ----------------------------------------------
-        gbc.gridx       = 0;
-        gbc.gridy       = 2;
-        gbc.gridwidth   = GridBagConstraints.REMAINDER;
-        gbc.weightx     = 1.0;
-        gbc.insets      = new Insets(10, 10, 15, 10); // Add extra bottom spacing
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = GridBagConstraints.REMAINDER;
+        gbc.weightx = 1.0;
+        gbc.insets = new Insets(10, 10, 15, 10); // Add extra bottom spacing
         // conflictStatusLabel already initialized in constructor
         conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground"));
         contentPanel.add(conflictStatusLabel, gbc);
@@ -99,7 +95,8 @@ public class MergeBranchDialogPanel extends JDialog {
         cancelButton.addActionListener(e -> dispose());
     }
 
-    public static ActionListener createMergeModePersistenceListener(JComboBox<GitRepo.MergeMode> mergeModeComboBox, MainProject project) {
+    public static ActionListener createMergeModePersistenceListener(
+            JComboBox<GitRepo.MergeMode> mergeModeComboBox, MainProject project) {
         return e -> {
             var selectedMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
             if (selectedMode != null) {
@@ -108,11 +105,9 @@ public class MergeBranchDialogPanel extends JDialog {
         };
     }
 
-    /**
-     * Result record for the merge dialog interaction.
-     */
-    public record MergeDialogResult(boolean confirmed, GitRepo.MergeMode mergeMode,
-                                  boolean hasConflicts, String conflictMessage) {}
+    /** Result record for the merge dialog interaction. */
+    public record MergeDialogResult(
+            boolean confirmed, GitRepo.MergeMode mergeMode, boolean hasConflicts, String conflictMessage) {}
 
     /**
      * Shows the merge dialog and returns the user's choice.
@@ -150,11 +145,14 @@ public class MergeBranchDialogPanel extends JDialog {
         // Determine result
         var selectedMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
         String conflictText = conflictStatusLabel.getText();
-        boolean hasConflicts = conflictText != null && !conflictText.startsWith("No conflicts detected")
-                             && !conflictText.trim().isEmpty() && !conflictText.equals("Checking for conflicts...");
+        boolean hasConflicts = conflictText != null
+                && !conflictText.startsWith("No conflicts detected")
+                && !conflictText.trim().isEmpty()
+                && !conflictText.equals("Checking for conflicts...");
 
         // Override dialog result if working tree is dirty to prevent merge
-        boolean hasDirtyWorkingTree = dirtyWorkingTreeLabel != null && !dirtyWorkingTreeLabel.getText().trim().isEmpty();
+        boolean hasDirtyWorkingTree = dirtyWorkingTreeLabel != null
+                && !dirtyWorkingTreeLabel.getText().trim().isEmpty();
         boolean finalResult = dialogResult && !hasDirtyWorkingTree;
 
         return new MergeDialogResult(finalResult, selectedMode, hasConflicts, conflictText);
@@ -166,8 +164,8 @@ public class MergeBranchDialogPanel extends JDialog {
             if (!modifiedFiles.isEmpty()) {
                 var fileCount = modifiedFiles.size();
                 var fileWord = fileCount == 1 ? "file" : "files";
-                addDirtyWorkingTreeLabel(String.format("❌ Cannot merge: %d uncommitted %s must be committed or stashed first",
-                                                      fileCount, fileWord));
+                addDirtyWorkingTreeLabel(String.format(
+                        "❌ Cannot merge: %d uncommitted %s must be committed or stashed first", fileCount, fileWord));
                 // Disable OK button to prevent merge
                 okButton.setEnabled(false);
             }
@@ -186,7 +184,8 @@ public class MergeBranchDialogPanel extends JDialog {
             dirtyWorkingTreeLabel.setForeground(Color.RED);
 
             // Insert the dirty working tree label before the conflict status label
-            var contentPanel = (JPanel) ((BorderLayout) getContentPane().getLayout()).getLayoutComponent(BorderLayout.CENTER);
+            var contentPanel =
+                    (JPanel) ((BorderLayout) getContentPane().getLayout()).getLayoutComponent(BorderLayout.CENTER);
             var gbc = new GridBagConstraints();
             gbc.gridx = 0;
             gbc.gridy = 2; // Insert at position 2
@@ -245,7 +244,8 @@ public class MergeBranchDialogPanel extends JDialog {
                     conflictStatusLabel.setText("No conflicts detected.");
                     conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green
                     // Only enable OK button if working tree is clean (no dirty working tree message)
-                    if (dirtyWorkingTreeLabel == null || dirtyWorkingTreeLabel.getText().trim().isEmpty()) {
+                    if (dirtyWorkingTreeLabel == null
+                            || dirtyWorkingTreeLabel.getText().trim().isEmpty()) {
                         okButton.setEnabled(true);
                     }
                 }
@@ -253,5 +253,4 @@ public class MergeBranchDialogPanel extends JDialog {
             return null;
         });
     }
-
 }

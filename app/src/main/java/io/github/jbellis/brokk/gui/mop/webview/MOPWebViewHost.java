@@ -1,28 +1,30 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
-import dev.langchain4j.data.message.ChatMessageType;
-import javafx.application.Platform;
-import javafx.embed.swing.JFXPanel;
-import javafx.scene.Scene;
-import javafx.scene.web.WebView;
-import netscape.javascript.JSObject;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+import static java.util.Objects.requireNonNull;
 
-import javax.swing.*;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-
-import static java.util.Objects.requireNonNull;
+import javafx.application.Platform;
+import javafx.embed.swing.JFXPanel;
+import javafx.scene.Scene;
+import javafx.scene.web.WebView;
+import javax.swing.*;
+import netscape.javascript.JSObject;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public final class MOPWebViewHost extends JPanel {
     private static final Logger logger = LogManager.getLogger(MOPWebViewHost.class);
-    @Nullable private JFXPanel fxPanel;
+
+    @Nullable
+    private JFXPanel fxPanel;
+
     private final AtomicReference<MOPBridge> bridgeRef = new AtomicReference<>();
     private final AtomicReference<WebView> webViewRef = new AtomicReference<>();
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
@@ -42,9 +44,13 @@ public final class MOPWebViewHost extends JPanel {
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) implements HostCommand {}
+
         record SetTheme(boolean isDark) implements HostCommand {}
+
         record ShowSpinner(String message) implements HostCommand {}
+
         record HideSpinner() implements HostCommand {}
+
         record Clear() implements HostCommand {}
     }
 
@@ -97,18 +103,20 @@ public final class MOPWebViewHost extends JPanel {
                     for (var l : searchListeners) {
                         bridge.addSearchStateListener(l);
                     }
-                    
+
                     // Inject JavaScript to intercept console methods and forward to Java bridge with stack traces
-            view.getEngine().executeScript("""
+                    view.getEngine()
+                            .executeScript(
+                                    """
                 (function() {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
-                    
+
                     function toStringWithStack(arg) {
                         return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
                     }
-                    
+
                     console.log = function() {
                         var msg = Array.from(arguments).map(toStringWithStack).join(' ');
                         if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
@@ -139,7 +147,9 @@ public final class MOPWebViewHost extends JPanel {
 
             var resourceUrl = getClass().getResource("/mop-web/index.html");
             if (resourceUrl == null) {
-                view.getEngine().loadContent("<html><body><h1>Error: mop-web/index.html not found</h1></body></html>", "text/html");
+                view.getEngine()
+                        .loadContent(
+                                "<html><body><h1>Error: mop-web/index.html not found</h1></body></html>", "text/html");
             } else {
                 int port = ClasspathHttpServer.ensureStarted();
                 var url = "http://127.0.0.1:" + port + "/index.html";
@@ -153,14 +163,14 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void append(String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming) {
-        sendOrQueue(new HostCommand.Append(text, isNewMessage, msgType, streaming),
-                     bridge -> bridge.append(text, isNewMessage, msgType, streaming));
+        sendOrQueue(
+                new HostCommand.Append(text, isNewMessage, msgType, streaming),
+                bridge -> bridge.append(text, isNewMessage, msgType, streaming));
     }
 
     public void setTheme(boolean isDark) {
         darkTheme = isDark; // Remember the last requested theme
-        sendOrQueue(new HostCommand.SetTheme(isDark),
-                     bridge -> bridge.setTheme(isDark));
+        sendOrQueue(new HostCommand.SetTheme(isDark), bridge -> bridge.setTheme(isDark));
         applyTheme(Theme.create(isDark));
     }
 
@@ -179,15 +189,17 @@ public final class MOPWebViewHost extends JPanel {
                     scene.setFill(theme.fxBg());
                 }
                 // Update UA stylesheet with custom property for chat background
-                String css = """
+                String css =
+                        """
                     :root {
                         --chat-background: %s;
                     }
                     html, body {
                         background-color: var(--chat-background) !important;
-                    }""".formatted(theme.cssColor());
+                    }"""
+                                .formatted(theme.cssColor());
                 String encodedCss = java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8)
-                                                       .replace("+", "%20");
+                        .replace("+", "%20");
                 String dataCssUrl = "data:text/css," + encodedCss + "#t=" + System.currentTimeMillis();
                 webView.getEngine().setUserStyleSheetLocation(dataCssUrl);
             });
@@ -195,18 +207,15 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void clear() {
-        sendOrQueue(new HostCommand.Clear(),
-                     MOPBridge::clear);
+        sendOrQueue(new HostCommand.Clear(), MOPBridge::clear);
     }
 
     public void showSpinner(String message) {
-        sendOrQueue(new HostCommand.ShowSpinner(message),
-                     bridge -> bridge.showSpinner(message));
+        sendOrQueue(new HostCommand.ShowSpinner(message), bridge -> bridge.showSpinner(message));
     }
 
     public void hideSpinner() {
-        sendOrQueue(new HostCommand.HideSpinner(),
-                     bridge -> bridge.hideSpinner());
+        sendOrQueue(new HostCommand.HideSpinner(), bridge -> bridge.hideSpinner());
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
@@ -320,7 +329,9 @@ public final class MOPWebViewHost extends JPanel {
         }
         webViewRef.set(null);
         Platform.runLater(() -> {
-            if (fxPanel != null && fxPanel.getScene() != null && fxPanel.getScene().getRoot() instanceof WebView webView) {
+            if (fxPanel != null
+                    && fxPanel.getScene() != null
+                    && fxPanel.getScene().getRoot() instanceof WebView webView) {
                 webView.getEngine().load(null); // release memory
             }
         });

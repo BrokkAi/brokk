@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.rust;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for Rust TreeSitter node type names.
- */
+/** Constants for Rust TreeSitter node type names. */
 public final class RustTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -36,6 +34,5 @@ public final class RustTreeSitterNodeTypes {
     public static final String ATTRIBUTE_ITEM = "attribute_item";
     public static final String VISIBILITY_MODIFIER = "visibility_modifier";
 
-    private RustTreeSitterNodeTypes() {
-    }
+    private RustTreeSitterNodeTypes() {}
 }

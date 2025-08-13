@@ -1,14 +1,13 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Chrome;
-
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
 public final class LoadingTextBox extends JPanel {
 
@@ -73,8 +72,7 @@ public final class LoadingTextBox extends JPanel {
     }
 
     public void setLoading(boolean loading, String busyTooltip) {
-        assert SwingUtilities.isEventDispatchThread() :
-               "LoadingTextBox.setLoading must be called on the EDT";
+        assert SwingUtilities.isEventDispatchThread() : "LoadingTextBox.setLoading must be called on the EDT";
 
         if (loading) {
             spinner.setIcon(SpinnerIconUtil.getSpinner(chrome, false));
@@ -99,7 +97,9 @@ public final class LoadingTextBox extends JPanel {
         }
     }
 
-    public void addActionListener(ActionListener l) { textField.addActionListener(l); }
+    public void addActionListener(ActionListener l) {
+        textField.addActionListener(l);
+    }
 
     public void addDocumentListener(DocumentListener l) {
         textField.getDocument().addDocumentListener(new DocumentListener() {
@@ -126,5 +126,7 @@ public final class LoadingTextBox extends JPanel {
         });
     }
 
-    public JTextField asTextField() { return textField; }
+    public JTextField asTextField() {
+        return textField;
+    }
 }

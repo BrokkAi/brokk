@@ -1,18 +1,13 @@
 package io.github.jbellis.brokk.gui.search;
 
-import io.github.jbellis.brokk.difftool.ui.JMHighlightPainter;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import java.awt.*;
+import javax.swing.*;
 import org.fife.ui.rtextarea.RTextArea;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
-import org.fife.ui.rtextarea.SearchResult;
 
-import javax.swing.*;
-import java.awt.*;
-
-/**
- * Implementation of SearchableComponent for RTextArea components.
- */
+/** Implementation of SearchableComponent for RTextArea components. */
 public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     private final RTextArea textArea;
     private final HighlightManager highlightManager;
@@ -47,8 +42,6 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     public void requestFocusInWindow() {
         textArea.requestFocusInWindow();
     }
-
-
 
     @Override
     public void highlightAll(String searchText, boolean caseSensitive) {
@@ -163,7 +156,6 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     public JComponent getComponent() {
         return textArea;
     }
-
 
     private int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
         int caretPos = getCaretPosition();

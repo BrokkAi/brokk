@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.python;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for Python TreeSitter node type names.
- */
+/** Constants for Python TreeSitter node type names. */
 public final class PythonTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -34,6 +32,5 @@ public final class PythonTreeSitterNodeTypes {
     // Other common Python node types that might be used
     public static final String DECORATED_DEFINITION = "decorated_definition";
 
-    private PythonTreeSitterNodeTypes() {
-    }
+    private PythonTreeSitterNodeTypes() {}
 }

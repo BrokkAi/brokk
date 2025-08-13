@@ -1,8 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -14,6 +11,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class LoggingExecutorService implements ExecutorService {
     private static final Logger logger = LogManager.getLogger(LoggingExecutorService.class);
@@ -39,7 +38,9 @@ public class LoggingExecutorService implements ExecutorService {
                 }
             });
             // Propagate cancellation from CompletableFuture to the underlying Future
-            cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+            cf.whenComplete((res, ex) -> {
+                if (cf.isCancelled()) underlyingFuture.cancel(true);
+            });
         } catch (RejectedExecutionException e) {
             logger.trace("Task rejected because executor is shut down", e);
             cf.completeExceptionally(e);
@@ -61,7 +62,9 @@ public class LoggingExecutorService implements ExecutorService {
                     cf.completeExceptionally(t);
                 }
             });
-            cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+            cf.whenComplete((res, ex) -> {
+                if (cf.isCancelled()) underlyingFuture.cancel(true);
+            });
         } catch (RejectedExecutionException e) {
             logger.trace("Task rejected because executor is shut down", e);
             cf.completeExceptionally(e);
@@ -83,7 +86,9 @@ public class LoggingExecutorService implements ExecutorService {
                     cf.completeExceptionally(t);
                 }
             });
-            cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+            cf.whenComplete((res, ex) -> {
+                if (cf.isCancelled()) underlyingFuture.cancel(true);
+            });
         } catch (RejectedExecutionException e) {
             logger.trace("Task rejected because executor is shut down", e);
             cf.completeExceptionally(e);
@@ -149,12 +154,11 @@ public class LoggingExecutorService implements ExecutorService {
     }
 
     /**
-     * Gracefully shutdown this executor and await termination for up to the given timeout (seconds),
-     * forcing shutdownNow() if the timeout elapses. Returns a CompletableFuture that completes when
-     * shutdown sequence finishes.
+     * Gracefully shutdown this executor and await termination for up to the given timeout (seconds), forcing
+     * shutdownNow() if the timeout elapses. Returns a CompletableFuture that completes when shutdown sequence finishes.
      *
      * @param timeoutMillis ms to wait for termination before forcing shutdownNow
-     * @param name            Name used in logging
+     * @param name Name used in logging
      * @return CompletableFuture that completes when shutdown process finishes
      */
     public CompletableFuture<Void> shutdownAndAwait(long timeoutMillis, String name) {
@@ -192,8 +196,7 @@ public class LoggingExecutorService implements ExecutorService {
     }
 
     @Override
-    public <T> T invokeAny(Collection<? extends Callable<T>> tasks)
-            throws InterruptedException, ExecutionException {
+    public <T> T invokeAny(Collection<? extends Callable<T>> tasks) throws InterruptedException, ExecutionException {
         return delegate.invokeAny(tasks.stream().map(this::wrap).toList());
     }
 

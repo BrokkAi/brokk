@@ -3,42 +3,32 @@ package io.github.jbellis.brokk.util;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Minimal replacements for utility methods needed by FuzzyMatcher,
- * based on equivalents in com.intellij.openapi.util.text.StringUtil
+ * Minimal replacements for utility methods needed by FuzzyMatcher, based on equivalents in
+ * com.intellij.openapi.util.text.StringUtil
  */
 public class FuzzyMatcherUtil {
-    /**
-     * Equivalent to Character.toLowerCase
-     */
+    /** Equivalent to Character.toLowerCase */
     public static char toLowerCase(char a) {
         return Character.toLowerCase(a);
     }
 
-    /**
-     * Equivalent to Character.toUpperCase
-     */
+    /** Equivalent to Character.toUpperCase */
     public static char toUpperCase(char a) {
         return Character.toUpperCase(a);
     }
 
-    /**
-     * Direct implementation comparing characters case-insensitively.
-     */
+    /** Direct implementation comparing characters case-insensitively. */
     public static boolean charsEqualIgnoreCase(char a, char b) {
         return a == b || toUpperCase(a) == toUpperCase(b) || toLowerCase(a) == toLowerCase(b);
     }
 
-    /**
-     * Equivalent to Character.isWhitespace
-     */
+    /** Equivalent to Character.isWhitespace */
     public static boolean isWhiteSpace(char c) {
         return Character.isWhitespace(c);
     }
 
-    /**
-     * Finds the first occurrence of a character within a specific range of a CharSequence.
-     */
-    public static int indexOf( CharSequence s, char c, int start, int end) {
+    /** Finds the first occurrence of a character within a specific range of a CharSequence. */
+    public static int indexOf(CharSequence s, char c, int start, int end) {
         start = Math.max(start, 0);
         for (int i = start; i < Math.min(end, s.length()); i++) {
             if (s.charAt(i) == c) {
@@ -49,10 +39,10 @@ public class FuzzyMatcherUtil {
     }
 
     /**
-     * Finds the last occurrence of a character within a specific range of a CharSequence.
-     * Based on StringUtilRt.lastIndexOf.
+     * Finds the last occurrence of a character within a specific range of a CharSequence. Based on
+     * StringUtilRt.lastIndexOf.
      */
-    public static int lastIndexOf( CharSequence s, char c, int start, int end) {
+    public static int lastIndexOf(CharSequence s, char c, int start, int end) {
         start = Math.max(start, 0);
         for (int i = Math.min(end, s.length()) - 1; i >= start; i--) {
             if (s.charAt(i) == c) {
@@ -63,16 +53,15 @@ public class FuzzyMatcherUtil {
     }
 
     /**
-     * Tries to find index of a given pattern at the given buffer.
-     * Based on CharArrayUtil.indexOf.
+     * Tries to find index of a given pattern at the given buffer. Based on CharArrayUtil.indexOf.
      *
-     * @param buffer    characters buffer which contents should be checked for the given pattern
-     * @param pattern   target characters sequence to find at the given buffer
+     * @param buffer characters buffer which contents should be checked for the given pattern
+     * @param pattern target characters sequence to find at the given buffer
      * @param fromIndex start index (inclusive). Zero is used if given index is negative
-     * @param toIndex   end index (exclusive)
+     * @param toIndex end index (exclusive)
      * @return index of the given pattern at the given buffer if the match is found; {@code -1} otherwise
      */
-    public static int indexOf( CharSequence buffer,  CharSequence pattern, int fromIndex, int toIndex) {
+    public static int indexOf(CharSequence buffer, CharSequence pattern, int fromIndex, int toIndex) {
         int patternLength = pattern.length();
         if (fromIndex < 0) {
             fromIndex = 0;
@@ -89,19 +78,15 @@ public class FuzzyMatcherUtil {
         return -1;
     }
 
-    /**
-     * Calls indexOf(buffer, pattern, fromIndex, buffer.length()).
-     * Based on CharArrayUtil.indexOf.
-     */
-    public static int indexOf( CharSequence buffer,  CharSequence pattern, int fromIndex) {
+    /** Calls indexOf(buffer, pattern, fromIndex, buffer.length()). Based on CharArrayUtil.indexOf. */
+    public static int indexOf(CharSequence buffer, CharSequence pattern, int fromIndex) {
         return indexOf(buffer, pattern, fromIndex, buffer.length());
     }
 
     /**
-     * Finds the index of the first occurrence of a character in a CharSequence,
-     * ignoring case, within a specific range.
+     * Finds the index of the first occurrence of a character in a CharSequence, ignoring case, within a specific range.
      */
-    public static int indexOfIgnoreCase( CharSequence where, char what, int fromIndex, int endIndex) {
+    public static int indexOfIgnoreCase(CharSequence where, char what, int fromIndex, int endIndex) {
         fromIndex = Math.max(0, fromIndex);
         for (int i = fromIndex; i < Math.min(endIndex, where.length()); i++) {
             if (charsEqualIgnoreCase(where.charAt(i), what)) {
@@ -111,11 +96,8 @@ public class FuzzyMatcherUtil {
         return -1;
     }
 
-    /**
-     * Implementation based on String#indexOf logic, but case-insensitive.
-     * Based on StringUtil.indexOfIgnoreCase.
-     */
-    public static int indexOfIgnoreCase( CharSequence where,  CharSequence what, int fromIndex) {
+    /** Implementation based on String#indexOf logic, but case-insensitive. Based on StringUtil.indexOfIgnoreCase. */
+    public static int indexOfIgnoreCase(CharSequence where, CharSequence what, int fromIndex) {
         int targetCount = what.length();
         int sourceCount = where.length();
 
@@ -136,14 +118,16 @@ public class FuzzyMatcherUtil {
             /* Look for first character. */
             if (!charsEqualIgnoreCase(where.charAt(i), first)) {
                 //noinspection StatementWithEmptyBody,WhileLoopSpinsOnField
-                while (++i <= max && !charsEqualIgnoreCase(where.charAt(i), first)) ;
+                while (++i <= max && !charsEqualIgnoreCase(where.charAt(i), first))
+                    ;
             }
 
             /* Found first character, now look at the rest of v2 */
             if (i <= max) {
                 int j = i + 1;
                 int end = j + targetCount - 1;
-                for (int k = 1; j < end && charsEqualIgnoreCase(where.charAt(j), what.charAt(k)); j++, k++) ;
+                for (int k = 1; j < end && charsEqualIgnoreCase(where.charAt(j), what.charAt(k)); j++, k++)
+                    ;
 
                 if (j == end) {
                     /* Found whole string. */
@@ -154,19 +138,17 @@ public class FuzzyMatcherUtil {
         return -1;
     }
 
-    /**
-     * @deprecated Use {@link #indexOfIgnoreCase(CharSequence, char, int, int)}
-     */
+    /** @deprecated Use {@link #indexOfIgnoreCase(CharSequence, char, int, int)} */
     @Deprecated
-    public static int indexOfIgnoreCase( String where, char what, int fromIndex) {
+    public static int indexOfIgnoreCase(String where, char what, int fromIndex) {
         return indexOfIgnoreCase((CharSequence) where, what, fromIndex, where.length());
     }
 
     /**
-     * Removes trailing characters specified in the `charsToRemove` string from the end of the input `s`.
-     * Based on Strings.trimEnd.
+     * Removes trailing characters specified in the `charsToRemove` string from the end of the input `s`. Based on
+     * Strings.trimEnd.
      */
-    public static  String trimEnd( String s,  String charsToRemove) {
+    public static String trimEnd(String s, String charsToRemove) {
         int len = s.length();
         if (len == 0) {
             return "";
@@ -180,12 +162,11 @@ public class FuzzyMatcherUtil {
         return end == len ? s : s.substring(0, end);
     }
 
-
     /**
-     * Finds the first index of any character from {@code chars} within the specified range of {@code sequence}.
-     * Based on Strings.indexOfAny.
+     * Finds the first index of any character from {@code chars} within the specified range of {@code sequence}. Based
+     * on Strings.indexOfAny.
      */
-    public static int indexOfAny( CharSequence sequence,  String chars, int fromIndex, int endIndex) {
+    public static int indexOfAny(CharSequence sequence, String chars, int fromIndex, int endIndex) {
         endIndex = Math.min(endIndex, sequence.length());
         fromIndex = Math.max(0, fromIndex);
 
@@ -199,18 +180,17 @@ public class FuzzyMatcherUtil {
     }
 
     /**
-     * Checks if any character from {@code chars} is present within the specified range of {@code sequence}.
-     * Based on Strings.containsAnyChar.
+     * Checks if any character from {@code chars} is present within the specified range of {@code sequence}. Based on
+     * Strings.containsAnyChar.
      */
-    public static boolean containsAnyChar( CharSequence sequence,  String chars, int fromIndex, int endIndex) {
+    public static boolean containsAnyChar(CharSequence sequence, String chars, int fromIndex, int endIndex) {
         return indexOfAny(sequence, chars, fromIndex, endIndex) >= 0;
     }
 
     /**
      * Checks if the specified region of the {@code charArray} matches the beginning of the {@code sequence}.
-     * Case-sensitive comparison.
-     * Based on CharArrayUtil.regionMatches.
-     * Note: The original `regionMatches` had multiple overloads. This matches the specific signature used in `MinusculeMatcherImpl`.
+     * Case-sensitive comparison. Based on CharArrayUtil.regionMatches. Note: The original `regionMatches` had multiple
+     * overloads. This matches the specific signature used in `MinusculeMatcherImpl`.
      */
     public static boolean regionMatches(char[] charArray, int start, int end, @Nullable CharSequence sequence) {
         if (sequence == null || end - start > sequence.length()) {
@@ -224,18 +204,12 @@ public class FuzzyMatcherUtil {
         return true;
     }
 
-    /**
-     * Checks if a character is an ASCII character.
-     * Based on Strings.isAscii.
-     */
+    /** Checks if a character is an ASCII character. Based on Strings.isAscii. */
     public static boolean isAscii(char c) {
         return c < 128;
     }
 
-    /**
-     * Checks if all characters in a CharSequence are ASCII characters.
-     * Based on AsciiUtil.isAscii.
-     */
+    /** Checks if all characters in a CharSequence are ASCII characters. Based on AsciiUtil.isAscii. */
     public static boolean isAscii(@Nullable CharSequence seq) {
         if (seq == null) return true; // Or false? IntelliJ's AsciiUtil returns true for null.
         for (int i = 0; i < seq.length(); i++) {
@@ -247,11 +221,11 @@ public class FuzzyMatcherUtil {
     }
 
     /**
-     * Determines if the character at the given index in the text is the start of a "word".
-     * Ported from NameUtilCore.isWordStart, omitting Kana/ideograph/hardcoded checks.
-     * Word starts include: beginning of the string, chars after separators, uppercase chars after lowercase, digits after non-digits.
+     * Determines if the character at the given index in the text is the start of a "word". Ported from
+     * NameUtilCore.isWordStart, omitting Kana/ideograph/hardcoded checks. Word starts include: beginning of the string,
+     * chars after separators, uppercase chars after lowercase, digits after non-digits.
      */
-    public static boolean isWordStart( String text, int i) {
+    public static boolean isWordStart(String text, int i) {
         if (i == 0) return true;
 
         char current = text.charAt(i);
@@ -281,7 +255,8 @@ public class FuzzyMatcherUtil {
         // Example: "URLMapping" -> 'M' is a word start. "URL" -> 'L' is not.
         if (Character.isUpperCase(current) && Character.isUpperCase(prev)) {
             int nextPos = i + 1;
-            // If the *next* char exists and is lowercase, then 'current' is the start of a new word boundary (like 'M' in URLMapping)
+            // If the *next* char exists and is lowercase, then 'current' is the start of a new word boundary (like 'M'
+            // in URLMapping)
             return nextPos < text.length() && Character.isLowerCase(text.charAt(nextPos));
         }
 
@@ -289,10 +264,10 @@ public class FuzzyMatcherUtil {
     }
 
     /**
-     * Finds the start index of the next "word" in the text after the given start index.
-     * Ported from NameUtilCore.nextWord, depends on the simplified `isWordStart`.
+     * Finds the start index of the next "word" in the text after the given start index. Ported from
+     * NameUtilCore.nextWord, depends on the simplified `isWordStart`.
      */
-    public static int nextWord( String text, int start) {
+    public static int nextWord(String text, int start) {
         if (start >= text.length()) {
             return start;
         }

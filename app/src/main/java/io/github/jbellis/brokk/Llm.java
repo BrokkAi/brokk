@@ -1,10 +1,13 @@
 package io.github.jbellis.brokk;
 
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
-import com.fasterxml.jackson.annotation.PropertyAccessor;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
@@ -30,11 +33,6 @@ import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -55,18 +53,16 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
-import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
-/**
- * The main orchestrator for sending requests to an LLM, possibly with tools, collecting
- * streaming responses, etc.
- */
+/** The main orchestrator for sending requests to an LLM, possibly with tools, collecting streaming responses, etc. */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper()
-            .setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
+    private static final ObjectMapper objectMapper =
+            new ObjectMapper().setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
 
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
@@ -79,7 +75,12 @@ public class Llm {
     private final boolean allowPartialResponses;
     private final boolean tagRetain;
 
-    public Llm(StreamingChatModel model, String taskDescription, IContextManager contextManager, boolean allowPartialResponses, boolean tagRetain) {
+    public Llm(
+            StreamingChatModel model,
+            String taskDescription,
+            IContextManager contextManager,
+            boolean allowPartialResponses,
+            boolean tagRetain) {
         this.model = model;
         this.contextManager = contextManager;
         this.io = contextManager.getIo();
@@ -88,7 +89,8 @@ public class Llm {
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
-        var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
+        var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault())
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
 
         // Create the specific directory for this task with uniqueness check
@@ -114,6 +116,7 @@ public class Llm {
 
     /**
      * Returns the base directory where all LLM task histories are stored for a project.
+     *
      * @param projectRoot The root path of the project.
      * @return The Path object representing the base history directory.
      */
@@ -122,8 +125,8 @@ public class Llm {
     }
 
     /**
-     * Actually performs one streaming call to the LLM, returning once the response
-     * is done or there's an error. If 'echo' is true, partial tokens go to console.
+     * Actually performs one streaming call to the LLM, returning once the response is done or there's an error. If
+     * 'echo' is true, partial tokens go to console.
      */
     private StreamingResult doSingleStreamingCall(ChatRequest request, boolean echo) throws InterruptedException {
         StreamingResult result;
@@ -137,7 +140,8 @@ public class Llm {
         return result;
     }
 
-    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo) throws InterruptedException {
+    private StreamingResult doSingleStreamingCallInternal(ChatRequest request, boolean echo)
+            throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
         }
@@ -201,12 +205,14 @@ public class Llm {
                         }
                         // I think this isn't supposed to happen, but seeing it when litellm throws back a 400.
                         // Fake an exception so the caller can treat it like other errors
-                        var ex = new LitellmException("(no further information, the response was null; check litellm logs)");
+                        var ex = new LitellmException(
+                                "(no further information, the response was null; check litellm logs)");
                         logger.debug(ex);
                         errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
-                        String tokens = response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
+                        String tokens =
+                                response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
                     latch.countDown();
@@ -224,9 +230,8 @@ public class Llm {
             }
         };
 
-        var finalHandler = contextManager.getService().usesThinkTags(model)
-                           ? new ThinkTagInterceptor(rawHandler)
-                           : rawHandler;
+        var finalHandler =
+                contextManager.getService().usesThinkTags(model) ? new ThinkTagInterceptor(rawHandler) : rawHandler;
         model.chat(request, finalHandler);
 
         try {
@@ -262,7 +267,10 @@ public class Llm {
 
             // Construct a ChatResponse from accumulated partial text
             var partialResponse = new NullSafeResponse(partialText, partialReasoning, List.of(), null);
-            logger.debug("LLM call resulted in error: {}. Partial text captured: {} chars", error.getMessage(), partialText.length());
+            logger.debug(
+                    "LLM call resulted in error: {}. Partial text captured: {} chars",
+                    error.getMessage(),
+                    partialText.length());
             return new StreamingResult(partialResponse, error);
         }
 
@@ -286,39 +294,38 @@ public class Llm {
         var template = "token usage: %,d input (%s cached), %,d output (%s reasoning)";
         var inputDetails = tu.inputTokensDetails();
         var outputDetails = tu.outputTokensDetails();
-        return template.formatted(tu.inputTokenCount(),
-                                  (inputDetails == null || inputDetails.cachedTokens() == null) ? "?" : "%,d".formatted(inputDetails.cachedTokens()),
-                                  tu.outputTokenCount(),
-                                  (outputDetails == null || outputDetails.reasoningTokens() == null) ? "?" : "%,d".formatted(outputDetails.reasoningTokens()));
+        return template.formatted(
+                tu.inputTokenCount(),
+                (inputDetails == null || inputDetails.cachedTokens() == null)
+                        ? "?"
+                        : "%,d".formatted(inputDetails.cachedTokens()),
+                tu.outputTokenCount(),
+                (outputDetails == null || outputDetails.reasoningTokens() == null)
+                        ? "?"
+                        : "%,d".formatted(outputDetails.reasoningTokens()));
     }
 
     /**
-     * Sends a user query to the LLM with streaming. Tools are not used.
-     * Writes to conversation history. Optionally echoes partial tokens to the console.
+     * Sends a user query to the LLM with streaming. Tools are not used. Writes to conversation history. Optionally
+     * echoes partial tokens to the console.
      *
      * @param messages The messages to send
-     * @param echo     Whether to echo LLM responses to the console as they stream
+     * @param echo Whether to echo LLM responses to the console as they stream
      * @return The final response from the LLM as a record containing ChatResponse, errors, etc.
      */
     public StreamingResult sendRequest(List<ChatMessage> messages, boolean echo) throws InterruptedException {
         return sendMessageWithRetry(messages, List.of(), ToolChoice.AUTO, echo, MAX_ATTEMPTS);
     }
 
-    /**
-     * Sends messages to a given model, no tools, no streaming echo.
-     */
+    /** Sends messages to a given model, no tools, no streaming echo. */
     public StreamingResult sendRequest(List<ChatMessage> messages) throws InterruptedException {
         return sendRequest(messages, false);
     }
 
-    /**
-     * Sends messages to a model with possible tools and a chosen tool usage policy.
-     */
-    public StreamingResult sendRequest(List<ChatMessage> messages,
-                                       List<ToolSpecification> tools,
-                                       ToolChoice toolChoice,
-                                       boolean echo) throws InterruptedException
-    {
+    /** Sends messages to a model with possible tools and a chosen tool usage policy. */
+    public StreamingResult sendRequest(
+            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, boolean echo)
+            throws InterruptedException {
         var result = sendMessageWithRetry(messages, tools, toolChoice, echo, MAX_ATTEMPTS);
         var cr = result.chatResponse();
 
@@ -327,8 +334,7 @@ public class Llm {
         while (result.error == null
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
-                && toolChoice == ToolChoice.REQUIRED)
-        {
+                && toolChoice == ToolChoice.REQUIRED) {
             io.systemOutput("Enforcing tool selection");
 
             var extraMessages = new ArrayList<>(messages);
@@ -343,15 +349,16 @@ public class Llm {
     }
 
     /**
-     * Retries a request up to maxAttempts times on connectivity or empty-result errors,
-     * using exponential backoff. Responsible for writeToHistory.
+     * Retries a request up to maxAttempts times on connectivity or empty-result errors, using exponential backoff.
+     * Responsible for writeToHistory.
      */
-    private StreamingResult sendMessageWithRetry(List<ChatMessage> rawMessages,
-                                                 List<ToolSpecification> tools,
-                                                 ToolChoice toolChoice,
-                                                 boolean echo,
-                                                 int maxAttempts) throws InterruptedException
-    {
+    private StreamingResult sendMessageWithRetry(
+            List<ChatMessage> rawMessages,
+            List<ToolSpecification> tools,
+            ToolChoice toolChoice,
+            boolean echo,
+            int maxAttempts)
+            throws InterruptedException {
         Throwable lastError = null;
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
@@ -359,8 +366,11 @@ public class Llm {
         StreamingResult response;
         while (attempt++ < maxAttempts) {
             String description = Messages.getText(messages.getLast());
-            logger.debug("Sending request to {} attempt {}: {}",
-                         contextManager.getService().nameOf(model), attempt, LogDescription.getShortDescription(description, 12));
+            logger.debug(
+                    "Sending request to {} attempt {}: {}",
+                    contextManager.getService().nameOf(model),
+                    attempt,
+                    LogDescription.getShortDescription(description, 12));
 
             response = doSingleSendMessage(model, messages, tools, toolChoice, echo);
             lastError = response.error;
@@ -385,7 +395,8 @@ public class Llm {
 
             // Busywait with countdown
             if (backoffSeconds > 1) {
-                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
+                io.systemOutput(String.format(
+                        "LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
             } else {
                 io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
             }
@@ -400,22 +411,24 @@ public class Llm {
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            return new StreamingResult(null, new IllegalStateException("Empty response after max retries"), attempt - 1);
+            return new StreamingResult(
+                    null, new IllegalStateException("Empty response after max retries"), attempt - 1);
         }
         return new StreamingResult(null, lastError, attempt - 1);
     }
 
     /**
-     * Sends messages to model in a single attempt. If the model doesn't natively support
-     * function calling for these tools, we emulate it using a JSON Schema approach.
-     * This method now also triggers writing the request to the history file.
+     * Sends messages to model in a single attempt. If the model doesn't natively support function calling for these
+     * tools, we emulate it using a JSON Schema approach. This method now also triggers writing the request to the
+     * history file.
      */
-    private StreamingResult doSingleSendMessage(StreamingChatModel model,
-                                                List<ChatMessage> messages,
-                                                List<ToolSpecification> tools,
-                                                ToolChoice toolChoice,
-                                                boolean echo) throws InterruptedException
-    {
+    private StreamingResult doSingleSendMessage(
+            StreamingChatModel model,
+            List<ChatMessage> messages,
+            List<ToolSpecification> tools,
+            ToolChoice toolChoice,
+            boolean echo)
+            throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
 
@@ -436,12 +449,10 @@ public class Llm {
         var requestBuilder = ChatRequest.builder().messages(messagesToSend);
         if (!tools.isEmpty()) {
             logger.debug("Performing native tool calls");
-            var paramsBuilder = getParamsBuilder()
-                    .toolSpecifications(tools);
+            var paramsBuilder = getParamsBuilder().toolSpecifications(tools);
             if (contextManager.getService().supportsParallelCalls(model)) {
                 // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
-                paramsBuilder = paramsBuilder
-                        .parallelToolCalls(true);
+                paramsBuilder = paramsBuilder.parallelToolCalls(true);
             }
             if (toolChoice == ToolChoice.REQUIRED && contextManager.getService().supportsToolChoiceRequired(model)) {
                 paramsBuilder = paramsBuilder.toolChoice(ToolChoice.REQUIRED);
@@ -468,17 +479,17 @@ public class Llm {
     }
 
     /**
-     * Emulates function calling for models that don't natively support it.
-     * We have two approaches:
-     * 1. Schema-based: For models that support JSON schema in response_format
-     * 2. Text-based: For models without schema support, using text instructions
+     * Emulates function calling for models that don't natively support it. We have two approaches: 1. Schema-based: For
+     * models that support JSON schema in response_format 2. Text-based: For models without schema support, using text
+     * instructions
      */
-    private StreamingResult emulateTools(StreamingChatModel model,
-                                         List<ChatMessage> messages,
-                                         List<ToolSpecification> tools,
-                                         ToolChoice toolChoice,
-                                         boolean echo) throws InterruptedException
-    {
+    private StreamingResult emulateTools(
+            StreamingChatModel model,
+            List<ChatMessage> messages,
+            List<ToolSpecification> tools,
+            ToolChoice toolChoice,
+            boolean echo)
+            throws InterruptedException {
         var enhancedTools = ensureThinkToolPresent(tools);
         if (contextManager.getService().supportsJsonSchema(model)) {
             return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, echo);
@@ -487,16 +498,15 @@ public class Llm {
         }
     }
 
-    /**
-     * Common helper for emulating function calling tools using JSON output
-     */
-    private StreamingResult emulateToolsCommon(List<ChatMessage> messages,
-                                               List<ToolSpecification> tools,
-                                               ToolChoice toolChoice,
-                                               boolean echo,
-                                               Function<List<ChatMessage>, ChatRequest> requestBuilder,
-                                               Function<Throwable, String> retryInstructionsProvider) throws InterruptedException
-    {
+    /** Common helper for emulating function calling tools using JSON output */
+    private StreamingResult emulateToolsCommon(
+            List<ChatMessage> messages,
+            List<ToolSpecification> tools,
+            ToolChoice toolChoice,
+            boolean echo,
+            Function<List<ChatMessage>, ChatRequest> requestBuilder,
+            Function<Throwable, String> retryInstructionsProvider)
+            throws InterruptedException {
         // FIXME we only log the last of the requests performed which could cause difficulty troubleshooting
         assert !tools.isEmpty();
 
@@ -506,7 +516,7 @@ public class Llm {
         final int maxTries = 3;
         List<ChatMessage> attemptMessages = new ArrayList<>(initialProcessedMessages);
 
-        ChatRequest   lastRequest; // for logging
+        ChatRequest lastRequest; // for logging
         StreamingResult finalResult; // what we will return (and have logged)
 
         for (int attempt = 1; true; attempt++) {
@@ -516,7 +526,7 @@ public class Llm {
 
             // Fast-fail on transport / HTTP errors (no retry)
             if (rawResult.error() != null) {
-                finalResult = rawResult;           // will be logged below
+                finalResult = rawResult; // will be logged below
                 break;
             }
 
@@ -524,7 +534,8 @@ public class Llm {
             try {
                 var parseResult = parseJsonToToolRequests(rawResult, objectMapper);
 
-                if (toolChoice == ToolChoice.REQUIRED && parseResult.toolRequests().isEmpty()) {
+                if (toolChoice == ToolChoice.REQUIRED
+                        && parseResult.toolRequests().isEmpty()) {
                     // REQUIRED but none produced – force retry
                     throw new IllegalArgumentException("No 'tool_calls' found in JSON");
                 }
@@ -553,9 +564,10 @@ public class Llm {
                 }
 
                 // Add the model’s invalid output and user instructions, then retry
-                io.llmOutput("\nRetry " + attempt + "/" + (maxTries - 1)
-                                     + ": invalid JSON response; requesting proper format.",
-                             ChatMessageType.CUSTOM);
+                io.llmOutput(
+                        "\nRetry " + attempt + "/" + (maxTries - 1)
+                                + ": invalid JSON response; requesting proper format.",
+                        ChatMessageType.CUSTOM);
                 var txt = rawResult.text();
                 attemptMessages.add(new AiMessage(txt));
                 attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));
@@ -568,18 +580,16 @@ public class Llm {
     }
 
     /**
-     * Preprocesses messages for models requiring tool emulation by combining
-     * sequences of ToolExecutionResultMessages with the *subsequent* UserMessage.
-     * <p>
-     * If a sequence of one or more ToolExecutionResultMessages is immediately
-     * followed by a UserMessage, the results are formatted as text and prepended
-     * to the UserMessage's content. If the results are followed by a different
-     * message type or are at the end of the list. Throws IllegalArgumentException
-     * if this condition is violated.
+     * Preprocesses messages for models requiring tool emulation by combining sequences of ToolExecutionResultMessages
+     * with the *subsequent* UserMessage.
+     *
+     * <p>If a sequence of one or more ToolExecutionResultMessages is immediately followed by a UserMessage, the results
+     * are formatted as text and prepended to the UserMessage's content. If the results are followed by a different
+     * message type or are at the end of the list. Throws IllegalArgumentException if this condition is violated.
      *
      * @param originalMessages The original list of messages.
-     * @return A new list with tool results folded into subsequent UserMessages,
-     * or the original list if no modifications were needed.
+     * @return A new list with tool results folded into subsequent UserMessages, or the original list if no
+     *     modifications were needed.
      * @throws IllegalArgumentException if ToolExecutionResultMessages are not followed by a UserMessage.
      */
     static List<ChatMessage> emulateToolExecutionResults(List<ChatMessage> originalMessages) {
@@ -631,25 +641,24 @@ public class Llm {
         return processedMessages;
     }
 
-    private static String formatToolResults(List<ToolExecutionResultMessage> pendingTerms) { // Changed parameter to List
+    private static String formatToolResults(
+            List<ToolExecutionResultMessage> pendingTerms) { // Changed parameter to List
         return pendingTerms.stream()
-                .map(tr -> """
+                .map(tr ->
+                        """
                         <toolcall id="%s" name="%s">
                         %s
                         </toolcall>
-                        """.stripIndent().formatted(tr.id(), tr.toolName(), tr.text()))
+                        """
+                                .stripIndent()
+                                .formatted(tr.id(), tr.toolName(), tr.text()))
                 .collect(Collectors.joining("\n"));
     }
 
-
-    /**
-     * Emulates function calling for models that support structured output with JSON schema
-     */
-    private StreamingResult emulateToolsUsingJsonSchema(List<ChatMessage> messages,
-                                                        List<ToolSpecification> tools,
-                                                        ToolChoice toolChoice,
-                                                        boolean echo) throws InterruptedException
-    {
+    /** Emulates function calling for models that support structured output with JSON schema */
+    private StreamingResult emulateToolsUsingJsonSchema(
+            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, boolean echo)
+            throws InterruptedException {
         // Build a top-level JSON schema with "tool_calls" as an array of objects
         var toolNames = tools.stream().map(ToolSpecification::name).distinct().toList();
         var schema = buildToolCallsSchema(toolNames);
@@ -657,11 +666,10 @@ public class Llm {
                 .type(ResponseFormatType.JSON)
                 .jsonSchema(schema)
                 .build();
-        var requestParams = getParamsBuilder()
-                .responseFormat(responseFormat)
-                .build();
+        var requestParams = getParamsBuilder().responseFormat(responseFormat).build();
 
-        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) -> """
+        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) ->
+                """
                 %s
                 Please ensure you only return a JSON object matching the schema:
                   {
@@ -676,7 +684,13 @@ public class Llm {
                       }
                     ]
                   }
-                """.stripIndent().formatted(e == null ? "" : "Your previous response was invalid or did not contain tool_calls: " + e.getMessage());
+                """
+                        .stripIndent()
+                        .formatted(
+                                e == null
+                                        ? ""
+                                        : "Your previous response was invalid or did not contain tool_calls: "
+                                                + e.getMessage());
 
         // We'll add a user reminder to produce a JSON that matches the schema
         var instructions = getInstructions(tools, retryInstructionsProvider);
@@ -686,29 +700,25 @@ public class Llm {
         logger.trace("Modified messages are {}", initialMessages);
 
         // Build request creator function
-        Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages ->
-                ChatRequest.builder()
-                        .messages(attemptMessages)
-                        .parameters(requestParams)
-                        .build();
+        Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
+                .messages(attemptMessages)
+                .parameters(requestParams)
+                .build();
 
         return emulateToolsCommon(initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider);
     }
 
-    /**
-     * Emulates function calling for models that don't support schema but can output JSON based on text instructions
-     */
-    private StreamingResult emulateToolsUsingJsonObject(List<ChatMessage> messages,
-                                                        List<ToolSpecification> tools,
-                                                        ToolChoice toolChoice,
-                                                        boolean echo) throws InterruptedException
-    {
-        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) -> """
+    /** Emulates function calling for models that don't support schema but can output JSON based on text instructions */
+    private StreamingResult emulateToolsUsingJsonObject(
+            List<ChatMessage> messages, List<ToolSpecification> tools, ToolChoice toolChoice, boolean echo)
+            throws InterruptedException {
+        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) ->
+                """
                 %s
                 Respond with a single JSON object containing a `tool_calls` array. Each entry in the array represents one invocation of a tool.
                 No additional keys or text are allowed outside of that JSON object.
                 Each tool call must have a `name` that matches one of the available tools, and an `arguments` object containing valid parameters as required by that tool.
-                
+
                 Here is the format visualized, where $foo indicates that you will make appropriate substitutions for the given tool call
                 {
                   "tool_calls": [
@@ -730,14 +740,17 @@ public class Llm {
                     }
                   ]
                 }
-                """.stripIndent().formatted(e == null ? "" : "Your previous response was not valid: " + e.getMessage());
+                """
+                        .stripIndent()
+                        .formatted(e == null ? "" : "Your previous response was not valid: " + e.getMessage());
 
         // Check if we've already added tool instructions to any message
-        boolean instructionsPresent = messages.stream().anyMatch(m ->
-                                                                         Messages.getText(m).contains("available tools:") &&
-                                                                                 Messages.getText(m).contains("tool_calls"));
+        boolean instructionsPresent = messages.stream()
+                .anyMatch(m -> Messages.getText(m).contains("available tools:")
+                        && Messages.getText(m).contains("tool_calls"));
 
-        logger.debug("Tool emulation sending {} messages with instructionsPresent={}", messages.size(), instructionsPresent);
+        logger.debug(
+                "Tool emulation sending {} messages with instructionsPresent={}", messages.size(), instructionsPresent);
 
         // Prepare messages, possibly adding instructions
         List<ChatMessage> initialMessages = new ArrayList<>(messages);
@@ -753,27 +766,18 @@ public class Llm {
         Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
                 .messages(attemptMessages)
                 .parameters(OpenAiChatRequestParameters.builder()
-                                    .responseFormat(ResponseFormat.builder()
-                                                            .type(ResponseFormatType.JSON)
-                                                            .build())
-                                    .build())
+                        .responseFormat(ResponseFormat.builder()
+                                .type(ResponseFormatType.JSON)
+                                .build())
+                        .build())
                 .build();
 
         return emulateToolsCommon(initialMessages, tools, toolChoice, echo, requestBuilder, retryInstructionsProvider);
     }
 
-
     /**
-     * Builds a JSON schema describing exactly:
-     * {
-     * "tool_calls": [
-     * {
-     * "name": "oneOfTheTools",
-     * "arguments": { ... arbitrary object ...}
-     * }
-     * ]
-     * }
-     * We do not attempt fancy anyOf references here (not all providers support them).
+     * Builds a JSON schema describing exactly: { "tool_calls": [ { "name": "oneOfTheTools", "arguments": { ...
+     * arbitrary object ...} } ] } We do not attempt fancy anyOf references here (not all providers support them).
      */
     private static JsonSchema buildToolCallsSchema(List<String> toolNames) {
         // name => enum of tool names
@@ -808,15 +812,12 @@ public class Llm {
                 .description("Top-level object containing a 'tool_calls' array describing calls to be made.")
                 .build();
 
-        return JsonSchema.builder()
-                .name("ToolCalls")
-                .rootElement(rootSchema)
-                .build();
+        return JsonSchema.builder().name("ToolCalls").rootElement(rootSchema).build();
     }
 
     /**
-     * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests.
-     * Expects the top-level to have a "tool_calls" array (or the root might be that array).
+     * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests. Expects the top-level to
+     * have a "tool_calls" array (or the root might be that array).
      */
     private static NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
         // In the primary call path (emulateToolsCommon), if result.error() is null,
@@ -874,7 +875,8 @@ public class Llm {
         for (int i = 0; i < toolCallsNode.size(); i++) {
             JsonNode toolCall = toolCallsNode.get(i);
             if (!toolCall.has("name") || !toolCall.has("arguments")) {
-                throw new IllegalArgumentException("Tool call object is missing 'name' or 'arguments' field at index " + i);
+                throw new IllegalArgumentException(
+                        "Tool call object is missing 'name' or 'arguments' field at index " + i);
             }
 
             String toolName = toolCall.get("name").asText();
@@ -888,7 +890,8 @@ public class Llm {
             if ("think".equals(toolName)) {
                 // Extract reasoning from the "think" tool
                 if (!arguments.has("reasoning") || !arguments.get("reasoning").isTextual()) {
-                    throw new IllegalArgumentException("Found 'think' tool call without a textual 'reasoning' argument at index " + i);
+                    throw new IllegalArgumentException(
+                            "Found 'think' tool call without a textual 'reasoning' argument at index " + i);
                 }
                 thinkReasoning.add(arguments.get("reasoning").asText());
             }
@@ -909,10 +912,12 @@ public class Llm {
         }
 
         // Pass the original raw response alongside the parsed one
-        return new NullSafeResponse(aiMessageText, cResponse.reasoningContent(), toolExecutionRequests, result.originalResponse());
+        return new NullSafeResponse(
+                aiMessageText, cResponse.reasoningContent(), toolExecutionRequests, result.originalResponse());
     }
 
-    private static String getInstructions(List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
+    private static String getInstructions(
+            List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
                     var parametersInfo = tool.parameters().properties().entrySet().stream()
@@ -921,7 +926,8 @@ public class Llm {
                                 String description;
                                 String type;
 
-                                // this seems unnecessarily clunky but the common interface does not offer anything useful
+                                // this seems unnecessarily clunky but the common interface does not offer anything
+                                // useful
                                 switch (schema) {
                                     case JsonStringSchema jsSchema -> {
                                         description = jsSchema.description();
@@ -930,14 +936,16 @@ public class Llm {
                                     case JsonArraySchema jaSchema -> {
                                         description = jaSchema.description();
                                         var itemSchema = jaSchema.items();
-                                        String itemType = switch (itemSchema) {
-                                            case JsonStringSchema __ -> "string";
-                                            case JsonIntegerSchema __ -> "integer";
-                                            case JsonNumberSchema __ -> "number";
-                                            case JsonBooleanSchema __ -> "boolean";
-                                            default ->
-                                                    throw new IllegalArgumentException("Unsupported array item type: " + itemSchema);
-                                        };
+                                        String itemType =
+                                                switch (itemSchema) {
+                                                    case JsonStringSchema __ -> "string";
+                                                    case JsonIntegerSchema __ -> "integer";
+                                                    case JsonNumberSchema __ -> "number";
+                                                    case JsonBooleanSchema __ -> "boolean";
+                                                    default ->
+                                                        throw new IllegalArgumentException(
+                                                                "Unsupported array item type: " + itemSchema);
+                                                };
                                         type = "array of %s".formatted(itemType);
                                     }
                                     case JsonIntegerSchema jiSchema -> {
@@ -960,12 +968,13 @@ public class Llm {
                                         <parameter name="%s" type="%s" required="%s">
                                         %s
                                         </parameter>
-                                        """.stripIndent().formatted(
-                                        entry.getKey(),
-                                        type,
-                                        tool.parameters().required().contains(entry.getKey()),
-                                        description
-                                );
+                                        """
+                                        .stripIndent()
+                                        .formatted(
+                                                entry.getKey(),
+                                                type,
+                                                tool.parameters().required().contains(entry.getKey()),
+                                                description);
                             })
                             .collect(Collectors.joining("\n"));
 
@@ -974,67 +983,82 @@ public class Llm {
                             %s
                             %s
                             </tool>
-                            """.stripIndent().formatted(tool.name(),
-                                                        tool.description(),
-                                                        parametersInfo.isEmpty() ? "(No parameters)" : parametersInfo);
-                }).collect(Collectors.joining("\n"));
+                            """
+                            .stripIndent()
+                            .formatted(
+                                    tool.name(),
+                                    tool.description(),
+                                    parametersInfo.isEmpty() ? "(No parameters)" : parametersInfo);
+                })
+                .collect(Collectors.joining("\n"));
 
         // if you change this you probably also need to change emulatedToolInstructionsPresent
         return """
                 %d available tools:
                 %s
-                
+
                 %s
-                
+
                 Include all the tool calls necessary to satisfy the request in a single object!
-                """.stripIndent().formatted(tools.size(), toolsDescription, retryInstructionsProvider.apply(null));
+                """
+                .stripIndent()
+                .formatted(tools.size(), toolsDescription, retryInstructionsProvider.apply(null));
     }
 
     /**
-     * Ensures the "think" tool is present in the tools list for emulation, but only for models
-     * that are *not* designated as "reasoning" models (which are expected to think implicitly).
-     * This provides a consistent way for non-reasoning models to reason through complex problems.
+     * Ensures the "think" tool is present in the tools list for emulation, but only for models that are *not*
+     * designated as "reasoning" models (which are expected to think implicitly). This provides a consistent way for
+     * non-reasoning models to reason through complex problems.
      *
      * @param originalTools The original list of tool specifications.
-     * @return A new list containing all original tools plus the think tool if not already present
-     * and the model is not a designated reasoning model.
+     * @return A new list containing all original tools plus the think tool if not already present and the model is not
+     *     a designated reasoning model.
      */
     private List<ToolSpecification> ensureThinkToolPresent(List<ToolSpecification> originalTools) {
         // Check if the think tool is already in the list
-        boolean hasThinkTool = originalTools.stream()
-                .anyMatch(tool -> "think".equals(tool.name()));
+        boolean hasThinkTool = originalTools.stream().anyMatch(tool -> "think".equals(tool.name()));
         if (hasThinkTool) {
             return originalTools;
         }
 
         // Add the think tool only if the model is not a reasoning model
         if (!contextManager.getService().isReasoning(this.model)) {
-            logger.debug("Adding 'think' tool for non-reasoning model {}", contextManager.getService().nameOf(this.model));
+            logger.debug(
+                    "Adding 'think' tool for non-reasoning model {}",
+                    contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
             enhancedTools.addAll(contextManager.getToolRegistry().getRegisteredTools(List.of("think")));
             return enhancedTools;
         }
-        logger.debug("Skipping 'think' tool for reasoning model {}", contextManager.getService().nameOf(this.model));
+        logger.debug(
+                "Skipping 'think' tool for reasoning model {}",
+                contextManager.getService().nameOf(this.model));
         return originalTools;
     }
 
-    /**
-     * Writes history information to task-specific files.
-     */
-    private synchronized void logRequest(StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result) {
+    /** Writes history information to task-specific files. */
+    private synchronized void logRequest(
+            StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result) {
         try {
             var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()); // timestamp finished, not started
 
-            var formattedRequest = "# Request to %s:\n\n%s\n".formatted(contextManager.getService().nameOf(model),
-                                                                        TaskEntry.formatMessages(request.messages()));
-            var formattedTools = request.toolSpecifications() == null ? "" : "# Tools:\n\n" + request.toolSpecifications().stream().map(ToolSpecification::name).collect(Collectors.joining("\n"));
-            var formattedResponse = result == null
-                                    ? "# Response:\n\nCancelled"
-                                    : "# Response:\n\n%s".formatted(result.formatted());
+            var formattedRequest = "# Request to %s:\n\n%s\n"
+                    .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
+            var formattedTools = request.toolSpecifications() == null
+                    ? ""
+                    : "# Tools:\n\n"
+                            + request.toolSpecifications().stream()
+                                    .map(ToolSpecification::name)
+                                    .collect(Collectors.joining("\n"));
+            var formattedResponse =
+                    result == null ? "# Response:\n\nCancelled" : "# Response:\n\n%s".formatted(result.formatted());
             String fileTimestamp = timestamp.format(DateTimeFormatter.ofPattern("HH-mm-ss"));
-            String shortDesc = result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
+            String shortDesc =
+                    result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
             var filePath = taskHistoryDir.resolve(String.format("%s %s.log", fileTimestamp, shortDesc));
-            var options = new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE};
+            var options = new StandardOpenOption[] {
+                StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
+            };
             logger.trace("Writing history to file {}", filePath);
             // Ensure the filename is unique before writing
             var uniqueFilePath = filePath;
@@ -1054,35 +1078,32 @@ public class Llm {
             Files.writeString(uniqueFilePath, formattedRequest + formattedTools + formattedResponse, options);
 
             // Also persist the raw ChatRequest in a matching -request.json file
-            var requestFileName = uniqueFilePath.getFileName()
-                                                .toString()
-                                                .replaceFirst("\\.log$", "-request.json");
-            var requestPath     = uniqueFilePath.resolveSibling(requestFileName);
+            var requestFileName = uniqueFilePath.getFileName().toString().replaceFirst("\\.log$", "-request.json");
+            var requestPath = uniqueFilePath.resolveSibling(requestFileName);
 
-            var requestOptions  = new StandardOpenOption[]{
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.CREATE_NEW,
-                    StandardOpenOption.WRITE
+            var requestOptions = new StandardOpenOption[] {
+                StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
-            var requestJson = objectMapper.writerWithDefaultPrettyPrinter()
-                                          .writeValueAsString(request);
+            var requestJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
             Files.writeString(requestPath, requestJson, requestOptions);
         } catch (IOException e) {
             logger.error("Failed to write LLM history file", e);
         }
     }
 
-
-    public record NullSafeResponse(@Nullable String text,
-                                   @Nullable String reasoningContent,
-                                   List<ToolExecutionRequest> toolRequests,
-                                   @Nullable ChatResponse originalResponse)
-    {
+    public record NullSafeResponse(
+            @Nullable String text,
+            @Nullable String reasoningContent,
+            List<ToolExecutionRequest> toolRequests,
+            @Nullable ChatResponse originalResponse) {
         public NullSafeResponse(@Nullable ChatResponse cr) {
-            this(cr == null || cr.aiMessage() == null ? null : cr.aiMessage().text(),
-                 cr == null || cr.aiMessage() == null ? null : cr.aiMessage().reasoningContent(),
-                 cr == null || cr.aiMessage() == null || !cr.aiMessage().hasToolExecutionRequests() ? List.of() : cr.aiMessage().toolExecutionRequests(),
-                 cr);
+            this(
+                    cr == null || cr.aiMessage() == null ? null : cr.aiMessage().text(),
+                    cr == null || cr.aiMessage() == null ? null : cr.aiMessage().reasoningContent(),
+                    cr == null || cr.aiMessage() == null || !cr.aiMessage().hasToolExecutionRequests()
+                            ? List.of()
+                            : cr.aiMessage().toolExecutionRequests(),
+                    cr);
         }
 
         public boolean isEmpty() {
@@ -1101,22 +1122,19 @@ public class Llm {
         // TODO this should be final but disentanglihg from ContextManager is difficult
         this.io = io;
     }
-    
-    public record RichTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) { }
+
+    public record RichTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {}
 
     /**
-     * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS
-     * if the LLM hangs up abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result
-     * and also include the error that we got from the HTTP layer. In this case chatResponse and error will both be non-null,
-     * but chatResponse.originalResponse will be null.
+     * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS if the LLM hangs up
+     * abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result and
+     * also include the error that we got from the HTTP layer. In this case chatResponse and error will both be
+     * non-null, but chatResponse.originalResponse will be null.
      *
-     * Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually
-     * inspecting the contents of chatResponse.
+     * <p>Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually inspecting the
+     * contents of chatResponse.
      */
-    public record StreamingResult(@Nullable NullSafeResponse chatResponse,
-                                  @Nullable Throwable error,
-                                  int retries)
-    {
+    public record StreamingResult(@Nullable NullSafeResponse chatResponse, @Nullable Throwable error, int retries) {
         public StreamingResult(@Nullable NullSafeResponse partialResponse, @Nullable Throwable error) {
             this(partialResponse, error, 0);
         }
@@ -1136,7 +1154,7 @@ public class Llm {
                 assert chatResponse == null || chatResponse.originalResponse == null;
             }
         }
-        
+
         public @Nullable RichTokenUsage tokenUsage() {
             if (originalResponse() == null) {
                 return null;
@@ -1148,10 +1166,10 @@ public class Llm {
             }
 
             // always present
-            int inputTokens       = usage.inputTokenCount();
+            int inputTokens = usage.inputTokenCount();
             int cachedInputTokens = 0;
-            int thinkingTokens    = 0;
-            int outputTokens      = usage.outputTokenCount();
+            int thinkingTokens = 0;
+            int outputTokens = usage.outputTokenCount();
 
             // only present if litellm didn't fuck up the streaming-complete response
             var inputDetails = usage.inputTokensDetails();
@@ -1179,16 +1197,14 @@ public class Llm {
         }
 
         public @Nullable ChatResponse originalResponse() {
-            return chatResponse == null ? null :  chatResponse.originalResponse;
+            return chatResponse == null ? null : chatResponse.originalResponse;
         }
 
         public List<ToolExecutionRequest> toolRequests() {
             return chatResponse == null ? List.of() : chatResponse.toolRequests;
         }
 
-        /**
-         * Package-private since unless you are test code you should almost always call aiMessage() instead
-         */
+        /** Package-private since unless you are test code you should almost always call aiMessage() instead */
         @VisibleForTesting
         AiMessage originalMessage() {
             return requireNonNull(requireNonNull(chatResponse).originalResponse).aiMessage();
@@ -1201,9 +1217,7 @@ public class Llm {
             return chatResponse != null;
         }
 
-        /**
-         * @return the response text if a response is present; else throws
-         */
+        /** @return the response text if a response is present; else throws */
         public AiMessage aiMessage() {
             requireNonNull(chatResponse);
             return chatResponse.aiMessage();
@@ -1221,7 +1235,9 @@ public class Llm {
                 return """
                        [Error: %s]
                        %s
-                       """.stripIndent().formatted(formatThrowable(error), contentToShow);
+                       """
+                        .stripIndent()
+                        .formatted(formatThrowable(error), contentToShow);
             }
             // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
             return castNonNull(originalResponse()).toString();

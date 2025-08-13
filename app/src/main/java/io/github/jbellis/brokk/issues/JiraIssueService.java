@@ -1,15 +1,12 @@
 package io.github.jbellis.brokk.issues;
 
+import static java.util.Objects.requireNonNull;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
-import okhttp3.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -17,15 +14,19 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
-
-import static java.util.Objects.requireNonNull;
+import okhttp3.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class JiraIssueService implements IssueService {
 
     private static final Logger logger = LogManager.getLogger(JiraIssueService.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final DateTimeFormatter JIRA_PRIMARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
-    private static final DateTimeFormatter JIRA_SECONDARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", java.util.Locale.ROOT);
+    private static final DateTimeFormatter JIRA_PRIMARY_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
+    private static final DateTimeFormatter JIRA_SECONDARY_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", java.util.Locale.ROOT);
 
     private final JiraAuth jiraAuth;
     private final IssueProvider provider;
@@ -48,9 +49,10 @@ public class JiraIssueService implements IssueService {
 
         // Attempt 1: Primary ISO formatter (OffsetDateTime)
         try {
-            return Date.from(OffsetDateTime.parse(dateTimeStr, JIRA_PRIMARY_DATE_FORMATTER).toInstant());
+            return Date.from(OffsetDateTime.parse(dateTimeStr, JIRA_PRIMARY_DATE_FORMATTER)
+                    .toInstant());
         } catch (DateTimeParseException e1) {
-            //logger.trace("Primary date parse failed for '{}': {}", dateTimeStr, e1.getMessage());
+            // logger.trace("Primary date parse failed for '{}': {}", dateTimeStr, e1.getMessage());
             // Fall through to try the secondary formatter
         }
 
@@ -60,7 +62,10 @@ public class JiraIssueService implements IssueService {
             // Assume system default timezone for dates without explicit offset from renderedFields.
             return Date.from(ldt.atZone(java.time.ZoneId.systemDefault()).toInstant());
         } catch (DateTimeParseException e2) {
-            logger.warn("Could not parse date string from Jira: '{}'. Tried primary ISO format and secondary 'dd/MMM/yy HH:mm' format. Error from last attempt: {}", dateTimeStr, e2.getMessage());
+            logger.warn(
+                    "Could not parse date string from Jira: '{}'. Tried primary ISO format and secondary 'dd/MMM/yy HH:mm' format. Error from last attempt: {}",
+                    dateTimeStr,
+                    e2.getMessage());
             throw e2; // Propagate the exception if all attempts fail
         }
     }
@@ -68,12 +73,15 @@ public class JiraIssueService implements IssueService {
     @Override
     public ImmutableList<IssueHeader> listIssues(FilterOptions rawFilterOptions) throws IOException {
         if (!(rawFilterOptions instanceof JiraFilterOptions filterOptions)) {
-            throw new IllegalArgumentException("JiraIssueService requires JiraFilterOptions, got " + rawFilterOptions.getClass().getName());
+            throw new IllegalArgumentException("JiraIssueService requires JiraFilterOptions, got "
+                    + rawFilterOptions.getClass().getName());
         }
         logger.debug("Attempting to list Jira issues with filter options: {}", filterOptions);
 
-        if (this.provider.type() != IssueProviderType.JIRA || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
-            String errorMessage = "JiraIssueService called with non-Jira or misconfigured provider. Type: " + this.provider.type();
+        if (this.provider.type() != IssueProviderType.JIRA
+                || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
+            String errorMessage =
+                    "JiraIssueService called with non-Jira or misconfigured provider. Type: " + this.provider.type();
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
@@ -94,7 +102,8 @@ public class JiraIssueService implements IssueService {
         String statusClause = "";
         String statusFilter = filterOptions.status();
         if (statusFilter != null && !statusFilter.isBlank()) {
-            // Escape double quotes in status value for JQL compatibility, though typically status names don't have them.
+            // Escape double quotes in status value for JQL compatibility, though typically status names don't have
+            // them.
             String escapedStatus = statusFilter.replace("\"", "\\\"");
             statusClause = String.format(" AND status = \"%s\"", escapedStatus);
         }
@@ -110,7 +119,8 @@ public class JiraIssueService implements IssueService {
             // If filterOptions.resolution() is something else, it's ignored for now.
         }
 
-        StringBuilder jqlBuilder = new StringBuilder(String.format("project = %s%s%s", projectKey, statusClause, resolutionClause));
+        StringBuilder jqlBuilder =
+                new StringBuilder(String.format("project = %s%s%s", projectKey, statusClause, resolutionClause));
 
         String queryFilter = filterOptions.query();
         if (queryFilter != null && !queryFilter.isBlank()) {
@@ -122,7 +132,8 @@ public class JiraIssueService implements IssueService {
         String jql = jqlBuilder.toString();
         logger.debug("Executing Jira JQL query: {}", jql);
 
-        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/search")).newBuilder();
+        HttpUrl.Builder urlBuilder =
+                requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/search")).newBuilder();
         urlBuilder.addQueryParameter("jql", jql);
         urlBuilder.addQueryParameter("fields", "key,summary,updated,status,reporter,assignee,labels");
         urlBuilder.addQueryParameter("maxResults", "50");
@@ -145,15 +156,23 @@ public class JiraIssueService implements IssueService {
             responseBodyString = responseBody.string(); // Read body ONCE
 
             if (!response.isSuccessful()) {
-                logger.error("Failed to fetch Jira issues. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
-                             request.url(), response.code(), response.message(), responseBodyString);
+                logger.error(
+                        "Failed to fetch Jira issues. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
+                        request.url(),
+                        response.code(),
+                        response.message(),
+                        responseBodyString);
                 return ImmutableList.of();
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
-                logger.error("Expected JSON response from Jira for listIssues but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
-                             contentType, request.url(), responseBodyString);
+            if (contentType == null
+                    || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
+                logger.error(
+                        "Expected JSON response from Jira for listIssues but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
+                        contentType,
+                        request.url(),
+                        responseBodyString);
                 return ImmutableList.of();
             }
 
@@ -175,7 +194,8 @@ public class JiraIssueService implements IssueService {
                     Date updatedAt = parseJiraDateTime(updatedStr);
 
                     String status = fieldsNode.path("status").path("name").asText("Unknown");
-                    String author = fieldsNode.path("reporter").path("displayName").asText("Anonymous");
+                    String author =
+                            fieldsNode.path("reporter").path("displayName").asText("Anonymous");
 
                     // Placeholder for labels and assignees as per requirements
                     List<String> labels = Collections.emptyList();
@@ -188,18 +208,27 @@ public class JiraIssueService implements IssueService {
                         logger.warn("Could not construct htmlUrl for issue {}: {}", issueKey, baseUrl, e);
                     }
 
-                    issueHeaders.add(new IssueHeader(issueKey, title, author, updatedAt, labels, assignees, status, htmlUrl));
+                    issueHeaders.add(
+                            new IssueHeader(issueKey, title, author, updatedAt, labels, assignees, status, htmlUrl));
                 }
             } else {
                 logger.warn("Jira response 'issues' field is not an array or is missing.");
             }
 
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            logger.error("JSON parsing error while processing Jira list issues response. URL: {}. Error: {}. Response body (if available) was:\n{}",
-                         request.url(), e.getMessage(), responseBodyString, e);
+            logger.error(
+                    "JSON parsing error while processing Jira list issues response. URL: {}. Error: {}. Response body (if available) was:\n{}",
+                    request.url(),
+                    e.getMessage(),
+                    responseBodyString,
+                    e);
             return ImmutableList.of();
         } catch (IOException e) {
-            logger.error("IOException while fetching or parsing Jira issues (URL: {}): {}", request.url(), e.getMessage(), e);
+            logger.error(
+                    "IOException while fetching or parsing Jira issues (URL: {}): {}",
+                    request.url(),
+                    e.getMessage(),
+                    e);
             return ImmutableList.of();
         }
 
@@ -211,8 +240,11 @@ public class JiraIssueService implements IssueService {
     public IssueDetails loadDetails(String issueId) throws IOException {
         logger.debug("Attempting to load Jira issue details for issueId: {}", issueId);
 
-        if (this.provider.type() != IssueProviderType.JIRA || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
-            String errorMessage = "JiraIssueService called (loadDetails) with non-Jira or misconfigured provider. Type: " + this.provider.type();
+        if (this.provider.type() != IssueProviderType.JIRA
+                || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
+            String errorMessage =
+                    "JiraIssueService called (loadDetails) with non-Jira or misconfigured provider. Type: "
+                            + this.provider.type();
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
@@ -226,8 +258,11 @@ public class JiraIssueService implements IssueService {
 
         OkHttpClient client = this.httpClient(); // httpClient already uses the provider
 
-        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/issue/" + issueId)).newBuilder();
-        urlBuilder.addQueryParameter("fields", "summary,description,status,reporter,assignee,labels,comment,attachment,updated,created,issuetype");
+        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/issue/" + issueId))
+                .newBuilder();
+        urlBuilder.addQueryParameter(
+                "fields",
+                "summary,description,status,reporter,assignee,labels,comment,attachment,updated,created,issuetype");
         urlBuilder.addQueryParameter("expand", "renderedFields");
 
         Request request = new Request.Builder()
@@ -246,16 +281,28 @@ public class JiraIssueService implements IssueService {
             responseBodyString = responseBody.string(); // Read body ONCE
 
             if (!response.isSuccessful()) {
-                logger.error("Failed to fetch Jira issue details for {}. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
-                             issueId, request.url(), response.code(), response.message(), responseBodyString);
-                throw new IOException("Failed to fetch Jira issue details for " + issueId + ": " + response.code() + " " + response.message());
+                logger.error(
+                        "Failed to fetch Jira issue details for {}. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
+                        issueId,
+                        request.url(),
+                        response.code(),
+                        response.message(),
+                        responseBodyString);
+                throw new IOException("Failed to fetch Jira issue details for " + issueId + ": " + response.code() + " "
+                        + response.message());
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
-                logger.error("Expected JSON response for Jira issue details {} but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
-                             issueId, contentType, request.url(), responseBodyString);
-                throw new IOException("Expected JSON response for Jira issue " + issueId + " but received Content-Type: " + contentType);
+            if (contentType == null
+                    || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
+                logger.error(
+                        "Expected JSON response for Jira issue details {} but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
+                        issueId,
+                        contentType,
+                        request.url(),
+                        responseBodyString);
+                throw new IOException("Expected JSON response for Jira issue " + issueId
+                        + " but received Content-Type: " + contentType);
             }
 
             JsonNode rootNode = objectMapper.readTree(responseBodyString);
@@ -263,8 +310,13 @@ public class JiraIssueService implements IssueService {
             // Map to IssueHeader
             String key = rootNode.path("key").asText(null);
             if (key == null || !key.equals(issueId)) {
-                logger.error("Mismatched issue key. Expected: {}, Got: {}. Full response: {}", issueId, key, rootNode.toString());
-                throw new IOException("Fetched issue key (" + key + ") does not match requested issueId (" + issueId + ")");
+                logger.error(
+                        "Mismatched issue key. Expected: {}, Got: {}. Full response: {}",
+                        issueId,
+                        key,
+                        rootNode.toString());
+                throw new IOException(
+                        "Fetched issue key (" + key + ") does not match requested issueId (" + issueId + ")");
             }
 
             JsonNode fieldsNode = rootNode.path("fields");
@@ -301,20 +353,27 @@ public class JiraIssueService implements IssueService {
             IssueHeader header = new IssueHeader(key, title, author, updatedAt, labels, assignees, status, htmlUrl);
 
             // Extract renderedBody (HTML)
-            String renderedDescription = rootNode.path("renderedFields").path("description").asText("");
+            String renderedDescription =
+                    rootNode.path("renderedFields").path("description").asText("");
 
             // Parse comments
             List<Comment> comments = new ArrayList<>();
             JsonNode rawCommentsNode = rootNode.path("fields").path("comment").path("comments");
-            JsonNode htmlCommentsNode = rootNode.path("renderedFields").path("comment").path("comments");
+            JsonNode htmlCommentsNode =
+                    rootNode.path("renderedFields").path("comment").path("comments");
 
             if (rawCommentsNode.isArray()) {
                 for (int i = 0; i < rawCommentsNode.size(); i++) {
                     JsonNode rawComment = rawCommentsNode.get(i);
-                    JsonNode htmlComment = (htmlCommentsNode.isArray() && i < htmlCommentsNode.size()) ? htmlCommentsNode.get(i) : null;
+                    JsonNode htmlComment = (htmlCommentsNode.isArray() && i < htmlCommentsNode.size())
+                            ? htmlCommentsNode.get(i)
+                            : null;
 
-                    String authorName = rawComment.path("author").path("displayName").asText("Unknown Author");
-                    String bodyHtml = (htmlComment != null) ? htmlComment.path("renderedBody").asText("") : "";
+                    String authorName =
+                            rawComment.path("author").path("displayName").asText("Unknown Author");
+                    String bodyHtml = (htmlComment != null)
+                            ? htmlComment.path("renderedBody").asText("")
+                            : "";
                     // If renderedBody is not available from htmlComment, bodyHtml will be empty.
                     // This follows the user's provided logic snippet.
 
@@ -325,7 +384,10 @@ public class JiraIssueService implements IssueService {
                 }
                 logger.debug("Parsed {} comments for Jira issue {}", comments.size(), issueId);
             } else {
-                logger.warn("No 'comments' array found under fields.comment.comments for issue {}. Node type: {}", issueId, rawCommentsNode.getNodeType());
+                logger.warn(
+                        "No 'comments' array found under fields.comment.comments for issue {}. Node type: {}",
+                        issueId,
+                        rawCommentsNode.getNodeType());
             }
 
             // Parse attachments
@@ -340,7 +402,11 @@ public class JiraIssueService implements IssueService {
                             try {
                                 attachmentUrls.add(new URI(contentUrlStr));
                             } catch (URISyntaxException e) {
-                                logger.warn("Invalid URI syntax for attachment content URL: '{}' from issue {}. Skipping. Error: {}", contentUrlStr, issueId, e.getMessage());
+                                logger.warn(
+                                        "Invalid URI syntax for attachment content URL: '{}' from issue {}. Skipping. Error: {}",
+                                        contentUrlStr,
+                                        issueId,
+                                        e.getMessage());
                             }
                         }
                     }
@@ -350,15 +416,29 @@ public class JiraIssueService implements IssueService {
                 logger.warn("No 'attachment' array found or it's not an array for issue {}.", issueId);
             }
 
-            logger.info("Successfully loaded details (including {} comments and {} image attachments) for Jira issue: {}", comments.size(), attachmentUrls.size(), issueId);
+            logger.info(
+                    "Successfully loaded details (including {} comments and {} image attachments) for Jira issue: {}",
+                    comments.size(),
+                    attachmentUrls.size(),
+                    issueId);
             return new IssueDetails(header, renderedDescription, comments, attachmentUrls);
 
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            logger.error("JSON parsing error while processing Jira issue details for {}. URL: {}. Error: {}. Response body (if available) was:\n{}",
-                         issueId, request.url(), e.getMessage(), responseBodyString, e);
+            logger.error(
+                    "JSON parsing error while processing Jira issue details for {}. URL: {}. Error: {}. Response body (if available) was:\n{}",
+                    issueId,
+                    request.url(),
+                    e.getMessage(),
+                    responseBodyString,
+                    e);
             throw new IOException("Failed to parse JSON response for issue " + issueId + ": " + e.getMessage(), e);
         } catch (IOException e) {
-            logger.error("IOException while fetching or parsing Jira issue details for {} (URL: {}): {}", issueId, request.url(), e.getMessage(), e);
+            logger.error(
+                    "IOException while fetching or parsing Jira issue details for {} (URL: {}): {}",
+                    issueId,
+                    request.url(),
+                    e.getMessage(),
+                    e);
             throw e;
         }
     }
@@ -376,8 +456,11 @@ public class JiraIssueService implements IssueService {
         }
 
         logger.debug("Fetching available statuses from Jira API.");
-        if (this.provider.type() != IssueProviderType.JIRA || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
-            String errorMessage = "JiraIssueService called (listAvailableStatuses) with non-Jira or misconfigured provider. Type: " + this.provider.type();
+        if (this.provider.type() != IssueProviderType.JIRA
+                || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
+            String errorMessage =
+                    "JiraIssueService called (listAvailableStatuses) with non-Jira or misconfigured provider. Type: "
+                            + this.provider.type();
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
@@ -389,7 +472,8 @@ public class JiraIssueService implements IssueService {
             throw new IOException(errorMessage);
         }
         OkHttpClient client = httpClient(); // httpClient already uses the provider
-        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/status")).newBuilder();
+        HttpUrl.Builder urlBuilder =
+                requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/status")).newBuilder();
         Request request = new Request.Builder()
                 .url(urlBuilder.build())
                 .header("Accept", "application/json")
@@ -406,15 +490,23 @@ public class JiraIssueService implements IssueService {
             responseBodyString = responseBody.string();
 
             if (!response.isSuccessful()) {
-                logger.error("Failed to fetch Jira statuses. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
-                             request.url(), response.code(), response.message(), responseBodyString);
+                logger.error(
+                        "Failed to fetch Jira statuses. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
+                        request.url(),
+                        response.code(),
+                        response.message(),
+                        responseBodyString);
                 return Collections.emptyList();
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
-                logger.error("Expected JSON response from Jira for /status but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
-                             contentType, request.url(), responseBodyString);
+            if (contentType == null
+                    || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
+                logger.error(
+                        "Expected JSON response from Jira for /status but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
+                        contentType,
+                        request.url(),
+                        responseBodyString);
                 return Collections.emptyList();
             }
 
@@ -426,7 +518,9 @@ public class JiraIssueService implements IssueService {
                     if (statusName != null && !statusName.isBlank()) {
                         statusNames.add(statusName);
                     } else {
-                        logger.warn("Found a status object without a 'name' or with a blank name: {}", statusNode.toString());
+                        logger.warn(
+                                "Found a status object without a 'name' or with a blank name: {}",
+                                statusNode.toString());
                     }
                 }
                 logger.info("Successfully fetched {} Jira statuses.", statusNames.size());
@@ -437,12 +531,20 @@ public class JiraIssueService implements IssueService {
                 return Collections.emptyList();
             }
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            logger.error("JSON parsing error while processing Jira /status response. URL: {}. Error: {}. Response body (if available) was:\n{}",
-                         request.url(), e.getMessage(), responseBodyString, e);
+            logger.error(
+                    "JSON parsing error while processing Jira /status response. URL: {}. Error: {}. Response body (if available) was:\n{}",
+                    request.url(),
+                    e.getMessage(),
+                    responseBodyString,
+                    e);
             return Collections.emptyList();
         } catch (IOException e) {
             // httpClient() or client.newCall().execute() can throw IOException
-            logger.error("IOException while fetching or parsing Jira statuses (URL: {}): {}", request.url(), e.getMessage(), e);
+            logger.error(
+                    "IOException while fetching or parsing Jira statuses (URL: {}): {}",
+                    request.url(),
+                    e.getMessage(),
+                    e);
             throw e; // Re-throw general IOExceptions as per method signature
         }
     }

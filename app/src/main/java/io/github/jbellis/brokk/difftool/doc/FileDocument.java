@@ -1,6 +1,4 @@
-
 package io.github.jbellis.brokk.difftool.doc;
-
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
@@ -18,8 +16,7 @@ import java.nio.charset.StandardCharsets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class FileDocument
-        extends AbstractBufferDocument {
+public class FileDocument extends AbstractBufferDocument {
     private static final Logger logger = LogManager.getLogger(FileDocument.class);
     private static final int DEFAULT_BUFFER_SIZE = 1024;
 
@@ -53,7 +50,8 @@ public class FileDocument
             if (!file.exists() || !file.canRead()) {
                 logger.warn("File does not exist or cannot be read: " + file.getAbsolutePath());
                 // Return a reader for an empty string if file is inaccessible
-                return new BufferedReader(new InputStreamReader(new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
+                return new BufferedReader(new InputStreamReader(
+                        new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
             }
 
             // Always use UTF-8 encoding
@@ -64,12 +62,11 @@ public class FileDocument
         }
     }
 
-
     @Override
     public Writer getWriter() throws IOException {
-         if (isReadonly()) {
-             throw new IOException("Cannot get writer for read-only file: " + file.getName());
-         }
+        if (isReadonly()) {
+            throw new IOException("Cannot get writer for read-only file: " + file.getName());
+        }
         try {
             // Always use UTF-8 encoding for writing
             FileOutputStream fos = new FileOutputStream(file); // Opens the file for writing (truncates by default)

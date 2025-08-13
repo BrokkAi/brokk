@@ -1,17 +1,16 @@
 package io.github.jbellis.brokk;
 
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
-import org.jetbrains.annotations.Nullable;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
 
@@ -21,6 +20,7 @@ public interface IProject extends AutoCloseable {
 
     /**
      * Gets the set of Brokk Language enums configured for the project.
+     *
      * @return A set of Language enums.
      */
     default Set<Language> getAnalyzerLanguages() {
@@ -31,9 +31,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * All files in the project, including decompiled dependencies that are not in the git repo.
-     */
+    /** All files in the project, including decompiled dependencies that are not in the git repo. */
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
     }
@@ -42,6 +40,7 @@ public interface IProject extends AutoCloseable {
 
     /**
      * Gets the structured build details inferred by the BuildAgent.
+     *
      * @return BuildDetails record, potentially BuildDetails.EMPTY if not found or on error.
      */
     default BuildAgent.BuildDetails loadBuildDetails() {
@@ -123,37 +122,88 @@ public interface IProject extends AutoCloseable {
 
     default void setDataRetentionPolicy(MainProject.DataRetentionPolicy selectedPolicy) {}
 
-    default java.awt.Rectangle getPreviewWindowBounds() { throw new UnsupportedOperationException(); }
-    default void savePreviewWindowBounds(javax.swing.JFrame frame) { throw new UnsupportedOperationException(); }
-    default java.awt.Rectangle getDiffWindowBounds() { throw new UnsupportedOperationException(); }
-    default void saveDiffWindowBounds(javax.swing.JFrame frame) { throw new UnsupportedOperationException(); }
-    default java.awt.Rectangle getOutputWindowBounds() { throw new UnsupportedOperationException(); }
-    default void saveOutputWindowBounds(javax.swing.JFrame frame) { throw new UnsupportedOperationException(); }
-    default java.util.Optional<java.awt.Rectangle> getMainWindowBounds() { throw new UnsupportedOperationException(); }
-    default void saveMainWindowBounds(javax.swing.JFrame frame) { throw new UnsupportedOperationException(); }
+    default java.awt.Rectangle getPreviewWindowBounds() {
+        throw new UnsupportedOperationException();
+    }
 
-    default int getHorizontalSplitPosition() { return -1;}
-    default void saveHorizontalSplitPosition(int position) {throw new UnsupportedOperationException(); }
-    default int getLeftVerticalSplitPosition() { return -1;}
-    default void saveLeftVerticalSplitPosition(int position) {throw new UnsupportedOperationException(); }
-    default int getRightVerticalSplitPosition() { return -1;}
-    default void saveRightVerticalSplitPosition(int position) {throw new UnsupportedOperationException(); }
+    default void savePreviewWindowBounds(javax.swing.JFrame frame) {
+        throw new UnsupportedOperationException();
+    }
 
-    default List<String> loadTextHistory() { return List.of(); }
-    default List<String> addToInstructionsHistory(String item, int maxItems) { throw new UnsupportedOperationException(); }
+    default java.awt.Rectangle getDiffWindowBounds() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void saveDiffWindowBounds(javax.swing.JFrame frame) {
+        throw new UnsupportedOperationException();
+    }
+
+    default java.awt.Rectangle getOutputWindowBounds() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void saveOutputWindowBounds(javax.swing.JFrame frame) {
+        throw new UnsupportedOperationException();
+    }
+
+    default java.util.Optional<java.awt.Rectangle> getMainWindowBounds() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void saveMainWindowBounds(javax.swing.JFrame frame) {
+        throw new UnsupportedOperationException();
+    }
+
+    default int getHorizontalSplitPosition() {
+        return -1;
+    }
+
+    default void saveHorizontalSplitPosition(int position) {
+        throw new UnsupportedOperationException();
+    }
+
+    default int getLeftVerticalSplitPosition() {
+        return -1;
+    }
+
+    default void saveLeftVerticalSplitPosition(int position) {
+        throw new UnsupportedOperationException();
+    }
+
+    default int getRightVerticalSplitPosition() {
+        return -1;
+    }
+
+    default void saveRightVerticalSplitPosition(int position) {
+        throw new UnsupportedOperationException();
+    }
+
+    default List<String> loadTextHistory() {
+        return List.of();
+    }
+
+    default List<String> addToInstructionsHistory(String item, int maxItems) {
+        throw new UnsupportedOperationException();
+    }
 
     /* Blitz-history: (parallel instructions, post-processing instructions) */
-    default java.util.List<java.util.List<String>> loadBlitzHistory() { return java.util.List.of(); }
-    default java.util.List<java.util.List<String>> addToBlitzHistory(String parallelInstructions,
-                                                                      String postProcessingInstructions,
-                                                                      int maxItems)
-    {
+    default java.util.List<java.util.List<String>> loadBlitzHistory() {
+        return java.util.List.of();
+    }
+
+    default java.util.List<java.util.List<String>> addToBlitzHistory(
+            String parallelInstructions, String postProcessingInstructions, int maxItems) {
         throw new UnsupportedOperationException();
     }
 
     // Git specific info
-    default boolean isGitHubRepo() { return false; }
-    default boolean isGitIgnoreSet() { return false; }
+    default boolean isGitHubRepo() {
+        return false;
+    }
+
+    default boolean isGitIgnoreSet() {
+        return false;
+    }
 
     default void setArchitectModelConfig(Service.ModelConfig modelConfig) {
         throw new UnsupportedOperationException();
@@ -198,7 +248,8 @@ public interface IProject extends AutoCloseable {
     }
 
     // New methods for the IssueProvider record
-    default io.github.jbellis.brokk.IssueProvider getIssuesProvider() { // Method name clash is intentional record migration
+    default io.github.jbellis.brokk.IssueProvider
+            getIssuesProvider() { // Method name clash is intentional record migration
         throw new UnsupportedOperationException();
     }
 
@@ -222,7 +273,8 @@ public interface IProject extends AutoCloseable {
     }
 
     enum CodeAgentTestScope {
-        ALL, WORKSPACE;
+        ALL,
+        WORKSPACE;
 
         @Override
         public String toString() {

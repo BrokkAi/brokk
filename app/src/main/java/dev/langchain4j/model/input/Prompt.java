@@ -6,16 +6,14 @@ import static dev.langchain4j.data.message.UserMessage.userMessage;
 import static dev.langchain4j.internal.Utils.quoted;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 
-import java.util.Objects;
-
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import java.util.Objects;
 
 /**
- * Represents a prompt (an input text sent to the LLM).
- * A prompt usually contains instructions, contextual information, end-user input, etc.
- * A Prompt is typically created by applying one or multiple values to a PromptTemplate.
+ * Represents a prompt (an input text sent to the LLM). A prompt usually contains instructions, contextual information,
+ * end-user input, etc. A Prompt is typically created by applying one or multiple values to a PromptTemplate.
  */
 public class Prompt {
 
@@ -23,6 +21,7 @@ public class Prompt {
 
     /**
      * Create a new Prompt.
+     *
      * @param text the text of the prompt.
      */
     public Prompt(String text) {
@@ -31,6 +30,7 @@ public class Prompt {
 
     /**
      * The text of the prompt.
+     *
      * @return the text of the prompt.
      */
     public String text() {
@@ -39,6 +39,7 @@ public class Prompt {
 
     /**
      * Convert this prompt to a SystemMessage.
+     *
      * @return the SystemMessage.
      */
     public SystemMessage toSystemMessage() {
@@ -47,6 +48,7 @@ public class Prompt {
 
     /**
      * Convert this prompt to a UserMessage with specified userName.
+     *
      * @return the UserMessage.
      */
     public UserMessage toUserMessage(String userName) {
@@ -55,6 +57,7 @@ public class Prompt {
 
     /**
      * Convert this prompt to a UserMessage.
+     *
      * @return the UserMessage.
      */
     public UserMessage toUserMessage() {
@@ -63,6 +66,7 @@ public class Prompt {
 
     /**
      * Convert this prompt to an AiMessage.
+     *
      * @return the AiMessage.
      */
     public AiMessage toAiMessage() {
@@ -84,13 +88,12 @@ public class Prompt {
 
     @Override
     public String toString() {
-        return "Prompt {" +
-                " text = " + quoted(text) +
-                " }";
+        return "Prompt {" + " text = " + quoted(text) + " }";
     }
 
     /**
      * Create a new Prompt.
+     *
      * @param text the text of the prompt.
      * @return the new Prompt.
      */

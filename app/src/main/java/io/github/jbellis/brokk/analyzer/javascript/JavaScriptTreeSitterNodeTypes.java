@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.javascript;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for JavaScript TreeSitter node type names.
- */
+/** Constants for JavaScript TreeSitter node type names. */
 public final class JavaScriptTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -32,6 +30,5 @@ public final class JavaScriptTreeSitterNodeTypes {
     // Function-like declarations
     public static final String FUNCTION_EXPRESSION = "function_expression";
 
-    private JavaScriptTreeSitterNodeTypes() {
-    }
+    private JavaScriptTreeSitterNodeTypes() {}
 }

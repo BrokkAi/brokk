@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = PromptTokensDetails.Builder.class)
@@ -29,8 +28,7 @@ public final class PromptTokensDetails {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof PromptTokensDetails
-                && equalTo((PromptTokensDetails) another);
+        return another instanceof PromptTokensDetails && equalTo((PromptTokensDetails) another);
     }
 
     private boolean equalTo(PromptTokensDetails another) {
@@ -46,9 +44,7 @@ public final class PromptTokensDetails {
 
     @Override
     public String toString() {
-        return "PromptTokensDetails{"
-                + "cachedTokens=" + cachedTokens
-                + "}";
+        return "PromptTokensDetails{" + "cachedTokens=" + cachedTokens + "}";
     }
 
     public static Builder builder() {

@@ -1,21 +1,20 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
+import java.util.Collections;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
-import org.treesitter.TSQueryCapture;
 import org.treesitter.TreeSitterGo;
-
-import java.util.Collections;
-import java.util.Set;
-
-import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
@@ -26,23 +25,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
-            "name",        // identifierFieldName (used as fallback if specific .name capture is missing)
-            "body",        // bodyFieldName (e.g. function_declaration.body -> block)
-            "parameters",  // parametersFieldName
-            "result",      // returnTypeFieldName (Go's grammar uses "result" for return types)
+            "name", // identifierFieldName (used as fallback if specific .name capture is missing)
+            "body", // bodyFieldName (e.g. function_declaration.body -> block)
+            "parameters", // parametersFieldName
+            "result", // returnTypeFieldName (Go's grammar uses "result" for return types)
             "type_parameters", // typeParametersFieldName (Go generics)
             java.util.Map.of(
-              "function.definition", SkeletonType.FUNCTION_LIKE,
-              "type.definition", SkeletonType.CLASS_LIKE,
-              "variable.definition", SkeletonType.FIELD_LIKE,
-              "constant.definition", SkeletonType.FIELD_LIKE,
-              "struct.field.definition", SkeletonType.FIELD_LIKE,
-              "method.definition", SkeletonType.FUNCTION_LIKE,
-              "interface.method.definition", SkeletonType.FUNCTION_LIKE // Added for interface methods
-            ),        // captureConfiguration
+                    "function.definition", SkeletonType.FUNCTION_LIKE,
+                    "type.definition", SkeletonType.CLASS_LIKE,
+                    "variable.definition", SkeletonType.FIELD_LIKE,
+                    "constant.definition", SkeletonType.FIELD_LIKE,
+                    "struct.field.definition", SkeletonType.FIELD_LIKE,
+                    "method.definition", SkeletonType.FUNCTION_LIKE,
+                    "interface.method.definition", SkeletonType.FUNCTION_LIKE // Added for interface methods
+                    ), // captureConfiguration
             "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)
-    );
+            );
 
     @Nullable
     private final ThreadLocal<TSQuery> packageQuery;
@@ -89,11 +88,17 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         } else {
             // This block executes if determinePackageName is called during TreeSitterAnalyzer's constructor,
             // before this.packageQuery (ThreadLocal) is initialized in GoAnalyzer's constructor.
-            log.trace("GoAnalyzer.determinePackageName: packageQuery ThreadLocal is null, creating temporary query for file {}", file);
+            log.trace(
+                    "GoAnalyzer.determinePackageName: packageQuery ThreadLocal is null, creating temporary query for file {}",
+                    file);
             try {
                 currentPackageQuery = new TSQuery(getTSLanguage(), "(package_clause (package_identifier) @name)");
             } catch (RuntimeException e) {
-                log.error("Failed to compile temporary package query for GoAnalyzer in determinePackageName for file {}: {}", file, e.getMessage(), e);
+                log.error(
+                        "Failed to compile temporary package query for GoAnalyzer in determinePackageName for file {}: {}",
+                        file,
+                        e.getMessage(),
+                        e);
                 return ""; // Cannot proceed without the query
             }
         }
@@ -105,7 +110,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
             if (cursor.nextMatch(match)) { // Assuming only one package declaration per Go file
                 for (TSQueryCapture capture : match.getCaptures()) {
-                    // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with name "name"
+                    // The query "(package_clause (package_identifier) @name)" captures the package_identifier node with
+                    // name "name"
                     if ("name".equals(currentPackageQuery.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null && !nameNode.isNull()) {
@@ -125,39 +131,60 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
-                                                String captureName,
-                                                String simpleName,
-                                                String packageName,
-                                                String classChain) {
-        log.trace("GoAnalyzer.createCodeUnit: File='{}', Capture='{}', SimpleName='{}', Package='{}', ClassChain='{}'",
-                  file.getFileName(), captureName, simpleName, packageName, classChain);
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+        log.trace(
+                "GoAnalyzer.createCodeUnit: File='{}', Capture='{}', SimpleName='{}', Package='{}', ClassChain='{}'",
+                file.getFileName(),
+                captureName,
+                simpleName,
+                packageName,
+                classChain);
 
         return switch (captureName) {
             case "function.definition" -> {
-                log.trace("Creating FN CodeUnit for Go function: File='{}', Pkg='{}', Name='{}'", file.getFileName(), packageName, simpleName);
+                log.trace(
+                        "Creating FN CodeUnit for Go function: File='{}', Pkg='{}', Name='{}'",
+                        file.getFileName(),
+                        packageName,
+                        simpleName);
                 yield CodeUnit.fn(file, packageName, simpleName);
             }
             case "type.definition" -> { // Covers struct_type and interface_type
-                log.trace("Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'", file.getFileName(), packageName, simpleName);
+                log.trace(
+                        "Creating CLS CodeUnit for Go type: File='{}', Pkg='{}', Name='{}'",
+                        file.getFileName(),
+                        packageName,
+                        simpleName);
                 yield CodeUnit.cls(file, packageName, simpleName);
             }
             case "variable.definition", "constant.definition" -> {
                 // For package-level variables/constants, classChain should be empty.
                 // We adopt a convention like "_module_.simpleName" for the short name's member part.
                 if (!classChain.isEmpty()) {
-                    log.warn("Expected empty classChain for package-level var/const '{}', but got '{}'. Proceeding with _module_ convention.", simpleName, classChain);
+                    log.warn(
+                            "Expected empty classChain for package-level var/const '{}', but got '{}'. Proceeding with _module_ convention.",
+                            simpleName,
+                            classChain);
                 }
                 String fieldShortName = "_module_." + simpleName;
-                log.trace("Creating FIELD CodeUnit for Go package-level var/const: File='{}', Pkg='{}', Name='{}', Resulting ShortName='{}'",
-                          file.getFileName(), packageName, simpleName, fieldShortName);
+                log.trace(
+                        "Creating FIELD CodeUnit for Go package-level var/const: File='{}', Pkg='{}', Name='{}', Resulting ShortName='{}'",
+                        file.getFileName(),
+                        packageName,
+                        simpleName,
+                        fieldShortName);
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
             case "method.definition" -> {
                 // simpleName is now expected to be ReceiverType.MethodName due to adjustments in TreeSitterAnalyzer
                 // classChain is now expected to be ReceiverType
-                log.trace("Creating FN CodeUnit for Go method: File='{}', Pkg='{}', Name='{}', ClassChain (Receiver)='{}'",
-                          file.getFileName(), packageName, simpleName, classChain);
+                log.trace(
+                        "Creating FN CodeUnit for Go method: File='{}', Pkg='{}', Name='{}', ClassChain (Receiver)='{}'",
+                        file.getFileName(),
+                        packageName,
+                        simpleName,
+                        classChain);
                 // CodeUnit.fn will create FQN = packageName + "." + simpleName (e.g., declpkg.MyStruct.GetFieldA)
                 // The parent-child relationship will be established by TreeSitterAnalyzer using classChain.
                 yield CodeUnit.fn(file, packageName, simpleName);
@@ -167,8 +194,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 // classChain is StructName (e.g., "MyStruct")
                 // We want the CodeUnit's shortName to be "StructName.FieldName" for uniqueness and parenting.
                 String fieldShortName = classChain + "." + simpleName;
-                log.trace("Creating FIELD CodeUnit for Go struct field: File='{}', Pkg='{}', Struct='{}', Field='{}', Resulting ShortName='{}'",
-                          file.getFileName(), packageName, classChain, simpleName, fieldShortName);
+                log.trace(
+                        "Creating FIELD CodeUnit for Go struct field: File='{}', Pkg='{}', Struct='{}', Field='{}', Resulting ShortName='{}'",
+                        file.getFileName(),
+                        packageName,
+                        classChain,
+                        simpleName,
+                        fieldShortName);
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
             case "interface.method.definition" -> {
@@ -176,21 +208,43 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 // classChain is InterfaceName (e.g., "MyInterface")
                 // We want the CodeUnit's shortName to be "InterfaceName.MethodName".
                 String methodShortName = classChain + "." + simpleName;
-                log.trace("Creating FN CodeUnit for Go interface method: File='{}', Pkg='{}', Interface='{}', Method='{}', Resulting ShortName='{}'",
-                          file.getFileName(), packageName, classChain, simpleName, methodShortName);
+                log.trace(
+                        "Creating FN CodeUnit for Go interface method: File='{}', Pkg='{}', Interface='{}', Method='{}', Resulting ShortName='{}'",
+                        file.getFileName(),
+                        packageName,
+                        classChain,
+                        simpleName,
+                        methodShortName);
                 yield CodeUnit.fn(file, packageName, methodShortName);
             }
             default -> {
-                log.warn("Unhandled capture name in GoAnalyzer.createCodeUnit: '{}' for simple name '{}' in file '{}'. Returning null.",
-                         captureName, simpleName, file.getFileName());
+                log.warn(
+                        "Unhandled capture name in GoAnalyzer.createCodeUnit: '{}' for simple name '{}' in file '{}'. Returning null.",
+                        captureName,
+                        simpleName,
+                        file.getFileName());
                 yield null; // Explicitly yield null for unhandled cases
             }
         };
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
-        log.trace("GoAnalyzer.renderFunctionDeclaration for node type '{}', functionName '{}'. Params: '{}', Return: '{}'", funcNode.getType(), functionName, paramsText, returnTypeText);
+    protected String renderFunctionDeclaration(
+            TSNode funcNode,
+            String src,
+            String exportPrefix,
+            String asyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
+        log.trace(
+                "GoAnalyzer.renderFunctionDeclaration for node type '{}', functionName '{}'. Params: '{}', Return: '{}'",
+                funcNode.getType(),
+                functionName,
+                paramsText,
+                returnTypeText);
         String rt = !returnTypeText.isEmpty() ? " " + returnTypeText : "";
         String signature;
         if (METHOD_DECLARATION.equals(funcNode.getType())) {
@@ -218,7 +272,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureTextParam, String baseIndent) {
+    protected String renderClassHeader(
+            TSNode classNode, String src, String exportPrefix, String signatureTextParam, String baseIndent) {
         // classNode is the type_declaration node.
         // We need to extract "type Name kind" (e.g., "type MyStruct struct").
         // The signatureTextParam passed from TreeSitterAnalyzer might be too broad (containing the whole body).
@@ -232,7 +287,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (typeSpecNode == null || typeSpecNode.isNull()) {
-            log.warn("renderClassHeader for Go: type_spec child not found in classNode (type_declaration {}). Falling back to potentially incorrect signatureTextParam.", textSlice(classNode,src).lines().findFirst().orElse(""));
+            log.warn(
+                    "renderClassHeader for Go: type_spec child not found in classNode (type_declaration {}). Falling back to potentially incorrect signatureTextParam.",
+                    textSlice(classNode, src).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
@@ -240,7 +297,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         TSNode kindNode = typeSpecNode.getChildByFieldName("type"); // This is the struct_type or interface_type node
 
         if (nameNode == null || nameNode.isNull() || kindNode == null || kindNode.isNull()) {
-            log.warn("renderClassHeader for Go: name or kind node not found in type_spec for classNode {}. Falling back.", textSlice(classNode,src).lines().findFirst().orElse(""));
+            log.warn(
+                    "renderClassHeader for Go: name or kind node not found in type_spec for classNode {}. Falling back.",
+                    textSlice(classNode, src).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
@@ -253,13 +312,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         } else if (INTERFACE_TYPE.equals(kindNodeType)) {
             kindText = "interface";
         } else {
-            log.warn("renderClassHeader for Go: Unhandled kind node type '{}' for classNode {}. Falling back.", kindNodeType, textSlice(classNode,src).lines().findFirst().orElse(""));
+            log.warn(
+                    "renderClassHeader for Go: Unhandled kind node type '{}' for classNode {}. Falling back.",
+                    kindNodeType,
+                    textSlice(classNode, src).lines().findFirst().orElse(""));
             return signatureTextParam + " {";
         }
 
         // Go visibility is by capitalization, exportPrefix is not used here.
-        String actualSignatureText = String.format("type %s %s", nameText, kindText).strip();
-        log.trace("GoAnalyzer.renderClassHeader for node {}. Constructed signature: '{}'", textSlice(classNode,src).lines().findFirst().orElse(""), actualSignatureText);
+        String actualSignatureText =
+                String.format("type %s %s", nameText, kindText).strip();
+        log.trace(
+                "GoAnalyzer.renderClassHeader for node {}. Constructed signature: '{}'",
+                textSlice(classNode, src).lines().findFirst().orElse(""),
+                actualSignatureText);
         return actualSignatureText + " {";
     }
 

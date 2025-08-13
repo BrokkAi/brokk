@@ -2,22 +2,14 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.FileSystemEventListener;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.event.TreeExpansionEvent;
-import javax.swing.event.TreeWillExpandListener;
-import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import io.github.jbellis.brokk.FileSystemEventListener;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -27,10 +19,17 @@ import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.swing.*;
+import javax.swing.event.TreeExpansionEvent;
+import javax.swing.event.TreeWillExpandListener;
+import javax.swing.tree.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * A custom tree component for displaying project files with lazy loading,
- * git tracking status, and interactive features.
+ * A custom tree component for displaying project files with lazy loading, git tracking status, and interactive
+ * features.
  */
 public class ProjectTree extends JTree implements FileSystemEventListener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
@@ -39,8 +38,9 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     private final IProject project;
     private final ContextManager contextManager;
     private final Chrome chrome;
-    @Nullable private JPopupMenu currentContextMenu;
 
+    @Nullable
+    private JPopupMenu currentContextMenu;
 
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
@@ -81,7 +81,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         addTreeWillExpandListener(new TreeWillExpandListener() {
             @Override
             public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
-                DefaultMutableTreeNode node = (DefaultMutableTreeNode) event.getPath().getLastPathComponent();
+                DefaultMutableTreeNode node =
+                        (DefaultMutableTreeNode) event.getPath().getLastPathComponent();
                 loadChildrenForNode(node);
             }
 
@@ -119,10 +120,12 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         TreePath path = getPathForLocation(e.getX(), e.getY());
         if (path != null) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-            if (node.getUserObject() instanceof ProjectTreeNode treeNode && treeNode.getFile().isFile()) {
+            if (node.getUserObject() instanceof ProjectTreeNode treeNode
+                    && treeNode.getFile().isFile()) {
                 ProjectFile projectFile = getProjectFileFromNode(node);
                 if (projectFile != null) {
-                    var fragment = new io.github.jbellis.brokk.context.ContextFragment.ProjectPathFragment(projectFile, contextManager);
+                    var fragment = new io.github.jbellis.brokk.context.ContextFragment.ProjectPathFragment(
+                            projectFile, contextManager);
                     chrome.openFragmentPreview(fragment);
                 }
             }
@@ -155,14 +158,15 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 if (!isPathSelected(path)) {
                     setSelectionPath(path);
                 }
-                 // Ensure the node corresponds to a file before showing context menu.
+                // Ensure the node corresponds to a file before showing context menu.
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-                if (node.getUserObject() instanceof ProjectTreeNode treeNode && treeNode.getFile().isFile()) {
+                if (node.getUserObject() instanceof ProjectTreeNode treeNode
+                        && treeNode.getFile().isFile()) {
                     prepareAndShowContextMenu(e.getX(), e.getY());
                 } else {
-                     // If right-clicked on a directory or empty space with files selected, still show for selected files
+                    // If right-clicked on a directory or empty space with files selected, still show for selected files
                     var selectedFiles = getSelectedProjectFiles();
-                    if (!selectedFiles.isEmpty()){
+                    if (!selectedFiles.isEmpty()) {
                         prepareAndShowContextMenu(e.getX(), e.getY());
                     }
                 }
@@ -234,9 +238,12 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         JMenuItem summarizeItem = new JMenuItem(selectedFiles.size() == 1 ? "Summarize" : "Summarize All");
         summarizeItem.addActionListener(ev -> {
             if (!contextManager.getAnalyzerWrapper().isReady()) {
-                contextManager.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
-                                                  AnalyzerWrapper.ANALYZER_BUSY_TITLE,
-                                                  JOptionPane.INFORMATION_MESSAGE);
+                contextManager
+                        .getIo()
+                        .systemNotify(
+                                AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
             contextManager.submitContextTask("Summarize files", () -> {
@@ -297,7 +304,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             // Swing's JPopupMenu typically handles focusing its first enabled item.
         }
     }
-
 
     private void loadChildrenForNode(DefaultMutableTreeNode node) {
         if (!(node.getUserObject() instanceof ProjectTreeNode treeNode)) {
@@ -364,8 +370,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         // Only auto-expand if there's exactly one child and it's a directory
         if (parentNode.getChildCount() == 1) {
             DefaultMutableTreeNode onlyChild = (DefaultMutableTreeNode) parentNode.getChildAt(0);
-            if (onlyChild.getUserObject() instanceof ProjectTreeNode childTreeNode &&
-                childTreeNode.getFile().isDirectory()) {
+            if (onlyChild.getUserObject() instanceof ProjectTreeNode childTreeNode
+                    && childTreeNode.getFile().isDirectory()) {
 
                 TreePath childPath = new TreePath(onlyChild.getPath());
                 // Only expand if it's not already expanded AND its children are not yet loaded
@@ -373,12 +379,13 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 if (!isExpanded(childPath) && !childTreeNode.isChildrenLoaded()) {
                     // Check that the first child is indeed the "Loading..." placeholder.
                     // This ensures we are acting on a directory that is pending its children load.
-                    if (onlyChild.getChildCount() == 1 &&
-                        onlyChild.getFirstChild() instanceof DefaultMutableTreeNode &&
-                        LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) onlyChild.getFirstChild()).getUserObject())) {
+                    if (onlyChild.getChildCount() == 1
+                            && onlyChild.getFirstChild() instanceof DefaultMutableTreeNode
+                            && LOADING_PLACEHOLDER.equals(
+                                    ((DefaultMutableTreeNode) onlyChild.getFirstChild()).getUserObject())) {
                         expandPath(childPath); // This will trigger the TreeWillExpandListener.
-                                               // The listener calls loadChildrenForNode.
-                                               // loadChildrenForNode calls this method again, forming the recursive chain.
+                        // The listener calls loadChildrenForNode.
+                        // loadChildrenForNode calls this method again, forming the recursive chain.
                     }
                 }
             }
@@ -416,8 +423,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     }
 
     @Override
-    public void
-    onTrackedFilesChanged() {
+    public void onTrackedFilesChanged() {
         SwingUtilities.invokeLater(() -> {
             logger.trace("FileSystem change detected, refreshing ProjectTree.");
 
@@ -432,7 +438,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
             // Invalidate all loaded children data
             if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
-                 ptn.setChildrenLoaded(false);
+                ptn.setChildrenLoaded(false);
             }
             if (root != null) {
                 invalidateAllChildrenRecursively(root);
@@ -442,7 +448,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
                 loadChildrenForNode(root); // This starts the loading process and initial auto-expansion
             }
-
 
             // After initial load and auto-expansion, restore other expansions
             for (Path expandedDirPath : previouslyExpandedDirPaths) {
@@ -483,7 +488,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     if (leadPath != null) {
                         scrollPathToVisible(leadPath);
                     } else if (!pathsToSelect.isEmpty()) {
-                         scrollPathToVisible(pathsToSelect.get(0));
+                        scrollPathToVisible(pathsToSelect.get(0));
                     }
                 }
             }
@@ -507,15 +512,21 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         });
     }
 
-   private @Nullable DefaultMutableTreeNode findAndExpandNode(DefaultMutableTreeNode currentNode, Path relativePath, int depth) {
+    private @Nullable DefaultMutableTreeNode findAndExpandNode(
+            DefaultMutableTreeNode currentNode, Path relativePath, int depth) {
         // Ensure current node's children are loaded if it's a directory and not yet loaded
-        if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn && currentPtn.getFile().isDirectory()) {
-            if (!currentPtn.isChildrenLoaded() && currentNode.getChildCount() > 0 &&
-                LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild()).getUserObject().toString())) {
-                // Force load children if not loaded. This relies on treeWillExpand not necessarily being the only loader.
+        if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
+                && currentPtn.getFile().isDirectory()) {
+            if (!currentPtn.isChildrenLoaded()
+                    && currentNode.getChildCount() > 0
+                    && LOADING_PLACEHOLDER.equals(((DefaultMutableTreeNode) currentNode.getFirstChild())
+                            .getUserObject()
+                            .toString())) {
+                // Force load children if not loaded. This relies on treeWillExpand not necessarily being the only
+                // loader.
                 // This call must be on EDT if it modifies tree structure directly.
                 // loadChildrenForNode should handle model updates.
-                 loadChildrenForNode(currentNode); // This should be safe if called on EDT.
+                loadChildrenForNode(currentNode); // This should be safe if called on EDT.
             }
         }
 
@@ -531,15 +542,19 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                 }
             }
             // If the path was, e.g. "src/main" and "main" is the dir node.
-            if (currentNode.getUserObject() instanceof ProjectTreeNode ptn && ptn.getFile().isDirectory() &&
-                depth > 0 && ptn.getFile().getName().equals(relativePath.getName(depth -1).toString())) {
-                 return currentNode;
+            if (currentNode.getUserObject() instanceof ProjectTreeNode ptn
+                    && ptn.getFile().isDirectory()
+                    && depth > 0
+                    && ptn.getFile()
+                            .getName()
+                            .equals(relativePath.getName(depth - 1).toString())) {
+                return currentNode;
             }
             return null; // Target not matched at the end of path traversal.
         }
 
-
-        if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn && currentPtn.getFile().isDirectory())) {
+        if (!(currentNode.getUserObject() instanceof ProjectTreeNode currentPtn
+                && currentPtn.getFile().isDirectory())) {
             return null; // Current node is not a directory, or not a ProjectTreeNode, cannot go deeper.
         }
 
@@ -547,8 +562,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         Enumeration<?> children = currentNode.children();
         while (children.hasMoreElements()) {
             DefaultMutableTreeNode childNode = (DefaultMutableTreeNode) children.nextElement();
-            if (childNode.getUserObject() instanceof ProjectTreeNode childPtn &&
-                childPtn.getFile().getName().equals(targetComponentName)) {
+            if (childNode.getUserObject() instanceof ProjectTreeNode childPtn
+                    && childPtn.getFile().getName().equals(targetComponentName)) {
 
                 if (childPtn.getFile().isDirectory()) {
                     TreePath childPath = new TreePath(childNode.getPath());
@@ -573,7 +588,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         var selectedFilesList = new ArrayList<ProjectFile>();
         for (TreePath path : selectionPaths) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-            if (node.getUserObject() instanceof ProjectTreeNode treeNode && treeNode.getFile().isFile()) {
+            if (node.getUserObject() instanceof ProjectTreeNode treeNode
+                    && treeNode.getFile().isFile()) {
                 ProjectFile pf = getProjectFileFromNode(node);
                 if (pf != null) {
                     selectedFilesList.add(pf);
@@ -593,14 +609,15 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             Path relativePath = project.getRoot().relativize(filePath);
             return new ProjectFile(project.getRoot(), relativePath);
         } catch (Exception e) {
-            logger.warn("Could not create ProjectFile from node: " + treeNode.getFile().getAbsolutePath(), e);
+            logger.warn(
+                    "Could not create ProjectFile from node: "
+                            + treeNode.getFile().getAbsolutePath(),
+                    e);
             return null;
         }
     }
 
-    /**
-     * Node wrapper for file information and loading state
-     */
+    /** Node wrapper for file information and loading state */
     private static class ProjectTreeNode {
         private final File file;
         private boolean childrenLoaded;
@@ -628,13 +645,11 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         }
     }
 
-    /**
-     * Custom cell renderer that colors untracked files red
-     */
+    /** Custom cell renderer that colors untracked files red */
     private class ProjectTreeCellRenderer extends DefaultTreeCellRenderer {
         @Override
-        public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected,
-                boolean expanded, boolean leaf, int row, boolean hasFocus) {
+        public Component getTreeCellRendererComponent(
+                JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
 
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
 

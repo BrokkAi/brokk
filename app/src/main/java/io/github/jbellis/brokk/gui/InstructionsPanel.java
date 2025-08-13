@@ -1,5 +1,9 @@
 package io.github.jbellis.brokk.gui;
 
+import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.functions.Generator;
 import dev.langchain4j.data.message.AiMessage;
@@ -19,8 +23,8 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
-import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
+import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
@@ -30,11 +34,20 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
+import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -47,31 +60,15 @@ import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
-import java.awt.*;
-import java.awt.datatransfer.DataFlavor;
-import java.util.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.function.Consumer;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
-import java.util.stream.Stream;
-
-import static io.github.jbellis.brokk.gui.Constants.*;
-import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * The InstructionsPanel encapsulates the command input area, history dropdown,
- * mic button, model dropdown, and the action buttons.
- * It also includes the system messages and command result areas.
- * All initialization and action code related to these components has been moved here.
+ * The InstructionsPanel encapsulates the command input area, history dropdown, mic button, model dropdown, and the
+ * action buttons. It also includes the system messages and command result areas. All initialization and action code
+ * related to these components has been moved here.
  */
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
@@ -82,14 +79,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
 
-    private static final String PLACEHOLDER_TEXT = """
+    private static final String PLACEHOLDER_TEXT =
+            """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
 
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
     private static final int DROPDOWN_MENU_WIDTH = 1000; // Pixels
-    private static final int TRUNCATION_LENGTH = 100;    // Characters
+    private static final int TRUNCATION_LENGTH = 100; // Characters
 
     private final Chrome chrome;
     private final JTextArea instructionsArea;
@@ -109,12 +107,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
     private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
     // Worker for autocontext suggestion tasks. we don't use CM.backgroundTasks b/c we want this to be single threaded
-    private final ExecutorService suggestionWorker = new LoggingExecutorService(Executors.newSingleThreadExecutor(r -> {
-        Thread t = Executors.defaultThreadFactory().newThread(r);
-        t.setName("Brokk-Suggestion-Worker");
-        t.setDaemon(true);
-        return t;
-    }), e -> logger.error("Unexpected error", e));
+    private final ExecutorService suggestionWorker = new LoggingExecutorService(
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = Executors.defaultThreadFactory().newThread(r);
+                t.setName("Brokk-Suggestion-Worker");
+                t.setDaemon(true);
+                return t;
+            }),
+            e -> logger.error("Unexpected error", e));
     // Generation counter to identify the latest suggestion request
     private final AtomicLong suggestionGeneration = new AtomicLong(0);
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
@@ -125,28 +125,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
-        setBorder(BorderFactory.createTitledBorder(BorderFactory.createEtchedBorder(),
-                                                   "Instructions",
-                                                   TitledBorder.DEFAULT_JUSTIFICATION,
-                                                   TitledBorder.DEFAULT_POSITION,
-                                                   new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Instructions",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
         this.commandInputUndoManager = new UndoManager();
-        commandInputOverlay = new OverlayPanel(
-                overlay -> activateCommandInput(),
-                "Click to enter your instructions"
-        );
+        commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
-        micButton = new VoiceInputButton(instructionsArea, contextManager, () -> {
-            activateCommandInput();
-            chrome.systemOutput("Recording");
-        }, msg -> chrome.toolError(msg, "Error"));
-
+        micButton = new VoiceInputButton(
+                instructionsArea,
+                contextManager,
+                () -> {
+                    activateCommandInput();
+                    chrome.systemOutput("Recording");
+                },
+                msg -> chrome.toolError(msg, "Error"));
 
         // Initialize Buttons first
         architectButton = new JButton("Architect"); // Now a regular JButton
@@ -159,17 +160,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeButton.setMnemonic(KeyEvent.VK_C);
         codeButton.setToolTipText("Tell the LLM to write code using the current context (click ▼ for model options)");
         codeButton.addActionListener(e -> runCodeCommand()); // Main button action
-        codeButton.setMenuSupplier(() -> createModelSelectionMenu(
-                (modelName, reasoningLevel) -> {
-                    var models = chrome.getContextManager().getService();
-                    StreamingChatModel selectedModel = models.getModel(modelName, reasoningLevel);
-                    if (selectedModel != null) {
-                        runCodeCommand(selectedModel);
-                    } else {
-                        chrome.toolError("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
-                    }
-                }
-        ));
+        codeButton.setMenuSupplier(() -> createModelSelectionMenu((modelName, reasoningLevel) -> {
+            var models = chrome.getContextManager().getService();
+            StreamingChatModel selectedModel = models.getModel(modelName, reasoningLevel);
+            if (selectedModel != null) {
+                runCodeCommand(selectedModel);
+            } else {
+                chrome.toolError(
+                        "Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
+            }
+        }));
 
         searchButton = new SplitButton("Search");
         searchButton.setMnemonic(KeyEvent.VK_S);
@@ -189,7 +189,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         configureModelsButton = new JButton("Configure Models...");
         configureModelsButton.setToolTipText("Open settings to configure AI models");
-        configureModelsButton.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+        configureModelsButton.addActionListener(
+                e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
 
         // Top Bar (History, Configure Models, Stop) (North)
         JPanel topBarPanel = buildTopBarPanel();
@@ -217,7 +218,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     // Input is blank or too short: stop timer, invalidate generation, reset state, schedule UI clear.
                     contextSuggestionTimer.stop();
                     long myGen = suggestionGeneration.incrementAndGet(); // Invalidate any running/pending task
-                    logger.trace("Input cleared/shortened, stopping timer and invalidating suggestions (gen {})", myGen);
+                    logger.trace(
+                            "Input cleared/shortened, stopping timer and invalidating suggestions (gen {})", myGen);
 
                     // Reset internal state immediately
                     InstructionsPanel.this.lastCheckedInputText = null;
@@ -231,7 +233,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             failureReasonLabel.setVisible(false);
                             suggestionCardLayout.show(suggestionContentPanel, "TABLE"); // Show empty table
                         } else {
-                            logger.trace("Skipping UI clear for gen {} (current gen {})", myGen, suggestionGeneration.get());
+                            logger.trace(
+                                    "Skipping UI clear for gen {} (current gen {})", myGen, suggestionGeneration.get());
                         }
                     });
                 }
@@ -287,7 +290,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
         ((AbstractDocument) area.getDocument()).setDocumentFilter(new AtTriggerFilter());
 
-
         // Add Ctrl+Enter shortcut to trigger the default button
         var ctrlEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, java.awt.event.InputEvent.CTRL_DOWN_MASK);
         area.getInputMap().put(ctrlEnter, "submitDefault");
@@ -306,7 +308,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         int shortcutMask = java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
         var undoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask);
         var redoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Y, shortcutMask);
-        var redoAlternativeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        var redoAlternativeKeyStroke =
+                KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
 
         area.getInputMap().put(undoKeyStroke, "undo");
         area.getActionMap().put("undo", new AbstractAction() {
@@ -331,8 +334,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
         // otherwise, use the default JTextArea paste behaviour.
-        var pasteKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V,
-                                                    java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var pasteKeyStroke = KeyStroke.getKeyStroke(
+                KeyEvent.VK_V, java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         area.getInputMap().put(pasteKeyStroke, "smartPaste");
         area.getActionMap().put("smartPaste", new AbstractAction() {
             @Override
@@ -348,10 +351,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 for (var flavor : contents.getTransferDataFlavors()) {
                     try {
                         if (flavor.equals(DataFlavor.imageFlavor)
-                            || flavor.getMimeType().startsWith("image/"))
-                        {
+                                || flavor.getMimeType().startsWith("image/")) {
                             // Re-use existing WorkspacePanel logic
-                            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                            chrome.getContextPanel()
+                                    .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
                             imageHandled = true;
                             break;
                         }
@@ -420,21 +423,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()
 
-
         return panel;
     }
 
     /**
-     * Initializes the file-reference table that sits directly beneath the
-     * command-input field and wires a context-menu that targets the specific
-     * badge the mouse is over (mirrors ContextPanel behaviour).
+     * Initializes the file-reference table that sits directly beneath the command-input field and wires a context-menu
+     * that targets the specific badge the mouse is over (mirrors ContextPanel behaviour).
      */
-    private void initializeReferenceFileTable()
-    {
+    private void initializeReferenceFileTable() {
         // ----- create the table itself --------------------------------------------------------
-        referenceFileTable = new JTable(new javax.swing.table.DefaultTableModel(
-                new Object[]{"File References"}, 1)
-        {
+        referenceFileTable = new JTable(new javax.swing.table.DefaultTableModel(new Object[] {"File References"}, 1) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -449,9 +447,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Dynamically set row height based on renderer's preferred size
         referenceFileTable.setRowHeight(TableUtils.measuredBadgeRowHeight(referenceFileTable));
 
-        referenceFileTable.setTableHeader(null);             // single-column ⇒ header not needed
+        referenceFileTable.setTableHeader(null); // single-column ⇒ header not needed
         referenceFileTable.setShowGrid(false);
-        referenceFileTable.getColumnModel()
+        referenceFileTable
+                .getColumnModel()
                 .getColumn(0)
                 .setCellRenderer(new TableUtils.FileReferencesTableCellRenderer());
 
@@ -463,19 +462,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             @Override
             public void mousePressed(java.awt.event.MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    ContextMenuUtils.handleFileReferenceClick(e,
-                                                              referenceFileTable,
-                                                              chrome,
-                                                              () -> triggerContextSuggestion(null));
+                    ContextMenuUtils.handleFileReferenceClick(
+                            e, referenceFileTable, chrome, () -> triggerContextSuggestion(null));
                 }
             }
 
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) {
-                ContextMenuUtils.handleFileReferenceClick(e,
-                                                          referenceFileTable,
-                                                          chrome,
-                                                          () -> triggerContextSuggestion(null));
+                ContextMenuUtils.handleFileReferenceClick(
+                        e, referenceFileTable, chrome, () -> triggerContextSuggestion(null));
             }
         });
 
@@ -558,7 +553,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-
     private void showHistoryMenu(Component invoker) {
         logger.trace("Showing history menu");
         JPopupMenu historyMenu = new JPopupMenu();
@@ -574,8 +568,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String item = historyItems.get(i);
                 String itemWithoutNewlines = item.replace('\n', ' ');
                 String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
-                                     ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
-                                     : itemWithoutNewlines;
+                        ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
+                        : itemWithoutNewlines;
                 String escapedItem = item.replace("&", "&amp;")
                         .replace("<", "&lt;")
                         .replace(">", "&gt;")
@@ -610,22 +604,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private boolean contextHasImages() {
         var contextManager = chrome.getContextManager();
-        return contextManager.topContext().allFragments()
+        return contextManager
+                .topContext()
+                .allFragments()
                 .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
     }
 
     /**
-     * Shows a modal error dialog informing the user that the required models lack vision support.
-     * Offers to open the Model settings tab.
+     * Shows a modal error dialog informing the user that the required models lack vision support. Offers to open the
+     * Model settings tab.
      *
      * @param requiredModelsInfo A string describing the model(s) that lack vision support (e.g., model names).
      */
     private void showVisionSupportErrorDialog(String requiredModelsInfo) {
-        String message = """
+        String message =
+                """
                          <html>The current operation involves images, but the following selected model(s) do not support vision:<br>
                          <b>%s</b><br><br>
                          Please select vision-capable models in the settings to proceed with image-based tasks.</html>
-                         """.formatted(requiredModelsInfo);
+                         """
+                        .formatted(requiredModelsInfo);
         Object[] options = {"Open Model Settings", "Cancel"};
         int choice = JOptionPane.showOptionDialog(
                 chrome.getFrame(),
@@ -636,32 +634,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 null, // icon
                 options,
                 options[0] // Default button (open settings)
-        );
+                );
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
-            SwingUtilities.invokeLater(() -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+            SwingUtilities.invokeLater(
+                    () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
         }
-        // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the caller.
+        // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
+        // caller.
     }
 
     // --- Public API ---
 
     /**
-     * Gets the current user input text. If the placeholder is currently displayed,
-     * it returns an empty string, otherwise it returns the actual text content.
+     * Gets the current user input text. If the placeholder is currently displayed, it returns an empty string,
+     * otherwise it returns the actual text content.
      */
     public String getInstructions() {
-        var v = SwingUtil.runOnEdt(() -> {
-            return instructionsArea.getText().equals(PLACEHOLDER_TEXT)
-                   ? ""
-                   : instructionsArea.getText();
-        }, "");
+        var v = SwingUtil.runOnEdt(
+                () -> {
+                    return instructionsArea.getText().equals(PLACEHOLDER_TEXT) ? "" : instructionsArea.getText();
+                },
+                "");
         return castNonNull(v);
     }
 
     /**
-     * Clears the command input field and ensures the text color is set to the standard foreground.
-     * This prevents the placeholder from reappearing inadvertently.
+     * Clears the command input field and ensures the text color is set to the standard foreground. This prevents the
+     * placeholder from reappearing inadvertently.
      */
     public void clearCommandInput() {
         SwingUtilities.invokeLater(() -> {
@@ -677,9 +677,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // --- Private Execution Logic ---
 
     /**
-     * Called by the contextSuggestionTimer or external events (like context changes)
-     * to initiate a context suggestion task. It increments the generation counter
-     * and submits the task to the sequential worker executor.
+     * Called by the contextSuggestionTimer or external events (like context changes) to initiate a context suggestion
+     * task. It increments the generation counter and submits the task to the sequential worker executor.
      */
     private void triggerContextSuggestion(@Nullable ActionEvent e) { // ActionEvent will be null for external triggers
         var goal = getInstructions(); // Capture snapshot on EDT
@@ -702,11 +701,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Performs the actual context suggestion logic off the EDT.
-     * This method includes checks against the current `suggestionGeneration`
-     * to ensure only the latest task proceeds and updates the UI.
+     * Performs the actual context suggestion logic off the EDT. This method includes checks against the current
+     * `suggestionGeneration` to ensure only the latest task proceeds and updates the UI.
      *
-     * @param myGen    The generation number of this specific task.
+     * @param myGen The generation number of this specific task.
      * @param snapshot The input text captured when this task was initiated.
      */
     private void processInputSuggestions(long myGen, String snapshot) {
@@ -762,10 +760,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 .filter(s -> !s.isEmpty())
                 .toList();
         float[][] newEmbeddings = chunks.isEmpty()
-                                  ? new float[0][]
-                                  : chunks.stream()
-                                          .map(chunk -> embeddingModel.embed(chunk, Generator.PoolingType.AVG))
-                                          .toArray(float[][]::new);
+                ? new float[0][]
+                : chunks.stream()
+                        .map(chunk -> embeddingModel.embed(chunk, Generator.PoolingType.AVG))
+                        .toArray(float[][]::new);
 
         // 5. Staleness check after embedding
         if (myGen != suggestionGeneration.get()) {
@@ -852,8 +850,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Checks if the new text/embeddings are semantically different from the
-     * last processed state (`lastCheckedInputText`, `lastCheckedEmbeddings`).
+     * Checks if the new text/embeddings are semantically different from the last processed state
+     * (`lastCheckedInputText`, `lastCheckedEmbeddings`).
      */
     private boolean isSemanticallyDifferent(String currentText, float[][] newEmbeddings) {
         if (lastCheckedInputText == null || lastCheckedEmbeddings == null) {
@@ -877,15 +875,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 minSimilarity = similarity;
             }
             if (similarity < SIMILARITY_THRESHOLD) {
-                var msg = """
+                var msg =
+                        """
                           New embeddings similarity = %.3f, triggering recompute
-                          
+
                           # Old text
                           %s
-                          
+
                           # New text
                           %s
-                          """.formatted(similarity, lastCheckedInputText, currentText);
+                          """
+                                .formatted(similarity, lastCheckedInputText, currentText);
                 logger.debug(msg);
                 return true;
             }
@@ -898,9 +898,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return false;
     }
 
-    /**
-     * Helper to show the failure label with a message.
-     */
+    /** Helper to show the failure label with a message. */
     private void showFailureLabel(String message) {
         boolean isDark = UIManager.getBoolean("laf.dark");
         failureReasonLabel.setForeground(ThemeColors.getColor(isDark, "badge_foreground"));
@@ -915,9 +913,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         suggestionCardLayout.show(suggestionContentPanel, "LABEL"); // Show label
     }
 
-    /**
-     * Helper to show the suggestions table with file references.
-     */
+    /** Helper to show the suggestions table with file references. */
     private void showSuggestionsTable(List<FileReferenceData> fileRefs) {
         referenceFileTable.setValueAt(fileRefs, 0, 0);
         failureReasonLabel.setVisible(false);
@@ -929,8 +925,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Executes the core logic for the "Code" command.
-     * This runs inside the Runnable passed to contextManager.submitUserTask.
+     * Executes the core logic for the "Code" command. This runs inside the Runnable passed to
+     * contextManager.submitUserTask.
      */
     private void executeCodeCommand(StreamingChatModel model, String input) {
         var contextManager = chrome.getContextManager();
@@ -951,26 +947,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Executes the core logic for the "Ask" command.
-     * This runs inside the Runnable passed to contextManager.submitAction.
+     * Executes the core logic for the "Ask" command. This runs inside the Runnable passed to
+     * contextManager.submitAction.
      */
     public static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
         List<ChatMessage> messages;
         try {
             messages = CodePrompts.instance.collectAskMessages(cm, question, model);
         } catch (InterruptedException e) {
-            return new TaskResult(cm,
-                                  "Ask: " + question,
-                                  List.of(),
-                                  Set.of(),
-                                  new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            return new TaskResult(
+                    cm,
+                    "Ask: " + question,
+                    List.of(),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
         var llm = cm.getLlm(model, "Ask: " + question);
 
         return executeAskCommand(llm, messages, cm, question);
     }
 
-    public static TaskResult executeAskCommand(Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
+    public static TaskResult executeAskCommand(
+            Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
@@ -994,11 +992,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // construct TaskResult
         requireNonNull(stop);
-        return new TaskResult(cm,
-                              "Ask: " + question,
-                              List.copyOf(cm.getIo().getLlmRawMessages()),
-                              Set.of(),   // Ask never changes files
-                              stop);
+        return new TaskResult(
+                cm,
+                "Ask: " + question,
+                List.copyOf(cm.getIo().getLlmRawMessages()),
+                Set.of(), // Ask never changes files
+                stop);
     }
 
     public void maybeAddInterruptedResult(String input, TaskResult result) {
@@ -1012,26 +1011,34 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void maybeAddInterruptedResult(String action, String input) {
         if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
             logger.debug(action + " command cancelled with partial results");
-            var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
-                                               new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
-                                               Set.of(),
-                                               new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            var sessionResult = new TaskResult(
+                    "%s (Cancelled): %s".formatted(action, input),
+                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
+                    Set.of(),
+                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
             chrome.getContextManager().addToHistory(sessionResult, false);
         }
         populateInstructionsArea(input);
     }
 
     /**
-     * Executes the core logic for the "Agent" command.
-     * This runs inside the Runnable passed to contextManager.submitAction.
+     * Executes the core logic for the "Agent" command. This runs inside the Runnable passed to
+     * contextManager.submitAction.
      *
-     * @param goal    The initial user instruction passed to the agent.
+     * @param goal The initial user instruction passed to the agent.
      * @param options The configured options for the agent's tools.
      */
-    private void executeArchitectCommand(StreamingChatModel model, String goal, ArchitectAgent.ArchitectOptions options) {
+    private void executeArchitectCommand(
+            StreamingChatModel model, String goal, ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         try {
-            var agent = new ArchitectAgent(contextManager, model, contextManager.getCodeModel(), contextManager.getToolRegistry(), goal, options);
+            var agent = new ArchitectAgent(
+                    contextManager,
+                    model,
+                    contextManager.getCodeModel(),
+                    contextManager.getToolRegistry(),
+                    goal,
+                    options);
             var result = agent.execute();
             chrome.systemOutput("Architect complete!");
             contextManager.addToHistory(result, false);
@@ -1044,8 +1051,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Executes the core logic for the "Search" command.
-     * This runs inside the Runnable passed to contextManager.submitAction.
+     * Executes the core logic for the "Search" command. This runs inside the Runnable passed to
+     * contextManager.submitAction.
      */
     private void executeSearchCommand(StreamingChatModel model, String query) {
         if (query.isBlank()) {
@@ -1068,8 +1075,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Executes the core logic for the "Run in Shell" command.
-     * This runs inside the Runnable passed to contextManager.submitAction.
+     * Executes the core logic for the "Run in Shell" command. This runs inside the Runnable passed to
+     * contextManager.submitAction.
      */
     private void executeRunCommand(String input) {
         assert !SwingUtilities.isEventDispatchThread();
@@ -1086,10 +1093,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } else {
                 timeoutSecs = Environment.DEFAULT_TIMEOUT.toSeconds();
             }
-            Environment.instance.runShellCommand(input,
-                                                 contextManager.getRoot(),
-                                                 line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                                                 java.time.Duration.ofSeconds(timeoutSecs));
+            Environment.instance.runShellCommand(
+                    input,
+                    contextManager.getRoot(),
+                    line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    java.time.Duration.ofSeconds(timeoutSecs));
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
         } catch (Environment.SubprocessException e) {
@@ -1107,7 +1115,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Add to context history with the action message (which includes success/failure)
         final String finalActionMessage = actionMessage; // Effectively final for lambda
         contextManager.pushContext(ctx -> {
-            var parsed = new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
+            var parsed = new TaskFragment(
+                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
             return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
         });
     }
@@ -1129,7 +1138,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Check vision capabilities only if running in current project
         if (contextHasImages()) {
-            var nonVisionModels = Stream.of(architectModel, codeModel, searchModel) // Check all models Architect might use
+            var nonVisionModels = Stream.of(
+                            architectModel, codeModel, searchModel) // Check all models Architect might use
                     .filter(m -> !models.supportsVision(m))
                     .map(models::nameOf)
                     .distinct() // Avoid duplicate model names if they are the same
@@ -1173,7 +1183,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Add to history of current project (already done by caller if not worktree)
         // No need to clearCommandInput, also done by caller
 
-        // don't use submitAction, we're going to kick off a new Worktree + Chrome and run in that, leaving the original free
+        // don't use submitAction, we're going to kick off a new Worktree + Chrome and run in that, leaving the original
+        // free
         cm.submitUserTask("Setup Architect Worktree", true, () -> {
             try {
                 chrome.showOutputSpinner("Setting up Git worktree...");
@@ -1187,7 +1198,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // but good to have a safeguard here.
                 if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
                     chrome.hideOutputSpinner();
-                    chrome.toolError("Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
+                    chrome.toolError(
+                            "Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
                     populateInstructionsArea(originalInstructions); // Restore instructions if setup fails
                     return;
                 }
@@ -1197,7 +1209,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                 IProject projectForWorktreeSetup = currentProject.getParent();
                 GitRepo mainGitRepo = (GitRepo) projectForWorktreeSetup.getRepo();
-                String sourceBranchForNew = mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
+                String sourceBranchForNew =
+                        mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
 
                 var setupResult = GitWorktreeTab.setupNewGitWorktree(
                         (MainProject) projectForWorktreeSetup,
@@ -1218,23 +1231,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 };
 
                 MainProject mainProject = (currentProject instanceof MainProject mainProj)
-                                          ? mainProj
-                                          : (MainProject) currentProject.getParent();
+                        ? mainProj
+                        : (MainProject) currentProject.getParent();
 
                 new Brokk.OpenProjectBuilder(newWorktreePath)
                         .parent(mainProject)
                         .initialTask(initialArchitectTask)
                         .sourceContextForSession(cm.topContext())
                         .open()
-                        .thenAccept(success ->
-                                    {
-                                        if (Boolean.TRUE.equals(success)) {
-                                            chrome.systemOutput("New worktree opened for Architect");
-                                        } else {
-                                            chrome.toolError("Failed to open the new worktree project for Architect.");
-                                            populateInstructionsArea(originalInstructions);
-                                        }
-                                    }).exceptionally(ex -> {
+                        .thenAccept(success -> {
+                            if (Boolean.TRUE.equals(success)) {
+                                chrome.systemOutput("New worktree opened for Architect");
+                            } else {
+                                chrome.toolError("Failed to open the new worktree project for Architect.");
+                                populateInstructionsArea(originalInstructions);
+                            }
+                        })
+                        .exceptionally(ex -> {
                             chrome.toolError("Error opening new worktree project: " + ex.getMessage());
                             populateInstructionsArea(originalInstructions);
                             return null;
@@ -1252,10 +1265,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Overload for programmatic invocation of Architect agent after options are determined,
-     * typically called directly or from the worktree setup.
+     * Overload for programmatic invocation of Architect agent after options are determined, typically called directly
+     * or from the worktree setup.
      *
-     * @param goal    The user's goal/instructions.
+     * @param goal The user's goal/instructions.
      * @param options The pre-configured ArchitectOptions.
      */
     public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
@@ -1370,7 +1383,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         // Update the LLM output panel directly via Chrome
-        chrome.llmOutput("# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.", ChatMessageType.USER);
+        chrome.llmOutput(
+                "# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.",
+                ChatMessageType.USER);
         clearCommandInput();
         // Submit the action, calling the private execute method inside the lambda
         submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(searchModel, input));
@@ -1392,14 +1407,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
     }
 
-    /**
-     * sets the llm output to indicate the action has started, and submits the task on the user pool
-     */
+    /** sets the llm output to indicate the action has started, and submits the task on the user pool */
     public Future<?> submitAction(String action, String input, Runnable task) {
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
-        chrome.setLlmOutput(new ContextFragment.TaskFragment(cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
+        chrome.setLlmOutput(new ContextFragment.TaskFragment(
+                cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
         return cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + action + " command...");
@@ -1425,8 +1439,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Updates the enabled state of all action buttons based on project load status
-     * and ContextManager availability. Called when actions complete.
+     * Updates the enabled state of all action buttons based on project load status and ContextManager availability.
+     * Called when actions complete.
      */
     private void updateButtonStates() {
         boolean gitAvailable = chrome.getProject().hasGit();
@@ -1487,8 +1501,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Hides the command input overlay, enables the input field and deep scan button,
-     * clears the placeholder text if present, and requests focus for the input field.
+     * Hides the command input overlay, enables the input field and deep scan button, clears the placeholder text if
+     * present, and requests focus for the input field.
      */
     private void activateCommandInput() {
         commandInputOverlay.hideOverlay(); // Hide the overlay
@@ -1547,7 +1561,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var recommendation = contextAgent.getRecommendations(true);
 
             if (!recommendation.reasoning().isEmpty()) {
-                chrome.llmOutput("\nReasoning for recommendations: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
+                chrome.llmOutput(
+                        "\nReasoning for recommendations: " + recommendation.reasoning(), ChatMessageType.CUSTOM);
             }
 
             var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
@@ -1557,18 +1572,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var summaries = ContextFragment.getSummary(recommendation.fragments());
                 var msgs = new ArrayList<>(List.of(
                         new UserMessage("Scan for relevant files"),
-                        new AiMessage("Potentially relevant files:\n" + summaries)
-                ));
-                cm.addToHistory(new TaskResult(cm,
-                                               "Scan for relevant files",
-                                               msgs,
-                                               Set.of(),
-                                               TaskResult.StopReason.SUCCESS),
-                                false);
-                chrome.llmOutput("Scan Project complete: recorded summaries to history (too large to add directly).", ChatMessageType.CUSTOM);
+                        new AiMessage("Potentially relevant files:\n" + summaries)));
+                cm.addToHistory(
+                        new TaskResult(cm, "Scan for relevant files", msgs, Set.of(), TaskResult.StopReason.SUCCESS),
+                        false);
+                chrome.llmOutput(
+                        "Scan Project complete: recorded summaries to history (too large to add directly).",
+                        ChatMessageType.CUSTOM);
             } else {
                 WorkspaceTools.addToWorkspace(cm, recommendation);
-                chrome.llmOutput("Scan Project complete: added recommendations to the Workspace.", ChatMessageType.CUSTOM);
+                chrome.llmOutput(
+                        "Scan Project complete: added recommendations to the Workspace.", ChatMessageType.CUSTOM);
             }
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
@@ -1579,9 +1593,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return this.micButton;
     }
 
-    /**
-     * Returns cosine similarity of two equal-length vectors.
-     */
+    /** Returns cosine similarity of two equal-length vectors. */
     private static float cosine(float[] a, float[] b) {
         if (a.length != b.length) {
             throw new IllegalArgumentException("Vectors differ in length");
@@ -1611,16 +1623,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Creates a JPopupMenu displaying favorite models that are currently available.
-     * When a favorite model is selected, the provided consumer is called with the
-     * model name and its associated reasoning level from the favorite model configuration.
+     * Creates a JPopupMenu displaying favorite models that are currently available. When a favorite model is selected,
+     * the provided consumer is called with the model name and its associated reasoning level from the favorite model
+     * configuration.
      *
-     * @param onModelSelect The consumer to call when a favorite model is selected.
-     *                      Receives the model name and the reasoning level configured for that favorite.
+     * @param onModelSelect The consumer to call when a favorite model is selected. Receives the model name and the
+     *     reasoning level configured for that favorite.
      * @return A JPopupMenu containing available favorite models or configuration options.
      */
-    private JPopupMenu createModelSelectionMenu(BiConsumer<String, Service.ReasoningLevel> onModelSelect)
-    {
+    private JPopupMenu createModelSelectionMenu(BiConsumer<String, Service.ReasoningLevel> onModelSelect) {
         var popupMenu = new JPopupMenu();
 
         var modelsInstance = this.contextManager.getService();
@@ -1641,13 +1652,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             popupMenu.add(item);
             popupMenu.addSeparator();
             var configureItem = new JMenuItem("Configure Favorites...");
-            configureItem.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
+            configureItem.addActionListener(
+                    e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
             popupMenu.add(configureItem);
         } else {
             favoriteModelsToShow.forEach(fav -> {
                 var item = new JMenuItem(fav.alias());
                 // Add a tooltip showing model name and reasoning level
-                item.setToolTipText("<html>Model: " + fav.modelName() + "<br>Reasoning: " + fav.reasoning().toString() + "</html>");
+                item.setToolTipText("<html>Model: " + fav.modelName() + "<br>Reasoning: "
+                        + fav.reasoning().toString() + "</html>");
                 item.addActionListener(e -> onModelSelect.accept(fav.modelName(), fav.reasoning()));
                 popupMenu.add(item);
             });
@@ -1662,9 +1675,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         private boolean isPopupOpen = false; // Guard against re-entrant calls
 
         @Override
-        public void insertString(FilterBypass fb, int offs, String str, AttributeSet a)
-        throws BadLocationException
-        {
+        public void insertString(FilterBypass fb, int offs, String str, AttributeSet a) throws BadLocationException {
             super.insertString(fb, offs, str, a);
             if (!isPopupOpen) {
                 maybeHandleAt(fb, offs + str.length());
@@ -1673,8 +1684,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public void replace(FilterBypass fb, int offs, int len, String str, AttributeSet a)
-        throws BadLocationException
-        {
+                throws BadLocationException {
             super.replace(fb, offs, len, str, a);
             if (!isPopupOpen) {
                 maybeHandleAt(fb, offs + str.length());
@@ -1683,8 +1693,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         private void maybeHandleAt(DocumentFilter.FilterBypass fb, int caretPos) {
             try {
-                if (fb.getDocument().getLength() >= caretPos && caretPos > 0 &&
-                    fb.getDocument().getText(caretPos - 1, 1).equals("@")) {
+                if (fb.getDocument().getLength() >= caretPos
+                        && caretPos > 0
+                        && fb.getDocument().getText(caretPos - 1, 1).equals("@")) {
                     // Schedule popup display on EDT
                     SwingUtilities.invokeLater(() -> showAddPopup(caretPos - 1));
                 }
@@ -1701,7 +1712,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             isPopupOpen = true;
             try {
                 Rectangle r = instructionsArea.modelToView2D(atOffset).getBounds();
-                // Point p = SwingUtilities.convertPoint(instructionsArea, r.x, r.y + r.height, chrome.getFrame()); // Unused variable p
+                // Point p = SwingUtilities.convertPoint(instructionsArea, r.x, r.y + r.height, chrome.getFrame()); //
+                // Unused variable p
 
                 JPopupMenu popup = AddMenuFactory.buildAddPopup(chrome.getContextPanel());
 
@@ -1716,13 +1728,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         }
                         // Add new listener that removes "@" then calls originals
                         item.addActionListener(actionEvent -> {
-                            SwingUtilities.invokeLater(() -> { // Ensure document modification is on EDT
-                                try {
-                                    instructionsArea.getDocument().remove(atOffset, 1);
-                                } catch (BadLocationException ble) {
-                                    logger.warn("Could not remove @ symbol after selection in ActionListener", ble);
-                                }
-                            });
+                            SwingUtilities.invokeLater(
+                                    () -> { // Ensure document modification is on EDT
+                                        try {
+                                            instructionsArea.getDocument().remove(atOffset, 1);
+                                        } catch (BadLocationException ble) {
+                                            logger.warn(
+                                                    "Could not remove @ symbol after selection in ActionListener", ble);
+                                        }
+                                    });
                             for (java.awt.event.ActionListener al : originalListeners) {
                                 al.actionPerformed(actionEvent);
                             }
@@ -1740,8 +1754,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     @Override
-                    public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
-                    }
+                    public void popupMenuWillBecomeVisible(PopupMenuEvent e) {}
 
                     @Override
                     public void popupMenuCanceled(PopupMenuEvent e) {

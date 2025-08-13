@@ -1,16 +1,15 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
-import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.DisplayName;
-
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
 /**
- * Comprehensive tests for the adaptive throttling strategy.
- * Tests verify that the strategy correctly switches between immediate and frame-based modes
- * based on file complexity and scroll performance.
+ * Comprehensive tests for the adaptive throttling strategy. Tests verify that the strategy correctly switches between
+ * immediate and frame-based modes based on file complexity and scroll performance.
  */
 class AdaptiveThrottlingStrategyTest {
 

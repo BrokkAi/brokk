@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
+
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -23,10 +25,6 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildToolConventions;
 import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -37,14 +35,15 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static java.util.Objects.requireNonNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * The BuildAgent class is responsible for executing a process to gather and report build details
- * for a software project's development environment. It interacts with tools, processes project files,
- * and uses an LLM to identify build commands, test configurations, and exclusions, ultimately
- * providing structured build information or aborting if unsupported.
+ * The BuildAgent class is responsible for executing a process to gather and report build details for a software
+ * project's development environment. It interacts with tools, processes project files, and uses an LLM to identify
+ * build commands, test configurations, and exclusions, ultimately providing structured build information or aborting if
+ * unsupported.
  */
 public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
@@ -84,18 +83,25 @@ public class BuildAgent {
 
         // Add the initial result to history (forge an AI request to make inflexible LLMs happy)
         chatHistory.add(new UserMessage("Start by examining the project root directory."));
-        chatHistory.add(new AiMessage(List.of(ToolExecutionRequest.builder().name("listFiles").arguments("{\"directoryPath\": \".\"}").build())));
+        chatHistory.add(new AiMessage(List.of(ToolExecutionRequest.builder()
+                .name("listFiles")
+                .arguments("{\"directoryPath\": \".\"}")
+                .build())));
         chatHistory.add(initialResultMessage);
         logger.trace("Initial tool result added to history: {}", initialResultMessage.text());
 
         // Determine build system and set initial excluded directories
-        var files = project.getAllFiles().stream().parallel()
+        var files = project.getAllFiles().stream()
+                .parallel()
                 .filter(f -> f.getParent().equals(Path.of("")))
                 .map(ProjectFile::toString)
                 .toList();
         BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(files);
         this.currentExcludedDirectories = new ArrayList<>(BuildToolConventions.getDefaultExcludes(detectedSystem));
-        logger.info("Determined build system: {}. Initial excluded directories: {}", detectedSystem, this.currentExcludedDirectories);
+        logger.info(
+                "Determined build system: {}. Initial excluded directories: {}",
+                detectedSystem,
+                this.currentExcludedDirectories);
 
         // Add exclusions from .gitignore
         var repo = project.getRepo();
@@ -118,11 +124,14 @@ public class BuildAgent {
                 }
             }
             if (!addedFromGitignore.isEmpty()) {
-                logger.debug("Added the following directory patterns from .gitignore to excluded directories: {}", addedFromGitignore);
+                logger.debug(
+                        "Added the following directory patterns from .gitignore to excluded directories: {}",
+                        addedFromGitignore);
             }
 
         } else {
-            logger.debug("No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
+            logger.debug(
+                    "No .git directory found at project root. Skipping .gitignore processing for excluded directories.");
         }
 
         // 2. Iteration Loop
@@ -132,7 +141,8 @@ public class BuildAgent {
 
             // 4. Add tools
             // Get specifications for ALL tools the agent might use in this turn.
-            var tools = new ArrayList<>(toolRegistry.getRegisteredTools(List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
+            var tools = new ArrayList<>(toolRegistry.getRegisteredTools(
+                    List.of("listFiles", "searchFilenames", "searchSubstrings", "getFileContents")));
             if (chatHistory.size() > 1) {
                 // allow terminal tools
                 tools.addAll(toolRegistry.getTools(this, List.of("reportBuildDetails", "abortBuildDetails")));
@@ -182,7 +192,9 @@ public class BuildAgent {
                 var terminalResult = toolRegistry.executeTool(this, reportRequest);
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     // The assertion was here, but requireNonNull is more explicit for NullAway
-                    return requireNonNull(reportedDetails, "reportedDetails should be non-null after successful reportBuildDetails tool execution");
+                    return requireNonNull(
+                            reportedDetails,
+                            "reportedDetails should be non-null after successful reportBuildDetails tool execution");
                 } else {
                     // Tool execution failed
                     logger.warn("reportBuildDetails tool execution failed. Error: {}", terminalResult.resultText());
@@ -217,14 +229,13 @@ public class BuildAgent {
         }
     }
 
-    /**
-     * Build the prompt for the LLM, including system message and history.
-     */
+    /** Build the prompt for the LLM, including system message and history. */
     private List<ChatMessage> buildPrompt() {
         List<ChatMessage> messages = new ArrayList<>();
 
         // System Prompt
-        messages.add(new SystemMessage("""
+        messages.add(new SystemMessage(
+                """
                                        You are an agent tasked with finding build information for the *development* environment of a software project.
                                        Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
                                        Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
@@ -259,24 +270,35 @@ public class BuildAgent {
 
                                        Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                                        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
-                                       """.stripIndent()));
+                                       """
+                        .stripIndent()));
 
         // Add existing history
         messages.addAll(chatHistory);
 
         // Add final user message indicating the goal (redundant with system prompt but reinforces)
-        messages.add(new UserMessage("Gather the development build details based on the project files and previous findings. Use the available tools to explore and collect the information, then report it using 'reportBuildDetails'."));
+        messages.add(
+                new UserMessage(
+                        "Gather the development build details based on the project files and previous findings. Use the available tools to explore and collect the information, then report it using 'reportBuildDetails'."));
 
         return messages;
     }
 
-    @Tool(value = "Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
+    @Tool(
+            value =
+                    "Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
     public String reportBuildDetails(
-            @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.") String buildLintCommand,
-            @P("Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.") String testAllCommand,
-            @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.") String testSomeCommand,
-            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)") List<String> excludedDirectories
-        ) {
+            @P(
+                            "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.")
+                    String buildLintCommand,
+            @P(
+                            "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
+                    String testAllCommand,
+            @P(
+                            "Command template to run specific tests using Mustache templating. Should use either a {{classes}}, {{fqclasses}}, or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.")
+                    String testSomeCommand,
+            @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)")
+                    List<String> excludedDirectories) {
         // Combine baseline excluded directories with those suggested by the LLM
         var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
                 .map(String::trim)
@@ -286,14 +308,16 @@ public class BuildAgent {
                 .collect(Collectors.toSet());
 
         this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
-        logger.debug("reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
+        logger.debug(
+                "reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
         return "Build details report received and processed.";
     }
 
-    @Tool(value = "Abort the process if you cannot determine the build details or the project structure is unsupported.")
+    @Tool(
+            value =
+                    "Abort the process if you cannot determine the build details or the project structure is unsupported.")
     public String abortBuildDetails(
-            @P("Explanation of why the build details cannot be determined") String explanation
-         ) {
+            @P("Explanation of why the build details cannot be determined") String explanation) {
         // Store the explanation in the agent's field
         this.abortReason = explanation;
         logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
@@ -301,11 +325,8 @@ public class BuildAgent {
     }
 
     /** Holds semi-structured information about a project's build process */
-    public record BuildDetails(String buildLintCommand,
-                               String testAllCommand,
-                               String testSomeCommand,
-                               Set<String> excludedDirectories)
-    {
+    public record BuildDetails(
+            String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> excludedDirectories) {
         public BuildDetails {
             requireNonNull(buildLintCommand);
             requireNonNull(testAllCommand);
@@ -317,15 +338,13 @@ public class BuildAgent {
     }
 
     /**
-     * Asynchronously determines the best verification command based on the user goal,
-     * workspace summary, and stored BuildDetails.
-     * Runs on the ContextManager's background task executor.
-     * Determines the command by checking for relevant test files in the workspace
-     * and the availability of a specific test command in BuildDetails.
+     * Asynchronously determines the best verification command based on the user goal, workspace summary, and stored
+     * BuildDetails. Runs on the ContextManager's background task executor. Determines the command by checking for
+     * relevant test files in the workspace and the availability of a specific test command in BuildDetails.
      *
      * @param cm The ContextManager instance.
-     * @return A CompletableFuture containing the suggested verification command string (either specific test command or build/lint command),
-     * or null if BuildDetails are unavailable.
+     * @return A CompletableFuture containing the suggested verification command string (either specific test command or
+     *     build/lint command), or null if BuildDetails are unavailable.
      */
     public static @Nullable String determineVerificationCommand(IContextManager cm) {
         // Retrieve build details from the project associated with the ContextManager
@@ -348,33 +367,32 @@ public class BuildAgent {
 
         // Get ProjectFiles from editable and read-only fragments
         var topContext = requireNonNull(cm.topContext());
-        var projectFilesFromEditableOrReadOnly = Stream.concat(
-                        topContext.editableFiles(),
-                        topContext.readonlyFiles()
-                )
+        var projectFilesFromEditableOrReadOnly = Stream.concat(topContext.editableFiles(), topContext.readonlyFiles())
                 .flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        var projectFilesFromSkeletons = topContext.virtualFragments()
+        var projectFilesFromSkeletons = topContext
+                .virtualFragments()
                 .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
                 .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
-        var workspaceFiles =
-                Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
-                        .collect(Collectors.toSet());
+        var workspaceFiles = Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
+                .collect(Collectors.toSet());
 
         // Check if any of the identified project test files are present in the current workspace set
         var projectTestFiles = cm.getTestFiles();
-        var workspaceTestFiles = projectTestFiles.stream()
-                .filter(workspaceFiles::contains)
-                .toList();
+        var workspaceTestFiles =
+                projectTestFiles.stream().filter(workspaceFiles::contains).toList();
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
             var summaries = ContextFragment.getSummary(cm.topContext().allFragments());
-            logger.debug("No relevant test files found for {} with Workspace {}; using build/lint command: {}",
-                         cm.getProject().getRoot(), summaries, getBuildLintAllCommand(details));
+            logger.debug(
+                    "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
+                    cm.getProject().getRoot(),
+                    summaries,
+                    getBuildLintAllCommand(details));
             return getBuildLintAllCommand(details);
         }
 
@@ -382,37 +400,36 @@ public class BuildAgent {
     }
 
     /**
-     * Runs {@link #determineVerificationCommand(IContextManager)} on the
-     * {@link ContextManager} background pool and delivers the result asynchronously.
+     * Runs {@link #determineVerificationCommand(IContextManager)} on the {@link ContextManager} background pool and
+     * delivers the result asynchronously.
      *
      * @return a {@link CompletableFuture} that completes on the background thread.
      */
-    public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm)
-    {
-        return cm.submitBackgroundTask("Determine build verification command",
-                                       () -> determineVerificationCommand(cm));
+    public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
+        return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
     }
 
-    public static String getBuildLintSomeCommand(IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
+    public static String getBuildLintSomeCommand(
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
         // Determine if template is files-based or classes-based
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") == null
-                                  ? details.testSomeCommand()
-                                  : System.getenv("BRK_TESTSOME_CMD");
+                ? details.testSomeCommand()
+                : System.getenv("BRK_TESTSOME_CMD");
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
         boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
 
         if (!isFilesBased && !isClassesBased) {
-            logger.debug("Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}", getBuildLintAllCommand(details));
+            logger.debug(
+                    "Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}",
+                    getBuildLintAllCommand(details));
             return getBuildLintAllCommand(details);
         }
 
         List<String> targetItems;
         if (isFilesBased) {
             // Use file paths directly
-            targetItems = workspaceTestFiles.stream()
-                    .map(ProjectFile::toString)
-                    .toList();
+            targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
             logger.debug("Using files-based template with {} files", targetItems.size());
         } else { // isClassesBased
             IAnalyzer analyzer;
@@ -430,15 +447,15 @@ public class BuildAgent {
 
             var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
             if (isFqBased) {
-                targetItems = codeUnits.stream()
-                        .map(CodeUnit::fqName)
-                        .sorted()
-                        .toList();
+                targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
             } else {
-                targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
+                targetItems =
+                        codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
             }
             if (targetItems.isEmpty()) {
-                logger.debug("No classes found in workspace test files for class-based template, using build/lint command: {}", details.buildLintCommand());
+                logger.debug(
+                        "No classes found in workspace test files for class-based template, using build/lint command: {}",
+                        details.buildLintCommand());
                 return details.buildLintCommand();
             }
             logger.debug("Using classes-based template with {} classes", targetItems.size());
@@ -459,8 +476,8 @@ public class BuildAgent {
     }
 
     /**
-     * Interpolates a Mustache template with the given list of items.
-     * Supports {{files}} and {{classes}} variables with {{^-last}} separators.
+     * Interpolates a Mustache template with the given list of items. Supports {{files}} and {{classes}} variables with
+     * {{^-last}} separators.
      */
     private static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         if (template.isEmpty()) {

@@ -8,9 +8,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 class Json {
 
-    static final ObjectMapper OBJECT_MAPPER = new ObjectMapper()
-            .enable(INDENT_OUTPUT)
-            .disable(FAIL_ON_IGNORED_PROPERTIES);
+    static final ObjectMapper OBJECT_MAPPER =
+            new ObjectMapper().enable(INDENT_OUTPUT).disable(FAIL_ON_IGNORED_PROPERTIES);
 
     static String toJson(Object o) {
         try {

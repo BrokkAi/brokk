@@ -1,17 +1,15 @@
 package io.github.jbellis.brokk.analyzer.cpp;
 
-import io.github.jbellis.brokk.analyzer.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSNode;
-import org.treesitter.TSParser;
+import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
+import io.github.jbellis.brokk.analyzer.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-
-import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 
 public class SkeletonGenerator {
     private static final Logger log = LogManager.getLogger(SkeletonGenerator.class);
@@ -22,16 +20,18 @@ public class SkeletonGenerator {
         // No longer need separate parser - will use shared one from CppTreeSitterAnalyzer
     }
 
-    public Map<CodeUnit, String> fixGlobalEnumSkeletons(Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
+    public Map<CodeUnit, String> fixGlobalEnumSkeletons(
+            Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
         var result = new HashMap<>(skeletons);
 
         try {
 
             var enumsToFix = skeletons.entrySet().stream()
-                .filter(entry -> entry.getKey().isClass())
-                .filter(entry -> entry.getKey().packageName().isEmpty())
-                .filter(entry -> entry.getValue().startsWith("enum ") && entry.getValue().contains("{\n}"))
-                .collect(Collectors.toList());
+                    .filter(entry -> entry.getKey().isClass())
+                    .filter(entry -> entry.getKey().packageName().isEmpty())
+                    .filter(entry -> entry.getValue().startsWith("enum ")
+                            && entry.getValue().contains("{\n}"))
+                    .collect(Collectors.toList());
 
             for (var enumEntry : enumsToFix) {
                 var enumCodeUnit = enumEntry.getKey();
@@ -52,24 +52,27 @@ public class SkeletonGenerator {
         return result;
     }
 
-    public Map<CodeUnit, String> fixGlobalUnionSkeletons(Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
+    public Map<CodeUnit, String> fixGlobalUnionSkeletons(
+            Map<CodeUnit, String> skeletons, ProjectFile file, TSNode rootNode, String fileContent) {
         var result = new HashMap<>(skeletons);
 
         try {
 
             // Find all global union CodeUnits that need fixing
             var unionsToFix = skeletons.entrySet().stream()
-                .filter(entry -> entry.getKey().isClass())
-                .filter(entry -> entry.getKey().packageName().isEmpty()) // global scope only
-                .filter(entry -> entry.getValue().startsWith("union ") && !entry.getValue().contains("char*"))
-                .collect(Collectors.toList());
+                    .filter(entry -> entry.getKey().isClass())
+                    .filter(entry -> entry.getKey().packageName().isEmpty()) // global scope only
+                    .filter(entry -> entry.getValue().startsWith("union ")
+                            && !entry.getValue().contains("char*"))
+                    .collect(Collectors.toList());
 
             for (var unionEntry : unionsToFix) {
                 var unionCodeUnit = unionEntry.getKey();
                 var unionName = unionCodeUnit.fqName();
 
                 // Find the union_specifier node in the AST
-                var unionNode = ASTTraversalUtils.findNodeByTypeAndName(rootNode, UNION_SPECIFIER, unionName, fileContent);
+                var unionNode =
+                        ASTTraversalUtils.findNodeByTypeAndName(rootNode, UNION_SPECIFIER, unionName, fileContent);
                 if (unionNode != null) {
                     // Extract full union content
                     var unionSkeleton = extractUnionSkeleton(unionNode, unionName, fileContent);
@@ -85,9 +88,7 @@ public class SkeletonGenerator {
         return result;
     }
 
-    /**
-     * Extracts union skeleton with all field declarations.
-     */
+    /** Extracts union skeleton with all field declarations. */
     private String extractUnionSkeleton(TSNode unionNode, String unionName, String fileContent) {
         var skeleton = new StringBuilder(256); // Pre-size for better performance
         skeleton.append("union ").append(unionName).append(" {\n");
@@ -116,9 +117,7 @@ public class SkeletonGenerator {
         return skeleton.toString();
     }
 
-    /**
-     * Extracts enum skeleton with only enum value names (no assigned values).
-     */
+    /** Extracts enum skeleton with only enum value names (no assigned values). */
     private String extractEnumSkeleton(TSNode enumNode, String enumName, String fileContent) {
         var skeleton = new StringBuilder(256); // Pre-size for better performance
         skeleton.append("enum ").append(enumName).append(" {\n");
@@ -158,8 +157,8 @@ public class SkeletonGenerator {
     }
 
     /**
-     * Extracts enum skeleton from an enum node, showing only names without values.
-     * Handles both regular enums and scoped enums (enum class).
+     * Extracts enum skeleton from an enum node, showing only names without values. Handles both regular enums and
+     * scoped enums (enum class).
      */
     public String extractEnumSkeletonFromNode(TSNode enumNode, String fileContent) {
         // Get enum name
@@ -217,18 +216,12 @@ public class SkeletonGenerator {
         return skeleton.toString();
     }
 
-
-    /**
-     * Clears the file content cache to free memory.
-     * Should be called periodically or when analysis is complete.
-     */
+    /** Clears the file content cache to free memory. Should be called periodically or when analysis is complete. */
     public void clearCache() {
         fileContentCache.clear();
     }
 
-    /**
-     * Gets the size of the file content cache for monitoring.
-     */
+    /** Gets the size of the file content cache for monitoring. */
     public int getCacheSize() {
         return fileContentCache.size();
     }

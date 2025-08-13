@@ -3,11 +3,6 @@ package io.github.jbellis.brokk.gui.mop.webview;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
-import javafx.application.Platform;
-import javafx.scene.web.WebEngine;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +12,11 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import javafx.application.Platform;
+import javafx.scene.web.WebEngine;
 import javax.swing.SwingUtilities;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public final class MOPBridge {
     private static final Logger logger = LogManager.getLogger(MOPBridge.class);
@@ -133,7 +132,11 @@ public final class MOPBridge {
                     if (firstChunk == null) {
                         firstChunk = chunk;
                     } else if (chunk.isNew() || chunk.msgType() != firstChunk.msgType()) {
-                        sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType(), firstChunk.streaming());
+                        sendChunk(
+                                currentText.toString(),
+                                firstChunk.isNew(),
+                                firstChunk.msgType(),
+                                firstChunk.streaming());
                         currentText.setLength(0);
                         firstChunk = chunk;
                     }

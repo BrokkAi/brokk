@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = ToolCall.Builder.class)
@@ -17,10 +16,13 @@ public class ToolCall {
 
     @JsonProperty
     private final String id;
+
     @JsonProperty
     private final Integer index;
+
     @JsonProperty
     private final ToolType type;
+
     @JsonProperty
     private final FunctionCall function;
 
@@ -50,8 +52,7 @@ public class ToolCall {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ToolCall
-                && equalTo((ToolCall) another);
+        return another instanceof ToolCall && equalTo((ToolCall) another);
     }
 
     private boolean equalTo(ToolCall another) {
@@ -73,12 +74,7 @@ public class ToolCall {
 
     @Override
     public String toString() {
-        return "ToolCall{"
-                + "id=" + id
-                + ", index=" + index
-                + ", type=" + type
-                + ", function=" + function
-                + "}";
+        return "ToolCall{" + "id=" + id + ", index=" + index + ", type=" + type + ", function=" + function + "}";
     }
 
     public static Builder builder() {

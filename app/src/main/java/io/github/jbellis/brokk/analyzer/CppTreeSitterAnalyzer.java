@@ -1,8 +1,15 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
+import static java.util.Optional.*;
+
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.cpp.NamespaceProcessor;
 import io.github.jbellis.brokk.analyzer.cpp.SkeletonGenerator;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -11,15 +18,6 @@ import org.treesitter.TSNode;
 import org.treesitter.TSParser;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCpp;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
-import static java.util.Optional.*;
-import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LogManager.getLogger(CppTreeSitterAnalyzer.class);
@@ -30,9 +28,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private final ThreadLocal<TSParser> parserCache;
     private final Map<CodeUnitKey, CodeUnit> codeUnitRegistry = new ConcurrentHashMap<>();
 
-    /**
-     * Key for CodeUnit registry to ensure unique instances for logically identical CodeUnits.
-     */
+    /** Key for CodeUnit registry to ensure unique instances for logically identical CodeUnits. */
     public record CodeUnitKey(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {}
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
@@ -56,7 +52,12 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     private static final LanguageSyntaxProfile CPP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_SPECIFIER, STRUCT_SPECIFIER, UNION_SPECIFIER, ENUM_SPECIFIER, NAMESPACE_DEFINITION),
-            Set.of(FUNCTION_DEFINITION, METHOD_DEFINITION, CONSTRUCTOR_DECLARATION, DESTRUCTOR_DECLARATION, DECLARATION),
+            Set.of(
+                    FUNCTION_DEFINITION,
+                    METHOD_DEFINITION,
+                    CONSTRUCTOR_DECLARATION,
+                    DESTRUCTOR_DECLARATION,
+                    DECLARATION),
             Set.of(FIELD_DECLARATION, PARAMETER_DECLARATION, ENUMERATOR),
             Set.of(ATTRIBUTE_SPECIFIER, ACCESS_SPECIFIER),
             "name",
@@ -66,8 +67,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             "template_parameters",
             createCaptureConfiguration(),
             "",
-            Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER)
-    );
+            Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
     public CppTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
         super(project, Language.CPP_TREESITTER, excludedFiles);
@@ -99,9 +99,13 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
-        final char delimiter = Optional.ofNullable(CPP_SYNTAX_PROFILE.captureConfiguration().get(captureName))
-                .stream().anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE)) ? '$' : '.';
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
+        final char delimiter =
+                Optional.ofNullable(CPP_SYNTAX_PROFILE.captureConfiguration().get(captureName)).stream()
+                                .anyMatch(x -> x.equals(SkeletonType.CLASS_LIKE))
+                        ? '$'
+                        : '.';
 
         String correctedClassChain = classChain;
         if (!packageName.isEmpty() && classChain.startsWith(packageName + ".")) {
@@ -112,22 +116,23 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
         var skeletonType = getSkeletonTypeForCapture(captureName);
 
-        var type = switch (skeletonType) {
-            case CLASS_LIKE -> {
-                if ("namespace.definition".equals(captureName)) {
-                    yield CodeUnitType.MODULE;
-                } else {
-                    yield CodeUnitType.CLASS;
-                }
-            }
-            case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
-            case FIELD_LIKE -> CodeUnitType.FIELD;
-            case MODULE_STATEMENT -> CodeUnitType.MODULE;
-            default -> {
-                log.warn("Unhandled SkeletonType '{}' for captureName '{}' in C++", skeletonType, captureName);
-                yield CodeUnitType.CLASS;
-            }
-        };
+        var type =
+                switch (skeletonType) {
+                    case CLASS_LIKE -> {
+                        if ("namespace.definition".equals(captureName)) {
+                            yield CodeUnitType.MODULE;
+                        } else {
+                            yield CodeUnitType.CLASS;
+                        }
+                    }
+                    case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
+                    case FIELD_LIKE -> CodeUnitType.FIELD;
+                    case MODULE_STATEMENT -> CodeUnitType.MODULE;
+                    default -> {
+                        log.warn("Unhandled SkeletonType '{}' for captureName '{}' in C++", skeletonType, captureName);
+                        yield CodeUnitType.CLASS;
+                    }
+                };
 
         return getOrCreateCodeUnit(file, type, packageName, fqName);
     }
@@ -139,8 +144,9 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             correctedClassChain = "";
         }
 
-        return correctedClassChain.isEmpty() ? packageName
-            : (packageName.isEmpty() ? correctedClassChain : packageName + "." + correctedClassChain);
+        return correctedClassChain.isEmpty()
+                ? packageName
+                : (packageName.isEmpty() ? correctedClassChain : packageName + "." + correctedClassChain);
     }
 
     @Override
@@ -168,7 +174,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+    protected String renderClassHeader(
+            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
         return signatureText + " {";
     }
 
@@ -178,7 +185,16 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportAndModifierPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(
+            TSNode funcNode,
+            String src,
+            String exportAndModifierPrefix,
+            String asyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
         var templateParams = typeParamsText.isEmpty() ? "" : typeParamsText + " ";
         var returnType = returnTypeText.isEmpty() ? "" : returnTypeText + " ";
 
@@ -208,14 +224,16 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        var signature = indent + exportAndModifierPrefix + templateParams + returnType + functionName + actualParamsText;
+        var signature =
+                indent + exportAndModifierPrefix + templateParams + returnType + functionName + actualParamsText;
 
         var throwsNode = funcNode.getChildByFieldName("noexcept_specifier");
         if (throwsNode != null) {
             signature += " " + ASTTraversalUtils.extractNodeText(throwsNode, src);
         }
 
-        TSNode bodyNode = funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        TSNode bodyNode =
+                funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
         if (hasBody) {
@@ -280,8 +298,13 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
             resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
             resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
-            resultSkeletons = namespaceProcessor.mergeNamespaceBlocks(resultSkeletons, signatures, file, rootNode, fileContent,
-                namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
+            resultSkeletons = namespaceProcessor.mergeNamespaceBlocks(
+                    resultSkeletons,
+                    signatures,
+                    file,
+                    rootNode,
+                    fileContent,
+                    namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
 
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
@@ -294,7 +317,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         }
     }
 
-    private Map<CodeUnit, String> addCorrespondingSourceDeclarations(Map<CodeUnit, String> resultSkeletons, ProjectFile file) {
+    private Map<CodeUnit, String> addCorrespondingSourceDeclarations(
+            Map<CodeUnit, String> resultSkeletons, ProjectFile file) {
         var result = new HashMap<>(resultSkeletons);
 
         ProjectFile correspondingSource = findCorrespondingSourceFile(file);
@@ -304,8 +328,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             for (CodeUnit sourceCU : sourceCUs) {
                 if (isGlobalFunctionOrVariable(sourceCU)) {
                     boolean alreadyExists = result.keySet().stream()
-                        .anyMatch(headerCU -> headerCU.fqName().equals(sourceCU.fqName())
-                                              && headerCU.kind() == sourceCU.kind());
+                            .anyMatch(headerCU ->
+                                    headerCU.fqName().equals(sourceCU.fqName()) && headerCU.kind() == sourceCU.kind());
 
                     if (!alreadyExists) {
                         var sourceSkeletons = super.getSkeletons(correspondingSource);
@@ -336,7 +360,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             var parentPath = headerFile.absPath().getParent();
             if (parentPath != null) {
                 var candidatePath = parentPath.resolve(sourceFileName);
-                ProjectFile candidateSource = new ProjectFile(headerFile.getRoot(), headerFile.getRoot().relativize(candidatePath));
+                ProjectFile candidateSource = new ProjectFile(
+                        headerFile.getRoot(), headerFile.getRoot().relativize(candidatePath));
 
                 if (getTopLevelDeclarations().containsKey(candidateSource)) {
                     return candidateSource;
@@ -349,10 +374,9 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     private boolean isGlobalFunctionOrVariable(CodeUnit cu) {
         return (cu.isFunction() || cu.isField())
-               && cu.packageName().isEmpty()
-               && !cu.fqName().contains(".");
+                && cu.packageName().isEmpty()
+                && !cu.fqName().contains(".");
     }
-
 
     private String getCachedFileContent(ProjectFile file) throws IOException {
         return fileContentCache.computeIfAbsent(file, f -> {
@@ -370,8 +394,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Factory method to get or create a CodeUnit instance, ensuring object identity.
-     * This prevents duplicate CodeUnit instances for the same logical entity.
+     * Factory method to get or create a CodeUnit instance, ensuring object identity. This prevents duplicate CodeUnit
+     * instances for the same logical entity.
      */
     public CodeUnit getOrCreateCodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String fqName) {
         var registry = getCodeUnitRegistry();
@@ -380,8 +404,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     /**
-     * Get the code unit registry, initializing it if necessary.
-     * This provides thread-safe lazy initialization as a fallback.
+     * Get the code unit registry, initializing it if necessary. This provides thread-safe lazy initialization as a
+     * fallback.
      */
     @SuppressWarnings("RedundantNullCheck")
     private Map<CodeUnitKey, CodeUnit> getCodeUnitRegistry() {
@@ -444,8 +468,10 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        if (DECLARATION.equals(decl.getType()) || METHOD_DEFINITION.equals(decl.getType()) ||
-            CONSTRUCTOR_DECLARATION.equals(decl.getType()) || DESTRUCTOR_DECLARATION.equals(decl.getType())) {
+        if (DECLARATION.equals(decl.getType())
+                || METHOD_DEFINITION.equals(decl.getType())
+                || CONSTRUCTOR_DECLARATION.equals(decl.getType())
+                || DESTRUCTOR_DECLARATION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
             if (declaratorNode != null) {
                 if ("function_declarator".equals(declaratorNode.getType())) {
@@ -468,12 +494,12 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         return super.extractSimpleName(decl, src);
     }
 
-
     public String getCacheStatistics() {
-        return String.format("FileContent: %d, ParsedTrees: %d, SkeletonGen: %d, NamespaceProc: %d",
-                           fileContentCache.size(),
-                           parsedTreeCache.size(),
-                           skeletonGenerator.getCacheSize(),
-                           namespaceProcessor.getCacheSize());
+        return String.format(
+                "FileContent: %d, ParsedTrees: %d, SkeletonGen: %d, NamespaceProc: %d",
+                fileContentCache.size(),
+                parsedTreeCache.size(),
+                skeletonGenerator.getCacheSize(),
+                namespaceProcessor.getCacheSize());
     }
 }

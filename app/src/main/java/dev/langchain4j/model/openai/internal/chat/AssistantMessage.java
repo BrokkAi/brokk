@@ -13,7 +13,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.List;
 import java.util.Objects;
 
@@ -24,16 +23,22 @@ public final class AssistantMessage implements Message {
 
     @JsonProperty
     private final Role role = ASSISTANT;
+
     @JsonProperty
     private final String content;
+
     @JsonProperty("reasoning_content")
     private final String reasoningContent;
+
     @JsonProperty
     private final String name;
+
     @JsonProperty
     private final List<ToolCall> toolCalls;
+
     @JsonProperty
     private final Boolean refusal;
+
     @JsonProperty
     @Deprecated
     private final FunctionCall functionCall;
@@ -79,8 +84,7 @@ public final class AssistantMessage implements Message {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof AssistantMessage
-                && equalTo((AssistantMessage) another);
+        return another instanceof AssistantMessage && equalTo((AssistantMessage) another);
     }
 
     private boolean equalTo(AssistantMessage another) {
@@ -120,9 +124,7 @@ public final class AssistantMessage implements Message {
     }
 
     public static AssistantMessage from(String content) {
-        return AssistantMessage.builder()
-                .content(content)
-                .build();
+        return AssistantMessage.builder().content(content).build();
     }
 
     public static Builder builder() {
@@ -139,6 +141,7 @@ public final class AssistantMessage implements Message {
         private String reasoningContent;
         private List<ToolCall> toolCalls;
         private Boolean refusal;
+
         @Deprecated
         private FunctionCall functionCall;
 

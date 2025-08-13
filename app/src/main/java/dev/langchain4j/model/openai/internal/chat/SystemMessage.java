@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = SystemMessage.Builder.class)
@@ -19,8 +18,10 @@ public final class SystemMessage implements Message {
 
     @JsonProperty
     private final Role role = SYSTEM;
+
     @JsonProperty
     private final String content;
+
     @JsonProperty
     private final String name;
 
@@ -44,8 +45,7 @@ public final class SystemMessage implements Message {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof SystemMessage
-                && equalTo((SystemMessage) another);
+        return another instanceof SystemMessage && equalTo((SystemMessage) another);
     }
 
     private boolean equalTo(SystemMessage another) {
@@ -65,17 +65,11 @@ public final class SystemMessage implements Message {
 
     @Override
     public String toString() {
-        return "SystemMessage{"
-                + "role=" + role
-                + ", content=" + content
-                + ", name=" + name
-                + "}";
+        return "SystemMessage{" + "role=" + role + ", content=" + content + ", name=" + name + "}";
     }
 
     public static SystemMessage from(String content) {
-        return SystemMessage.builder()
-                .content(content)
-                .build();
+        return SystemMessage.builder().content(content).build();
     }
 
     public static Builder builder() {

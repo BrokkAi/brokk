@@ -2,16 +2,15 @@ package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import java.net.URL;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.net.URL;
-
 /**
- * Utility class for loading and caching spinner icons.
- * Ensures that spinner animations are reset when retrieved from the cache.
+ * Utility class for loading and caching spinner icons. Ensures that spinner animations are reset when retrieved from
+ * the cache.
  */
 public final class SpinnerIconUtil {
     private static final Logger logger = LogManager.getLogger(SpinnerIconUtil.class);
@@ -25,13 +24,12 @@ public final class SpinnerIconUtil {
     }
 
     /**
-     * Retrieves a spinner icon appropriate for the current theme and specified size.
-     * Icons are cached for performance. The animation of the GIF is reset each time
-     * a new ImageIcon is created from the cached image data.
-     * This method must be called on the Event Dispatch Thread.
+     * Retrieves a spinner icon appropriate for the current theme and specified size. Icons are cached for performance.
+     * The animation of the GIF is reset each time a new ImageIcon is created from the cached image data. This method
+     * must be called on the Event Dispatch Thread.
      *
      * @param chrome The application's Chrome instance, used to determine the current theme.
-     * @param small  If true, a small version of the spinner is returned; otherwise, a large version.
+     * @param small If true, a small version of the spinner is returned; otherwise, a large version.
      * @return The requested {@link Icon}, or {@code null} if the icon resource cannot be found.
      */
     public static @Nullable Icon getSpinner(Chrome chrome, boolean small) {
@@ -72,7 +70,7 @@ public final class SpinnerIconUtil {
      * Loads a spinner icon from the classpath.
      *
      * @param isDarkTheme True if the dark theme is active, false for light theme.
-     * @param isSmall     True for the small spinner, false for the large one.
+     * @param isSmall True for the small spinner, false for the large one.
      * @return The loaded {@link ImageIcon}, or {@code null} if the resource is not found.
      */
     private static @Nullable ImageIcon loadSpinnerIcon(boolean isDarkTheme, boolean isSmall) {

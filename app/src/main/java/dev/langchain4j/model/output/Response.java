@@ -3,11 +3,10 @@ package dev.langchain4j.model.output;
 import static dev.langchain4j.internal.Utils.copy;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.Map;
 import java.util.Objects;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents the response from various types of models, including language, chat, embedding, and moderation models.
@@ -19,15 +18,17 @@ public class Response<T> {
 
     @NotNull
     private final T content;
+
     private final TokenUsage tokenUsage;
     private final FinishReason finishReason;
+
     @NotNull
     private final Map<String, Object> metadata;
 
     /**
      * Create a new Response.
      *
-     * <p>Will contain {@code null} {@code TokenUsage} and {@code FinishReason}</p>
+     * <p>Will contain {@code null} {@code TokenUsage} and {@code FinishReason}
      *
      * @param content the content to wrap.
      */
@@ -38,8 +39,8 @@ public class Response<T> {
     /**
      * Create a new Response.
      *
-     * @param content      the content to wrap.
-     * @param tokenUsage   the token usage statistics, or {@code null}.
+     * @param content the content to wrap.
+     * @param tokenUsage the token usage statistics, or {@code null}.
      * @param finishReason the finish reason, or {@code null}.
      */
     public Response(@NotNull T content, TokenUsage tokenUsage, FinishReason finishReason) {
@@ -49,15 +50,16 @@ public class Response<T> {
     /**
      * Create a new Response.
      *
-     * @param content      the content to wrap.
-     * @param tokenUsage   the token usage statistics, or {@code null}.
+     * @param content the content to wrap.
+     * @param tokenUsage the token usage statistics, or {@code null}.
      * @param finishReason the finish reason, or {@code null}.
-     * @param metadata     the response metadata, or {@code null}.
+     * @param metadata the response metadata, or {@code null}.
      */
-    public Response(@NotNull T content,
-                    TokenUsage tokenUsage,
-                    FinishReason finishReason,
-                    @Nullable Map<String, Object> metadata) {
+    public Response(
+            @NotNull T content,
+            TokenUsage tokenUsage,
+            FinishReason finishReason,
+            @Nullable Map<String, Object> metadata) {
         this.content = ensureNotNull(content, "content");
         this.tokenUsage = tokenUsage;
         this.finishReason = finishReason;
@@ -120,19 +122,18 @@ public class Response<T> {
 
     @Override
     public String toString() {
-        return "Response {" +
-                " content = " + content +
-                ", tokenUsage = " + tokenUsage +
-                ", finishReason = " + finishReason +
-                ", metadata = " + metadata +
-                " }";
+        return "Response {" + " content = "
+                + content + ", tokenUsage = "
+                + tokenUsage + ", finishReason = "
+                + finishReason + ", metadata = "
+                + metadata + " }";
     }
 
     /**
      * Create a new Response.
      *
      * @param content the content to wrap.
-     * @param <T>     the type of content.
+     * @param <T> the type of content.
      * @return the new Response.
      */
     @NotNull
@@ -143,9 +144,9 @@ public class Response<T> {
     /**
      * Create a new Response.
      *
-     * @param content    the content to wrap.
+     * @param content the content to wrap.
      * @param tokenUsage the token usage statistics.
-     * @param <T>        the type of content.
+     * @param <T> the type of content.
      * @return the new Response.
      */
     @NotNull
@@ -156,10 +157,10 @@ public class Response<T> {
     /**
      * Create a new Response.
      *
-     * @param content      the content to wrap.
-     * @param tokenUsage   the token usage statistics.
+     * @param content the content to wrap.
+     * @param tokenUsage the token usage statistics.
      * @param finishReason the finish reason.
-     * @param <T>          the type of content.
+     * @param <T> the type of content.
      * @return the new Response.
      */
     @NotNull
@@ -170,18 +171,19 @@ public class Response<T> {
     /**
      * Create a new Response.
      *
-     * @param content      the content to wrap.
-     * @param tokenUsage   the token usage statistics.
+     * @param content the content to wrap.
+     * @param tokenUsage the token usage statistics.
      * @param finishReason the finish reason.
-     * @param metadata     the response metadata.
-     * @param <T>          the type of content.
+     * @param metadata the response metadata.
+     * @param <T> the type of content.
      * @return the new Response.
      */
     @NotNull
-    public static <T> Response<T> from(@NotNull T content,
-                                       TokenUsage tokenUsage,
-                                       FinishReason finishReason,
-                                       @Nullable Map<String, Object> metadata) {
+    public static <T> Response<T> from(
+            @NotNull T content,
+            TokenUsage tokenUsage,
+            FinishReason finishReason,
+            @Nullable Map<String, Object> metadata) {
         return new Response<>(content, tokenUsage, finishReason, metadata);
     }
 }

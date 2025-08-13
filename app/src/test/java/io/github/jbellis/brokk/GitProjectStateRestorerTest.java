@@ -1,19 +1,18 @@
 package io.github.jbellis.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 public class GitProjectStateRestorerTest {
 
@@ -51,12 +50,20 @@ public class GitProjectStateRestorerTest {
 
         Files.writeString(file, "version 1");
         repo.add(List.of(projectFile));
-        var commit1 = repo.getGit().commit().setSign(false).setMessage("Initial commit").call();
+        var commit1 = repo.getGit()
+                .commit()
+                .setSign(false)
+                .setMessage("Initial commit")
+                .call();
         var commit1Id = commit1.getId().getName();
 
         Files.writeString(file, "version 2");
         repo.add(List.of(projectFile));
-        var commit2 = repo.getGit().commit().setSign(false).setMessage("Second commit").call();
+        var commit2 = repo.getGit()
+                .commit()
+                .setSign(false)
+                .setMessage("Second commit")
+                .call();
         var commit2Id = commit2.getId().getName();
 
         // now we are at commit 2. create a state for commit 1

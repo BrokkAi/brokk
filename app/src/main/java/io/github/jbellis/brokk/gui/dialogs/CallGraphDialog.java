@@ -3,18 +3,15 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Dialog for configuring call graph analysis with method selection and depth control
- */
+/** Dialog for configuring call graph analysis with method selection and depth control */
 public class CallGraphDialog extends JDialog {
 
     private final SymbolSelectionPanel selectionPanel;
@@ -70,7 +67,7 @@ public class CallGraphDialog extends JDialog {
         gbc.gridx = 1;
         gbc.gridy = 0;
         depthPanel.add(depthSpinner, gbc);
-        
+
         // Third row - help text
         var helpLabel = new JLabel("Maximum depth of the call graph");
         helpLabel.setFont(helpLabel.getFont().deriveFont(Font.ITALIC));
@@ -113,11 +110,15 @@ public class CallGraphDialog extends JDialog {
 
         // Handle escape key to close dialog
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        getRootPane().registerKeyboardAction(e -> {
-            confirmed = false;
-            selectedMethod = null;
-            dispose();
-        }, escapeKeyStroke, JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        e -> {
+                            confirmed = false;
+                            selectedMethod = null;
+                            dispose();
+                        },
+                        escapeKeyStroke,
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Set OK as the default button (responds to Enter key)
         getRootPane().setDefaultButton(okButton);
@@ -136,9 +137,7 @@ public class CallGraphDialog extends JDialog {
         setLocationRelativeTo(parent);
     }
 
-    /**
-     * Updates the call graph map when the method or depth changes
-     */
+    /** Updates the call graph map when the method or depth changes */
     private void updateCallGraph() {
         String methodName = selectionPanel.getSymbolText();
         if (methodName.isEmpty()) {
@@ -155,23 +154,17 @@ public class CallGraphDialog extends JDialog {
         }
 
         // Count total call sites
-        int totalCallSites = callGraph.values().stream()
-                .mapToInt(List::size)
-                .sum();
+        int totalCallSites = callGraph.values().stream().mapToInt(List::size).sum();
 
         updateCallSitesCount(totalCallSites);
     }
-    
-    /**
-     * Updates the call sites count label
-     */
+
+    /** Updates the call sites count label */
     private void updateCallSitesCount(int count) {
         callSitesLabel.setText("Call sites: " + count);
     }
 
-    /**
-     * When OK is pressed, get the method and depth values.
-     */
+    /** When OK is pressed, get the method and depth values. */
     private void doOk() {
         String typed = selectionPanel.getSymbolText();
         if (typed.isEmpty()) {
@@ -185,31 +178,23 @@ public class CallGraphDialog extends JDialog {
         dispose();
     }
 
-    /**
-     * Return true if user confirmed the selection.
-     */
+    /** Return true if user confirmed the selection. */
     public boolean isConfirmed() {
         return confirmed;
     }
 
-    /**
-     * Return the selected method or null if none.
-     */
+    /** Return the selected method or null if none. */
     @Nullable
     public String getSelectedMethod() {
         return selectedMethod;
     }
 
-    /**
-     * Return the selected depth.
-     */
+    /** Return the selected depth. */
     public int getDepth() {
         return depth;
     }
-    
-    /**
-     * Return the call graph map (callers or callees)
-     */
+
+    /** Return the call graph map (callers or callees) */
     @Nullable
     public Map<String, List<CallSite>> getCallGraph() {
         return callGraph;

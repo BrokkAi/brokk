@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,10 +30,6 @@ import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -43,18 +41,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * SearchAgent:
- * - Uses tools to both answer questions AND curate Workspace context for follow-on coding.
- * - Starts by calling ContextAgent to add recommended fragments to the Workspace.
- * - Adds every learning step to Context history (no hidden state).
- * - Summarizes very large tool outputs before recording them.
- * - Forges getRelatedClasses for duplicate requests (like SearchAgent).
- * - Enters "beast mode" to finalize with existing info if interrupted or context is near full.
- * - Never writes code itself; it prepares the Workspace for a later Code Agent run.
+ * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
+ * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
+ * hidden state). - Summarizes very large tool outputs before recording them. - Forges getRelatedClasses for duplicate
+ * requests (like SearchAgent). - Enters "beast mode" to finalize with existing info if interrupted or context is near
+ * full. - Never writes code itself; it prepares the Workspace for a later Code Agent run.
  */
 public class SearchAgent {
     private static final Logger logger = LogManager.getLogger(SearchAgent.class);
@@ -81,12 +77,12 @@ public class SearchAgent {
     // State toggles
     private boolean beastMode;
 
-    public SearchAgent(String goal,
-                       ContextManager contextManager,
-                       StreamingChatModel model,
-                       ToolRegistry toolRegistry,
-                       int ordinal)
-    {
+    public SearchAgent(
+            String goal,
+            ContextManager contextManager,
+            StreamingChatModel model,
+            ToolRegistry toolRegistry,
+            int ordinal) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
@@ -98,9 +94,7 @@ public class SearchAgent {
         this.beastMode = false;
     }
 
-    /**
-     * Entry point. Runs until answer/abort or interruption.
-     */
+    /** Entry point. Runs until answer/abort or interruption. */
     public TaskResult execute() throws InterruptedException {
         io.systemOutput("Search Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
 
@@ -115,10 +109,12 @@ public class SearchAgent {
                 beastMode = true;
             }
             var inputLimit = cm.getService().getMaxInputTokens(model);
-            var workspaceMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
+            var workspaceMessages =
+                    new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(cm.liveContext()));
             var workspaceTokens = Messages.getApproximateTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
-                io.systemOutput("Workspace is near the context limit; attempting finalization based on current knowledge");
+                io.systemOutput(
+                        "Workspace is near the context limit; attempting finalization based on current knowledge");
                 beastMode = true;
             }
 
@@ -132,7 +128,8 @@ public class SearchAgent {
             io.llmOutput("\n# Planning", ChatMessageType.AI, true);
             var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
             if (result.error() != null || result.isEmpty()) {
-                var details = result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
+                var details =
+                        result.error() != null ? requireNonNull(result.error().getMessage()) : "Empty response";
                 io.systemOutput("LLM error planning next step: " + details);
                 return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, details));
             }
@@ -147,7 +144,8 @@ public class SearchAgent {
             // De-duplicate requested tools and handle answer/abort isolation
             var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             if (!ai.hasToolExecutionRequests()) {
-                return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "No tool requests found in LLM response."));
+                return errorResult(new TaskResult.StopDetails(
+                        TaskResult.StopReason.LLM_ERROR, "No tool requests found in LLM response."));
             }
             var next = parseResponseToRequests(ai);
             if (next.isEmpty()) {
@@ -173,8 +171,11 @@ public class SearchAgent {
                 }
             }
 
-            // Otherwise execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
-            var sortedCalls = next.stream().sorted(Comparator.comparingInt(req -> priority(req.name()))).toList();
+            // Otherwise execute all tool calls in a deterministic order (Workspace ops before exploration helps
+            // pruning)
+            var sortedCalls = next.stream()
+                    .sorted(Comparator.comparingInt(req -> priority(req.name())))
+                    .toList();
             for (var req : sortedCalls) {
                 // Duplicate guard and class tracking before execution
                 var signatures = createToolCallSignatures(req);
@@ -200,7 +201,8 @@ public class SearchAgent {
                         && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
                         && shouldSummarize(req.name());
                 if (summarize) {
-                    var reasoning = getArgumentsMap(req).getOrDefault("reasoning", "").toString();
+                    var reasoning =
+                            getArgumentsMap(req).getOrDefault("reasoning", "").toString();
                     display = summarizeResult(goal, req, display, reasoning);
                 }
 
@@ -222,14 +224,14 @@ public class SearchAgent {
     // Prompt and planning
     // =======================
 
-    private List<ChatMessage> buildPrompt(int workspaceTokens,
-                                          int minInputLimit,
-                                          List<ChatMessage> precomputedWorkspaceMessages)
+    private List<ChatMessage> buildPrompt(
+            int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
         // System role: similar to Architect, with stronger emphasis on pruning
-        var sys = new SystemMessage("""
+        var sys = new SystemMessage(
+                """
             You are the Search Agent.
             Your job:
               - find and organize code relevant to the user's question or implementation goal,
@@ -249,7 +251,10 @@ public class SearchAgent {
             Output discipline:
               - Think before calling tools.
               - If you already know what to add, use Workspace tools directly; do not search redundantly.
-            """.formatted(cm.getProject().getAnalyzerLanguages().stream().map(Language::name).collect(Collectors.joining(", "))));
+            """
+                        .formatted(cm.getProject().getAnalyzerLanguages().stream()
+                                .map(Language::name)
+                                .collect(Collectors.joining(", "))));
         messages.add(sys);
 
         // Current Workspace contents
@@ -259,14 +264,17 @@ public class SearchAgent {
         var auto = cm.liveContext().buildAutoContext(10);
         var ac = auto.text();
         if (!ac.isBlank()) {
-            messages.add(new UserMessage("""
+            messages.add(new UserMessage(
+                    """
                 <related_classes>
                 These MAY be relevant. They are NOT in the Workspace yet.
                 Add summaries or sources if needed; otherwise ignore them.
-                
+
                 %s
                 </related_classes>
-                """.stripIndent().formatted(ac)));
+                """
+                            .stripIndent()
+                            .formatted(ac)));
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
 
@@ -279,20 +287,27 @@ public class SearchAgent {
         if (minInputLimit > 0) {
             double pct = (double) workspaceTokens / minInputLimit * 100.0;
             if (pct > 90.0) {
-                warning = """
+                warning =
+                        """
                     CRITICAL: Workspace is using %.0f%% of input budget (%d tokens of %d).
                     You MUST reduce Workspace size immediately before any further exploration.
                     Replace full text with summaries and drop non-essential fragments first.
-                    """.stripIndent().formatted(pct, workspaceTokens, minInputLimit);
+                    """
+                                .stripIndent()
+                                .formatted(pct, workspaceTokens, minInputLimit);
             } else if (pct > 60.0) {
-                warning = """
+                warning =
+                        """
                     NOTICE: Workspace is using %.0f%% of input budget (%d tokens of %d).
                     Prefer summaries and prune aggressively before expanding further.
-                    """.stripIndent().formatted(pct, workspaceTokens, minInputLimit);
+                    """
+                                .stripIndent()
+                                .formatted(pct, workspaceTokens, minInputLimit);
             }
         }
 
-        String directive = """
+        String directive =
+                """
             <goal>
             %s
             </goal>
@@ -303,19 +318,23 @@ public class SearchAgent {
 
             You are encouraged to invoke multiple Workspace tools at once (add summaries, drop fragments, etc).
             Do NOT invoke multiple answer/abort actions. Do NOT write code.
-            
+
             %s
-            """.stripIndent().formatted(goal, warning);
+            """
+                        .stripIndent()
+                        .formatted(goal, warning);
 
         // Beast mode directive
         if (beastMode) {
-            directive = directive + """
+            directive = directive
+                    + """
                 <beast-mode>
                 The Workspace is full or execution was interrupted.
                 Finalize now using the best available information.
                 Prefer answerSearch; otherwise use abortSearch with reasons.
                 </beast-mode>
-                """.stripIndent();
+                """
+                            .stripIndent();
         }
 
         messages.add(new UserMessage(directive));
@@ -421,14 +440,10 @@ public class SearchAgent {
             var summaries = ContextFragment.getSummary(recommendation.fragments());
             var msgs = new ArrayList<>(List.of(
                     new UserMessage("Scan for relevant files"),
-                    new AiMessage("Potentially relevant files:\n" + summaries)
-            ));
-            cm.addToHistory(new TaskResult(cm,
-                                           "Scan for relevant files",
-                                           msgs,
-                                           Set.of(),
-                                           TaskResult.StopReason.SUCCESS),
-                            false);
+                    new AiMessage("Potentially relevant files:\n" + summaries)));
+            cm.addToHistory(
+                    new TaskResult(cm, "Scan for relevant files", msgs, Set.of(), TaskResult.StopReason.SUCCESS),
+                    false);
         } else {
             WorkspaceTools.addToWorkspace(cm, recommendation);
             io.llmOutput("\n\nScan complete; added recommendations to the Workspace.", ChatMessageType.CUSTOM);
@@ -441,20 +456,18 @@ public class SearchAgent {
 
     @Tool(value = "Provide a final answer to the user's question or goal. Use this when you have enough information.")
     public String answerSearch(
-            @P("Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
-            String explanation,
+            @P(
+                            "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
+                    String explanation,
             @P("List of fully qualified class names (FQCNs) relevant to the explanation (exhaustive).")
-            List<String> classNames
-    ) {
+                    List<String> classNames) {
         logger.debug("answerSearch selected with explanation length {}", explanation.length());
         return explanation;
     }
 
     @Tool(value = "Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
-            @P("Clear explanation of why the question cannot be answered from this codebase.")
-            String explanation
-    ) {
+            @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         logger.debug("abortSearch selected with explanation length {}", explanation.length());
         return explanation;
     }
@@ -463,11 +476,12 @@ public class SearchAgent {
     // Finalization and errors
     // =======================
 
-    private TaskResult createFinalFragment(ToolExecutionRequest request, ToolExecutionResult execResult) throws InterruptedException {
+    private TaskResult createFinalFragment(ToolExecutionRequest request, ToolExecutionResult execResult)
+            throws InterruptedException {
         var explanation = execResult.resultText();
         if (explanation.isBlank() || explanation.split("\\s+").length < 5) {
-            return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.SEARCH_INVALID_ANSWER,
-                                                          "Final answer was blank or too short."));
+            return errorResult(new TaskResult.StopDetails(
+                    TaskResult.StopReason.SEARCH_INVALID_ANSWER, "Final answer was blank or too short."));
         }
 
         // Pull any classNames provided explicitly, union with classes we tracked from discovery
@@ -492,31 +506,27 @@ public class SearchAgent {
 
         io.llmOutput("\n# Answer\n" + explanation, ChatMessageType.AI);
         var sessionName = "Search: " + goal;
-        var fragment = new ContextFragment.SearchFragment(cm,
-                                                          sessionName,
-                                                          List.copyOf(io.getLlmRawMessages()),
-                                                          coalesced);
-        return new TaskResult(sessionName,
-                              fragment,
-                              Set.of(),
-                              new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        var fragment =
+                new ContextFragment.SearchFragment(cm, sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
+        return new TaskResult(
+                sessionName, fragment, Set.of(), new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
-        String explanation = !details.explanation().isBlank() ? details.explanation() :
-                switch (details.reason()) {
+        String explanation = !details.explanation().isBlank()
+                ? details.explanation()
+                : switch (details.reason()) {
                     case INTERRUPTED -> "Execution was interrupted.";
                     case LLM_ERROR -> "An error occurred with the language model.";
                     case SEARCH_INVALID_ANSWER -> "The final answer provided by the model was invalid.";
                     case LLM_ABORTED -> "The agent determined the query could not be answered.";
                     default -> "Stopped: " + details.reason();
                 };
-        return new TaskResult("Search: " + goal,
-                              new ContextFragment.TaskFragment(cm,
-                                                               List.of(new UserMessage(goal), new AiMessage(explanation)),
-                                                               goal),
-                              Set.of(),
-                              details);
+        return new TaskResult(
+                "Search: " + goal,
+                new ContextFragment.TaskFragment(cm, List.of(new UserMessage(goal), new AiMessage(explanation)), goal),
+                Set.of(),
+                details);
     }
 
     // =======================
@@ -525,15 +535,15 @@ public class SearchAgent {
 
     private boolean shouldSummarize(String toolName) {
         return Set.of(
-                "searchSymbols",
-                "getUsages",
-                "getRelatedClasses",
-                "getClassSources",
-                "searchSubstrings",
-                "searchFilenames",
-                "getFileContents",
-                "getFileSummaries"
-        ).contains(toolName);
+                        "searchSymbols",
+                        "getUsages",
+                        "getRelatedClasses",
+                        "getClassSources",
+                        "searchSubstrings",
+                        "searchFilenames",
+                        "getFileContents",
+                        "getFileSummaries")
+                .contains(toolName);
     }
 
     private void handleStateAfterTool(@Nullable ToolExecutionResult exec) throws InterruptedException {
@@ -547,26 +557,27 @@ public class SearchAgent {
                 }
             }
             case "getUsages", "getRelatedClasses", "getClassSkeletons", "getClassSources", "getMethodSources" ->
-                    trackClassNamesFromResult(exec.resultText());
-            default -> {
-            }
+                trackClassNamesFromResult(exec.resultText());
+            default -> {}
         }
     }
 
-    private String summarizeResult(String query,
-                                   ToolExecutionRequest request,
-                                   String rawResult,
-                                   @Nullable String reasoning) throws RuntimeException {
-        var sys = new SystemMessage("""
+    private String summarizeResult(
+            String query, ToolExecutionRequest request, String rawResult, @Nullable String reasoning)
+            throws RuntimeException {
+        var sys = new SystemMessage(
+                """
             You are a code expert extracting ALL information relevant to the given goal
             from the provided tool call result.
-            
+
             Your output will be given to the agent running the search, and replaces the raw result.
             Thus, you must include every relevant class/method name and any
             relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
-            """.stripIndent());
+            """
+                        .stripIndent());
 
-        var user = new UserMessage("""
+        var user = new UserMessage(
+                """
             <goal>
             %s
             </goal>
@@ -576,10 +587,9 @@ public class SearchAgent {
             <tool name="%s">
             %s
             </tool>
-            """.stripIndent().formatted(query,
-                                        reasoning == null ? "" : reasoning,
-                                        request.name(),
-                                        rawResult));
+            """
+                        .stripIndent()
+                        .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
         Llm.StreamingResult sr;
         try {
             sr = llm.sendRequest(List.of(sys, user));
@@ -626,12 +636,16 @@ public class SearchAgent {
         try {
             return """
                    { "%s": %s }
-                   """.stripIndent().formatted(param, mapper.writeValueAsString(values));
+                   """
+                    .stripIndent()
+                    .formatted(param, mapper.writeValueAsString(values));
         } catch (JsonProcessingException e) {
             logger.error("Error serializing array for {}", param, e);
             return """
                    { "%s": [] }
-                   """.stripIndent().formatted(param);
+                   """
+                    .stripIndent()
+                    .formatted(param);
         }
     }
 
@@ -641,12 +655,12 @@ public class SearchAgent {
             var args = getArgumentsMap(request);
             return switch (toolName) {
                 case "searchSymbols", "searchSubstrings", "searchFilenames" ->
-                        listParamSignatures(toolName, args, "patterns");
+                    listParamSignatures(toolName, args, "patterns");
                 case "getFileContents" -> listParamSignatures(toolName, args, "filenames");
                 case "getFileSummaries" -> listParamSignatures(toolName, args, "filePaths");
                 case "getUsages" -> listParamSignatures(toolName, args, "symbols");
                 case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
-                        listParamSignatures(toolName, args, "classNames");
+                    listParamSignatures(toolName, args, "classNames");
                 case "getMethodSources" -> listParamSignatures(toolName, args, "methodNames");
                 case "answerSearch", "abortSearch" -> List.of(toolName + ":finalizing");
                 default -> List.of(toolName + ":unknown");
@@ -695,8 +709,7 @@ public class SearchAgent {
                         }
                     }
                 }
-                default -> {
-                }
+                default -> {}
             }
         } catch (Exception e) {
             logger.error("Error tracking class names from tool call", e);
@@ -721,13 +734,14 @@ public class SearchAgent {
 
         String fPrefix = prefix;
         Set<String> potential = new HashSet<>(Arrays.stream(effective.split("[,\\s]+"))
-                                                      .map(String::trim)
-                                                      .filter(s -> !s.isEmpty())
-                                                      .map(s -> fPrefix.isEmpty() ? s : fPrefix + "." + s)
-                                                      .filter(s -> s.contains(".") && Character.isJavaIdentifierStart(s.charAt(0)))
-                                                      .toList());
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> fPrefix.isEmpty() ? s : fPrefix + "." + s)
+                .filter(s -> s.contains(".") && Character.isJavaIdentifierStart(s.charAt(0)))
+                .toList());
 
-        var classMatcher = Pattern.compile("(?:Source code of |class )([\\w.$]+)").matcher(resultText);
+        var classMatcher =
+                Pattern.compile("(?:Source code of |class )([\\w.$]+)").matcher(resultText);
         while (classMatcher.find()) potential.add(classMatcher.group(1));
 
         var usageMatcher = Pattern.compile("Usage in ([\\w.$]+)\\.").matcher(resultText);
@@ -752,8 +766,8 @@ public class SearchAgent {
     }
 
     private Optional<String> extractClassNameFromSymbol(String symbol) throws InterruptedException {
-        return cm.getAnalyzer().getDefinition(symbol)
-                .flatMap(cu -> cu.classUnit().map(CodeUnit::fqName));
+        return cm.getAnalyzer().getDefinition(symbol).flatMap(cu -> cu.classUnit()
+                .map(CodeUnit::fqName));
     }
 
     private static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {

@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-/**
- * Common TreeSitter node type names shared across multiple language grammars.
- */
+/** Common TreeSitter node type names shared across multiple language grammars. */
 public final class CommonTreeSitterNodeTypes {
 
     // ===== CLASS-LIKE DECLARATIONS =====
@@ -52,6 +50,5 @@ public final class CommonTreeSitterNodeTypes {
     /** Export statement (JavaScript/TypeScript) */
     public static final String EXPORT_STATEMENT = "export_statement";
 
-    private CommonTreeSitterNodeTypes() {
-    }
+    private CommonTreeSitterNodeTypes() {}
 }

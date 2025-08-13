@@ -1,9 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -11,6 +8,8 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class SqlAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
@@ -28,7 +27,9 @@ public class SqlAnalyzer implements IAnalyzer {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(IProject projectInstance, Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
+    public SqlAnalyzer(
+            IProject projectInstance,
+            Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
         // this.project = project; // Unused field
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
@@ -55,7 +56,10 @@ public class SqlAnalyzer implements IAnalyzer {
                 })
                 .toList();
 
-        logger.info("Found {} SQL files to analyze for project {}", filesToAnalyze.size(), projectInstance.getRoot()); // Use projectInstance
+        logger.info(
+                "Found {} SQL files to analyze for project {}",
+                filesToAnalyze.size(),
+                projectInstance.getRoot()); // Use projectInstance
 
         for (var pf : filesToAnalyze) {
             try {
@@ -80,9 +84,16 @@ public class SqlAnalyzer implements IAnalyzer {
                     int statementEndOffsetInChars = semicolonCharPos; // inclusive of semicolon
 
                     // Convert char offsets to byte offsets
-                    int statementStartByte = new String(content.substring(0, statementStartOffsetInChars).getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8).length();
-                    int statementEndByte = new String(content.substring(0, statementEndOffsetInChars + 1).getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8).length();
-
+                    int statementStartByte = new String(
+                                    content.substring(0, statementStartOffsetInChars)
+                                            .getBytes(StandardCharsets.UTF_8),
+                                    StandardCharsets.UTF_8)
+                            .length();
+                    int statementEndByte = new String(
+                                    content.substring(0, statementEndOffsetInChars + 1)
+                                            .getBytes(StandardCharsets.UTF_8),
+                                    StandardCharsets.UTF_8)
+                            .length();
 
                     String packageName;
                     String shortName;
@@ -98,9 +109,13 @@ public class SqlAnalyzer implements IAnalyzer {
                     // Using CodeUnitType.CLASS for both TABLE and VIEW as per initial interpretation
                     var cu = CodeUnit.cls(pf, packageName, shortName);
 
-                    declarationsByFile.computeIfAbsent(pf, k -> new ArrayList<>()).add(cu);
+                    declarationsByFile
+                            .computeIfAbsent(pf, k -> new ArrayList<>())
+                            .add(cu);
                     allDeclarationsList.add(cu);
-                    definitionsByFqName.computeIfAbsent(cu.fqName(), k -> new ArrayList<>()).add(cu);
+                    definitionsByFqName
+                            .computeIfAbsent(cu.fqName(), k -> new ArrayList<>())
+                            .add(cu);
 
                     int startLine = countLines(content, statementStartOffsetInChars);
                     int endLine = countLines(content, statementEndOffsetInChars);
@@ -190,14 +205,22 @@ public class SqlAnalyzer implements IAnalyzer {
             // Consider caching file contents if performance becomes an issue.
             byte[] allBytes = Files.readAllBytes(cu.source().absPath());
             if (range.endByte() > allBytes.length || range.startByte() > range.endByte()) {
-                 logger.error("Invalid range for skeleton for {}: start {}, end {}, file size {}",
-                    fqName, range.startByte(), range.endByte(), allBytes.length);
-                 return Optional.empty();
+                logger.error(
+                        "Invalid range for skeleton for {}: start {}, end {}, file size {}",
+                        fqName,
+                        range.startByte(),
+                        range.endByte(),
+                        allBytes.length);
+                return Optional.empty();
             }
-            String statementText = new String(allBytes, range.startByte(), range.endByte() - range.startByte(), StandardCharsets.UTF_8);
+            String statementText = new String(
+                    allBytes, range.startByte(), range.endByte() - range.startByte(), StandardCharsets.UTF_8);
             return Optional.of(statementText);
         } catch (IOException e) {
-            logger.warn("IOException while reading file for skeleton {}: {}", cu.source().absPath(), e.getMessage());
+            logger.warn(
+                    "IOException while reading file for skeleton {}: {}",
+                    cu.source().absPath(),
+                    e.getMessage());
             return Optional.empty();
         }
     }

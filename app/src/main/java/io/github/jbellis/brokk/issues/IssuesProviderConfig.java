@@ -6,12 +6,8 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Marker parent.  Concrete records hold the supplier‐specific data.
- */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME,
-              include = JsonTypeInfo.As.PROPERTY,
-              property = "kind")
+/** Marker parent. Concrete records hold the supplier‐specific data. */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "kind")
 @JsonSubTypes({
     @JsonSubTypes.Type(value = IssuesProviderConfig.NoneConfig.class, name = "none"),
     @JsonSubTypes.Type(value = IssuesProviderConfig.GithubConfig.class, name = "github"),
@@ -25,19 +21,24 @@ public sealed interface IssuesProviderConfig
 
     /** GitHub provider */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record GithubConfig(@Nullable String owner, @Nullable String repo, @Nullable String host) implements IssuesProviderConfig {
+    record GithubConfig(@Nullable String owner, @Nullable String repo, @Nullable String host)
+            implements IssuesProviderConfig {
         /** Convenience ctor -> default to current repo on github.com */
-        public GithubConfig() { this("", "", ""); }
+        public GithubConfig() {
+            this("", "", "");
+        }
 
         /**
-         * Checks if this configuration represents the default (i.e., derive from current project's git remote on github.com).
+         * Checks if this configuration represents the default (i.e., derive from current project's git remote on
+         * github.com).
+         *
          * @return true if owner, repo, and host are blank or null, indicating default behavior.
          */
         @JsonIgnore
         public boolean isDefault() {
-            return (owner == null || owner.isBlank()) &&
-                   (repo == null || repo.isBlank()) &&
-                   (host == null || host.isBlank());
+            return (owner == null || owner.isBlank())
+                    && (repo == null || repo.isBlank())
+                    && (host == null || host.isBlank());
         }
     }
 

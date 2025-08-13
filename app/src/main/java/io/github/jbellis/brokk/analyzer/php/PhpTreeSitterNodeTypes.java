@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.php;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for PHP TreeSitter node type names.
- */
+/** Constants for PHP TreeSitter node type names. */
 public final class PhpTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -33,6 +31,5 @@ public final class PhpTreeSitterNodeTypes {
     public static final String PROPERTY_DECLARATION = "property_declaration";
     public static final String CONST_DECLARATION = "const_declaration";
 
-    private PhpTreeSitterNodeTypes() {
-    }
+    private PhpTreeSitterNodeTypes() {}
 }

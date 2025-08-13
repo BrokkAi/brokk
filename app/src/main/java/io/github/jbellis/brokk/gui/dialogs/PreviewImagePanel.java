@@ -3,18 +3,18 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.Chrome;
-import org.jetbrains.annotations.Nullable;
-
-import javax.imageio.ImageIO;
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 public class PreviewImagePanel extends JPanel {
     @Nullable
     private final BrokkFile file;
+
     @Nullable
     private BufferedImage image;
 
@@ -27,27 +27,29 @@ public class PreviewImagePanel extends JPanel {
     }
 
     private void loadImage() {
-            if (file != null) {
-                try {
-                    image = ImageIO.read(file.absPath().toFile());
-                    if (image == null) {
-                        JOptionPane.showMessageDialog(this, "Could not read image file.", "Error", JOptionPane.ERROR_MESSAGE);
-                    }
-                } catch (IOException e) {
-                    JOptionPane.showMessageDialog(this, "Error loading image: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        if (file != null) {
+            try {
+                image = ImageIO.read(file.absPath().toFile());
+                if (image == null) {
+                    JOptionPane.showMessageDialog(
+                            this, "Could not read image file.", "Error", JOptionPane.ERROR_MESSAGE);
                 }
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(
+                        this, "Error loading image: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
             }
         }
+    }
 
-        public void setImage(Image image) {
-            SwingUtilities.invokeLater(() -> {
-                this.image = (BufferedImage)image;
-                removeAll();
-                setupUI();
-                revalidate();
-                repaint();
-            });
-        }
+    public void setImage(Image image) {
+        SwingUtilities.invokeLater(() -> {
+            this.image = (BufferedImage) image;
+            removeAll();
+            setupUI();
+            revalidate();
+            repaint();
+        });
+    }
 
     private void setupUI() {
         if (image != null) {
@@ -64,23 +66,27 @@ public class PreviewImagePanel extends JPanel {
     /**
      * Displays a non-modal preview dialog for the given image file.
      *
-     * @param parentFrame    The parent frame.
+     * @param parentFrame The parent frame.
      * @param contextManager The context manager.
-     * @param file           The BrokkFile to preview.
+     * @param file The BrokkFile to preview.
      */
     public static void showInFrame(JFrame parentFrame, ContextManager contextManager, BrokkFile file) {
         try {
             PreviewImagePanel previewPanel = new PreviewImagePanel(file);
             showFrame(contextManager, file.toString(), previewPanel);
         } catch (Exception ex) {
-            JOptionPane.showMessageDialog(parentFrame, "Error displaying image: " + ex.getMessage(), "Display Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    parentFrame,
+                    "Error displaying image: " + ex.getMessage(),
+                    "Display Error",
+                    JOptionPane.ERROR_MESSAGE);
         }
     }
 
     public static void showFrame(ContextManager contextManager, String title, PreviewImagePanel previewPanel) {
         JFrame frame = Chrome.newFrame(title);
-            frame.setContentPane(previewPanel);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Dispose frame on close
+        frame.setContentPane(previewPanel);
+        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Dispose frame on close
 
         var project = contextManager.getProject();
         var storedBounds = project.getPreviewWindowBounds();
@@ -92,6 +98,7 @@ public class PreviewImagePanel extends JPanel {
             public void componentMoved(java.awt.event.ComponentEvent e) {
                 project.savePreviewWindowBounds(frame); // Save JFrame bounds
             }
+
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
                 project.savePreviewWindowBounds(frame); // Save JFrame bounds
@@ -101,9 +108,7 @@ public class PreviewImagePanel extends JPanel {
         frame.setVisible(true);
     }
 
-    /**
-     * Registers ESC key to close the preview panel
-     */
+    /** Registers ESC key to close the preview panel */
     private void registerEscapeKey() {
         // Register ESC key to close the dialog
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);

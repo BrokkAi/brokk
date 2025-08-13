@@ -6,15 +6,14 @@ import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 
 import java.util.Objects;
 
-/**
- * Represents a text content.
- */
+/** Represents a text content. */
 public class TextContent implements Content {
 
     private final String text;
 
     /**
      * Creates a new text content.
+     *
      * @param text the text.
      */
     public TextContent(String text) {
@@ -23,6 +22,7 @@ public class TextContent implements Content {
 
     /**
      * Returns the text.
+     *
      * @return the text.
      */
     public String text() {
@@ -49,13 +49,12 @@ public class TextContent implements Content {
 
     @Override
     public String toString() {
-        return "TextContent {" +
-                " text = " + quoted(text) +
-                " }";
+        return "TextContent {" + " text = " + quoted(text) + " }";
     }
 
     /**
      * Creates a new text content.
+     *
      * @param text the text.
      * @return the text content.
      */

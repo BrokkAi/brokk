@@ -1,18 +1,17 @@
 package io.github.jbellis.brokk.gui.mop;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import static java.util.Objects.requireNonNull;
 
-import javax.swing.*;
 import java.util.ArrayDeque;
 import java.util.Deque;
-
-import static java.util.Objects.requireNonNull;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Thread-safe LRU pool for MarkdownOutputPanel instances.
  *
- * The pool may be accessed only from the Swing EDT.
+ * <p>The pool may be accessed only from the Swing EDT.
  */
 public final class MarkdownOutputPool {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPool.class);

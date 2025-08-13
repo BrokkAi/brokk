@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.List;
 import java.util.Objects;
 
@@ -20,12 +19,16 @@ public final class Delta {
 
     @JsonProperty
     private final String role;
+
     @JsonProperty
     private final String content;
+
     @JsonProperty("reasoning_content")
     private final String reasoningContent;
+
     @JsonProperty
     private final List<ToolCall> toolCalls;
+
     @JsonProperty
     @Deprecated
     private final FunctionCall functionCall;
@@ -62,8 +65,7 @@ public final class Delta {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof Delta
-                && equalTo((Delta) another);
+        return another instanceof Delta && equalTo((Delta) another);
     }
 
     private boolean equalTo(Delta another) {
@@ -109,6 +111,7 @@ public final class Delta {
         private String content;
         private String reasoningContent;
         private List<ToolCall> toolCalls;
+
         @Deprecated
         private FunctionCall functionCall;
 

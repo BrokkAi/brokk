@@ -2,36 +2,33 @@ package io.github.jbellis.brokk.difftool.scroll;
 
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
-import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.text.BadLocationException;
 import java.awt.Point;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.swing.*;
+import javax.swing.text.BadLocationException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Synchronizes the vertical/horizontal scrolling between the left and right FilePanel.
- * Also provides small utility methods for scrolling to line or to a specific delta.
+ * Synchronizes the vertical/horizontal scrolling between the left and right FilePanel. Also provides small utility
+ * methods for scrolling to line or to a specific delta.
  */
-public class ScrollSynchronizer
-{
-    /**
-     * Defines the context and behavior for scroll operations.
-     */
+public class ScrollSynchronizer {
+    /** Defines the context and behavior for scroll operations. */
     public enum ScrollMode {
-        CONTINUOUS,  // Mouse wheel, continuous scrolling - minimal overhead
-        NAVIGATION,  // Explicit jumps, diff navigation - full highlighting
-        SEARCH       // Search results - immediate highlighting
+        CONTINUOUS, // Mouse wheel, continuous scrolling - minimal overhead
+        NAVIGATION, // Explicit jumps, diff navigation - full highlighting
+        SEARCH // Search results - immediate highlighting
     }
+
     private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
     private static final Logger performanceLogger = LogManager.getLogger("scroll.performance");
 
@@ -57,9 +54,7 @@ public class ScrollSynchronizer
     private final Timer navigationResetTimer;
     private final Timer enableSyncTimer;
 
-
-    public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
-    {
+    public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight) {
         this.diffPanel = diffPanel;
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
@@ -92,11 +87,10 @@ public class ScrollSynchronizer
     }
 
     /**
-     * Constructor for testing that skips initialization requiring real UI components.
-     * Package-private visibility for test access only.
+     * Constructor for testing that skips initialization requiring real UI components. Package-private visibility for
+     * test access only.
      */
-    ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight, boolean skipInit)
-    {
+    ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight, boolean skipInit) {
         this.diffPanel = diffPanel;
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
@@ -131,8 +125,7 @@ public class ScrollSynchronizer
         }
     }
 
-    private void init()
-    {
+    private void init() {
         // Sync horizontal scrollbars by sharing the same model.
         var barLeftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
         var barRightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
@@ -151,16 +144,14 @@ public class ScrollSynchronizer
         barLeftV.addAdjustmentListener(listener);
     }
 
-    private AdjustmentListener getVerticalAdjustmentListener()
-    {
+    private AdjustmentListener getVerticalAdjustmentListener() {
         if (verticalAdjustmentListener == null) {
             verticalAdjustmentListener = new AdjustmentListener() {
                 private long lastScrollTime = 0;
                 private static final long SCROLL_THROTTLE_MS = 16; // 60 FPS max
 
                 @Override
-                public void adjustmentValueChanged(AdjustmentEvent e)
-                {
+                public void adjustmentValueChanged(AdjustmentEvent e) {
                     // Performance optimization: throttle scroll events to prevent excessive processing
                     long currentTime = System.currentTimeMillis();
                     if (currentTime - lastScrollTime < SCROLL_THROTTLE_MS) {
@@ -211,11 +202,10 @@ public class ScrollSynchronizer
     }
 
     /**
-     * If the left side scrolled, we compute which line is centered and map it to
-     * the equivalent line in the right side. If the right side scrolled, we do the reverse.
+     * If the left side scrolled, we compute which line is centered and map it to the equivalent line in the right side.
+     * If the right side scrolled, we do the reverse.
      */
-    private void scroll(boolean leftScrolled)
-    {
+    private void scroll(boolean leftScrolled) {
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> scroll(leftScrolled));
             return;
@@ -226,8 +216,7 @@ public class ScrollSynchronizer
         performScroll(leftScrolled);
     }
 
-    private void performScroll(boolean leftScrolled)
-    {
+    private void performScroll(boolean leftScrolled) {
         long startTime = System.currentTimeMillis();
 
         // Additional check: don't scroll if either panel is typing
@@ -266,8 +255,12 @@ public class ScrollSynchronizer
         }
 
         if (mappingDuration > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-            performanceLogger.warn("Slow scroll mapping: {}ms for {} deltas, line {}->{}",
-                                 mappingDuration, patch.getDeltas().size(), line, mappedLine);
+            performanceLogger.warn(
+                    "Slow scroll mapping: {}ms for {} deltas, line {}->{}",
+                    mappingDuration,
+                    patch.getDeltas().size(),
+                    line,
+                    mappedLine);
         }
 
         // Use CONTINUOUS mode for regular scroll synchronization to avoid navigation overhead
@@ -281,20 +274,15 @@ public class ScrollSynchronizer
     }
 
     /**
-     * Enhanced line mapping with O(log n) performance and improved accuracy.
-     * Delegates to LineMapper for all algorithmic operations.
+     * Enhanced line mapping with O(log n) performance and improved accuracy. Delegates to LineMapper for all
+     * algorithmic operations.
      */
-    private int approximateLineMapping(com.github.difflib.patch.Patch<String> patch, int line, boolean fromOriginal)
-    {
+    private int approximateLineMapping(com.github.difflib.patch.Patch<String> patch, int line, boolean fromOriginal) {
         return lineMapper.mapLine(patch, line, fromOriginal);
     }
 
-
-    /**
-     * Determine which line is in the vertical center of the FilePanel's visible region.
-     */
-    private int getCurrentLineCenter(FilePanel fp)
-    {
+    /** Determine which line is in the vertical center of the FilePanel's visible region. */
+    private int getCurrentLineCenter(FilePanel fp) {
         assert SwingUtilities.isEventDispatchThread() : "getCurrentLineCenter must be called on EDT";
         var editor = fp.getEditor();
         var viewport = fp.getScrollPane().getViewport();
@@ -307,19 +295,16 @@ public class ScrollSynchronizer
         return bd == null ? 0 : bd.getLineForOffset(offset);
     }
 
-    public void scrollToLine(FilePanel fp, int line)
-    {
+    public void scrollToLine(FilePanel fp, int line) {
         // Default to navigation mode for backward compatibility
         scrollToLine(fp, line, ScrollMode.NAVIGATION);
     }
 
-    public void scrollToLine(FilePanel fp, int line, ScrollMode mode)
-    {
+    public void scrollToLine(FilePanel fp, int line, ScrollMode mode) {
         scrollToLineInternal(fp, line, mode);
     }
 
-    private void scrollToLineInternal(FilePanel fp, int line, ScrollMode mode)
-    {
+    private void scrollToLineInternal(FilePanel fp, int line, ScrollMode mode) {
         var bd = fp.getBufferDocument();
         if (bd == null) {
             return;
@@ -394,7 +379,6 @@ public class ScrollSynchronizer
                     navigationResetTimer.restart();
                 }
 
-
             } catch (BadLocationException ex) {
                 logger.error("scrollToLine error for line {}: {}", line, ex.getMessage());
                 // Only reset flag on error if we set it
@@ -407,8 +391,7 @@ public class ScrollSynchronizer
         });
     }
 
-    public void scrollToLineAndSync(FilePanel sourcePanel, int line)
-    {
+    public void scrollToLineAndSync(FilePanel sourcePanel, int line) {
         var leftSide = sourcePanel == filePanelLeft;
         // First, scroll the panel where the search originated using SEARCH mode for immediate highlighting
         scrollToLine(sourcePanel, line, ScrollMode.SEARCH);
@@ -420,7 +403,7 @@ public class ScrollSynchronizer
         int mappedLine;
         var patch = diffPanel.getPatch();
         if (patch == null) {
-            mappedLine = line;            // fall back to same line number
+            mappedLine = line; // fall back to same line number
         } else {
             mappedLine = approximateLineMapping(patch, line, leftSide);
 
@@ -437,12 +420,12 @@ public class ScrollSynchronizer
     }
 
     /**
-     * Called by BufferDiffPanel when the user picks a specific delta.
-     * We attempt to show the original chunk in the left side, then scroll the right side.
+     * Called by BufferDiffPanel when the user picks a specific delta. We attempt to show the original chunk in the left
+     * side, then scroll the right side.
      */
-    public void showDelta(AbstractDelta<String> delta)
-    {
-        logger.trace("showDelta called for delta at position {}", delta.getSource().getPosition());
+    public void showDelta(AbstractDelta<String> delta) {
+        logger.trace(
+                "showDelta called for delta at position {}", delta.getSource().getPosition());
 
         // Disable scroll sync during navigation to prevent feedback loops
         syncState.setProgrammaticScroll(true);
@@ -459,22 +442,29 @@ public class ScrollSynchronizer
             int sourceCenterLine = calculateChunkCenter(source);
             int targetCenterLine = calculateChunkCenter(target);
 
-            logger.trace("Navigation: delta chunks - source: pos={} size={} center={}, target: pos={} size={} center={}",
-                       sourceLine, source.size(), sourceCenterLine, targetLine, target.size(), targetCenterLine);
+            logger.trace(
+                    "Navigation: delta chunks - source: pos={} size={} center={}, target: pos={} size={} center={}",
+                    sourceLine,
+                    source.size(),
+                    sourceCenterLine,
+                    targetLine,
+                    target.size(),
+                    targetCenterLine);
 
             // Determine the right panel scroll line with enhanced centering logic
             int rightPanelScrollLine = targetCenterLine;
 
             if (target.size() > 0) {
                 logger.trace("Navigation: delta has target content, using center line {}", targetCenterLine);
-            }
-            else {
+            } else {
                 logger.trace("Navigation: DELETE delta, target position {}", targetLine);
                 // For DELETE deltas, use the target position but apply the same near-top adjustment
                 rightPanelScrollLine = targetLine;
                 if (targetLine <= 8) {
                     rightPanelScrollLine = Math.max(targetLine + 3, 10);
-                    logger.trace("Navigation: DELETE delta near top, adjusting scroll to line {} for better visibility", rightPanelScrollLine);
+                    logger.trace(
+                            "Navigation: DELETE delta near top, adjusting scroll to line {} for better visibility",
+                            rightPanelScrollLine);
                 }
             }
 
@@ -496,16 +486,13 @@ public class ScrollSynchronizer
         logger.trace("showDelta completed - both panels scrolled with enhanced centering");
     }
 
-
     /**
-     * Calculate the center line of a chunk for optimal visual alignment.
-     * Handles different chunk sizes and edge cases.
+     * Calculate the center line of a chunk for optimal visual alignment. Handles different chunk sizes and edge cases.
      *
      * @param chunk the source or target chunk from a delta
      * @return the line number representing the visual center of the chunk
      */
-    private int calculateChunkCenter(Chunk<String> chunk)
-    {
+    private int calculateChunkCenter(Chunk<String> chunk) {
         int position = chunk.getPosition();
         int size = chunk.size();
 
@@ -525,20 +512,23 @@ public class ScrollSynchronizer
         int centerOffset = (size - 1) / 2;
         int centerLine = position + centerOffset;
 
-        logger.trace("Chunk center calculation: position={}, size={}, centerOffset={}, centerLine={}",
-                   position, size, centerOffset, centerLine);
+        logger.trace(
+                "Chunk center calculation: position={}, size={}, centerOffset={}, centerLine={}",
+                position,
+                size,
+                centerOffset,
+                centerLine);
 
         return centerLine;
     }
 
     /**
-     * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.
-     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     * Cleanup method to properly dispose of resources when the synchronizer is no longer needed. Should be called when
+     * the BufferDiffPanel is being disposed to prevent memory leaks.
      */
     /**
-     * Invalidate viewport cache for both synchronized panels.
-     * Since both panels are synchronized, when one needs cache invalidation,
-     * both should be updated to maintain consistency.
+     * Invalidate viewport cache for both synchronized panels. Since both panels are synchronized, when one needs cache
+     * invalidation, both should be updated to maintain consistency.
      */
     public void invalidateViewportCacheForBothPanels() {
         filePanelLeft.invalidateViewportCache();
@@ -546,8 +536,8 @@ public class ScrollSynchronizer
     }
 
     /**
-     * Schedule scroll synchronization using the configured throttling mode.
-     * Supports immediate execution, traditional debouncing, frame-based throttling, or adaptive throttling.
+     * Schedule scroll synchronization using the configured throttling mode. Supports immediate execution, traditional
+     * debouncing, frame-based throttling, or adaptive throttling.
      */
     private void scheduleScrollSync(Runnable syncAction) {
         // Validate configuration to prevent conflicts
@@ -575,8 +565,8 @@ public class ScrollSynchronizer
     }
 
     /**
-     * Update throttling configuration dynamically. Called when the debug panel
-     * changes throttling settings to apply them immediately.
+     * Update throttling configuration dynamically. Called when the debug panel changes throttling settings to apply
+     * them immediately.
      */
     public void updateThrottlingConfiguration() {
         // Validate configuration
@@ -588,25 +578,21 @@ public class ScrollSynchronizer
         // Update frame throttler rate if changed
         frameThrottler.setFrameRate(PerformanceConstants.SCROLL_FRAME_RATE_MS);
 
-        logger.info("Scroll throttling configuration updated: {}",
-                   PerformanceConstants.getCurrentScrollMode());
+        logger.info("Scroll throttling configuration updated: {}", PerformanceConstants.getCurrentScrollMode());
     }
 
-    /**
-     * Get throttling performance metrics for the debug panel.
-     */
+    /** Get throttling performance metrics for the debug panel. */
     public ThrottlingMetrics getThrottlingMetrics() {
         return new ThrottlingMetrics(
-            frameThrottler.getTotalEvents(),
-            frameThrottler.getTotalExecutions(),
-            frameThrottler.getThrottlingEfficiency(),
-            frameThrottler.isFrameActive()
-        );
+                frameThrottler.getTotalEvents(),
+                frameThrottler.getTotalExecutions(),
+                frameThrottler.getThrottlingEfficiency(),
+                frameThrottler.isFrameActive());
     }
 
     /**
-     * Initialize the adaptive throttling strategy with file complexity metrics.
-     * This is called when a patch is first encountered to set up optimal throttling.
+     * Initialize the adaptive throttling strategy with file complexity metrics. This is called when a patch is first
+     * encountered to set up optimal throttling.
      */
     private void initializeAdaptiveStrategyIfNeeded(com.github.difflib.patch.Patch<String> patch) {
         if (!PerformanceConstants.ENABLE_ADAPTIVE_THROTTLING) {
@@ -615,32 +601,31 @@ public class ScrollSynchronizer
 
         // Calculate file complexity metrics
         int totalLines = Math.max(
-            filePanelLeft.getBufferDocument() != null ? filePanelLeft.getBufferDocument().getNumberOfLines() : 0,
-            filePanelRight.getBufferDocument() != null ? filePanelRight.getBufferDocument().getNumberOfLines() : 0
-        );
+                filePanelLeft.getBufferDocument() != null
+                        ? filePanelLeft.getBufferDocument().getNumberOfLines()
+                        : 0,
+                filePanelRight.getBufferDocument() != null
+                        ? filePanelRight.getBufferDocument().getNumberOfLines()
+                        : 0);
         int totalDeltas = patch.getDeltas().size();
 
         // Initialize the strategy with these metrics
         adaptiveStrategy.initialize(totalLines, totalDeltas);
     }
 
-    /**
-     * Get adaptive throttling metrics for the debug panel.
-     */
+    /** Get adaptive throttling metrics for the debug panel. */
     public AdaptiveThrottlingStrategy.AdaptiveMetrics getAdaptiveMetrics() {
         return adaptiveStrategy.getMetrics();
     }
 
-    /**
-     * Get the adaptive throttling strategy (for testing and debugging).
-     */
+    /** Get the adaptive throttling strategy (for testing and debugging). */
     public AdaptiveThrottlingStrategy getAdaptiveStrategy() {
         return adaptiveStrategy;
     }
 
     /**
-     * Temporarily disable scroll synchronization during document operations.
-     * This prevents interference when applying diff deltas that modify document content.
+     * Temporarily disable scroll synchronization during document operations. This prevents interference when applying
+     * diff deltas that modify document content.
      *
      * @param inProgress true to disable sync, false to re-enable
      */
@@ -649,9 +634,8 @@ public class ScrollSynchronizer
     }
 
     /**
-     * Creates an AutoCloseable resource that disables scroll synchronization for the duration
-     * of a try-with-resources block. Synchronization is re-enabled via SwingUtilities.invokeLater
-     * when the block is exited.
+     * Creates an AutoCloseable resource that disables scroll synchronization for the duration of a try-with-resources
+     * block. Synchronization is re-enabled via SwingUtilities.invokeLater when the block is exited.
      *
      * @return an AutoCloseable to manage the programmatic scroll state.
      */
@@ -660,22 +644,13 @@ public class ScrollSynchronizer
         return () -> javax.swing.SwingUtilities.invokeLater(() -> setProgrammaticScrollMode(false));
     }
 
-    /**
-     * Check if a programmatic scroll operation is currently in progress.
-     */
+    /** Check if a programmatic scroll operation is currently in progress. */
     public boolean isProgrammaticScroll() {
         return syncState.isProgrammaticScroll();
     }
 
-    /**
-     * Record for throttling performance metrics.
-     */
-    public record ThrottlingMetrics(
-        long totalEvents,
-        long totalExecutions,
-        double efficiency,
-        boolean frameActive
-    ) {}
+    /** Record for throttling performance metrics. */
+    public record ThrottlingMetrics(long totalEvents, long totalExecutions, double efficiency, boolean frameActive) {}
 
     public void dispose() {
         // Dispose throttling utilities to stop any pending timers
@@ -700,16 +675,12 @@ public class ScrollSynchronizer
         performanceMonitor.dispose();
     }
 
-    /**
-     * Get performance monitoring data.
-     */
+    /** Get performance monitoring data. */
     public ScrollPerformanceMonitor getPerformanceMonitor() {
         return performanceMonitor;
     }
 
-    /**
-     * Performance monitoring class for scroll synchronization.
-     */
+    /** Performance monitoring class for scroll synchronization. */
     public static class ScrollPerformanceMonitor {
         private final AtomicLong totalScrollEvents = new AtomicLong();
         private final AtomicLong totalMappingDuration = new AtomicLong();
@@ -736,8 +707,12 @@ public class ScrollSynchronizer
 
             // Log individual slow events
             if (mappingDurationMs > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                performanceLogger.warn("Slow scroll event: {}ms for {} deltas, line mapping {}->{}",
-                                     mappingDurationMs, deltaCount, originalLine, mappedLine);
+                performanceLogger.warn(
+                        "Slow scroll event: {}ms for {} deltas, line mapping {}->{}",
+                        mappingDurationMs,
+                        deltaCount,
+                        originalLine,
+                        mappedLine);
             }
         }
 
@@ -770,8 +745,11 @@ public class ScrollSynchronizer
                 long maxDuration = getMaxMappingDuration();
                 // Only log if there are performance concerns (slow average or max times)
                 if (avgDuration > 5.0 || maxDuration > 50) {
-                    performanceLogger.info("Scroll performance: {} events, avg {}ms, max {}ms",
-                                         events, String.format("%.1f", avgDuration), maxDuration);
+                    performanceLogger.info(
+                            "Scroll performance: {} events, avg {}ms, max {}ms",
+                            events,
+                            String.format("%.1f", avgDuration),
+                            maxDuration);
                 }
             }
         }

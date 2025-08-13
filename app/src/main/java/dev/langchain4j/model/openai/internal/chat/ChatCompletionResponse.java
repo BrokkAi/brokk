@@ -9,11 +9,9 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
+import dev.langchain4j.model.openai.internal.shared.Usage;
 import java.util.List;
 import java.util.Objects;
-
-import dev.langchain4j.model.openai.internal.shared.Usage;
 
 @JsonDeserialize(builder = ChatCompletionResponse.Builder.class)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -22,16 +20,22 @@ public final class ChatCompletionResponse {
 
     @JsonProperty
     private final String id;
+
     @JsonProperty
     private final Long created;
+
     @JsonProperty
     private final String model;
+
     @JsonProperty
     private final List<ChatCompletionChoice> choices;
+
     @JsonProperty
     private final Usage usage;
+
     @JsonProperty
     private final String systemFingerprint;
+
     @JsonProperty
     private final String serviceTier;
 
@@ -73,9 +77,7 @@ public final class ChatCompletionResponse {
         return serviceTier;
     }
 
-    /**
-     * Convenience method to get the content of the message from the first choice.
-     */
+    /** Convenience method to get the content of the message from the first choice. */
     public String content() {
         return choices().get(0).message().content();
     }
@@ -83,8 +85,7 @@ public final class ChatCompletionResponse {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ChatCompletionResponse
-                && equalTo((ChatCompletionResponse) another);
+        return another instanceof ChatCompletionResponse && equalTo((ChatCompletionResponse) another);
     }
 
     private boolean equalTo(ChatCompletionResponse another) {

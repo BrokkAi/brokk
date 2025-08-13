@@ -5,32 +5,21 @@ import static dev.langchain4j.data.message.ImageContent.DetailLevel.LOW;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 
+import dev.langchain4j.data.image.Image;
 import java.net.URI;
 import java.util.Objects;
 
-import dev.langchain4j.data.image.Image;
-
-/**
- * Represents an image with a DetailLevel.
- */
+/** Represents an image with a DetailLevel. */
 public class ImageContent implements Content {
-    /**
-     * The detail level of an {@code Image}.
-     */
+    /** The detail level of an {@code Image}. */
     public enum DetailLevel {
-        /**
-         * Low detail.
-         */
+        /** Low detail. */
         LOW,
 
-        /**
-         * High detail.
-         */
+        /** High detail. */
         HIGH,
 
-        /**
-         * Auto detail.
-         */
+        /** Auto detail. */
         AUTO
     }
 
@@ -40,7 +29,7 @@ public class ImageContent implements Content {
     /**
      * Create a new {@link ImageContent} from the given url.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param url the url of the image.
      */
@@ -51,7 +40,7 @@ public class ImageContent implements Content {
     /**
      * Create a new {@link ImageContent} from the given url.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param url the url of the image.
      */
@@ -66,9 +55,7 @@ public class ImageContent implements Content {
      * @param detailLevel the detail level of the image.
      */
     public ImageContent(URI url, DetailLevel detailLevel) {
-        this(Image.builder()
-                .url(ensureNotNull(url, "url"))
-                .build(), detailLevel);
+        this(Image.builder().url(ensureNotNull(url, "url")).build(), detailLevel);
     }
 
     /**
@@ -84,7 +71,7 @@ public class ImageContent implements Content {
     /**
      * Create a new {@link ImageContent} from the given base64 data and mime type.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param base64Data the base64 data of the image.
      * @param mimeType the mime type of the image.
@@ -101,16 +88,18 @@ public class ImageContent implements Content {
      * @param detailLevel the detail level of the image.
      */
     public ImageContent(String base64Data, String mimeType, DetailLevel detailLevel) {
-        this(Image.builder()
-                .base64Data(ensureNotBlank(base64Data, "base64Data"))
-                .mimeType(ensureNotBlank(mimeType, "mimeType"))
-                .build(), detailLevel);
+        this(
+                Image.builder()
+                        .base64Data(ensureNotBlank(base64Data, "base64Data"))
+                        .mimeType(ensureNotBlank(mimeType, "mimeType"))
+                        .build(),
+                detailLevel);
     }
 
     /**
      * Create a new {@link ImageContent} from the given image.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param image the image.
      */
@@ -131,6 +120,7 @@ public class ImageContent implements Content {
 
     /**
      * Get the {@code Image}.
+     *
      * @return the {@code Image}.
      */
     public Image image() {
@@ -139,6 +129,7 @@ public class ImageContent implements Content {
 
     /**
      * Get the {@code DetailLevel}.
+     *
      * @return the {@code DetailLevel}.
      */
     public DetailLevel detailLevel() {
@@ -155,8 +146,7 @@ public class ImageContent implements Content {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ImageContent that = (ImageContent) o;
-        return Objects.equals(this.image, that.image)
-                && Objects.equals(this.detailLevel, that.detailLevel);
+        return Objects.equals(this.image, that.image) && Objects.equals(this.detailLevel, that.detailLevel);
     }
 
     @Override
@@ -166,16 +156,13 @@ public class ImageContent implements Content {
 
     @Override
     public String toString() {
-        return "ImageContent {" +
-                " image = " + image +
-                " detailLevel = " + detailLevel +
-                " }";
+        return "ImageContent {" + " image = " + image + " detailLevel = " + detailLevel + " }";
     }
 
     /**
      * Create a new {@link ImageContent} from the given url.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param url the url of the image.
      * @return the new {@link ImageContent}.
@@ -187,7 +174,7 @@ public class ImageContent implements Content {
     /**
      * Create a new {@link ImageContent} from the given url.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param url the url of the image.
      * @return the new {@link ImageContent}.
@@ -221,7 +208,7 @@ public class ImageContent implements Content {
     /**
      * Create a new {@link ImageContent} from the given base64 data and mime type.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param base64Data the base64 data of the image.
      * @param mimeType the mime type of the image.
@@ -246,7 +233,7 @@ public class ImageContent implements Content {
     /**
      * Create a new {@link ImageContent} from the given image.
      *
-     * <p>The image will be created with {@code DetailLevel.LOW} detail.</p>
+     * <p>The image will be created with {@code DetailLevel.LOW} detail.
      *
      * @param image the image.
      * @return the new {@link ImageContent}.

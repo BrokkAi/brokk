@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.typescript;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for TypeScript TreeSitter node type names.
- */
+/** Constants for TypeScript TreeSitter node type names. */
 public final class TypeScriptTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -66,6 +64,5 @@ public final class TypeScriptTreeSitterNodeTypes {
     public static final String NAMESPACE = "namespace";
     public static final String ABSTRACT_CLASS = "abstract class";
 
-    private TypeScriptTreeSitterNodeTypes() {
-    }
+    private TypeScriptTreeSitterNodeTypes() {}
 }

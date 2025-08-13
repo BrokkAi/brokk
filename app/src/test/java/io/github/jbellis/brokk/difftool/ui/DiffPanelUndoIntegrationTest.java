@@ -1,19 +1,18 @@
 package io.github.jbellis.brokk.difftool.ui;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.*;
-
 /**
- * Integration test to replicate the issue where chunk apply + save + undo from activity history
- * doesn't properly revert the chunk application.
+ * Integration test to replicate the issue where chunk apply + save + undo from activity history doesn't properly revert
+ * the chunk application.
  */
 public class DiffPanelUndoIntegrationTest {
 
@@ -28,7 +27,8 @@ public class DiffPanelUndoIntegrationTest {
     void setUp() throws IOException {
         // Create a test file with original content
         testFile = tempDir.resolve("TestFile.java");
-        originalContent = """
+        originalContent =
+                """
             public class TestFile {
                 public void methodA() {
                     System.out.println("Line 1");
@@ -39,7 +39,8 @@ public class DiffPanelUndoIntegrationTest {
             """;
 
         // Modified content (lines 2-3 removed, simulating chunk delete)
-        modifiedContent = """
+        modifiedContent =
+                """
             public class TestFile {
                 public void methodA() {
                     System.out.println("Line 1");
@@ -69,19 +70,23 @@ public class DiffPanelUndoIntegrationTest {
         var projectFile = new ProjectFile(tempDir, testFile.getFileName().toString());
 
         // This simulates the logic in BufferDiffPanel.generateDiffChangeActivityEntries()
-        var currentModifiedContent = projectFile.read();  // Save current (modified) content
-        projectFile.write(originalContent);               // Temporarily write original content
+        var currentModifiedContent = projectFile.read(); // Save current (modified) content
+        projectFile.write(originalContent); // Temporarily write original content
 
         // At this point, any context freezing would capture the original content
         var capturedContent = projectFile.read();
-        assertEquals(originalContent, capturedContent,
-            "After temporarily writing original content, file should contain original content");
+        assertEquals(
+                originalContent,
+                capturedContent,
+                "After temporarily writing original content, file should contain original content");
 
-        projectFile.write(currentModifiedContent);        // Restore current content
+        projectFile.write(currentModifiedContent); // Restore current content
 
         // Verify the file is back to modified state
-        assertEquals(modifiedContent, Files.readString(testFile),
-            "After restoring modified content, file should be back to modified state");
+        assertEquals(
+                modifiedContent,
+                Files.readString(testFile),
+                "After restoring modified content, file should be back to modified state");
 
         // This demonstrates that the fix allows capturing original content while
         // maintaining the modified content on disk for the user
@@ -111,14 +116,13 @@ public class DiffPanelUndoIntegrationTest {
         // Step 2: Temporarily write original content (for context capture)
         projectFile.write(originalContent);
         var contentDuringCapture = projectFile.read();
-        assertEquals(originalContent, contentDuringCapture,
-            "During capture phase, file should contain original content");
+        assertEquals(
+                originalContent, contentDuringCapture, "During capture phase, file should contain original content");
 
         // Step 3: Restore current content (so user sees their changes)
         projectFile.write(currentContent);
         var finalContent = projectFile.read();
-        assertEquals(modifiedContent, finalContent,
-            "After capture, file should be back to modified content");
+        assertEquals(modifiedContent, finalContent, "After capture, file should be back to modified content");
 
         // This test verifies that the fix allows us to capture the original content
         // (for proper undo) while preserving the user's modified content on disk
@@ -151,10 +155,10 @@ public class DiffPanelUndoIntegrationTest {
         // 3. We can then restore the current content for the user
 
         // Test the complete sequence
-        var savedModified = projectFile.read();                    // Current modified content
-        projectFile.write(originalContentBeforeChanges);           // Write original for capture
-        var capturedForUndo = projectFile.read();                  // This gets captured in context
-        projectFile.write(savedModified);                          // Restore modified content
+        var savedModified = projectFile.read(); // Current modified content
+        projectFile.write(originalContentBeforeChanges); // Write original for capture
+        var capturedForUndo = projectFile.read(); // This gets captured in context
+        projectFile.write(savedModified); // Restore modified content
 
         assertEquals(originalContent, capturedForUndo, "Content captured for undo should be original");
         assertEquals(modifiedContent, Files.readString(testFile), "File should still show user's changes");
@@ -181,11 +185,13 @@ public class DiffPanelUndoIntegrationTest {
         assertEquals(modifiedContent, currentContentAfterChunk, "File should contain modified content after chunk");
 
         // Verify we have both the original and current content available
-        assertNotEquals(contentBeforeChange, currentContentAfterChunk,
-            "Original and current content should differ (indicating change occurred)");
+        assertNotEquals(
+                contentBeforeChange,
+                currentContentAfterChunk,
+                "Original and current content should differ (indicating change occurred)");
 
         // Simulate immediate history entry creation (no save required)
-        projectFile.write(contentBeforeChange);    // Write original for context capture
+        projectFile.write(contentBeforeChange); // Write original for context capture
         String capturedContent = projectFile.read();
         projectFile.write(currentContentAfterChunk); // Restore current content
 
@@ -211,7 +217,8 @@ public class DiffPanelUndoIntegrationTest {
         assertEquals(step0Content, Files.readString(testFile));
 
         // First chunk operation: remove line 3
-        String step1Content = """
+        String step1Content =
+                """
             public class TestFile {
                 public void methodA() {
                     System.out.println("Line 1");
@@ -226,15 +233,16 @@ public class DiffPanelUndoIntegrationTest {
 
         // Immediate history creation for first operation
         String currentAfterFirst = projectFile.read();
-        projectFile.write(beforeFirstChunk);     // Original content captured for undo
+        projectFile.write(beforeFirstChunk); // Original content captured for undo
         String capturedFirst = projectFile.read();
-        projectFile.write(currentAfterFirst);    // Restore after first chunk
+        projectFile.write(currentAfterFirst); // Restore after first chunk
 
         assertEquals(originalContent, capturedFirst, "First operation should capture original content");
         assertEquals(step1Content, Files.readString(testFile), "File should show result of first chunk");
 
         // Second chunk operation: remove line 2
-        String step2Content = """
+        String step2Content =
+                """
             public class TestFile {
                 public void methodA() {
                     System.out.println("Line 1");
@@ -248,9 +256,9 @@ public class DiffPanelUndoIntegrationTest {
 
         // Immediate history creation for second operation
         String currentAfterSecond = projectFile.read();
-        projectFile.write(beforeSecondChunk);     // step1Content captured for undo
+        projectFile.write(beforeSecondChunk); // step1Content captured for undo
         String capturedSecond = projectFile.read();
-        projectFile.write(currentAfterSecond);    // Restore after second chunk
+        projectFile.write(currentAfterSecond); // Restore after second chunk
 
         assertEquals(step1Content, capturedSecond, "Second operation should capture content before second chunk");
         assertEquals(step2Content, Files.readString(testFile), "File should show result of second chunk");
@@ -283,15 +291,13 @@ public class DiffPanelUndoIntegrationTest {
         String currentAfterChunk = projectFile.read();
 
         // Immediate history creation (happens right after chunk, no save needed)
-        projectFile.write(originalBeforeChunk);   // Temporarily write original
+        projectFile.write(originalBeforeChunk); // Temporarily write original
         String capturedForImmediate = projectFile.read();
-        projectFile.write(currentAfterChunk);     // Restore current content
+        projectFile.write(currentAfterChunk); // Restore current content
 
         // Verify immediate history captured correct content
-        assertEquals(originalContent, capturedForImmediate,
-            "Immediate history should capture original content");
-        assertEquals(modifiedContent, Files.readString(testFile),
-            "File should still show modified content");
+        assertEquals(originalContent, capturedForImmediate, "Immediate history should capture original content");
+        assertEquals(modifiedContent, Files.readString(testFile), "File should still show modified content");
 
         // This test shows the key improvement:
         // OLD: Chunk → (no undo available) → Save → (undo available but only for first save)
@@ -327,13 +333,15 @@ public class DiffPanelUndoIntegrationTest {
         assertEquals(modifiedContent, contentAfterManualEdit, "Content after manual edit should be modified");
 
         // Verify that we can track the change for history (same logic as recordDiffChange)
-        assertNotEquals(contentBeforeManualEdit, contentAfterManualEdit,
-            "Manual edit should change content (enabling history tracking)");
+        assertNotEquals(
+                contentBeforeManualEdit,
+                contentAfterManualEdit,
+                "Manual edit should change content (enabling history tracking)");
 
         // Test the key insight: we can capture original content for undo while preserving manual edits
-        projectFile.write(contentBeforeManualEdit);     // Write original for history capture
+        projectFile.write(contentBeforeManualEdit); // Write original for history capture
         String capturedForHistory = projectFile.read();
-        projectFile.write(contentAfterManualEdit);      // Restore manual edit
+        projectFile.write(contentAfterManualEdit); // Restore manual edit
 
         assertEquals(originalContent, capturedForHistory, "History should capture original content");
         assertEquals(modifiedContent, Files.readString(testFile), "File should preserve manual edits");
@@ -341,5 +349,4 @@ public class DiffPanelUndoIntegrationTest {
         // This demonstrates that manual edits can be tracked using the same mechanism
         // as chunk operations, enabling consistent undo behavior
     }
-
 }

@@ -4,6 +4,10 @@ import static dev.langchain4j.internal.Utils.isNullOrBlank;
 import static java.util.Arrays.stream;
 import static java.util.stream.Collectors.toList;
 
+import dev.langchain4j.internal.JsonSchemaElementUtils;
+import dev.langchain4j.internal.JsonSchemaElementUtils.VisitedClassMetadata;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
@@ -14,18 +18,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import dev.langchain4j.internal.JsonSchemaElementUtils;
-import dev.langchain4j.internal.JsonSchemaElementUtils.VisitedClassMetadata;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
-import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
-
-/**
- * Utility methods for {@link ToolSpecification}s.
- */
+/** Utility methods for {@link ToolSpecification}s. */
 public class ToolSpecifications {
 
-    private ToolSpecifications() {
-    }
+    private ToolSpecifications() {}
 
     /**
      * Returns {@link ToolSpecification}s for all methods annotated with @{@link Tool} within the specified class.
@@ -43,8 +39,8 @@ public class ToolSpecifications {
     }
 
     /**
-     * Returns {@link ToolSpecification}s for all methods annotated with @{@link Tool}
-     * within the class of the specified object.
+     * Returns {@link ToolSpecification}s for all methods annotated with @{@link Tool} within the class of the specified
+     * object.
      *
      * @param objectWithTools the object.
      * @return the {@link ToolSpecification}s.
@@ -54,18 +50,20 @@ public class ToolSpecifications {
     }
 
     /**
-     * Validates all the {@link ToolSpecification}s. The validation checks for duplicate method names.
-     * Throws {@link IllegalArgumentException} if validation fails
+     * Validates all the {@link ToolSpecification}s. The validation checks for duplicate method names. Throws
+     * {@link IllegalArgumentException} if validation fails
      *
      * @param toolSpecifications list of ToolSpecification to be validated.
      */
-    public static void validateSpecifications(List<ToolSpecification> toolSpecifications) throws IllegalArgumentException {
+    public static void validateSpecifications(List<ToolSpecification> toolSpecifications)
+            throws IllegalArgumentException {
 
         // Checks for duplicates methods
         Set<String> names = new HashSet<>();
         for (ToolSpecification toolSpecification : toolSpecifications) {
             if (!names.add(toolSpecification.name())) {
-                throw new IllegalArgumentException(String.format("Tool names must be unique. The tool '%s' appears several times", toolSpecification.name()));
+                throw new IllegalArgumentException(String.format(
+                        "Tool names must be unique. The tool '%s' appears several times", toolSpecification.name()));
             }
         }
     }
@@ -136,16 +134,11 @@ public class ToolSpecifications {
                 .build();
     }
 
-    private static JsonSchemaElement jsonSchemaElementFrom(Parameter parameter,
-                                                           Map<Class<?>, VisitedClassMetadata> visited) {
+    private static JsonSchemaElement jsonSchemaElementFrom(
+            Parameter parameter, Map<Class<?>, VisitedClassMetadata> visited) {
         P annotation = parameter.getAnnotation(P.class);
         String description = annotation == null ? null : annotation.value();
         return JsonSchemaElementUtils.jsonSchemaElementFrom(
-                parameter.getType(),
-                parameter.getParameterizedType(),
-                description,
-                true,
-                visited
-        );
+                parameter.getType(), parameter.getParameterizedType(), description, true, visited);
     }
 }

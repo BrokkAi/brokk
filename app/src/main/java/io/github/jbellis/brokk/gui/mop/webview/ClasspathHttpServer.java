@@ -2,25 +2,26 @@ package io.github.jbellis.brokk.gui.mop.webview;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.annotation.Nullable;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * A lightweight HTTP server to serve static resources from the classpath.
- * Used to avoid CORS issues with WebView when loading resources from a JAR.
+ * A lightweight HTTP server to serve static resources from the classpath. Used to avoid CORS issues with WebView when
+ * loading resources from a JAR.
  */
 public final class ClasspathHttpServer {
     private static final Logger logger = LogManager.getLogger(ClasspathHttpServer.class);
+
     @Nullable
     private static volatile ClasspathHttpServer instance;
+
     private final HttpServer server;
     private final int port;
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
@@ -49,9 +50,10 @@ public final class ClasspathHttpServer {
         }
 
         if (tempServer == null) {
-            throw new IOException("Could not find an available port after " + MAX_PORT_ATTEMPTS + " attempts", lastException);
+            throw new IOException(
+                    "Could not find an available port after " + MAX_PORT_ATTEMPTS + " attempts", lastException);
         }
-        
+
         this.server = tempServer;
         this.port = tempPort;
 
@@ -88,9 +90,7 @@ public final class ClasspathHttpServer {
         return instance.port;
     }
 
-    /**
-     * Shuts down the server if it has been started.
-     */
+    /** Shuts down the server if it has been started. */
     public static void shutdown() {
         if (instance != null && instance.isShuttingDown.compareAndSet(false, true)) {
             logger.info("Shutting down embedded HTTP server on port {}", instance.port);

@@ -1,19 +1,18 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * Shared dependency management logic for Node.js-based languages (JavaScript, TypeScript).
- * Both languages use the same npm/node_modules ecosystem for dependency management.
+ * Shared dependency management logic for Node.js-based languages (JavaScript, TypeScript). Both languages use the same
+ * npm/node_modules ecosystem for dependency management.
  */
 public final class NodeJsDependencyHelper {
     private static final Logger logger = LogManager.getLogger(NodeJsDependencyHelper.class);
@@ -23,9 +22,8 @@ public final class NodeJsDependencyHelper {
     }
 
     /**
-     * Scans for Node.js dependency candidates in a project's node_modules directory.
-     * This method finds all package directories under node_modules, including scoped packages,
-     * but excludes utility directories like .bin.
+     * Scans for Node.js dependency candidates in a project's node_modules directory. This method finds all package
+     * directories under node_modules, including scoped packages, but excludes utility directories like .bin.
      *
      * @param project The project to scan for dependencies
      * @return List of paths to dependency candidate directories
@@ -40,9 +38,9 @@ public final class NodeJsDependencyHelper {
             try (DirectoryStream<Path> ds = Files.newDirectoryStream(nodeModules)) {
                 for (Path entry : ds) {
                     String name = entry.getFileName().toString();
-                    if (name.equals(".bin")) continue;  // skip executables
+                    if (name.equals(".bin")) continue; // skip executables
 
-                    if (name.startsWith("@")) {        // scoped packages
+                    if (name.startsWith("@")) { // scoped packages
                         logger.debug("Found scoped package directory: {}", entry);
                         try (DirectoryStream<Path> scoped = Files.newDirectoryStream(entry)) {
                             for (Path scopedPkg : scoped) {
@@ -71,8 +69,8 @@ public final class NodeJsDependencyHelper {
     }
 
     /**
-     * Checks if the given path is likely already analyzed as part of the project's primary sources
-     * for Node.js-based projects. This excludes node_modules dependencies since they are external.
+     * Checks if the given path is likely already analyzed as part of the project's primary sources for Node.js-based
+     * projects. This excludes node_modules dependencies since they are external.
      *
      * @param project The current project
      * @param pathToImport The absolute path to check

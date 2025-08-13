@@ -1,12 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.util.Environment;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.cpg.CpgCache;
-
+import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileVisitOption;
@@ -16,7 +12,9 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
@@ -30,9 +28,8 @@ public interface Language {
     IAnalyzer createAnalyzer(IProject project);
 
     /**
-     * ACHTUNG!
-     * LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call
-     * it outside of try/catch with recovery!
+     * ACHTUNG! LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call it
+     * outside of try/catch with recovery!
      */
     IAnalyzer loadAnalyzer(IProject project);
 
@@ -52,12 +49,12 @@ public interface Language {
     }
 
     /**
-     * Checks if the given path is likely already analyzed as part of the project's primary sources.
-     * This is used to warn the user if they try to import a directory that might be redundant.
-     * The path provided is expected to be absolute.
+     * Checks if the given path is likely already analyzed as part of the project's primary sources. This is used to
+     * warn the user if they try to import a directory that might be redundant. The path provided is expected to be
+     * absolute.
      *
      * @param project The current project.
-     * @param path    The absolute path to check.
+     * @param path The absolute path to check.
      * @return {@code true} if the path is considered part of the project's analyzed sources, {@code false} otherwise.
      */
     default boolean isAnalyzed(IProject project, Path path) {
@@ -162,17 +159,17 @@ public interface Language {
 
             /* ---------- default locations that exist on all OSes ---------- */
             rootsToScan.add(homePath.resolve(".m2").resolve("repository"));
-            rootsToScan.add(homePath.resolve(".gradle").resolve("caches")
-                                    .resolve("modules-2").resolve("files-2.1"));
+            rootsToScan.add(homePath.resolve(".gradle")
+                    .resolve("caches")
+                    .resolve("modules-2")
+                    .resolve("files-2.1"));
             rootsToScan.add(homePath.resolve(".ivy2").resolve("cache"));
-            rootsToScan.add(homePath.resolve(".cache").resolve("coursier")
-                                    .resolve("v1").resolve("https"));
+            rootsToScan.add(
+                    homePath.resolve(".cache").resolve("coursier").resolve("v1").resolve("https"));
             rootsToScan.add(homePath.resolve(".sbt"));
 
             /* ---------- honour user-supplied overrides ---------- */
-            Optional.ofNullable(System.getenv("MAVEN_REPO"))
-                    .map(Path::of)
-                    .ifPresent(rootsToScan::add);
+            Optional.ofNullable(System.getenv("MAVEN_REPO")).map(Path::of).ifPresent(rootsToScan::add);
 
             Optional.ofNullable(System.getProperty("maven.repo.local"))
                     .map(Path::of)
@@ -180,28 +177,32 @@ public interface Language {
 
             Optional.ofNullable(System.getenv("GRADLE_USER_HOME"))
                     .map(Path::of)
-                    .map(p -> p.resolve("caches")
-                            .resolve("modules-2").resolve("files-2.1"))
+                    .map(p -> p.resolve("caches").resolve("modules-2").resolve("files-2.1"))
                     .ifPresent(rootsToScan::add);
 
             /* ---------- Windows-specific cache roots ---------- */
             if (Environment.isWindows()) {
                 Optional.ofNullable(System.getenv("LOCALAPPDATA")).ifPresent(localAppData -> {
                     Path lad = Path.of(localAppData);
-                    rootsToScan.add(lad.resolve("Coursier").resolve("cache")
-                                            .resolve("v1").resolve("https"));
-                    rootsToScan.add(lad.resolve("Gradle").resolve("caches")
-                                            .resolve("modules-2").resolve("files-2.1"));
+                    rootsToScan.add(lad.resolve("Coursier")
+                            .resolve("cache")
+                            .resolve("v1")
+                            .resolve("https"));
+                    rootsToScan.add(lad.resolve("Gradle")
+                            .resolve("caches")
+                            .resolve("modules-2")
+                            .resolve("files-2.1"));
                 });
             }
 
             /* ---------- macOS-specific cache roots ---------- */
             if (Environment.isMacOs()) {
                 // Coursier on macOS defaults to ~/Library/Caches/Coursier/v1/https
-                rootsToScan.add(homePath
-                                        .resolve("Library").resolve("Caches")
-                                        .resolve("Coursier").resolve("v1")
-                                        .resolve("https"));
+                rootsToScan.add(homePath.resolve("Library")
+                        .resolve("Caches")
+                        .resolve("Coursier")
+                        .resolve("v1")
+                        .resolve("https"));
             }
 
             /* ---------- de-duplicate & scan ---------- */
@@ -231,8 +232,7 @@ public interface Language {
                     .toList();
 
             long duration = System.currentTimeMillis() - startTime;
-            logger.info("Found {} JAR files in common dependency locations in {} ms",
-                        jarFiles.size(), duration);
+            logger.info("Found {} JAR files in common dependency locations in {} ms", jarFiles.size(), duration);
 
             return jarFiles;
         }
@@ -354,7 +354,8 @@ public interface Language {
             }
             try (DirectoryStream<Path> pyVers = Files.newDirectoryStream(libDir)) {
                 for (Path py : pyVers) {
-                    if (Files.isDirectory(py) && PY_SITE_PKGS.matcher(py.getFileName().toString()).matches()) {
+                    if (Files.isDirectory(py)
+                            && PY_SITE_PKGS.matcher(py.getFileName().toString()).matches()) {
                         Path site = py.resolve("site-packages");
                         if (Files.isDirectory(site)) {
                             return site;
@@ -433,9 +434,8 @@ public interface Language {
 
             // Check if the path is inside any known virtual environment locations.
             // findVirtualEnvs looks at projectRoot and one level down.
-            List<Path> venvPaths = findVirtualEnvs(projectRoot).stream()
-                    .map(Path::normalize)
-                    .toList();
+            List<Path> venvPaths =
+                    findVirtualEnvs(projectRoot).stream().map(Path::normalize).toList();
             for (Path venvPath : venvPaths) {
                 if (normalizedPathToImport.startsWith(venvPath)) {
                     // Paths inside virtual environments are dependencies, not primary analyzed sources.
@@ -629,7 +629,9 @@ public interface Language {
             }
             // Example: exclude .cargo directory if it exists
             Path cargoDir = projectRoot.resolve(".cargo");
-            return !Files.isDirectory(cargoDir) || !normalizedPathToImport.startsWith(cargoDir);// Default: if under project root and not in typical build/dependency dirs
+            return !Files.isDirectory(cargoDir)
+                    || !normalizedPathToImport.startsWith(
+                            cargoDir); // Default: if under project root and not in typical build/dependency dirs
         }
     };
 
@@ -720,7 +722,8 @@ public interface Language {
             }
             // Example: exclude vendor directory
             Path vendorDir = projectRoot.resolve("vendor");
-            return !normalizedPathToImport.startsWith(vendorDir);// Default: if under project root and not in typical build/dependency dirs
+            return !normalizedPathToImport.startsWith(
+                    vendorDir); // Default: if under project root and not in typical build/dependency dirs
         }
     };
 
@@ -770,7 +773,8 @@ public interface Language {
     };
 
     Language TYPESCRIPT = new Language() {
-        private final List<String> extensions = List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
+        private final List<String> extensions =
+                List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
 
         @Override
         public List<String> getExtensions() {
@@ -813,22 +817,22 @@ public interface Language {
         }
     };
 
-    List<Language> ALL_LANGUAGES = List.of(C_SHARP,
-                                           JAVA,
-                                           JAVASCRIPT,
-                                           PYTHON,
-                                           C_CPP,
-                                           CPP_TREESITTER,
-                                           GO,
-                                           RUST,
-                                           PHP,
-                                           TYPESCRIPT, // Now TYPESCRIPT is declared before this list
-                                           SQL, // SQL is now defined and can be included
-                                           NONE);
+    List<Language> ALL_LANGUAGES = List.of(
+            C_SHARP,
+            JAVA,
+            JAVASCRIPT,
+            PYTHON,
+            C_CPP,
+            CPP_TREESITTER,
+            GO,
+            RUST,
+            PHP,
+            TYPESCRIPT, // Now TYPESCRIPT is declared before this list
+            SQL, // SQL is now defined and can be included
+            NONE);
 
     /**
-     * Returns the Language constant corresponding to the given file extension.
-     * Comparison is case-insensitive.
+     * Returns the Language constant corresponding to the given file extension. Comparison is case-insensitive.
      *
      * @param extension The file extension (e.g., "java", "py").
      * @return The matching Language, or NONE if no match is found or the extension is null/empty.
@@ -852,8 +856,8 @@ public interface Language {
     }
 
     /**
-     * Returns an array containing all the defined Language constants, in the order
-     * they are declared. This method is provided for compatibility with Enum.values().
+     * Returns an array containing all the defined Language constants, in the order they are declared. This method is
+     * provided for compatibility with Enum.values().
      *
      * @return an array containing all the defined Language constants.
      */
@@ -862,15 +866,14 @@ public interface Language {
     }
 
     /**
-     * Returns the Language constant with the specified name.
-     * The string must match exactly an identifier used to declare a Language constant.
-     * (Extraneous whitespace characters are not permitted.)
-     * This method is provided for compatibility with Enum.valueOf(String).
+     * Returns the Language constant with the specified name. The string must match exactly an identifier used to
+     * declare a Language constant. (Extraneous whitespace characters are not permitted.) This method is provided for
+     * compatibility with Enum.valueOf(String).
      *
      * @param name the name of the Language constant to be returned.
      * @return the Language constant with the specified name.
      * @throws IllegalArgumentException if this language type has no constant with the specified name.
-     * @throws NullPointerException     if name is null.
+     * @throws NullPointerException if name is null.
      */
     static Language valueOf(String name) {
         Objects.requireNonNull(name, "Name is null");
@@ -884,26 +887,23 @@ public interface Language {
     }
 
     /**
-     * A composite {@link Language} implementation that delegates all operations to the
-     * wrapped set of concrete languages and combines the results.
+     * A composite {@link Language} implementation that delegates all operations to the wrapped set of concrete
+     * languages and combines the results.
      *
-     * <p>Only the operations that make sense for a multi‑language view are implemented.
-     * Methods tied to a single‐language identity ‑ such as {@link #internalName()} or
-     * {@link #getCpgPath(IProject)} ‑ throw {@link UnsupportedOperationException}.</p>
+     * <p>Only the operations that make sense for a multi‑language view are implemented. Methods tied to a
+     * single‐language identity ‑ such as {@link #internalName()} or {@link #getCpgPath(IProject)} ‑ throw
+     * {@link UnsupportedOperationException}.
      */
     class MultiLanguage implements Language {
         private final Set<Language> languages;
 
         public MultiLanguage(Set<Language> languages) {
             Objects.requireNonNull(languages, "languages set is null");
-            if (languages.isEmpty())
-                throw new IllegalArgumentException("languages set must not be empty");
+            if (languages.isEmpty()) throw new IllegalArgumentException("languages set must not be empty");
             if (languages.stream().anyMatch(l -> l instanceof MultiLanguage))
                 throw new IllegalArgumentException("cannot nest MultiLanguage inside itself");
             // copy defensively to guarantee immutability and deterministic ordering
-            this.languages = languages.stream()
-                    .filter(l -> l != Language.NONE)
-                    .collect(Collectors.toUnmodifiableSet());
+            this.languages = languages.stream().filter(l -> l != Language.NONE).collect(Collectors.toUnmodifiableSet());
         }
 
         @Override
@@ -916,8 +916,7 @@ public interface Language {
 
         @Override
         public String name() {
-            return languages.stream().map(Language::name)
-                    .collect(Collectors.joining("/"));
+            return languages.stream().map(Language::name).collect(Collectors.joining("/"));
         }
 
         @Override
@@ -940,12 +939,9 @@ public interface Language {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
                 var analyzer = lang.createAnalyzer(project);
-                if (!analyzer.isEmpty())
-                    delegates.put(lang, analyzer);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
-            return delegates.size() == 1
-                    ? delegates.values().iterator().next()
-                    : new MultiAnalyzer(delegates);
+            return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
 
         @Override
@@ -954,12 +950,9 @@ public interface Language {
             for (var lang : languages) {
                 // TODO handle partial failure without needing to rebuild everything?
                 var analyzer = lang.loadAnalyzer(project);
-                if (!analyzer.isEmpty())
-                    delegates.put(lang, analyzer);
+                if (!analyzer.isEmpty()) delegates.put(lang, analyzer);
             }
-            return delegates.size() == 1
-                    ? delegates.values().iterator().next()
-                    : new MultiAnalyzer(delegates);
+            return delegates.size() == 1 ? delegates.values().iterator().next() : new MultiAnalyzer(delegates);
         }
 
         @Override

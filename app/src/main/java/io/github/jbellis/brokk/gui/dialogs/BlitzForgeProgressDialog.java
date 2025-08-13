@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import static java.util.Objects.requireNonNull;
+
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -14,8 +16,8 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.agents.RelevanceClassifier;
 import io.github.jbellis.brokk.agents.CodeAgent;
+import io.github.jbellis.brokk.agents.RelevanceClassifier;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -26,11 +28,6 @@ import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
 import java.io.StringReader;
 import java.io.StringWriter;
@@ -40,8 +37,10 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class BlitzForgeProgressDialog extends JDialog {
 
@@ -54,13 +53,18 @@ public class BlitzForgeProgressDialog extends JDialog {
     private final boolean includeWorkspace;
     private final String contextFilter;
 
-    public enum PostProcessingOption {NONE, ARCHITECT, ASK}
+    public enum PostProcessingOption {
+        NONE,
+        ARCHITECT,
+        ASK
+    }
 
-    /**
-     * How much of the parallel-processing output to include when passing the
-     * results to the post-processing phase.
-     */
-    public enum ParallelOutputMode {NONE, ALL, CHANGED}
+    /** How much of the parallel-processing output to include when passing the results to the post-processing phase. */
+    public enum ParallelOutputMode {
+        NONE,
+        ALL,
+        CHANGED
+    }
 
     private static final Logger logger = LogManager.getLogger(BlitzForgeProgressDialog.class);
     private final JProgressBar progressBar;
@@ -74,15 +78,12 @@ public class BlitzForgeProgressDialog extends JDialog {
     private final JLabel llmLineCountLabel; // Displays total LLM output lines
     private final ExecutorService executorService; // Thread pool for parallel processing
 
-
     // Record to communicate progress from doInBackground to process
-    private record ProgressData(int processedCount, String fileName, @Nullable String errorMessage) {
-    }
+    private record ProgressData(int processedCount, String fileName, @Nullable String errorMessage) {}
 
     // Record to hold results from processing a single file
-    private record FileProcessingResult(ProjectFile file, @Nullable String errorMessage, String llmOutput,
-                                        boolean edited) {
-    }
+    private record FileProcessingResult(
+            ProjectFile file, @Nullable String errorMessage, String llmOutput, boolean edited) {}
 
     /**
      * Helper method to compute file size in bytes; if unavailable, falls back to Long.MAX_VALUE to push it to the end.
@@ -96,9 +97,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         }
     }
 
-    /**
-     * Encapsulates the per-file processing logic previously inlined in SwingWorker.
-     */
+    /** Encapsulates the per-file processing logic previously inlined in SwingWorker. */
     private FileProcessingResult processSingleFile(ProjectFile file, Context ctx) {
         var dialogConsoleIO = new DialogConsoleIO(this, file.toString());
         String errorMessage = null;
@@ -119,13 +118,16 @@ public class BlitzForgeProgressDialog extends JDialog {
                 // can't use `ctx` here b/c frozen context does not implement `sources` for buildAutoContext
                 var acFragment = cm.liveContext().buildAutoContext(relatedK);
                 if (!acFragment.text().isBlank()) {
-                    var msgText = """
+                    var msgText =
+                            """
                             <related_classes>
                             The user requested to include the top %d related classes.
-                            
+
                             %s
                             </related_classes>
-                            """.stripIndent().formatted(relatedK, acFragment.text());
+                            """
+                                    .stripIndent()
+                                    .formatted(relatedK, acFragment.text());
                     readOnlyMessages.add(new UserMessage(msgText));
                 }
             }
@@ -144,26 +146,34 @@ public class BlitzForgeProgressDialog extends JDialog {
                 logger.info("Executing per-file command for {}: {}", file, finalCommand);
                 String commandOutputText;
                 try {
-                    String output = Environment.instance.runShellCommand(finalCommand,
-                                                                         cm.getProject().getRoot(),
-                                                                         line -> {
-                                                                         }, // No live consumer for now
-                                                                         Environment.UNLIMITED_TIMEOUT);
-                    commandOutputText = """
+                    String output = Environment.instance.runShellCommand(
+                            finalCommand,
+                            cm.getProject().getRoot(),
+                            line -> {}, // No live consumer for now
+                            Environment.UNLIMITED_TIMEOUT);
+                    commandOutputText =
+                            """
                             <per_file_command_output command="%s">
                             %s
                             </per_file_command_output>
-                            """.stripIndent().formatted(finalCommand, output);
+                            """
+                                    .stripIndent()
+                                    .formatted(finalCommand, output);
                 } catch (Environment.SubprocessException ex) {
                     logger.warn("Per-file command failed for {}: {}", file, finalCommand, ex);
-                    commandOutputText = """
+                    commandOutputText =
+                            """
                             <per_file_command_output command="%s">
                             Error executing command: %s
                             Output (if any):
                             %s
                             </per_file_command_output>
-                            """.stripIndent().formatted(finalCommand, ex.getMessage(), ex.getOutput());
-                    dialogConsoleIO.toolError("Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(), "Command Execution Error");
+                            """
+                                    .stripIndent()
+                                    .formatted(finalCommand, ex.getMessage(), ex.getOutput());
+                    dialogConsoleIO.toolError(
+                            "Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(),
+                            "Command Execution Error");
                 }
                 readOnlyMessages.add(new UserMessage(commandOutputText));
             }
@@ -223,19 +233,20 @@ public class BlitzForgeProgressDialog extends JDialog {
         return new FileProcessingResult(file, errorMessage, finalLlmOutput, edited);
     }
 
-    public BlitzForgeProgressDialog(String instructions,
-                                    String action,
-                                    Service.FavoriteModel selectedFavorite,
-                                    List<ProjectFile> filesToProcess,
-                                    Chrome chrome,
-                                    @Nullable Integer relatedK,
-                                    @Nullable String perFileCommandTemplate,
-                                    boolean includeWorkspace,
-                                    PostProcessingOption runOption,
-                                    String contextFilter,
-                                    ParallelOutputMode outputMode,
-                                    boolean buildFirst,
-                                    String postProcessingInstructions) {
+    public BlitzForgeProgressDialog(
+            String instructions,
+            String action,
+            Service.FavoriteModel selectedFavorite,
+            List<ProjectFile> filesToProcess,
+            Chrome chrome,
+            @Nullable Integer relatedK,
+            @Nullable String perFileCommandTemplate,
+            boolean includeWorkspace,
+            PostProcessingOption runOption,
+            String contextFilter,
+            ParallelOutputMode outputMode,
+            boolean buildFirst,
+            String postProcessingInstructions) {
         super(chrome.getFrame(), "BlitzForge Progress", false);
         this.instructions = instructions;
         this.action = action;
@@ -275,7 +286,8 @@ public class BlitzForgeProgressDialog extends JDialog {
         topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
         add(topPanel, BorderLayout.NORTH);
 
-        this.llmLineCountTimer = new javax.swing.Timer(100, e -> llmLineCountLabel.setText("Lines received: " + llmLineCount.get()));
+        this.llmLineCountTimer =
+                new javax.swing.Timer(100, e -> llmLineCountLabel.setText("Lines received: " + llmLineCount.get()));
         this.llmLineCountTimer.setRepeats(true); // Make it a repeating timer
         this.llmLineCountTimer.setCoalesce(true); // Optimize for EDT
 
@@ -317,24 +329,29 @@ public class BlitzForgeProgressDialog extends JDialog {
                             var firstResult = processSingleFile(sortedFiles.getFirst(), frozenContext);
                             processedFileCount.set(1); // Mark the first file as processed
                             // Publish result for the first file
-                            publish(new ProgressData(processedFileCount.get(), firstResult.file().toString(), firstResult.errorMessage()));
+                            publish(new ProgressData(
+                                    processedFileCount.get(),
+                                    firstResult.file().toString(),
+                                    firstResult.errorMessage()));
                             results.add(firstResult);
-                            parallelStartIndex = 1;     // we already handled the first file
+                            parallelStartIndex = 1; // we already handled the first file
                         }
 
                         // Early exit if user cancelled during first file processing
                         if (isCancelled()) {
-                            var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
+                            var sd = new TaskResult.StopDetails(
+                                    TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
                             return new TaskResult(cm, instructions, List.of(), new HashSet<>(filesToProcess), sd);
                         }
                     }
 
                     // Submit the remaining files for concurrent processing
-                    CompletionService<FileProcessingResult> completionService = new ExecutorCompletionService<>(executorService);
+                    CompletionService<FileProcessingResult> completionService =
+                            new ExecutorCompletionService<>(executorService);
                     // Skip files already processed synchronously (0 or 1 depending on warm-up)
                     sortedFiles.stream().skip(parallelStartIndex).forEach(file -> {
                         if (!isCancelled()) {
-                            interface TokenAwareCallable extends Callable<FileProcessingResult>, TokenAware { }
+                            interface TokenAwareCallable extends Callable<FileProcessingResult>, TokenAware {}
 
                             completionService.submit(new TokenAwareCallable() {
                                 @Override
@@ -343,10 +360,12 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     try {
                                         var readOnly = new ArrayList<ChatMessage>();
                                         if (includeWorkspace) {
-                                            readOnly.addAll(CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
+                                            readOnly.addAll(
+                                                    CodePrompts.instance.getWorkspaceContentsMessages(frozenContext));
                                             readOnly.addAll(CodePrompts.instance.getHistoryMessages(frozenContext));
                                         }
-                                        tokens = Messages.getApproximateTokens(readOnly) + Messages.getApproximateTokens(file.read());
+                                        tokens = Messages.getApproximateTokens(readOnly)
+                                                + Messages.getApproximateTokens(file.read());
                                     } catch (Exception e) {
                                         logger.debug("Token estimation failed for {} – {}", file, e.toString());
                                     }
@@ -369,11 +388,15 @@ public class BlitzForgeProgressDialog extends JDialog {
                             break; // Exit loop if worker is cancelled
                         }
                         try {
-                            Future<FileProcessingResult> future = completionService.take(); // Blocks until a task completes
+                            Future<FileProcessingResult> future =
+                                    completionService.take(); // Blocks until a task completes
                             FileProcessingResult result = future.get(); // Retrieves result or re-throws exception
                             results.add(result);
                             // Increment count and publish progress for the completed file
-                            publish(new ProgressData(processedFileCount.incrementAndGet(), result.file().toString(), result.errorMessage()));
+                            publish(new ProgressData(
+                                    processedFileCount.incrementAndGet(),
+                                    result.file().toString(),
+                                    result.errorMessage()));
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt(); // Restore interrupt status
                             break; // Exit loop due to interruption
@@ -397,9 +420,12 @@ public class BlitzForgeProgressDialog extends JDialog {
                             .collect(Collectors.joining());
 
                     var uiMessages = uiMessageText.isEmpty()
-                                     ? List.<ChatMessage>of()
-                                     : List.of(new UserMessage(instructions),
-                                               CodePrompts.redactAiMessage(new AiMessage(uiMessageText), EditBlockConflictsParser.instance).orElse(new AiMessage("")));
+                            ? List.<ChatMessage>of()
+                            : List.of(
+                                    new UserMessage(instructions),
+                                    CodePrompts.redactAiMessage(
+                                                    new AiMessage(uiMessageText), EditBlockConflictsParser.instance)
+                                            .orElse(new AiMessage("")));
 
                     List<String> failures = results.stream()
                             .filter(r -> r.errorMessage() != null)
@@ -432,7 +458,8 @@ public class BlitzForgeProgressDialog extends JDialog {
                     // Append messages to the output area
                     if (!data.fileName().isEmpty()) { // This chunk relates to a specific file
                         if (data.errorMessage() != null) {
-                            outputTextArea.append("Error processing " + data.fileName() + ": " + data.errorMessage() + "\n");
+                            outputTextArea.append(
+                                    "Error processing " + data.fileName() + ": " + data.errorMessage() + "\n");
                         } else {
                             outputTextArea.append("Processed: " + data.fileName() + "\n");
                         }
@@ -452,7 +479,8 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                 // Handle cancellation scenario
                 if (isCancelled()) {
-                    progressBar.setString("Cancelled. " + processedFileCount.get() + " of " + totalFiles + " files processed.");
+                    progressBar.setString(
+                            "Cancelled. " + processedFileCount.get() + " of " + totalFiles + " files processed.");
                     outputTextArea.append("\n``` Operation Cancelled by User ```\n");
                     return;
                 }
@@ -473,7 +501,8 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                 llmLineCountLabel.setText("Lines received: " + llmLineCount.get()); // Final update to LLM line count
                 progressBar.setValue(totalFiles); // Ensure progress bar shows 100% completion
-                progressBar.setString("Completed. " + totalFiles + " of " + totalFiles + " files processed."); // Final progress text
+                progressBar.setString(
+                        "Completed. " + totalFiles + " of " + totalFiles + " files processed."); // Final progress text
 
                 outputTextArea.append("\nParallel processing complete.\n");
                 // If no post-processing option is selected, we are done
@@ -489,12 +518,15 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     return "";
                                 }
                                 try {
-                                    mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
+                                    mainIo.llmOutput(
+                                            "\nRunning verification command: " + verificationCommand,
+                                            ChatMessageType.CUSTOM);
                                     mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
-                                    Environment.instance.runShellCommand(verificationCommand,
-                                                                          contextManager.getProject().getRoot(),
-                                                                          line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                                                                          Environment.UNLIMITED_TIMEOUT);
+                                    Environment.instance.runShellCommand(
+                                            verificationCommand,
+                                            contextManager.getProject().getRoot(),
+                                            line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                                            Environment.UNLIMITED_TIMEOUT);
                                     return "The build succeeded.";
                                 } catch (Environment.SubprocessException e) {
                                     return e.getMessage() + "\n\n" + e.getOutput();
@@ -513,42 +545,49 @@ public class BlitzForgeProgressDialog extends JDialog {
                         return;
                     }
 
-                    var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
+                    var files =
+                            filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
                     var messages = result.output().messages();
                     assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
                     var effectiveOutputMode = messages.isEmpty() ? ParallelOutputMode.NONE : outputMode;
-                    var parallelDetails = switch (effectiveOutputMode) {
-                        case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
-                        case CHANGED -> {
-                            var output = Messages.getText(messages.getLast());
-                            yield "The parallel processing made changes to the following files:\n```\n%s```".formatted(output);
-                        }
-                        default -> { // "all"
-                            var output = Messages.getText(messages.getLast());
-                            yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
-                        }
-                    };
+                    var parallelDetails =
+                            switch (effectiveOutputMode) {
+                                case NONE ->
+                                    "The task was applied to the following files:\n```\n%s```".formatted(files);
+                                case CHANGED -> {
+                                    var output = Messages.getText(messages.getLast());
+                                    yield "The parallel processing made changes to the following files:\n```\n%s```"
+                                            .formatted(output);
+                                }
+                                default -> { // "all"
+                                    var output = Messages.getText(messages.getLast());
+                                    yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
+                                }
+                            };
 
                     var effectiveGoal = postProcessingInstructions.isBlank()
-                                        ? "Please fix the problems."
-                                        : "Here are the postprocessing instructions:\n```\n%s```".formatted(postProcessingInstructions);
+                            ? "Please fix the problems."
+                            : "Here are the postprocessing instructions:\n```\n%s```"
+                                    .formatted(postProcessingInstructions);
 
-                    var agentInstructions = """
+                    var agentInstructions =
+                            """
                                             I just finished a parallel upgrade task with the following instructions:
                                             ```
                                             %s
                                             ```
-                                            
+
                                             %s
-                                            
+
                                             Build status:
                                             ```
                                             %s
                                             ```
-                                            
+
                                             %s
-                                            """.formatted(instructions, parallelDetails, buildFailureText, effectiveGoal);
+                                            """
+                                    .formatted(instructions, parallelDetails, buildFailureText, effectiveGoal);
 
                     if (runOption == PostProcessingOption.ASK) {
                         outputTextArea.append("Ask command has been invoked. You can close this window.\n");
@@ -558,23 +597,16 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                     outputTextArea.append("Architect has been invoked. You can close this window.\n");
                     contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
-                        var options = new ArchitectAgent.ArchitectOptions(false,
-                                                                          false,
-                                                                          false,
-                                                                          true,
-                                                                          true,
-                                                                          false,
-                                                                          false,
-                                                                          false,
-                                                                          false,
-                                                                          false);
+                        var options = new ArchitectAgent.ArchitectOptions(
+                                false, false, false, true, true, false, false, false, false, false);
                         chrome.getInstructionsPanel().runArchitectCommand(agentInstructions, options);
                     });
                 }));
             }
         };
 
-        // Removed SwingWorker's default progress listener as we handle progress manually via publish/process to avoid scaling issues.
+        // Removed SwingWorker's default progress listener as we handle progress manually via publish/process to avoid
+        // scaling issues.
         // The progress bar now directly reflects processed file count via ProgressData.
 
         cancelButton.addActionListener(e -> {
@@ -585,13 +617,16 @@ public class BlitzForgeProgressDialog extends JDialog {
             }
         });
 
-        setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE); // Prevent closing via 'X' until worker is done or explicitly cancelled
+        setDefaultCloseOperation(
+                JDialog.DO_NOTHING_ON_CLOSE); // Prevent closing via 'X' until worker is done or explicitly cancelled
         addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
                 if (!worker.isDone()) {
-                    int choice = JOptionPane.showConfirmDialog(BlitzForgeProgressDialog.this,
-                            "Are you sure you want to cancel the upgrade process?", "Confirm Cancel",
+                    int choice = JOptionPane.showConfirmDialog(
+                            BlitzForgeProgressDialog.this,
+                            "Are you sure you want to cancel the upgrade process?",
+                            "Confirm Cancel",
                             JOptionPane.YES_NO_OPTION,
                             JOptionPane.QUESTION_MESSAGE);
                     if (choice == JOptionPane.YES_OPTION) {
@@ -603,23 +638,18 @@ public class BlitzForgeProgressDialog extends JDialog {
             }
         });
 
-
         pack();
         setLocationRelativeTo(chrome.getFrame());
         worker.execute();
     }
 
-    /**
-     *
-     */
+    /** */
     private class DialogConsoleIO implements IConsoleIO {
         private final BlitzForgeProgressDialog dialog;
         private final String fileContext;
         private final StringBuilder llmOutput = new StringBuilder();
 
-        /**
-         * @param fileContext To prefix messages related to a specific file
-         */
+        /** @param fileContext To prefix messages related to a specific file */
         private DialogConsoleIO(BlitzForgeProgressDialog dialog, String fileContext) {
             this.dialog = dialog;
             this.fileContext = fileContext;
@@ -633,7 +663,8 @@ public class BlitzForgeProgressDialog extends JDialog {
             SwingUtilities.invokeLater(() -> {
                 String prefix = "[%s] ".formatted(fileContext);
                 dialog.outputTextArea.append(prefix + text + "\n");
-                dialog.outputTextArea.setCaretPosition(dialog.outputTextArea.getDocument().getLength());
+                dialog.outputTextArea.setCaretPosition(
+                        dialog.outputTextArea.getDocument().getLength());
             });
         }
 

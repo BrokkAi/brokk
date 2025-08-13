@@ -2,15 +2,14 @@ package io.github.jbellis.brokk.exception;
 
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.util.LowMemoryWatcherManager;
+import java.lang.Thread.UncaughtExceptionHandler;
+import javax.swing.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.swing.*;
-import java.lang.Thread.UncaughtExceptionHandler;
-
 public class OomShutdownHandler implements UncaughtExceptionHandler {
 
-    private final static Logger logger = LoggerFactory.getLogger(OomShutdownHandler.class);
+    private static final Logger logger = LoggerFactory.getLogger(OomShutdownHandler.class);
 
     @Override
     public void uncaughtException(Thread t, Throwable throwable) {
@@ -31,15 +30,12 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
             // Can't do much more here.
         } finally {
             // This may or may not be shown to the user
-            SwingUtilities.invokeLater(() ->
-                    JOptionPane.showMessageDialog(
-                            null,
-                            "The application has run out of memory and will now shut down.\n" +
-                                    "On the next startup, settings will be adjusted to prevent this.",
-                            "Critical Memory Error",
-                            JOptionPane.ERROR_MESSAGE
-                    )
-            );
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                    null,
+                    "The application has run out of memory and will now shut down.\n"
+                            + "On the next startup, settings will be adjusted to prevent this.",
+                    "Critical Memory Error",
+                    JOptionPane.ERROR_MESSAGE));
 
             // A short delay gives the message box a moment to appear.
             try {
@@ -53,19 +49,18 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
     }
 
     public static void showRecoveryMessage() {
-        SwingUtilities.invokeLater(() ->
-                JOptionPane.showMessageDialog(
-                        null,
-                        String.format("""
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                null,
+                String.format(
+                        """
                                 The application ran out of memory during the last session.
                                 Any active projects have been cleared to prevent this from immediately reoccurring.
                                 To launch Brokk with more allocated memory, use:
                                     jbang run --java-options -Xmx%dM brokk@brokkai/brokk
-                                """, LowMemoryWatcherManager.suggestedHeapSizeMb()),
-                        "Memory Error Recovery",
-                        JOptionPane.WARNING_MESSAGE
-                )
-        );
+                                """,
+                        LowMemoryWatcherManager.suggestedHeapSizeMb()),
+                "Memory Error Recovery",
+                JOptionPane.WARNING_MESSAGE));
     }
 
     /**

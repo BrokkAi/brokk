@@ -1,18 +1,16 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.testutil.TestProject;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import static org.junit.jupiter.api.Assertions.*;
-
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 public final class JavascriptAnalyzerTest {
     private static TestProject jsTestProject;
@@ -22,7 +20,8 @@ public final class JavascriptAnalyzerTest {
     private static ProjectFile varsJsFile;
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
-    static TestProject createTestProject(String subDir, io.github.jbellis.brokk.analyzer.Language lang) { // Use Brokk's Language enum
+    static TestProject createTestProject(
+            String subDir, io.github.jbellis.brokk.analyzer.Language lang) { // Use Brokk's Language enum
         Path testDir = Path.of("src/test/resources", subDir);
         assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
         assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
@@ -47,50 +46,87 @@ public final class JavascriptAnalyzerTest {
         assertFalse(jsAnalyzer.isEmpty(), "Analyzer should have processed JS/JSX files");
 
         var skelJsx = jsAnalyzer.getSkeletons(helloJsxFile);
-        assertFalse(skelJsx.isEmpty(), "Skeletons map for Hello.jsx should not be empty. Found: " + skelJsx.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        assertFalse(
+                skelJsx.isEmpty(),
+                "Skeletons map for Hello.jsx should not be empty. Found: "
+                        + skelJsx.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
 
         var jsxClass = CodeUnit.cls(helloJsxFile, "", "JsxClass");
         var jsxArrowFn = CodeUnit.fn(helloJsxFile, "", "JsxArrowFnComponent");
         var localJsxArrowFn = CodeUnit.fn(helloJsxFile, "", "LocalJsxArrowFn");
         var plainJsxFunc = CodeUnit.fn(helloJsxFile, "", "PlainJsxFunc");
 
-        assertTrue(skelJsx.containsKey(jsxClass), "Skeleton map should contain JsxClass. Skeletons: " + skelJsx.keySet());
-        assertTrue(skelJsx.containsKey(jsxArrowFn), "Skeleton map should contain JsxArrowFnComponent. Skeletons: " + skelJsx.keySet());
-        assertTrue(skelJsx.containsKey(localJsxArrowFn), "Skeleton map should contain LocalJsxArrowFn. Skeletons: " + skelJsx.keySet());
-        assertTrue(skelJsx.containsKey(plainJsxFunc), "Skeleton map should contain PlainJsxFunc. Skeletons: " + skelJsx.keySet());
+        assertTrue(
+                skelJsx.containsKey(jsxClass), "Skeleton map should contain JsxClass. Skeletons: " + skelJsx.keySet());
+        assertTrue(
+                skelJsx.containsKey(jsxArrowFn),
+                "Skeleton map should contain JsxArrowFnComponent. Skeletons: " + skelJsx.keySet());
+        assertTrue(
+                skelJsx.containsKey(localJsxArrowFn),
+                "Skeleton map should contain LocalJsxArrowFn. Skeletons: " + skelJsx.keySet());
+        assertTrue(
+                skelJsx.containsKey(plainJsxFunc),
+                "Skeleton map should contain PlainJsxFunc. Skeletons: " + skelJsx.keySet());
 
-        String expectedJsxClassSkeleton = """
+        String expectedJsxClassSkeleton =
+                """
         export class JsxClass {
           function render(): JSX.Element ...
         }
-        """.stripIndent();
-        assertEquals(expectedJsxClassSkeleton.trim(), skelJsx.get(jsxClass).trim(), "JsxClass skeleton mismatch in Hello.jsx.");
+        """
+                        .stripIndent();
+        assertEquals(
+                expectedJsxClassSkeleton.trim(),
+                skelJsx.get(jsxClass).trim(),
+                "JsxClass skeleton mismatch in Hello.jsx.");
 
-
-        String expectedExportedArrowFnSkeleton = """
+        String expectedExportedArrowFnSkeleton =
+                """
         export JsxArrowFnComponent({ name }): JSX.Element => ...
         """.stripIndent();
-        assertEquals(expectedExportedArrowFnSkeleton.trim(), skelJsx.get(jsxArrowFn).trim(), "JsxArrowFnComponent skeleton mismatch");
+        assertEquals(
+                expectedExportedArrowFnSkeleton.trim(),
+                skelJsx.get(jsxArrowFn).trim(),
+                "JsxArrowFnComponent skeleton mismatch");
 
         String expectedLocalArrowFnSkeleton = """
         LocalJsxArrowFn() => ...
         """.stripIndent();
-        assertEquals(expectedLocalArrowFnSkeleton.trim(), skelJsx.get(localJsxArrowFn).trim(), "LocalJsxArrowFn skeleton mismatch");
+        assertEquals(
+                expectedLocalArrowFnSkeleton.trim(),
+                skelJsx.get(localJsxArrowFn).trim(),
+                "LocalJsxArrowFn skeleton mismatch");
 
         String expectedPlainJsxFuncSkeleton = """
         function PlainJsxFunc() ...
         """.stripIndent();
-        assertEquals(expectedPlainJsxFuncSkeleton.trim(), skelJsx.get(plainJsxFunc).trim(), "PlainJsxFunc skeleton mismatch");
+        assertEquals(
+                expectedPlainJsxFuncSkeleton.trim(),
+                skelJsx.get(plainJsxFunc).trim(),
+                "PlainJsxFunc skeleton mismatch");
 
         Set<CodeUnit> declarationsInJsx = jsAnalyzer.getDeclarationsInFile(helloJsxFile);
-        assertTrue(declarationsInJsx.contains(jsxClass), "getDeclarationsInFile mismatch for Hello.jsx: missing jsxClass. Found: " + declarationsInJsx);
-        assertTrue(declarationsInJsx.contains(jsxArrowFn), "getDeclarationsInFile mismatch for Hello.jsx: missing jsxArrowFn. Found: " + declarationsInJsx);
+        assertTrue(
+                declarationsInJsx.contains(jsxClass),
+                "getDeclarationsInFile mismatch for Hello.jsx: missing jsxClass. Found: " + declarationsInJsx);
+        assertTrue(
+                declarationsInJsx.contains(jsxArrowFn),
+                "getDeclarationsInFile mismatch for Hello.jsx: missing jsxArrowFn. Found: " + declarationsInJsx);
         // Add other expected CUs like localJsxArrowFn, plainJsxFunc, and JsxClass.render
-        assertTrue(declarationsInJsx.contains(localJsxArrowFn), "getDeclarationsInFile mismatch for Hello.jsx: missing localJsxArrowFn. Found: " + declarationsInJsx);
-        assertTrue(declarationsInJsx.contains(plainJsxFunc), "getDeclarationsInFile mismatch for Hello.jsx: missing plainJsxFunc. Found: " + declarationsInJsx);
-        assertTrue(declarationsInJsx.contains(CodeUnit.fn(helloJsxFile, "", "JsxClass.render")), "getDeclarationsInFile mismatch for Hello.jsx: missing JsxClass.render. Found: " + declarationsInJsx);
+        assertTrue(
+                declarationsInJsx.contains(localJsxArrowFn),
+                "getDeclarationsInFile mismatch for Hello.jsx: missing localJsxArrowFn. Found: " + declarationsInJsx);
+        assertTrue(
+                declarationsInJsx.contains(plainJsxFunc),
+                "getDeclarationsInFile mismatch for Hello.jsx: missing plainJsxFunc. Found: " + declarationsInJsx);
+        assertTrue(
+                declarationsInJsx.contains(CodeUnit.fn(helloJsxFile, "", "JsxClass.render")),
+                "getDeclarationsInFile mismatch for Hello.jsx: missing JsxClass.render. Found: " + declarationsInJsx);
 
-        assertEquals(expectedExportedArrowFnSkeleton.trim(), jsAnalyzer.getSkeleton(jsxArrowFn.fqName()).get().trim(), "getSkeleton mismatch for JsxArrowFnComponent FQ name");
+        assertEquals(
+                expectedExportedArrowFnSkeleton.trim(),
+                jsAnalyzer.getSkeleton(jsxArrowFn.fqName()).get().trim(),
+                "getSkeleton mismatch for JsxArrowFnComponent FQ name");
 
         var skelJs = jsAnalyzer.getSkeletons(helloJsFile);
         assertFalse(skelJs.isEmpty(), "Skeletons map for Hello.js should not be empty.");
@@ -101,13 +137,16 @@ public final class JavascriptAnalyzerTest {
         assertTrue(skelJs.containsKey(helloClass), "Skeleton map should contain Hello class from Hello.js");
         assertTrue(skelJs.containsKey(utilFunc), "Skeleton map should contain util function from Hello.js");
 
-        String expectedHelloClassSkeleton = """
+        String expectedHelloClassSkeleton =
+                """
         export class Hello {
           function greet() ...
         }
         """.stripIndent();
-        assertEquals(expectedHelloClassSkeleton.trim(), skelJs.get(helloClass).trim(), "Hello class skeleton mismatch in Hello.js.");
-
+        assertEquals(
+                expectedHelloClassSkeleton.trim(),
+                skelJs.get(helloClass).trim(),
+                "Hello class skeleton mismatch in Hello.js.");
 
         String expectedUtilFuncSkeleton = """
         export function util() ...
@@ -133,12 +172,7 @@ public final class JavascriptAnalyzerTest {
         // "greet" from the greet() method, which is a child of helloClass
         // "JsxArrowFnComponent" from jsxArrowFn itself
         // "TOP_CONST_JS" from topConstJs itself (after stripping _module_.)
-        Set<String> expectedSymbols = Set.of(
-                "Hello",
-                "greet",
-                "JsxArrowFnComponent",
-                "TOP_CONST_JS"
-        );
+        Set<String> expectedSymbols = Set.of("Hello", "greet", "JsxArrowFnComponent", "TOP_CONST_JS");
         assertEquals(expectedSymbols, actualSymbols, "Symbols mismatch for combined sources.");
 
         // Test with an empty set of sources
@@ -165,7 +199,10 @@ public final class JavascriptAnalyzerTest {
         CodeUnit plainJsxFunc = CodeUnit.fn(helloJsxFile, "", "PlainJsxFunc");
         Set<CodeUnit> jsxSources = Set.of(jsxClass, plainJsxFunc);
         Set<String> jsxCombinedSymbols = jsAnalyzer.getSymbols(jsxSources);
-        assertEquals(Set.of("JsxClass", "render", "PlainJsxFunc"), jsxCombinedSymbols, "Symbols mismatch for combined JSX sources.");
+        assertEquals(
+                Set.of("JsxClass", "render", "PlainJsxFunc"),
+                jsxCombinedSymbols,
+                "Symbols mismatch for combined JSX sources.");
     }
 
     @Test
@@ -176,72 +213,96 @@ public final class JavascriptAnalyzerTest {
 
         // Module CU for imports
         CodeUnit moduleCU = CodeUnit.module(featuresFile, "", "FeaturesTest.jsx");
-        assertTrue(skeletons.containsKey(moduleCU), "Skeletons map should contain module CU for imports. Found: " + skeletons.keySet());
-        String expectedImports = """
+        assertTrue(
+                skeletons.containsKey(moduleCU),
+                "Skeletons map should contain module CU for imports. Found: " + skeletons.keySet());
+        String expectedImports =
+                """
         import React, { useState } from 'react';
         import { Something, AnotherThing as AT } from './another-module';
         import * as AllThings from './all-the-things';
         import DefaultThing from './default-thing';
-        """.stripIndent();
+        """
+                        .stripIndent();
         assertEquals(expectedImports.trim(), skeletons.get(moduleCU).trim(), "Module imports skeleton mismatch.");
 
         // MyExportedComponent: JSX inference + mutations
         CodeUnit mecCU = CodeUnit.fn(featuresFile, "", "MyExportedComponent");
         assertTrue(skeletons.containsKey(mecCU), "Skeleton for MyExportedComponent missing.");
-        String expectedMecSkeleton = """
+        String expectedMecSkeleton =
+                """
         // mutates: counter, wasUpdated
         export function MyExportedComponent(props): JSX.Element ...
-        """.stripIndent();
+        """
+                        .stripIndent();
         assertEquals(expectedMecSkeleton.trim(), skeletons.get(mecCU).trim(), "MyExportedComponent skeleton mismatch.");
 
         // MyExportedArrowComponent: JSX inference (arrow) + mutation
         CodeUnit meacCU = CodeUnit.fn(featuresFile, "", "MyExportedArrowComponent");
         assertTrue(skeletons.containsKey(meacCU), "Skeleton for MyExportedArrowComponent missing.");
-        String expectedMeacSkeleton = """
+        String expectedMeacSkeleton =
+                """
         // mutates: localStatus
         export MyExportedArrowComponent({ id }): JSX.Element => ...
-        """.stripIndent();
-        assertEquals(expectedMeacSkeleton.trim(), skeletons.get(meacCU).trim(), "MyExportedArrowComponent skeleton mismatch.");
+        """
+                        .stripIndent();
+        assertEquals(
+                expectedMeacSkeleton.trim(),
+                skeletons.get(meacCU).trim(),
+                "MyExportedArrowComponent skeleton mismatch.");
 
         // internalProcessingUtil: No JSX inference (local) + mutation
         CodeUnit ipuCU = CodeUnit.fn(featuresFile, "", "internalProcessingUtil");
         assertTrue(skeletons.containsKey(ipuCU), "Skeleton for internalProcessingUtil missing.");
-        String expectedIpuSkeleton = """
+        String expectedIpuSkeleton =
+                """
         // mutates: isValid
         function internalProcessingUtil(dataObject) ...
-        """.stripIndent();
-        assertEquals(expectedIpuSkeleton.trim(), skeletons.get(ipuCU).trim(), "internalProcessingUtil skeleton mismatch.");
+        """
+                        .stripIndent();
+        assertEquals(
+                expectedIpuSkeleton.trim(), skeletons.get(ipuCU).trim(), "internalProcessingUtil skeleton mismatch.");
 
         // updateGlobalConfig: No JSX inference (lowercase) + mutation
         CodeUnit ugcCU = CodeUnit.fn(featuresFile, "", "updateGlobalConfig");
         assertTrue(skeletons.containsKey(ugcCU), "Skeleton for updateGlobalConfig missing.");
-        String expectedUgcSkeleton = """
+        String expectedUgcSkeleton =
+                """
         // mutates: global_config_val
         export function updateGlobalConfig(newVal) ...
-        """.stripIndent();
+        """
+                        .stripIndent();
         assertEquals(expectedUgcSkeleton.trim(), skeletons.get(ugcCU).trim(), "updateGlobalConfig skeleton mismatch.");
 
         // ComponentWithComment: JSX inference (despite comment)
         CodeUnit cwcCU = CodeUnit.fn(featuresFile, "", "ComponentWithComment");
         assertTrue(skeletons.containsKey(cwcCU), "Skeleton for ComponentWithComment missing.");
-        String expectedCwcSkeleton = """
+        String expectedCwcSkeleton =
+                """
         export function ComponentWithComment(user /*: UserType */): JSX.Element ...
-        """.stripIndent(); // Mutations comment should not appear if no mutations
-        assertEquals(expectedCwcSkeleton.trim(), skeletons.get(cwcCU).trim(), "ComponentWithComment skeleton mismatch.");
+        """
+                        .stripIndent(); // Mutations comment should not appear if no mutations
+        assertEquals(
+                expectedCwcSkeleton.trim(), skeletons.get(cwcCU).trim(), "ComponentWithComment skeleton mismatch.");
 
         // modifyUser: Mutations, no JSX
         CodeUnit muCU = CodeUnit.fn(featuresFile, "", "modifyUser");
         assertTrue(skeletons.containsKey(muCU), "Skeleton for modifyUser missing.");
-        String expectedMuSkeleton = """
+        String expectedMuSkeleton =
+                """
         // mutates: age, name
         export function modifyUser(user) ...
-        """.stripIndent();
+        """
+                        .stripIndent();
         assertEquals(expectedMuSkeleton.trim(), skeletons.get(muCU).trim(), "modifyUser skeleton mismatch.");
 
         // Verify getSkeleton for one of the CUs
         Optional<String> mecSkeletonOpt = jsAnalyzer.getSkeleton(mecCU.fqName());
         assertTrue(mecSkeletonOpt.isPresent(), "getSkeleton should find MyExportedComponent by FQ name.");
-        assertEquals(expectedMecSkeleton.trim(), mecSkeletonOpt.get().trim(), "getSkeleton for MyExportedComponent FQ name mismatch.");
+        assertEquals(
+                expectedMecSkeleton.trim(),
+                mecSkeletonOpt.get().trim(),
+                "getSkeleton for MyExportedComponent FQ name mismatch.");
     }
 
     @Test
@@ -253,17 +314,26 @@ public final class JavascriptAnalyzerTest {
         CodeUnit topConstJsCU = CodeUnit.field(varsJsFile, "", "Vars.js.TOP_CONST_JS");
         CodeUnit localVarJsCU = CodeUnit.field(varsJsFile, "", "Vars.js.localVarJs");
 
-        assertTrue(skelVars.containsKey(topConstJsCU), "Skeletons map should contain Vars.js.TOP_CONST_JS. Found: " + skelVars.keySet());
-        assertEquals("export const TOP_CONST_JS = 123", skelVars.get(topConstJsCU).strip());
+        assertTrue(
+                skelVars.containsKey(topConstJsCU),
+                "Skeletons map should contain Vars.js.TOP_CONST_JS. Found: " + skelVars.keySet());
+        assertEquals(
+                "export const TOP_CONST_JS = 123", skelVars.get(topConstJsCU).strip());
 
-        assertTrue(skelVars.containsKey(localVarJsCU), "Skeletons map should contain Vars.js.localVarJs. Found: " + skelVars.keySet());
+        assertTrue(
+                skelVars.containsKey(localVarJsCU),
+                "Skeletons map should contain Vars.js.localVarJs. Found: " + skelVars.keySet());
         assertEquals("let localVarJs = \"abc\"", skelVars.get(localVarJsCU).strip());
 
         // Ensure these are not mistaken for classes
         Set<CodeUnit> declarationsInVarsJs = jsAnalyzer.getDeclarationsInFile(varsJsFile);
-        assertTrue(declarationsInVarsJs.contains(topConstJsCU), "Vars.js.TOP_CONST_JS should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
+        assertTrue(
+                declarationsInVarsJs.contains(topConstJsCU),
+                "Vars.js.TOP_CONST_JS should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
         assertFalse(topConstJsCU.isClass(), "Vars.js.TOP_CONST_JS CU should not be a class.");
-        assertTrue(declarationsInVarsJs.contains(localVarJsCU), "Vars.js.localVarJs should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
+        assertTrue(
+                declarationsInVarsJs.contains(localVarJsCU),
+                "Vars.js.localVarJs should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
         assertFalse(localVarJsCU.isClass(), "Vars.js.localVarJs CU should not be a class.");
     }
 
@@ -278,12 +348,15 @@ public final class JavascriptAnalyzerTest {
         String expectedPackageName = ""; // Root files have an empty package name.
         CodeUnit moduleCU = CodeUnit.module(usagePageFile, expectedPackageName, "UsagePage.jsx");
 
-        assertTrue(skeletons.containsKey(moduleCU), "Skeletons map should contain module CU for imports in UsagePage.jsx. Found: " + skeletons.keySet());
+        assertTrue(
+                skeletons.containsKey(moduleCU),
+                "Skeletons map should contain module CU for imports in UsagePage.jsx. Found: " + skeletons.keySet());
 
         String importSkeleton = skeletons.get(moduleCU);
         assertNotNull(importSkeleton, "Import skeleton for UsagePage.jsx should not be null.");
 
-        long importCount = importSkeleton.lines().filter(line -> !line.isBlank()).count();
+        long importCount =
+                importSkeleton.lines().filter(line -> !line.isBlank()).count();
         // UsagePage.jsx has 10 import statements, which span 44 actual lines of text.
         assertEquals(44, importCount, "UsagePage.jsx import skeleton should have 44 non-blank lines.");
     }
@@ -299,16 +372,21 @@ public final class JavascriptAnalyzerTest {
         // Test case 1: Class in JSX
         Optional<String> jsxClassHeader = jsAnalyzer.getSkeletonHeader("JsxClass");
         assertTrue(jsxClassHeader.isPresent(), "Skeleton header for JsxClass should be defined.");
-        assertEquals("""
+        assertEquals(
+                """
                 export class JsxClass {
                   [...]
                 }
-                """.trim(), jsxClassHeader.get().trim());
+                """
+                        .trim(),
+                jsxClassHeader.get().trim());
 
         // Test case 2: Arrow function component in JSX
         Optional<String> jsxArrowFnHeader = jsAnalyzer.getSkeletonHeader("JsxArrowFnComponent");
         assertTrue(jsxArrowFnHeader.isPresent(), "Skeleton header for JsxArrowFnComponent should be defined.");
-        assertEquals("export JsxArrowFnComponent({ name }): JSX.Element => ...", jsxArrowFnHeader.get().trim());
+        assertEquals(
+                "export JsxArrowFnComponent({ name }): JSX.Element => ...",
+                jsxArrowFnHeader.get().trim());
 
         // Test case 3: Regular function in JS
         Optional<String> utilFuncHeader = jsAnalyzer.getSkeletonHeader("util"); // From Hello.js
@@ -409,23 +487,31 @@ public final class JavascriptAnalyzerTest {
         assertTrue(jsxFqNames.contains("LocalJsxArrowFn"));
         assertTrue(jsxFqNames.contains("PlainJsxFunc"));
 
-        assertTrue(jsxSymbols.size() >= 5, "Should find at least 5 symbols containing 'Jsx' (case-insensitive). Found: " + jsxSymbols.size());
+        assertTrue(
+                jsxSymbols.size() >= 5,
+                "Should find at least 5 symbols containing 'Jsx' (case-insensitive). Found: " + jsxSymbols.size());
 
         var helloSymbols = jsAnalyzer.searchDefinitions("Hello");
         assertFalse(helloSymbols.isEmpty(), "Should find symbols containing 'Hello'.");
         var helloFqNames = helloSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(helloFqNames.contains("Hello"), "Should find 'Hello' class.");
         assertTrue(helloFqNames.contains("Hello.greet"), "Should find 'Hello.greet' method.");
-        assertTrue(helloSymbols.size() >= 2, "Should find at least 2 symbols containing 'Hello' (case-insensitive). Found: " + helloSymbols.size());
+        assertTrue(
+                helloSymbols.size() >= 2,
+                "Should find at least 2 symbols containing 'Hello' (case-insensitive). Found: " + helloSymbols.size());
 
         var renderSymbols = jsAnalyzer.searchDefinitions(".render");
         assertFalse(renderSymbols.isEmpty(), "Should find symbols containing '.render'.");
-        assertTrue(renderSymbols.stream().anyMatch(cu -> "JsxClass.render".equals(cu.fqName())), "Should find 'JsxClass.render'.");
+        assertTrue(
+                renderSymbols.stream().anyMatch(cu -> "JsxClass.render".equals(cu.fqName())),
+                "Should find 'JsxClass.render'.");
         assertEquals(1, renderSymbols.size(), "Expected 1 symbol matching '.render'.");
 
         var constSymbols = jsAnalyzer.searchDefinitions("TOP_CONST");
         assertFalse(constSymbols.isEmpty(), "Should find symbols containing 'TOP_CONST'.");
-        assertTrue(constSymbols.stream().anyMatch(cu -> "Vars.js.TOP_CONST_JS".equals(cu.fqName())), "Should find 'Vars.js.TOP_CONST_JS'.");
+        assertTrue(
+                constSymbols.stream().anyMatch(cu -> "Vars.js.TOP_CONST_JS".equals(cu.fqName())),
+                "Should find 'Vars.js.TOP_CONST_JS'.");
         assertEquals(1, constSymbols.size(), "Expected 1 symbol matching 'TOP_CONST'.");
 
         // Test case 5: Non-existent pattern
@@ -452,10 +538,13 @@ public final class JavascriptAnalyzerTest {
         var helloLowerNames = helloLower.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         var helloUpperNames = helloUpper.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertEquals(helloLowerNames, helloUpperNames,
-                    "JavaScript search should be case-insensitive: 'hello' and 'HELLO' should return identical results");
+        assertEquals(
+                helloLowerNames,
+                helloUpperNames,
+                "JavaScript search should be case-insensitive: 'hello' and 'HELLO' should return identical results");
         assertFalse(helloLowerNames.isEmpty(), "Case-insensitive search should find symbols containing 'hello'");
-        assertTrue(helloLowerNames.contains("Hello"), "Should find 'Hello' class with both 'hello' and 'HELLO' patterns");
+        assertTrue(
+                helloLowerNames.contains("Hello"), "Should find 'Hello' class with both 'hello' and 'HELLO' patterns");
 
         // Test regex patterns with metacharacters
         var dotHelloRegex = jsAnalyzer.searchDefinitions(".*Hello.*");
@@ -469,7 +558,8 @@ public final class JavascriptAnalyzerTest {
         var jsxNames = jsxRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertFalse(jsxNames.isEmpty(), "Should find JSX-related symbols with regex '.*Jsx.*'");
         assertTrue(jsxNames.contains("JsxClass"), "Should find 'JsxClass' with JSX regex pattern");
-        assertTrue(jsxNames.contains("JsxArrowFnComponent"), "Should find 'JsxArrowFnComponent' with JSX regex pattern");
+        assertTrue(
+                jsxNames.contains("JsxArrowFnComponent"), "Should find 'JsxArrowFnComponent' with JSX regex pattern");
 
         // Test function pattern matching
         var functionRegex = jsAnalyzer.searchDefinitions(".*[fF]unc.*");
@@ -481,13 +571,15 @@ public final class JavascriptAnalyzerTest {
         var componentRegex = jsAnalyzer.searchDefinitions(".*Component.*");
         var componentNames = componentRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         System.out.println("Component pattern results: " + componentNames);
-        assertTrue(componentNames.contains("JsxArrowFnComponent") || componentNames.contains("MyExportedComponent"),
-                  "Should find component-related symbols with component regex pattern");
+        assertTrue(
+                componentNames.contains("JsxArrowFnComponent") || componentNames.contains("MyExportedComponent"),
+                "Should find component-related symbols with component regex pattern");
 
         // Test constant pattern (common naming convention)
         var constRegex = jsAnalyzer.searchDefinitions(".*CONST.*");
         var constNames = constRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(constNames.contains("Vars.js.TOP_CONST_JS"), "Should find 'TOP_CONST_JS' with constant regex pattern");
+        assertTrue(
+                constNames.contains("Vars.js.TOP_CONST_JS"), "Should find 'TOP_CONST_JS' with constant regex pattern");
 
         // Test exact class name matching
         var exactHello = jsAnalyzer.searchDefinitions("Hello");
@@ -507,33 +599,45 @@ public final class JavascriptAnalyzerTest {
     void testGetClassSource_Js() {
         // Test case 1: Valid class from Hello.js
         String helloClassSource = jsAnalyzer.getClassSource("Hello");
-        String expectedHelloClassSource = """
+        String expectedHelloClassSource =
+                """
         export class Hello {
             greet() { console.log("hi"); }
         }""";
-        assertEquals(expectedHelloClassSource.stripIndent().trim(), helloClassSource.stripIndent().trim());
+        assertEquals(
+                expectedHelloClassSource.stripIndent().trim(),
+                helloClassSource.stripIndent().trim());
 
         // Test case 2: Valid class from Hello.jsx
         String jsxClassSource = jsAnalyzer.getClassSource("JsxClass");
-        String expectedJsxClassSource = """
+        String expectedJsxClassSource =
+                """
         export class JsxClass {
             render() {
                 return <div className="class-jsx">Hello from JSX Class</div>;
             }
         }""";
-        assertEquals(expectedJsxClassSource.stripIndent().trim(), jsxClassSource.stripIndent().trim());
+        assertEquals(
+                expectedJsxClassSource.stripIndent().trim(),
+                jsxClassSource.stripIndent().trim());
 
         // Test case 3: Non-existent class
-        assertThrows(SymbolNotFoundException.class, () -> jsAnalyzer.getClassSource("NonExistentClass"),
-                     "Requesting source for a non-existent class should throw SymbolNotFoundException.");
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> jsAnalyzer.getClassSource("NonExistentClass"),
+                "Requesting source for a non-existent class should throw SymbolNotFoundException.");
 
         // Test case 4: Existing symbol that is a function, not a class
-        assertThrows(SymbolNotFoundException.class, () -> jsAnalyzer.getClassSource("util"),
-                     "Requesting class source for a function symbol should throw SymbolNotFoundException.");
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> jsAnalyzer.getClassSource("util"),
+                "Requesting class source for a function symbol should throw SymbolNotFoundException.");
 
         // Test case 5: Existing symbol that is a field, not a class
-        assertThrows(SymbolNotFoundException.class, () -> jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS"),
-                     "Requesting class source for a field symbol should throw SymbolNotFoundException.");
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS"),
+                "Requesting class source for a field symbol should throw SymbolNotFoundException.");
     }
 
     @Test
@@ -543,29 +647,37 @@ public final class JavascriptAnalyzerTest {
         assertTrue(greetMethodSourceOpt.isPresent(), "Source for 'Hello.greet' should be found.");
         String expectedGreetMethodSource = """
         greet() { console.log("hi"); }""";
-        assertEquals(expectedGreetMethodSource.stripIndent().trim(), greetMethodSourceOpt.get().stripIndent().trim());
+        assertEquals(
+                expectedGreetMethodSource.stripIndent().trim(),
+                greetMethodSourceOpt.get().stripIndent().trim());
 
         // Test case 2: Method in Hello.jsx
         Optional<String> renderMethodSourceOpt = jsAnalyzer.getMethodSource("JsxClass.render");
         assertTrue(renderMethodSourceOpt.isPresent(), "Source for 'JsxClass.render' should be found.");
-        String expectedRenderMethodSource = """
+        String expectedRenderMethodSource =
+                """
         render() {
                 return <div className="class-jsx">Hello from JSX Class</div>;
             }"""; // Note: Indentation within the method body is preserved.
-        assertEquals(expectedRenderMethodSource.stripIndent().trim(), renderMethodSourceOpt.get().stripIndent().trim());
+        assertEquals(
+                expectedRenderMethodSource.stripIndent().trim(),
+                renderMethodSourceOpt.get().stripIndent().trim());
 
         // Test case 3: Exported function in Hello.js
         Optional<String> utilFuncSourceOpt = jsAnalyzer.getMethodSource("util");
         assertTrue(utilFuncSourceOpt.isPresent(), "Source for 'util' function should be found.");
         String expectedUtilFuncSource = """
         export function util() { return 42; }""";
-        assertEquals(expectedUtilFuncSource.stripIndent().trim(), utilFuncSourceOpt.get().stripIndent().trim());
+        assertEquals(
+                expectedUtilFuncSource.stripIndent().trim(),
+                utilFuncSourceOpt.get().stripIndent().trim());
 
         // Test case 4: Exported arrow function in Hello.jsx
         Optional<String> jsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("JsxArrowFnComponent");
         assertTrue(jsxArrowFnSourceOpt.isPresent(), "Source for 'JsxArrowFnComponent' should be found.");
         // Note: The source for an arrow function assigned to a const/let is just the arrow function part.
-        String expectedJsxArrowFnSource = """
+        String expectedJsxArrowFnSource =
+                """
         ({ name }) => {
             return (
                 <section>
@@ -573,34 +685,47 @@ public final class JavascriptAnalyzerTest {
                 </section>
             );
         }""";
-        assertEquals(expectedJsxArrowFnSource.stripIndent().trim(), jsxArrowFnSourceOpt.get().stripIndent().trim());
+        assertEquals(
+                expectedJsxArrowFnSource.stripIndent().trim(),
+                jsxArrowFnSourceOpt.get().stripIndent().trim());
 
         // Test case 5: Local (non-exported) arrow function in Hello.jsx
         Optional<String> localJsxArrowFnSourceOpt = jsAnalyzer.getMethodSource("LocalJsxArrowFn");
         assertTrue(localJsxArrowFnSourceOpt.isPresent(), "Source for 'LocalJsxArrowFn' should be found.");
         String expectedLocalJsxArrowFnSource = """
         () => <button>Click Me</button>""";
-        assertEquals(expectedLocalJsxArrowFnSource.stripIndent().trim(), localJsxArrowFnSourceOpt.get().stripIndent().trim());
+        assertEquals(
+                expectedLocalJsxArrowFnSource.stripIndent().trim(),
+                localJsxArrowFnSourceOpt.get().stripIndent().trim());
 
         // Test case 6: Local (non-exported) plain function in Hello.jsx
         Optional<String> plainJsxFuncSourceOpt = jsAnalyzer.getMethodSource("PlainJsxFunc");
         assertTrue(plainJsxFuncSourceOpt.isPresent(), "Source for 'PlainJsxFunc' should be found.");
-        String expectedPlainJsxFuncSource = """
+        String expectedPlainJsxFuncSource =
+                """
         function PlainJsxFunc() {
             return <article>Some article content</article>;
         }""";
-        assertEquals(expectedPlainJsxFuncSource.stripIndent().trim(), plainJsxFuncSourceOpt.get().stripIndent().trim());
+        assertEquals(
+                expectedPlainJsxFuncSource.stripIndent().trim(),
+                plainJsxFuncSourceOpt.get().stripIndent().trim());
 
         // Test case 7: Non-existent method
         Optional<String> nonExistentMethodSourceOpt = jsAnalyzer.getMethodSource("NonExistent.method");
-        assertTrue(nonExistentMethodSourceOpt.isEmpty(), "Requesting source for a non-existent method should return Option.empty().");
+        assertTrue(
+                nonExistentMethodSourceOpt.isEmpty(),
+                "Requesting source for a non-existent method should return Option.empty().");
 
         // Test case 8: Existing symbol that is a class, not a function
         Optional<String> classAsMethodSourceOpt = jsAnalyzer.getMethodSource("Hello");
-        assertTrue(classAsMethodSourceOpt.isEmpty(), "Requesting method source for a class symbol should return Option.empty().");
+        assertTrue(
+                classAsMethodSourceOpt.isEmpty(),
+                "Requesting method source for a class symbol should return Option.empty().");
 
         // Test case 9: Existing symbol that is a field, not a function
         Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("Vars.js.TOP_CONST_JS");
-        assertTrue(fieldAsMethodSourceOpt.isEmpty(), "Requesting method source for a field symbol should return Option.empty().");
+        assertTrue(
+                fieldAsMethodSourceOpt.isEmpty(),
+                "Requesting method source for a field symbol should return Option.empty().");
     }
 }

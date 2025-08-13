@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.analyzer.cpp;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for C++ TreeSitter node type names.
- */
+/** Constants for C++ TreeSitter node type names. */
 public final class CppTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====
@@ -45,6 +43,5 @@ public final class CppTreeSitterNodeTypes {
     // Other nodes
     public static final String ENUMERATOR = "enumerator";
 
-    private CppTreeSitterNodeTypes() {
-    }
+    private CppTreeSitterNodeTypes() {}
 }

@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = ToolMessage.Builder.class)
@@ -19,8 +18,10 @@ public final class ToolMessage implements Message {
 
     @JsonProperty
     private final Role role = TOOL;
+
     @JsonProperty
     private final String toolCallId;
+
     @JsonProperty
     private final String content;
 
@@ -44,8 +45,7 @@ public final class ToolMessage implements Message {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ToolMessage
-                && equalTo((ToolMessage) another);
+        return another instanceof ToolMessage && equalTo((ToolMessage) another);
     }
 
     private boolean equalTo(ToolMessage another) {
@@ -65,18 +65,11 @@ public final class ToolMessage implements Message {
 
     @Override
     public String toString() {
-        return "ToolMessage{"
-                + "role=" + role
-                + ", toolCallId=" + toolCallId
-                + ", content=" + content
-                + "}";
+        return "ToolMessage{" + "role=" + role + ", toolCallId=" + toolCallId + ", content=" + content + "}";
     }
 
     public static ToolMessage from(String toolCallId, String content) {
-        return ToolMessage.builder()
-                .toolCallId(toolCallId)
-                .content(content)
-                .build();
+        return ToolMessage.builder().toolCallId(toolCallId).content(content).build();
     }
 
     public static Builder builder() {

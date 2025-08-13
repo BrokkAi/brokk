@@ -1,18 +1,13 @@
 package io.github.jbellis.brokk.git;
 
-import io.github.jbellis.brokk.ContextManager;
 import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
 import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -20,54 +15,40 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 public final class GitWorkflowService {
     private static final Logger logger = LogManager.getLogger(GitWorkflowService.class);
 
-    public record CommitResult(String commitId, String firstLine) {
-    }
+    public record CommitResult(String commitId, String firstLine) {}
 
-    public record PushPullState(
-            boolean hasUpstream,
-            boolean canPull,
-            boolean canPush,
-            Set<String> unpushedCommitIds
-    ) {}
+    public record PushPullState(boolean hasUpstream, boolean canPull, boolean canPush, Set<String> unpushedCommitIds) {}
 
-    public record BranchDiff(
-            List<CommitInfo> commits,
-            List<GitRepo.ModifiedFile> files,
-            @Nullable String mergeBase) {}
+    public record BranchDiff(List<CommitInfo> commits, List<GitRepo.ModifiedFile> files, @Nullable String mergeBase) {}
 
-    public record PrSuggestion(
-            String title,
-            String description,
-            boolean usedCommitMessages) {}
+    public record PrSuggestion(String title, String description, boolean usedCommitMessages) {}
 
     private final ContextManager contextManager;
     private final GitRepo repo;
 
-    public GitWorkflowService(ContextManager contextManager)
-    {
+    public GitWorkflowService(ContextManager contextManager) {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager");
-        this.repo = (GitRepo) Objects.requireNonNull(
-                contextManager.getProject().getRepo(), "repo cannot be null");
+        this.repo = (GitRepo) Objects.requireNonNull(contextManager.getProject().getRepo(), "repo cannot be null");
     }
 
     /**
-     * Synchronously commit the given files.  If {@code files} is empty, commit
-     * all modified files.  If {@code rawMessage} is null/blank, a suggestion
-     * will be generated (may still be blank).  Comment lines (# …) are removed.
+     * Synchronously commit the given files. If {@code files} is empty, commit all modified files. If {@code rawMessage}
+     * is null/blank, a suggestion will be generated (may still be blank). Comment lines (# …) are removed.
      */
-    public CommitResult commit(List<ProjectFile> files,
-                               @Nullable String rawMessage) throws GitAPIException
-    {
+    public CommitResult commit(List<ProjectFile> files, @Nullable String rawMessage) throws GitAPIException {
         var filesToCommit = files.isEmpty()
-                            ? repo.getModifiedFiles()
-                                    .stream()
-                                    .map(GitRepo.ModifiedFile::file)
-                                    .toList()
-                            : files;
+                ? repo.getModifiedFiles().stream()
+                        .map(GitRepo.ModifiedFile::file)
+                        .toList()
+                : files;
 
         if (filesToCommit.isEmpty()) {
             throw new IllegalStateException("No files to commit.");
@@ -85,23 +66,18 @@ public final class GitWorkflowService {
         }
 
         String sha = repo.commitFiles(filesToCommit, msg);
-        var first = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n'))
-                                       : msg;
+        var first = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n')) : msg;
         return new CommitResult(sha, first);
     }
 
     /**
-     * Background helper that returns a suggestion or empty string.
-     * The caller decides on threading; no Swing here.
-     * Can throw RuntimeException if diffing fails or InterruptedException occurs.
+     * Background helper that returns a suggestion or empty string. The caller decides on threading; no Swing here. Can
+     * throw RuntimeException if diffing fails or InterruptedException occurs.
      */
-    public String suggestCommitMessage(List<ProjectFile> files)
-    {
+    public String suggestCommitMessage(List<ProjectFile> files) {
         String diff;
         try {
-            diff = files.isEmpty()
-                   ? repo.diff()
-                   : repo.diffFiles(files);
+            diff = files.isEmpty() ? repo.diff() : repo.diffFiles(files);
         } catch (GitAPIException e) {
             logger.error("Git diff operation failed while suggesting commit message", e);
             throw new RuntimeException("Failed to generate diff for commit message suggestion", e);
@@ -118,9 +94,8 @@ public final class GitWorkflowService {
 
         Llm.StreamingResult result;
         try {
-            result = contextManager.getLlm(
-                            contextManager.getService().quickestModel(),
-                            "Infer commit message")
+            result = contextManager
+                    .getLlm(contextManager.getService().quickestModel(), "Infer commit message")
                     .sendRequest(messages);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
@@ -137,8 +112,9 @@ public final class GitWorkflowService {
         boolean hasUpstream = repo.hasUpstreamBranch(branch);
         Set<String> unpushedCommitIds = hasUpstream ? repo.getUnpushedCommitIds(branch) : new HashSet<>();
         boolean canPull = hasUpstream;
-        boolean canPush = hasUpstream && !unpushedCommitIds.isEmpty(); // Can only push if there's an upstream and unpushed commits
-                                                                    // or if no upstream but local commits exist (handled in push method)
+        boolean canPush = hasUpstream
+                && !unpushedCommitIds.isEmpty(); // Can only push if there's an upstream and unpushed commits
+        // or if no upstream but local commits exist (handled in push method)
         if (!hasUpstream && !repo.listCommitsDetailed(branch).isEmpty()) { // local branch with commits but no upstream
             canPush = true;
         }
@@ -163,7 +139,7 @@ public final class GitWorkflowService {
             // However, listCommitsDetailed includes all commits, not just unpushed.
             // For a new branch, any commit is "unpushed" relative to a non-existent remote.
             if (repo.listCommitsDetailed(branch).isEmpty()) {
-                 return "Branch " + branch + " is empty. Nothing to push.";
+                return "Branch " + branch + " is empty. Nothing to push.";
             }
             repo.pushAndSetRemoteTracking(branch, "origin");
             return "Pushed " + branch + " and set upstream to origin/" + branch;
@@ -187,8 +163,8 @@ public final class GitWorkflowService {
 
     public BranchDiff diffBetweenBranches(String source, String target) throws GitAPIException {
         var commits = repo.listCommitsBetweenBranches(source, target, /*excludeMergeCommitsFromTarget*/ true);
-        var files   = repo.listFilesChangedBetweenBranches(source, target);
-        var merge   = repo.getMergeBase(source, target);
+        var files = repo.listFilesChangedBetweenBranches(source, target);
+        var merge = repo.getMergeBase(source, target);
         return new BranchDiff(commits, files, merge);
     }
 
@@ -199,9 +175,8 @@ public final class GitWorkflowService {
     }
 
     /**
-     * Suggests pull request title and description. Blocks; caller should off-load to a
-     * background thread (SwingWorker, etc.). This method is designed to be responsive
-     * to thread interruption.
+     * Suggests pull request title and description. Blocks; caller should off-load to a background thread (SwingWorker,
+     * etc.). This method is designed to be responsive to thread interruption.
      *
      * @throws InterruptedException if the calling thread is interrupted during processing.
      */
@@ -215,10 +190,10 @@ public final class GitWorkflowService {
         throwIfInterrupted(); // Check after potential Git operation
 
         // 2. Decide “too big?” heuristic
-        var service    = contextManager.getService();
+        var service = contextManager.getService();
         var preferredModel = service.getModel(Service.GPT_5_MINI, Service.ReasoningLevel.DEFAULT);
         var modelToUse = preferredModel != null ? preferredModel : service.quickestModel(); // Fallback
-        var maxTokens  = service.getMaxInputTokens(modelToUse);
+        var maxTokens = service.getMaxInputTokens(modelToUse);
         boolean useCommitMsgs = diff.length() / 3.0 > maxTokens * 0.9;
 
         // 3. Build messages
@@ -234,25 +209,23 @@ public final class GitWorkflowService {
 
         // 4. Call LLM
         // modelToUse is guaranteed non-null from the logic above
-        var llm      = contextManager.getLlm(modelToUse, "PR-description");
+        var llm = contextManager.getLlm(modelToUse, "PR-description");
         var response = llm.sendRequest(messages);
         throwIfInterrupted(); // Check after LLM call
         String description = response.text().trim();
 
         // 5. Title summarisation (12-word budget)
         throwIfInterrupted(); // Check before starting/blocking on title summarization
-        ContextManager.SummarizeWorker titleWorker = new ContextManager.SummarizeWorker(this.contextManager,
-                                                                                         description,
-                                                                                         SummarizerPrompts.WORD_BUDGET_12);
+        ContextManager.SummarizeWorker titleWorker =
+                new ContextManager.SummarizeWorker(this.contextManager, description, SummarizerPrompts.WORD_BUDGET_12);
         titleWorker.execute(); // Schedule the worker
         String title = titleWorker.get(); // Blocks; will throw InterruptedException if this thread is interrupted
 
         return new PrSuggestion(title, description, useCommitMsgs);
     }
 
-    /** Pushes branch if needed and opens a PR.  Returns the PR url. */
-    public URI createPullRequest(String source, String target,
-                                 String title, String body) throws Exception {
+    /** Pushes branch if needed and opens a PR. Returns the PR url. */
+    public URI createPullRequest(String source, String target, String title, String body) throws Exception {
         // 1. Ensure branch is pushed
         if (repo.branchNeedsPush(source)) {
             push(source);
@@ -263,15 +236,14 @@ public final class GitWorkflowService {
         String base = target.replaceFirst("^origin/", "");
 
         // 3. GitHub call
-        var auth   = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+        var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
         var ghRepo = auth.getGhRepository();
-        var pr     = ghRepo.createPullRequest(title, head, base, body);
+        var pr = ghRepo.createPullRequest(title, head, base, body);
 
         return pr.getHtmlUrl().toURI();
     }
 
-    private static String normaliseMessage(@Nullable String raw)
-    {
+    private static String normaliseMessage(@Nullable String raw) {
         if (raw == null) return "";
         return Arrays.stream(raw.split("\n"))
                 .filter(l -> !l.trim().startsWith("#"))

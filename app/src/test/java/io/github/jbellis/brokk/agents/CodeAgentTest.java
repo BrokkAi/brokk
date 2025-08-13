@@ -1,31 +1,30 @@
 package io.github.jbellis.brokk.agents;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class CodeAgentTest {
 
@@ -43,7 +42,9 @@ class CodeAgentTest {
                 fail("ScriptedLanguageModel ran out of responses.");
             }
             handler.onPartialResponse(responseText);
-	    var cr = ChatResponse.builder().aiMessage(new AiMessage(responseText)).build();
+            var cr = ChatResponse.builder()
+                    .aiMessage(new AiMessage(responseText))
+                    .build();
             handler.onCompleteResponse(cr);
         }
     }
@@ -56,7 +57,6 @@ class CodeAgentTest {
     CodeAgent codeAgent;
     EditBlockParser parser;
     BiFunction<String, Path, Environment.ShellCommandRunner> originalShellCommandRunnerFactory;
-
 
     @BeforeEach
     void setUp() throws IOException {
@@ -79,26 +79,25 @@ class CodeAgentTest {
         Environment.shellCommandRunnerFactory = originalShellCommandRunnerFactory;
     }
 
-    private CodeAgent.LoopContext createLoopContext(String goal,
-                                                    List<ChatMessage> taskMessages,
-                                                    UserMessage nextRequest,
-                                                    List<EditBlock.SearchReplaceBlock> pendingBlocks,
-                                                    int blocksAppliedWithoutBuild)
-    {
+    private CodeAgent.LoopContext createLoopContext(
+            String goal,
+            List<ChatMessage> taskMessages,
+            UserMessage nextRequest,
+            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            int blocksAppliedWithoutBuild) {
         var conversationState = new CodeAgent.ConversationState(
                 new ArrayList<>(taskMessages), // Modifiable copy
-                nextRequest
-        );
+                nextRequest);
         var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingBlocks), // Modifiable copy
-                0,  // consecutiveParseFailures
-                0,  // consecutiveApplyFailures
-                0,  // consecutiveBuildFailures (new)
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures (new)
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
                 new HashSet<>(), // changedFiles
-                new HashMap<>()  // originalFileContents
-        );
+                new HashMap<>() // originalFileContents
+                );
         return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
     }
 
@@ -128,7 +127,8 @@ class CodeAgentTest {
         var loopContext = createBasicLoopContext("test goal");
         // A valid block followed by malformed text. The lenient parser should find
         // the first block and then stop without reporting an error.
-        String llmText = """
+        String llmText =
+                """
                          <block>
                          file.java
                          <<<<<<< SEARCH
@@ -147,7 +147,10 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
-        assertEquals(1, continueStep.loopContext().editState().pendingBlocks().size(), "One block should be parsed and now pending.");
+        assertEquals(
+                1,
+                continueStep.loopContext().editState().pendingBlocks().size(),
+                "One block should be parsed and now pending.");
     }
 
     // P-3a: parsePhase – isPartial flag handling (with zero blocks)
@@ -160,7 +163,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("cut off before you provided any code blocks"));
+        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
+                .contains("cut off before you provided any code blocks"));
         assertTrue(retryStep.loopContext().editState().pendingBlocks().isEmpty());
     }
 
@@ -168,7 +172,8 @@ class CodeAgentTest {
     @Test
     void testParsePhase_isPartial_withBlocks() {
         var loopContext = createBasicLoopContext("test goal");
-        String llmTextWithBlock = """
+        String llmTextWithBlock =
+                """
                                   <block>
                                   file.java
                                   <<<<<<< SEARCH
@@ -183,7 +188,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("continue from there"));
+        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
+                .contains("continue from there"));
         assertEquals(1, retryStep.loopContext().editState().pendingBlocks().size());
     }
 
@@ -200,7 +206,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;
-        assertEquals(TaskResult.StopReason.READ_ONLY_EDIT, fatalStep.stopDetails().reason());
+        assertEquals(
+                TaskResult.StopReason.READ_ONLY_EDIT, fatalStep.stopDetails().reason());
         assertTrue(fatalStep.stopDetails().explanation().contains(readOnlyFile.toString()));
     }
 
@@ -211,8 +218,10 @@ class CodeAgentTest {
         file.write("initial content");
         contextManager.addEditableFile(file);
 
-        var nonMatchingBlock = new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
-        var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
+        var nonMatchingBlock =
+                new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
+        var loopContext =
+                createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
 
         var result = codeAgent.applyPhase(loopContext, parser, null);
 
@@ -220,7 +229,8 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) result;
         assertEquals(1, retryStep.loopContext().editState().consecutiveApplyFailures());
         assertEquals(0, retryStep.loopContext().editState().blocksAppliedWithoutBuild());
-        String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        String nextRequestText =
+                Messages.getText(retryStep.loopContext().conversationState().nextRequest());
         // check that the name of the file that failed to apply is mentioned in the retry prompt.
         assertTrue(nextRequestText.contains(file.getFileName()));
     }
@@ -240,18 +250,26 @@ class CodeAgentTest {
         var successBlock = new EditBlock.SearchReplaceBlock(file1.toString(), "hello world", "goodbye world");
         var failureBlock = new EditBlock.SearchReplaceBlock(file2.toString(), "nonexistent", "text");
 
-        var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(successBlock, failureBlock), 0);
+        var loopContext = createLoopContext(
+                "test goal", List.of(), new UserMessage("req"), List.of(successBlock, failureBlock), 0);
         var result = codeAgent.applyPhase(loopContext, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
 
         // On partial success, consecutive failures should reset, and applied count should increment.
-        assertEquals(0, retryStep.loopContext().editState().consecutiveApplyFailures(), "Consecutive failures should reset on partial success");
-        assertEquals(1, retryStep.loopContext().editState().blocksAppliedWithoutBuild(), "One block should have been applied");
+        assertEquals(
+                0,
+                retryStep.loopContext().editState().consecutiveApplyFailures(),
+                "Consecutive failures should reset on partial success");
+        assertEquals(
+                1,
+                retryStep.loopContext().editState().blocksAppliedWithoutBuild(),
+                "One block should have been applied");
 
         // The retry message should reflect both the success and the failure.
-        String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        String nextRequestText =
+                Messages.getText(retryStep.loopContext().conversationState().nextRequest());
         // Weaker assertion: just check that the name of the file that failed to apply is mentioned.
         assertTrue(nextRequestText.contains(file2.getFileName()));
 
@@ -262,11 +280,8 @@ class CodeAgentTest {
     // V-1: verifyPhase – skip when no edits
     @Test
     void testVerifyPhase_skipWhenNoEdits() {
-        var loopContext = createLoopContext("test goal",
-                                            List.of(new AiMessage("no edits")),
-                                            new UserMessage("test request"),
-                                            List.of(),
-                                            0);
+        var loopContext = createLoopContext(
+                "test goal", List.of(new AiMessage("no edits")), new UserMessage("test request"), List.of(), 0);
         var result = codeAgent.verifyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
@@ -298,7 +313,8 @@ class CodeAgentTest {
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             int currentAttempt = attempt.getAndIncrement();
             // Log the attempt to help diagnose mock behavior using a more visible marker
-            System.out.println("[TEST DEBUG] MockShellCommandRunner: Attempt " + currentAttempt + " for command: " + cmd);
+            System.out.println(
+                    "[TEST DEBUG] MockShellCommandRunner: Attempt " + currentAttempt + " for command: " + cmd);
             outputConsumer.accept("MockShell: attempt " + currentAttempt + " for command: " + cmd);
             if (currentAttempt == 0) { // First attempt fails
                 outputConsumer.accept("Build error line 1");
@@ -309,7 +325,6 @@ class CodeAgentTest {
             return "Successful output";
         };
 
-
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1); // 1 block applied
 
         // First run - build should fail
@@ -318,7 +333,8 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) resultFail;
         assertTrue(retryStep.loopContext().editState().lastBuildError().contains("Detailed build error output"));
         assertEquals(0, retryStep.loopContext().editState().blocksAppliedWithoutBuild()); // Reset
-        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("The build failed"));
+        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
+                .contains("The build failed"));
 
         // Second run - build should succeed
         // We must manually create a new context that simulates new edits having been applied,
@@ -329,14 +345,12 @@ class CodeAgentTest {
                         List.of(), // pending blocks are empty
                         retryStep.loopContext().editState().consecutiveParseFailures(),
                         retryStep.loopContext().editState().consecutiveApplyFailures(),
-                        retryStep.loopContext().editState().consecutiveBuildFailures(),  // new
+                        retryStep.loopContext().editState().consecutiveBuildFailures(), // new
                         1, // Simulate one new fix was applied to pass the guard in verifyPhase
                         retryStep.loopContext().editState().lastBuildError(),
                         retryStep.loopContext().editState().changedFiles(),
-                        retryStep.loopContext().editState().originalFileContents()
-                ),
-                retryStep.loopContext().userGoal()
-        );
+                        retryStep.loopContext().editState().originalFileContents()),
+                retryStep.loopContext().userGoal());
 
         var resultSuccess = codeAgent.verifyPhase(contextForSecondRun, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
@@ -354,7 +368,6 @@ class CodeAgentTest {
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
             throw new InterruptedException("Simulated interruption during shell command");
         };
-
 
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
 
@@ -390,7 +403,8 @@ class CodeAgentTest {
         file.write("hello");
         contextManager.addEditableFile(file);
 
-        var firstResponse = """
+        var firstResponse =
+                """
                             <block>
                             test.txt
                             <<<<<<< SEARCH
@@ -411,7 +425,6 @@ class CodeAgentTest {
             }
             return "Build successful";
         };
-
 
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
         contextManager.getProject().setBuildDetails(bd);
@@ -439,7 +452,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertTrue(continueStep.loopContext().editState().changedFiles().contains(file),
-                   "changedFiles should include the edited file");
+        assertTrue(
+                continueStep.loopContext().editState().changedFiles().contains(file),
+                "changedFiles should include the edited file");
     }
 }

@@ -2,10 +2,7 @@ package io.github.jbellis.brokk.analyzer.go;
 
 import io.github.jbellis.brokk.analyzer.CommonTreeSitterNodeTypes;
 
-/**
- * Constants for Go TreeSitter node type names.
- * Combines common TreeSitter node types with Go-specific ones.
- */
+/** Constants for Go TreeSitter node type names. Combines common TreeSitter node types with Go-specific ones. */
 public final class GoTreeSitterNodeTypes {
 
     // ===== COMMON TYPES (imported from CommonTreeSitterNodeTypes) =====

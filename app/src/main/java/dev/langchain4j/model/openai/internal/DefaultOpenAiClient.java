@@ -5,9 +5,6 @@ import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 import static java.time.Duration.ofSeconds;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import dev.langchain4j.http.client.HttpClient;
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.http.client.HttpRequest;
@@ -15,6 +12,8 @@ import dev.langchain4j.http.client.jdk.JdkHttpClient;
 import dev.langchain4j.http.client.log.LoggingHttpClient;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
+import java.util.HashMap;
+import java.util.Map;
 
 public class DefaultOpenAiClient extends OpenAiClient {
 
@@ -27,8 +26,10 @@ public class DefaultOpenAiClient extends OpenAiClient {
         HttpClientBuilder httpClientBuilder = JdkHttpClient.builder();
 
         HttpClient httpClient = httpClientBuilder
-                .connectTimeout(getOrDefault(getOrDefault(builder.connectTimeout, httpClientBuilder.connectTimeout()), ofSeconds(15)))
-                .readTimeout(getOrDefault(getOrDefault(builder.readTimeout, httpClientBuilder.readTimeout()), ofSeconds(60)))
+                .connectTimeout(getOrDefault(
+                        getOrDefault(builder.connectTimeout, httpClientBuilder.connectTimeout()), ofSeconds(15)))
+                .readTimeout(
+                        getOrDefault(getOrDefault(builder.readTimeout, httpClientBuilder.readTimeout()), ofSeconds(60)))
                 .build();
 
         if (builder.logRequests || builder.logResponses) {
@@ -77,7 +78,8 @@ public class DefaultOpenAiClient extends OpenAiClient {
                 .url(baseUrl, "chat/completions")
                 .addHeader("Content-Type", "application/json")
                 .addHeaders(defaultHeaders)
-                .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(false).build()))
+                .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(false)
+                        .build()))
                 .build();
 
         HttpRequest streamingHttpRequest = HttpRequest.builder()
@@ -85,7 +87,8 @@ public class DefaultOpenAiClient extends OpenAiClient {
                 .url(baseUrl, "chat/completions")
                 .addHeader("Content-Type", "application/json")
                 .addHeaders(defaultHeaders)
-                .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(true).build()))
+                .body(Json.toJson(ChatCompletionRequest.builder().from(request).stream(true)
+                        .build()))
                 .build();
 
         return new RequestExecutor<>(httpClient, httpRequest, streamingHttpRequest, ChatCompletionResponse.class);

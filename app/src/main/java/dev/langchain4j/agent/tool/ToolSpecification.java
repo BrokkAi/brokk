@@ -2,14 +2,13 @@ package dev.langchain4j.agent.tool;
 
 import static dev.langchain4j.internal.Utils.quoted;
 
-import java.util.Objects;
-
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import java.util.Objects;
 
 /**
  * Describes a tool that language model can execute.
- * <p>
- * Can be generated automatically from methods annotated with {@link Tool} using {@link ToolSpecifications} helper.
+ *
+ * <p>Can be generated automatically from methods annotated with {@link Tool} using {@link ToolSpecifications} helper.
  */
 public class ToolSpecification {
 
@@ -46,9 +45,7 @@ public class ToolSpecification {
         return description;
     }
 
-    /**
-     * Returns the parameters of the tool.
-     */
+    /** Returns the parameters of the tool. */
     public JsonObjectSchema parameters() {
         return parameters;
     }
@@ -56,8 +53,7 @@ public class ToolSpecification {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ToolSpecification ts
-                && equalTo(ts);
+        return another instanceof ToolSpecification ts && equalTo(ts);
     }
 
     private boolean equalTo(ToolSpecification another) {
@@ -93,20 +89,15 @@ public class ToolSpecification {
         return new Builder();
     }
 
-    /**
-     * {@code ToolSpecification} builder static inner class.
-     */
+    /** {@code ToolSpecification} builder static inner class. */
     public static final class Builder {
 
         private String name;
         private String description;
         private JsonObjectSchema parameters;
 
-        /**
-         * Creates a {@link Builder}.
-         */
-        private Builder() {
-        }
+        /** Creates a {@link Builder}. */
+        private Builder() {}
 
         /**
          * Sets the {@code name}.

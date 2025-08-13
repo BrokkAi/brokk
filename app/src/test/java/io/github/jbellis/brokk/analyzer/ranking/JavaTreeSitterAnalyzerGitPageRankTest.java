@@ -1,9 +1,15 @@
 package io.github.jbellis.brokk.analyzer.ranking;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.testutil.TestProject;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -11,34 +17,33 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
-
 public class JavaTreeSitterAnalyzerGitPageRankTest {
 
-    private final static Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerGitPageRankTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerGitPageRankTest.class);
 
     @Nullable
     private static JavaTreeSitterAnalyzer analyzer;
+
     @Nullable
     private static TestProject testProject;
+
     @Nullable
     private static Path testPath;
 
     @BeforeAll
     public static void setup() throws Exception {
-        final var testResourcePath = Path.of("src/test/resources/testcode-git-rank-java").toAbsolutePath().normalize();
+        final var testResourcePath = Path.of("src/test/resources/testcode-git-rank-java")
+                .toAbsolutePath()
+                .normalize();
         assertTrue(Files.exists(testResourcePath), "Test resource directory 'testcode-git-rank-java' not found.");
 
         // Initialize git repository and create commits with co-occurrence patterns
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         testProject = new TestProject(testPath, Language.JAVA);
-        logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
+        logger.debug(
+                "Setting up analyzer with test code from {}",
+                testPath.toAbsolutePath().normalize());
         analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
     }
 
@@ -57,9 +62,7 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
         var projectRoot = testPath;
 
         // Create seed weights favoring UserService
-        var seedWeights = Map.of(
-                "com.example.service.UserService", 1.0
-        );
+        var seedWeights = Map.of("com.example.service.UserService", 1.0);
 
         // Run GitRank
         var results = GitDistance.getPagerank(analyzer, projectRoot, seedWeights, 10, false);
@@ -85,7 +88,8 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
                 .findFirst();
 
         if (notificationResult.isPresent() && userResult.isPresent()) {
-            assertTrue(userResult.get().score() > notificationResult.get().score(),
+            assertTrue(
+                    userResult.get().score() > notificationResult.get().score(),
                     "User should rank higher than NotificationService due to more co-occurrences");
         }
     }
@@ -104,8 +108,7 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
         logger.info("GitRank results (no seeds): {}", results);
 
         // All results should have positive scores
-        results.forEach(result ->
-                assertTrue(result.score() > 0, "All results should have positive scores"));
+        results.forEach(result -> assertTrue(result.score() > 0, "All results should have positive scores"));
     }
 
     @Test
@@ -114,9 +117,7 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
 
         var projectRoot = testPath;
 
-        var seedWeights = Map.of(
-                "com.example.service.UserService", 1.0
-        );
+        var seedWeights = Map.of("com.example.service.UserService", 1.0);
 
         // Run GitRank in reversed order (lowest scores first)
         assertNotNull(projectRoot);
@@ -126,7 +127,8 @@ public class JavaTreeSitterAnalyzerGitPageRankTest {
 
         // Verify results are in ascending order of scores
         for (int i = 1; i < results.size(); i++) {
-            assertTrue(results.get(i - 1).score() <= results.get(i).score(),
+            assertTrue(
+                    results.get(i - 1).score() <= results.get(i).score(),
                     "Results should be in ascending order when reversed=true");
         }
     }

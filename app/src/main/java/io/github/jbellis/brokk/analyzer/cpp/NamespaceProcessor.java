@@ -1,34 +1,37 @@
 package io.github.jbellis.brokk.analyzer.cpp;
 
-import io.github.jbellis.brokk.analyzer.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSNode;
-import org.treesitter.TSParser;
+import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
+import io.github.jbellis.brokk.analyzer.*;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.treesitter.TSNode;
+import org.treesitter.TSParser;
 
 public class NamespaceProcessor {
     private static final Logger log = LogManager.getLogger(NamespaceProcessor.class);
 
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
 
-    public NamespaceProcessor(TSParser templateParser) {
-    }
+    public NamespaceProcessor(TSParser templateParser) {}
 
     public record NamespaceBlock(String name, TSNode node, int startByte, int endByte) {}
 
-    public Map<CodeUnit, String> mergeNamespaceBlocks(Map<CodeUnit, String> skeletons, Map<CodeUnit, List<String>> signatures, ProjectFile file, TSNode rootNode, String fileContent, Function<String, CodeUnit> codeUnitFactory) {
+    public Map<CodeUnit, String> mergeNamespaceBlocks(
+            Map<CodeUnit, String> skeletons,
+            Map<CodeUnit, List<String>> signatures,
+            ProjectFile file,
+            TSNode rootNode,
+            String fileContent,
+            Function<String, CodeUnit> codeUnitFactory) {
         var namespaceEntries = skeletons.entrySet().stream()
-            .filter(entry -> entry.getKey().isModule())
-            .toList();
+                .filter(entry -> entry.getKey().isModule())
+                .toList();
 
         if (namespaceEntries.isEmpty()) {
             return skeletons;
@@ -36,18 +39,18 @@ public class NamespaceProcessor {
 
         var result = new HashMap<>(skeletons);
 
-        var filesWithNamespaces = namespaceEntries.stream()
-            .map(entry -> entry.getKey().source())
-            .collect(Collectors.toSet());
+        var filesWithNamespaces =
+                namespaceEntries.stream().map(entry -> entry.getKey().source()).collect(Collectors.toSet());
 
         // Only process the single file we have parsed content for
         if (filesWithNamespaces.contains(file)) {
             try {
-                var mergedNamespaces = reParseAndMergeNamespaces(file, signatures, rootNode, fileContent, codeUnitFactory);
+                var mergedNamespaces =
+                        reParseAndMergeNamespaces(file, signatures, rootNode, fileContent, codeUnitFactory);
 
-                result.entrySet().removeIf(entry ->
-                    entry.getKey().isModule() &&
-                    entry.getKey().source().equals(file));
+                result.entrySet()
+                        .removeIf(entry -> entry.getKey().isModule()
+                                && entry.getKey().source().equals(file));
 
                 result.putAll(mergedNamespaces);
             } catch (Exception e) {
@@ -58,12 +61,20 @@ public class NamespaceProcessor {
         return result;
     }
 
-    private Map<CodeUnit, String> reParseAndMergeNamespaces(ProjectFile file, Map<CodeUnit, List<String>> signatures, TSNode rootNode, String fileContent, Function<String, CodeUnit> codeUnitFactory) throws IOException {
+    private Map<CodeUnit, String> reParseAndMergeNamespaces(
+            ProjectFile file,
+            Map<CodeUnit, List<String>> signatures,
+            TSNode rootNode,
+            String fileContent,
+            Function<String, CodeUnit> codeUnitFactory)
+            throws IOException {
 
         var namespaceBlocks = findAllNamespaceBlocks(rootNode, fileContent);
         var groupedNamespaces = new HashMap<String, List<NamespaceBlock>>();
         for (var block : namespaceBlocks) {
-            groupedNamespaces.computeIfAbsent(block.name, k -> new ArrayList<>()).add(block);
+            groupedNamespaces
+                    .computeIfAbsent(block.name, k -> new ArrayList<>())
+                    .add(block);
         }
 
         var result = new HashMap<CodeUnit, String>();
@@ -74,16 +85,13 @@ public class NamespaceProcessor {
             CodeUnit existingCodeUnit = null;
             for (var signatureEntry : signatures.entrySet()) {
                 var cu = signatureEntry.getKey();
-                if (cu.isModule() &&
-                    cu.source().equals(file) &&
-                    cu.fqName().equals(namespaceName)) {
+                if (cu.isModule() && cu.source().equals(file) && cu.fqName().equals(namespaceName)) {
                     existingCodeUnit = cu;
                     break;
                 }
             }
 
-            var codeUnit = existingCodeUnit != null ? existingCodeUnit :
-                          codeUnitFactory.apply(namespaceName);
+            var codeUnit = existingCodeUnit != null ? existingCodeUnit : codeUnitFactory.apply(namespaceName);
             var mergedSkeleton = createMergedNamespaceSkeleton(namespaceName, blocks, fileContent);
             result.put(codeUnit, mergedSkeleton);
         }
@@ -106,7 +114,8 @@ public class NamespaceProcessor {
         return namespaceBlocks;
     }
 
-    private String createMergedNamespaceSkeleton(String namespaceName, List<NamespaceBlock> blocks, String fileContent) {
+    private String createMergedNamespaceSkeleton(
+            String namespaceName, List<NamespaceBlock> blocks, String fileContent) {
         var mergedContent = new StringBuilder(512); // Pre-size for better performance
         mergedContent.append("namespace ").append(namespaceName).append(" {\n");
 
@@ -138,35 +147,30 @@ public class NamespaceProcessor {
                 if (!signature.trim().isEmpty()) {
                     skeletons.add(signature + "  {...}");
                 }
-            }
-            else if (ENUM_SPECIFIER.equals(childType)) {
+            } else if (ENUM_SPECIFIER.equals(childType)) {
                 var enumSkeleton = extractEnumSkeletonFromNode(child, fileContent);
                 if (!enumSkeleton.isEmpty()) {
                     skeletons.add(enumSkeleton);
                 }
-            }
-            else if (CLASS_SPECIFIER.equals(childType) || STRUCT_SPECIFIER.equals(childType)) {
+            } else if (CLASS_SPECIFIER.equals(childType) || STRUCT_SPECIFIER.equals(childType)) {
                 var classDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!classDecl.isEmpty()) {
                     skeletons.add(classDecl);
                 }
-            }
-            else if (UNION_SPECIFIER.equals(childType)) {
+            } else if (UNION_SPECIFIER.equals(childType)) {
                 var unionDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!unionDecl.isEmpty()) {
                     skeletons.add(unionDecl);
                 }
-            }
-            else if (TYPE_DEFINITION.equals(childType) || ALIAS_DECLARATION.equals(childType)) {
+            } else if (TYPE_DEFINITION.equals(childType) || ALIAS_DECLARATION.equals(childType)) {
                 var typeDecl = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!typeDecl.isEmpty()) {
                     skeletons.add(typeDecl);
                 }
-            }
-            else if (DECLARATION.equals(childType) ||
-                     FIELD_DECLARATION.equals(childType) ||
-                     USING_DECLARATION.equals(childType) ||
-                     TYPEDEF_DECLARATION.equals(childType)) {
+            } else if (DECLARATION.equals(childType)
+                    || FIELD_DECLARATION.equals(childType)
+                    || USING_DECLARATION.equals(childType)
+                    || TYPEDEF_DECLARATION.equals(childType)) {
                 var declaration = ASTTraversalUtils.extractNodeText(child, fileContent);
                 if (!declaration.isEmpty()) {
                     if (!declaration.endsWith(";") && !declaration.endsWith("}")) {
@@ -248,16 +252,15 @@ public class NamespaceProcessor {
             if (child == null || child.isNull()) continue;
 
             String childType = child.getType();
-            if (NOEXCEPT_SPECIFIER.equals(childType) ||
-                TRAILING_RETURN_TYPE.equals(childType) ||
-                VIRTUAL_SPECIFIER.equals(childType)) {
+            if (NOEXCEPT_SPECIFIER.equals(childType)
+                    || TRAILING_RETURN_TYPE.equals(childType)
+                    || VIRTUAL_SPECIFIER.equals(childType)) {
                 signature += " " + ASTTraversalUtils.extractNodeText(child, fileContent);
             }
         }
 
         return signature;
     }
-
 
     public void clearCache() {
         fileContentCache.clear();

@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.testutil;
 
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.InMemoryRepo;
-import io.github.jbellis.brokk.IConsoleIO;
-
+import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
-import io.github.jbellis.brokk.context.Context;
-import io.github.jbellis.brokk.prompts.EditBlockParser;
 
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
@@ -94,7 +92,8 @@ public final class TestContextManager implements IContextManager {
     @Override
     public Context liveContext() {
         if (liveContext == null) {
-            throw new UnsupportedOperationException("liveContext requires IConsoleIO to be provided in TestContextManager constructor");
+            throw new UnsupportedOperationException(
+                    "liveContext requires IConsoleIO to be provided in TestContextManager constructor");
         }
         return liveContext;
     }
@@ -110,8 +109,8 @@ public final class TestContextManager implements IContextManager {
     }
 
     /**
-     * Mock analyzer implementation for testing that provides minimal functionality
-     * to support fragment freezing without requiring a full CPG.
+     * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing without
+     * requiring a full CPG.
      */
     private static class MockAnalyzer implements IAnalyzer {
         @Override
@@ -135,7 +134,8 @@ public final class TestContextManager implements IContextManager {
         }
 
         @Override
-        public java.util.Set<io.github.jbellis.brokk.analyzer.CodeUnit> getDeclarationsInFile(io.github.jbellis.brokk.analyzer.ProjectFile file) {
+        public java.util.Set<io.github.jbellis.brokk.analyzer.CodeUnit> getDeclarationsInFile(
+                io.github.jbellis.brokk.analyzer.ProjectFile file) {
             return java.util.Set.of(); // Return empty set for test purposes
         }
 
@@ -145,7 +145,8 @@ public final class TestContextManager implements IContextManager {
         }
 
         @Override
-        public java.util.Map<io.github.jbellis.brokk.analyzer.CodeUnit, String> getSkeletons(io.github.jbellis.brokk.analyzer.ProjectFile file) {
+        public java.util.Map<io.github.jbellis.brokk.analyzer.CodeUnit, String> getSkeletons(
+                io.github.jbellis.brokk.analyzer.ProjectFile file) {
             return java.util.Map.of(); // Return empty map for test purposes
         }
     }

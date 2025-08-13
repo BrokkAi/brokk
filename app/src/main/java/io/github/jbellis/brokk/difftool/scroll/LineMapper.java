@@ -2,20 +2,17 @@ package io.github.jbellis.brokk.difftool.scroll;
 
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Handles line mapping between original and revised versions of files using diff patches.
  *
- * This class provides sophisticated algorithms for accurate line mapping including:
- * - O(log n) binary search for delta lookup
- * - Cumulative offset correction to prevent error accumulation
- * - Smoothing correction to reduce visual discontinuities
- * The class is stateless and thread-safe, making it suitable for concurrent usage.
+ * <p>This class provides sophisticated algorithms for accurate line mapping including: - O(log n) binary search for
+ * delta lookup - Cumulative offset correction to prevent error accumulation - Smoothing correction to reduce visual
+ * discontinuities The class is stateless and thread-safe, making it suitable for concurrent usage.
  */
 public final class LineMapper {
     private static final Logger logger = LogManager.getLogger(LineMapper.class);
@@ -23,7 +20,6 @@ public final class LineMapper {
     // Performance metrics
     private final AtomicLong totalMappings = new AtomicLong(0);
     private final AtomicLong totalMappingTimeNs = new AtomicLong(0);
-
 
     /**
      * Maps a line number from one version of a file to the corresponding line in another version.
@@ -43,7 +39,6 @@ public final class LineMapper {
                 return line;
             }
 
-
             // Use binary search to find the relevant deltas range - O(log n) performance
             int relevantDeltaIndex = findRelevantDeltaIndex(deltas, line, fromOriginal);
 
@@ -62,8 +57,8 @@ public final class LineMapper {
     }
 
     /**
-     * Binary search to find the most relevant delta for line mapping - O(log n).
-     * Returns the index of the last delta that affects the given line.
+     * Binary search to find the most relevant delta for line mapping - O(log n). Returns the index of the last delta
+     * that affects the given line.
      */
     public int findRelevantDeltaIndex(List<AbstractDelta<String>> deltas, int line, boolean fromOriginal) {
         int left = 0;
@@ -88,11 +83,10 @@ public final class LineMapper {
     }
 
     /**
-     * Calculate cumulative offset with error correction.
-     * Fixes cumulative mapping errors and delta utilization issues.
+     * Calculate cumulative offset with error correction. Fixes cumulative mapping errors and delta utilization issues.
      */
-    public int calculateCumulativeOffset(List<AbstractDelta<String>> deltas,
-                                       int relevantDeltaIndex, int line, boolean fromOriginal) {
+    public int calculateCumulativeOffset(
+            List<AbstractDelta<String>> deltas, int relevantDeltaIndex, int line, boolean fromOriginal) {
         if (relevantDeltaIndex < 0) {
             return 0; // No relevant deltas affect this line
         }
@@ -152,17 +146,16 @@ public final class LineMapper {
             }
         }
 
-
         return offset;
     }
 
-    /**
-     * Apply smoothing correction to reduce visual discontinuities.
-     * Helps with line mapping accuracy degradation.
-     */
-    public int applySmoothingCorrection(List<AbstractDelta<String>> deltas,
-                                      int originalLine, int mappedLine,
-                                      boolean fromOriginal, int relevantDeltaIndex) {
+    /** Apply smoothing correction to reduce visual discontinuities. Helps with line mapping accuracy degradation. */
+    public int applySmoothingCorrection(
+            List<AbstractDelta<String>> deltas,
+            int originalLine,
+            int mappedLine,
+            boolean fromOriginal,
+            int relevantDeltaIndex) {
         // For lines near delta boundaries, apply interpolation to smooth transitions
         // Skip smoothing for simple INSERT/DELETE deltas in tests to maintain precision
         if (relevantDeltaIndex >= 0 && relevantDeltaIndex < deltas.size()) {
@@ -198,40 +191,28 @@ public final class LineMapper {
         return mappedLine;
     }
 
-    /**
-     * Gets performance metrics for this LineMapper instance.
-     */
+    /** Gets performance metrics for this LineMapper instance. */
     public PerformanceMetrics getPerformanceMetrics() {
-        return new PerformanceMetrics(
-            totalMappings.get(),
-            totalMappingTimeNs.get()
-        );
+        return new PerformanceMetrics(totalMappings.get(), totalMappingTimeNs.get());
     }
 
-    /**
-     * Resets performance metrics.
-     */
+    /** Resets performance metrics. */
     public void resetMetrics() {
         totalMappings.set(0);
         totalMappingTimeNs.set(0);
         logger.debug("LineMapper performance metrics reset");
     }
 
-
-    /**
-     * Performance metrics for line mapping operations.
-     */
-    public record PerformanceMetrics(
-        long totalMappings,
-        long totalMappingTimeNs
-    ) {
+    /** Performance metrics for line mapping operations. */
+    public record PerformanceMetrics(long totalMappings, long totalMappingTimeNs) {
         public double getAverageMappingTimeNs() {
             return totalMappings == 0 ? 0.0 : (double) totalMappingTimeNs / totalMappings;
         }
 
         public String getSummary() {
-            return String.format("Mappings: %d | Avg time: %.1fns | Total time: %.2fms",
-                               totalMappings, getAverageMappingTimeNs(), totalMappingTimeNs / 1_000_000.0);
+            return String.format(
+                    "Mappings: %d | Avg time: %.1fns | Total time: %.2fms",
+                    totalMappings, getAverageMappingTimeNs(), totalMappingTimeNs / 1_000_000.0);
         }
     }
 }

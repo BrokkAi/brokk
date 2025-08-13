@@ -1,11 +1,10 @@
 package io.github.jbellis.brokk.gui.search;
 
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.util.List;
 import java.util.Objects;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 public class MarkdownSearchableComponent implements SearchableComponent {
     private final MarkdownOutputPanel panel;
@@ -16,20 +15,18 @@ public class MarkdownSearchableComponent implements SearchableComponent {
     private int lastTotal = 0;
 
     public MarkdownSearchableComponent(List<MarkdownOutputPanel> panels) {
-    assert !panels.isEmpty();
-    this.panel = panels.getFirst();
-    panel.addSearchStateListener(state -> {
-        lastTotal = state.totalMatches();
-        callback.onSearchComplete(state.totalMatches(), state.currentDisplayIndex());
-    });
-}
+        assert !panels.isEmpty();
+        this.panel = panels.getFirst();
+        panel.addSearchStateListener(state -> {
+            lastTotal = state.totalMatches();
+            callback.onSearchComplete(state.totalMatches(), state.currentDisplayIndex());
+        });
+    }
 
-/**
- * Creates an adapter for a single MarkdownOutputPanel.
- */
-public static MarkdownSearchableComponent wrap(MarkdownOutputPanel panel) {
-    return new MarkdownSearchableComponent(List.of(panel));
-}
+    /** Creates an adapter for a single MarkdownOutputPanel. */
+    public static MarkdownSearchableComponent wrap(MarkdownOutputPanel panel) {
+        return new MarkdownSearchableComponent(List.of(panel));
+    }
 
     @Override
     public String getText() {

@@ -1,19 +1,15 @@
 package io.github.jbellis.brokk.prompts;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.File;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Shared utilities for parsing edit blocks.
- * Used by both the prompt parser and the flexmark markdown parser.
- */
+/** Shared utilities for parsing edit blocks. Used by both the prompt parser and the flexmark markdown parser. */
 public final class EditBlockUtils {
 
     // Pattern for the "<<<<<<< SEARCH [filename]" line (filename optional)
@@ -21,24 +17,21 @@ public final class EditBlockUtils {
             Pattern.compile("^ {0,3}<{5,9}\\s+SEARCH(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
 
     // Pattern for the "=======" divider line
-    public static final Pattern DIVIDER =
-            Pattern.compile("^ {0,3}={5,9}(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
+    public static final Pattern DIVIDER = Pattern.compile("^ {0,3}={5,9}(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
 
     // Pattern for the ">>>>>>> REPLACE [filename]" line (filename optional)
     public static final Pattern UPDATED =
             Pattern.compile("^ {0,3}>{5,9}\\s+REPLACE(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
 
     // Pattern for opening code fence (captures optional language or filename token)
-    public static final Pattern OPENING_FENCE =
-            Pattern.compile("^ {0,3}```(?:\\s*(\\S[^`\\s]*))?\\s*$");
+    public static final Pattern OPENING_FENCE = Pattern.compile("^ {0,3}```(?:\\s*(\\S[^`\\s]*))?\\s*$");
 
     // Default fence markers
     public static final List<String> DEFAULT_FENCE = List.of("```", "```");
 
     private EditBlockUtils() {}
     /**
-     * Determines if a string looks like a path or filename.
-     * Simple heuristic: contains a dot or slash character.
+     * Determines if a string looks like a path or filename. Simple heuristic: contains a dot or slash character.
      *
      * @param s the string to check
      * @return true if the string appears to be a path
@@ -48,8 +41,8 @@ public final class EditBlockUtils {
     }
 
     /**
-     * Removes any extra lines containing the filename or triple-backticks fences.
-     * This is used to clean up the contents of search/replace blocks.
+     * Removes any extra lines containing the filename or triple-backticks fences. This is used to clean up the contents
+     * of search/replace blocks.
      *
      * @param block the text content to clean
      * @param fname the filename associated with this block
@@ -82,8 +75,8 @@ public final class EditBlockUtils {
     }
 
     /**
-     * Extracts a filename from a line, cleaning up common markers and decorations.
-     * Ignores lines that are just ``` or ...
+     * Extracts a filename from a line, cleaning up common markers and decorations. Ignores lines that are just ``` or
+     * ...
      *
      * @param line the line to process
      * @return extracted filename or null if none found
@@ -101,8 +94,8 @@ public final class EditBlockUtils {
     }
 
     /**
-     * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to
-     * currentFilename if it's not null.
+     * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to currentFilename if
+     * it's not null.
      *
      * @param lines array of all document lines
      * @param headIndex index where the HEAD marker (<<<<<<< SEARCH) was found
@@ -111,11 +104,8 @@ public final class EditBlockUtils {
      * @return best filename guess based on context
      */
     @Nullable
-    public static String findFileNameNearby(String[] lines,
-                                            int headIndex,
-                                            Set<ProjectFile> projectFiles,
-                                            @Nullable String currentPath)
-    {
+    public static String findFileNameNearby(
+            String[] lines, int headIndex, Set<ProjectFile> projectFiles, @Nullable String currentPath) {
         // Guard against empty arrays
         if (lines.length == 0 || headIndex < 0) {
             return currentPath;
@@ -149,10 +139,7 @@ public final class EditBlockUtils {
 
         // 2) Look for a matching filename
         var matches = candidates.stream()
-                .flatMap(c -> projectFiles.stream()
-                        .filter(f -> f.getFileName().contains(c))
-                        .findFirst()
-                        .stream())
+                .flatMap(c -> projectFiles.stream().filter(f -> f.getFileName().contains(c)).findFirst().stream())
                 .map(ProjectFile::toString)
                 .toList();
         if (!matches.isEmpty()) {

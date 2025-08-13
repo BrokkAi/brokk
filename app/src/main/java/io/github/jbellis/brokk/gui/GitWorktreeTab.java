@@ -6,14 +6,6 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.MergeResult;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
@@ -24,8 +16,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.MergeResult;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -40,12 +38,16 @@ public class GitWorktreeTab extends JPanel {
     private JButton removeButton = new JButton();
     private JButton openButton = new JButton(); // Added
     private JButton refreshButton = new JButton(); // Added
+
     @org.jetbrains.annotations.Nullable
     private JButton mergeButton = null; // Added for worktree merge functionality
 
     private final boolean isWorktreeWindow;
 
-    public GitWorktreeTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) { // gitPanel param kept for constructor signature compatibility
+    public GitWorktreeTab(
+            Chrome chrome,
+            ContextManager contextManager,
+            GitPanel gitPanel) { // gitPanel param kept for constructor signature compatibility
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -81,7 +83,7 @@ public class GitWorktreeTab extends JPanel {
     private void buildWorktreeTabUI() {
         // Main panel for the table
         JPanel tablePanel = new JPanel(new BorderLayout());
-        worktreeTableModel = new DefaultTableModel(new Object[]{"\u2713", "Path", "Branch", "Session"}, 0) {
+        worktreeTableModel = new DefaultTableModel(new Object[] {"\u2713", "Path", "Branch", "Session"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -106,12 +108,15 @@ public class GitWorktreeTab extends JPanel {
             // Filtering in helper methods (like getSelectedWorktreePaths) is key.
             @Override
             public void changeSelection(int rowIndex, int columnIndex, boolean toggle, boolean extend) {
-                if (rowIndex == 0 && !extend && worktreeTable.getSelectedRowCount() <=1 ) { // if trying to select only row 0
+                if (rowIndex == 0
+                        && !extend
+                        && worktreeTable.getSelectedRowCount() <= 1) { // if trying to select only row 0
                     if (worktreeTable.getSelectedRowCount() == 1 && worktreeTable.getSelectedRow() == 0) {
-                        // if row 0 is already the only thing selected, do nothing to allow deselection by clicking elsewhere
+                        // if row 0 is already the only thing selected, do nothing to allow deselection by clicking
+                        // elsewhere
                     } else {
-                         worktreeTable.clearSelection(); // Clear selection if trying to select row 0 directly
-                         return;
+                        worktreeTable.clearSelection(); // Clear selection if trying to select row 0 directly
+                        return;
                     }
                 }
                 super.changeSelection(rowIndex, columnIndex, toggle, extend);
@@ -122,8 +127,8 @@ public class GitWorktreeTab extends JPanel {
         // Custom renderer to gray out the main repo row
         worktreeTable.setDefaultRenderer(Object.class, new javax.swing.table.DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
-                                                       boolean hasFocus, int row, int column) {
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 if (row == 0) {
                     c.setForeground(Color.GRAY);
@@ -137,7 +142,10 @@ public class GitWorktreeTab extends JPanel {
                     }
                 } else {
                     c.setForeground(table.getForeground());
-                    c.setBackground(isSelected && table.isFocusOwner() ? table.getSelectionBackground() : table.getBackground());
+                    c.setBackground(
+                            isSelected && table.isFocusOwner()
+                                    ? table.getSelectionBackground()
+                                    : table.getBackground());
                     c.setEnabled(true);
                 }
                 return c;
@@ -152,9 +160,10 @@ public class GitWorktreeTab extends JPanel {
         activeColumn.setResizable(false);
         activeColumn.setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
-                                                       boolean hasFocus, int row, int col) {
-                JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int col) {
+                JLabel label =
+                        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
                 label.setHorizontalAlignment(SwingConstants.CENTER);
 
                 if (Boolean.TRUE.equals(value)) {
@@ -173,8 +182,14 @@ public class GitWorktreeTab extends JPanel {
                 } else {
                     // For other rows, ensure foreground/background reflects selection state
                     // The super call usually handles this, but setText can sometimes reset it.
-                    label.setForeground(isSelected && table.isFocusOwner() ? table.getSelectionForeground() : table.getForeground());
-                    label.setBackground(isSelected && table.isFocusOwner() ? table.getSelectionBackground() : table.getBackground());
+                    label.setForeground(
+                            isSelected && table.isFocusOwner()
+                                    ? table.getSelectionForeground()
+                                    : table.getForeground());
+                    label.setBackground(
+                            isSelected && table.isFocusOwner()
+                                    ? table.getSelectionBackground()
+                                    : table.getBackground());
                     label.setEnabled(true);
                 }
                 return label;
@@ -328,7 +343,6 @@ public class GitWorktreeTab extends JPanel {
         }
     }
 
-
     private void loadWorktrees() {
         contextManager.submitBackgroundTask("Loading worktrees", () -> {
             try {
@@ -341,13 +355,15 @@ public class GitWorktreeTab extends JPanel {
                     if (!invalidPaths.isEmpty()) {
                         final var dialogFuture = new java.util.concurrent.CompletableFuture<Integer>();
                         SwingUtilities.invokeLater(() -> {
-                            String pathList = invalidPaths.stream()
-                                                          .map(Path::toString)
-                                                          .collect(Collectors.joining("\n- "));
-                            String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList +
-                                             "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
-                            int choice = chrome.showConfirmDialog(message, "Prune Stale Worktrees?",
-                                                                   JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                            String pathList =
+                                    invalidPaths.stream().map(Path::toString).collect(Collectors.joining("\n- "));
+                            String message = "The following worktree paths no longer exist on disk:\n\n- " + pathList
+                                    + "\n\nWould you like to clean up this stale metadata? (git worktree prune)";
+                            int choice = chrome.showConfirmDialog(
+                                    message,
+                                    "Prune Stale Worktrees?",
+                                    JOptionPane.YES_NO_OPTION,
+                                    JOptionPane.QUESTION_MESSAGE);
                             dialogFuture.complete(choice);
                         });
 
@@ -369,32 +385,33 @@ public class GitWorktreeTab extends JPanel {
                     }
 
                     // Normalize the current project's root path for reliable comparison
-                    Path currentProjectRoot = contextManager.getProject().getRoot().toRealPath();
+                    Path currentProjectRoot =
+                            contextManager.getProject().getRoot().toRealPath();
 
                     SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0); // Clear existing rows
                         for (IGitRepo.WorktreeInfo wt : worktrees) {
-                            String sessionTitle = MainProject.getActiveSessionTitle(wt.path())
-                                    .orElse("(no session)");
+                            String sessionTitle =
+                                    MainProject.getActiveSessionTitle(wt.path()).orElse("(no session)");
                             // wt.path() is already a real path from GitRepo.listWorktreesAndInvalid()
                             boolean isActive = currentProjectRoot.equals(wt.path());
-                            worktreeTableModel.addRow(new Object[]{
-                                    isActive, // For the "✓" column
-                                    wt.path().toString(),
-                                    wt.branch(),
-                                    sessionTitle
+                            worktreeTableModel.addRow(new Object[] {
+                                isActive, // For the "✓" column
+                                wt.path().toString(),
+                                wt.branch(),
+                                sessionTitle
                             });
                         }
                         updateButtonStates(); // Update after loading
                     });
                 } else {
-                     SwingUtilities.invokeLater(() -> {
+                    SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0);
                         addButton.setEnabled(false);
-                         openButton.setEnabled(false);
+                        openButton.setEnabled(false);
                         removeButton.setEnabled(false);
                         updateButtonStates(); // Update after loading
-                     });
+                    });
                 }
             } catch (Exception e) {
                 logger.error("Error loading worktrees", e);
@@ -439,16 +456,17 @@ public class GitWorktreeTab extends JPanel {
                                 .open()
                                 .thenAccept(success -> {
                                     if (Boolean.FALSE.equals(success)) {
-                                        chrome.toolError("Unable to open worktree " + worktreePath.getFileName(),
-                                                         "Error opening worktree");
+                                        chrome.toolError(
+                                                "Unable to open worktree " + worktreePath.getFileName(),
+                                                "Error opening worktree");
                                     }
                                 });
                     }
                 } catch (Exception e) {
                     logger.error("Error during open/focus for worktree {}: {}", worktreePath, e.getMessage(), e);
                     final String pathName = worktreePath.getFileName().toString();
-                    chrome.toolError("Error opening worktree " + pathName + ":\n" + e.getMessage(),
-                                     "Worktree Open Error");
+                    chrome.toolError(
+                            "Error opening worktree " + pathName + ":\n" + e.getMessage(), "Worktree Open Error");
                 }
             }
         });
@@ -459,8 +477,7 @@ public class GitWorktreeTab extends JPanel {
             String sourceBranchForNew,
             boolean isCreatingNewBranch,
             boolean copyWorkspace,
-            boolean okPressed
-    ) {}
+            boolean okPressed) {}
 
     private void addWorktree() {
         MainProject project = (MainProject) contextManager.getProject();
@@ -468,9 +485,11 @@ public class GitWorktreeTab extends JPanel {
 
         contextManager.submitContextTask("Preparing to add worktree...", () -> {
             if (!(repo instanceof GitRepo gitRepo)) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        this,
                         "Worktree operations are only supported for Git repositories.",
-                        "Error", JOptionPane.ERROR_MESSAGE));
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE));
                 return;
             }
 
@@ -489,20 +508,25 @@ public class GitWorktreeTab extends JPanel {
                         .toList();
 
                 if (availableBranches.isEmpty()) {
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                            this,
                             "No available branches to create a worktree from.",
-                            "Info", JOptionPane.INFORMATION_MESSAGE));
+                            "Info",
+                            JOptionPane.INFORMATION_MESSAGE));
                     return;
                 }
             } catch (GitAPIException e) {
                 logger.error("Error fetching initial branch information for add worktree", e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        this,
                         "Error fetching branch information: " + e.getMessage(),
-                        "Git Error", JOptionPane.ERROR_MESSAGE));
+                        "Git Error",
+                        JOptionPane.ERROR_MESSAGE));
                 return;
             }
 
-            final java.util.concurrent.CompletableFuture<AddWorktreeDialogResult> dialogFuture = new java.util.concurrent.CompletableFuture<>();
+            final java.util.concurrent.CompletableFuture<AddWorktreeDialogResult> dialogFuture =
+                    new java.util.concurrent.CompletableFuture<>();
             final List<String> finalAvailableBranches = availableBranches; // Effectively final for EDT lambda
             final List<String> finalLocalBranches = localBranches; // Effectively final for EDT lambda
             final String finalCurrentGitBranch = currentGitBranch; // Effectively final for EDT lambda
@@ -516,7 +540,8 @@ public class GitWorktreeTab extends JPanel {
                 JTextField newBranchNameField = new JTextField(15);
                 newBranchNameField.setEnabled(true);
 
-                JComboBox<String> sourceBranchForNewComboBox = new JComboBox<>(finalLocalBranches.toArray(new String[0]));
+                JComboBox<String> sourceBranchForNewComboBox =
+                        new JComboBox<>(finalLocalBranches.toArray(new String[0]));
                 sourceBranchForNewComboBox.setSelectedItem(finalCurrentGitBranch);
                 sourceBranchForNewComboBox.setEnabled(true);
 
@@ -539,44 +564,86 @@ public class GitWorktreeTab extends JPanel {
                     branchComboBox.setEnabled(true);
                 });
 
-                gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.gridx = 0;
+                gbc.gridy = 0;
+                gbc.gridwidth = 2;
+                gbc.anchor = GridBagConstraints.WEST;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
                 panel.add(createNewBranchRadio, gbc);
-                gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 1; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 2, 5);
+                gbc.gridx = 0;
+                gbc.gridy = 1;
+                gbc.gridwidth = 1;
+                gbc.anchor = GridBagConstraints.EAST;
+                gbc.fill = GridBagConstraints.NONE;
+                gbc.insets = new Insets(2, 25, 2, 5);
                 panel.add(new JLabel("Name:"), gbc);
-                gbc.gridx = 1; gbc.gridy = 1; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 2, 5);
+                gbc.gridx = 1;
+                gbc.gridy = 1;
+                gbc.anchor = GridBagConstraints.WEST;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.weightx = 1.0;
+                gbc.insets = new Insets(2, 0, 2, 5);
                 panel.add(newBranchNameField, gbc);
                 gbc.weightx = 0.0;
-                gbc.gridx = 0; gbc.gridy = 2; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 5, 5);
+                gbc.gridx = 0;
+                gbc.gridy = 2;
+                gbc.anchor = GridBagConstraints.EAST;
+                gbc.fill = GridBagConstraints.NONE;
+                gbc.insets = new Insets(2, 25, 5, 5);
                 panel.add(new JLabel("From:"), gbc);
-                gbc.gridx = 1; gbc.gridy = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 5, 5);
+                gbc.gridx = 1;
+                gbc.gridy = 2;
+                gbc.anchor = GridBagConstraints.WEST;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.weightx = 1.0;
+                gbc.insets = new Insets(2, 0, 5, 5);
                 panel.add(sourceBranchForNewComboBox, gbc);
-                gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
-                gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.insets = new Insets(10, 5, 5, 5);
+                gbc.weightx = 0.0;
+                gbc.insets = new Insets(5, 5, 5, 5);
+                gbc.gridx = 0;
+                gbc.gridy = 3;
+                gbc.gridwidth = 2;
+                gbc.anchor = GridBagConstraints.WEST;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.insets = new Insets(10, 5, 5, 5);
                 panel.add(useExistingBranchRadio, gbc);
-                gbc.gridx = 0; gbc.gridy = 4; gbc.insets = new Insets(2, 25, 5, 5); gbc.weightx = 1.0;
+                gbc.gridx = 0;
+                gbc.gridy = 4;
+                gbc.insets = new Insets(2, 25, 5, 5);
+                gbc.weightx = 1.0;
                 panel.add(branchComboBox, gbc);
-                gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
+                gbc.weightx = 0.0;
+                gbc.insets = new Insets(5, 5, 5, 5);
 
                 JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
                 copyWorkspaceCheckbox.setSelected(false);
-                gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.insets = new Insets(10, 5, 5, 5);
+                gbc.gridx = 0;
+                gbc.gridy = 5;
+                gbc.gridwidth = 2;
+                gbc.anchor = GridBagConstraints.WEST;
+                gbc.fill = GridBagConstraints.HORIZONTAL;
+                gbc.insets = new Insets(10, 5, 5, 5);
                 panel.add(copyWorkspaceCheckbox, gbc);
 
-                JOptionPane optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+                JOptionPane optionPane =
+                        new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
                 JDialog dialog = optionPane.createDialog(GitWorktreeTab.this, "Add Worktree");
                 JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
                 okButton.addActionListener(e -> {
                     optionPane.setValue(JOptionPane.OK_OPTION);
                     dialog.dispose();
                 });
-                optionPane.setOptions(new Object[]{okButton, new JButton(UIManager.getString("OptionPane.cancelButtonText")) {
-                    {
-                        addActionListener(e -> {
-                            optionPane.setValue(JOptionPane.CANCEL_OPTION);
-                            dialog.dispose();
-                        });
+                optionPane.setOptions(new Object[] {
+                    okButton,
+                    new JButton(UIManager.getString("OptionPane.cancelButtonText")) {
+                        {
+                            addActionListener(e -> {
+                                optionPane.setValue(JOptionPane.CANCEL_OPTION);
+                                dialog.dispose();
+                            });
+                        }
                     }
-                }});
+                });
                 dialog.getRootPane().setDefaultButton(okButton);
                 newBranchNameField.requestFocusInWindow(); // Focus the new branch name field
                 dialog.setVisible(true);
@@ -585,7 +652,8 @@ public class GitWorktreeTab extends JPanel {
                 if (selectedValue != null && selectedValue.equals(JOptionPane.OK_OPTION)) {
                     String selectedBranchName;
                     if (createNewBranchRadio.isSelected()) {
-                        selectedBranchName = newBranchNameField.getText().trim(); // Raw name, will be sanitized on background thread
+                        selectedBranchName =
+                                newBranchNameField.getText().trim(); // Raw name, will be sanitized on background thread
                     } else {
                         selectedBranchName = (String) branchComboBox.getSelectedItem();
                     }
@@ -594,8 +662,7 @@ public class GitWorktreeTab extends JPanel {
                             (String) sourceBranchForNewComboBox.getSelectedItem(),
                             createNewBranchRadio.isSelected(),
                             copyWorkspaceCheckbox.isSelected(),
-                            true
-                    ));
+                            true));
                 } else {
                     dialogFuture.complete(new AddWorktreeDialogResult("", "", false, false, false));
                 }
@@ -615,17 +682,30 @@ public class GitWorktreeTab extends JPanel {
 
                 if (isCreatingNewBranch) {
                     if (branchForWorktree.isEmpty()) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE));
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                GitWorktreeTab.this,
+                                "New branch name cannot be empty.",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE));
                         return;
                     }
                     try {
-                        branchForWorktree = gitRepo.sanitizeBranchName(branchForWorktree); // Sanitize on background thread
+                        branchForWorktree =
+                                gitRepo.sanitizeBranchName(branchForWorktree); // Sanitize on background thread
                     } catch (GitAPIException e) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "Error sanitizing branch name: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                GitWorktreeTab.this,
+                                "Error sanitizing branch name: " + e.getMessage(),
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE));
                         return;
                     }
                     if (sourceBranchForNew.isEmpty()) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "A source branch must be selected to create a new branch.", "Error", JOptionPane.ERROR_MESSAGE));
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                GitWorktreeTab.this,
+                                "A source branch must be selected to create a new branch.",
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE));
                         return;
                     }
                 } else { // Using existing branch
@@ -633,10 +713,12 @@ public class GitWorktreeTab extends JPanel {
 
                 chrome.systemOutput("Adding worktree for branch: " + branchForWorktree);
 
-                WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
+                WorktreeSetupResult setupResult = setupNewGitWorktree(
+                        project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
                 Path newWorktreePath = setupResult.worktreePath();
 
-                Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
+                Brokk.OpenProjectBuilder openProjectBuilder =
+                        new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
                 if (copyWorkspace) {
                     logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
                     openProjectBuilder.sourceContextForSession(contextManager.topContext());
@@ -651,16 +733,23 @@ public class GitWorktreeTab extends JPanel {
                     }
                     SwingUtilities.invokeLater(this::loadWorktrees);
                 });
-                chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at " + newWorktreePath);
+                chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at "
+                        + newWorktreePath);
 
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error during add worktree dialog processing or future execution", e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                        "Error processing worktree addition: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        GitWorktreeTab.this,
+                        "Error processing worktree addition: " + e.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE));
             } catch (GitAPIException | IOException e) { // Catches from setupNewGitWorktree or sanitizeBranchName
                 logger.error("Error creating worktree", e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                        "Error creating worktree: " + e.getMessage(), "Git Error", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        GitWorktreeTab.this,
+                        "Error creating worktree: " + e.getMessage(),
+                        "Git Error",
+                        JOptionPane.ERROR_MESSAGE));
             }
         });
     }
@@ -672,13 +761,13 @@ public class GitWorktreeTab extends JPanel {
         }
 
         String pathListString = pathsToRemove.stream()
-                                             .map(p -> p.getFileName().toString()) // More concise display
-                                             .collect(Collectors.joining("\n"));
+                .map(p -> p.getFileName().toString()) // More concise display
+                .collect(Collectors.joining("\n"));
 
         int confirm = JOptionPane.showConfirmDialog(
                 this,
-                "Are you sure you want to remove the following worktree(s):\n" + pathListString +
-                "\n\nThis will delete the files from disk and attempt to close their Brokk window(s) if open.",
+                "Are you sure you want to remove the following worktree(s):\n" + pathListString
+                        + "\n\nThis will delete the files from disk and attempt to close their Brokk window(s) if open.",
                 "Confirm Worktree Removal",
                 JOptionPane.YES_NO_OPTION,
                 JOptionPane.WARNING_MESSAGE);
@@ -691,10 +780,11 @@ public class GitWorktreeTab extends JPanel {
         IGitRepo repo = project.getRepo();
 
         if (!(repo instanceof GitRepo)) { // Should not happen if buttons are correctly disabled by buildUnsupportedUI
-            JOptionPane.showMessageDialog(this,
-                "Worktree operations are only supported for Git repositories.",
-                "Error",
-                JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Worktree operations are only supported for Git repositories.",
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE);
             return;
         }
 
@@ -716,22 +806,29 @@ public class GitWorktreeTab extends JPanel {
                         try {
                             logger.debug("ForceAll active; attempting forced removal of worktree {}", worktreePath);
                             attemptRemoveWorktree(repo, worktreePath, true);
-                        } catch (GitRepo.GitRepoException forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
-                            logger.error("Error during forced removal of worktree {}: {}", worktreePath, forceEx.getMessage(), forceEx);
+                        } catch (
+                                GitRepo.GitRepoException
+                                        forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
+                            logger.error(
+                                    "Error during forced removal of worktree {}: {}",
+                                    worktreePath,
+                                    forceEx.getMessage(),
+                                    forceEx);
                             reportRemoveError(worktreePath, forceEx);
                             anyFailed = true;
                         }
                         continue;
                     }
 
-                    final java.util.concurrent.CompletableFuture<Integer> dialogResultFuture = new java.util.concurrent.CompletableFuture<>();
+                    final java.util.concurrent.CompletableFuture<Integer> dialogResultFuture =
+                            new java.util.concurrent.CompletableFuture<>();
                     SwingUtilities.invokeLater(() -> {
                         Object[] options = {"Yes", "Yes to All", "No"};
                         int result = JOptionPane.showOptionDialog(
                                 GitWorktreeTab.this,
-                                "Removing worktree '" + worktreePath.getFileName() + "' requires force.\n" +
-                                ne.getMessage() + "\n" +
-                                "Do you want to force delete it?",
+                                "Removing worktree '" + worktreePath.getFileName() + "' requires force.\n"
+                                        + ne.getMessage()
+                                        + "\n" + "Do you want to force delete it?",
                                 "Force Worktree Removal",
                                 JOptionPane.DEFAULT_OPTION,
                                 JOptionPane.WARNING_MESSAGE,
@@ -750,23 +847,40 @@ public class GitWorktreeTab extends JPanel {
                             try {
                                 logger.debug("Attempting forced removal of worktree {}", worktreePath);
                                 attemptRemoveWorktree(repo, worktreePath, true);
-                            } catch (GitRepo.GitRepoException forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
-                                logger.error("Error during forced removal of worktree {}: {}", worktreePath, forceEx.getMessage(), forceEx);
+                            } catch (
+                                    GitRepo.GitRepoException
+                                            forceEx) { // WorktreeNeedsForceException is a subclass and would be caught
+                                // here
+                                logger.error(
+                                        "Error during forced removal of worktree {}: {}",
+                                        worktreePath,
+                                        forceEx.getMessage(),
+                                        forceEx);
                                 reportRemoveError(worktreePath, forceEx);
                                 anyFailed = true;
                             }
                         } else {
-                            chrome.systemOutput("Force removal of worktree " + worktreePath.getFileName() + " cancelled by user.");
+                            chrome.systemOutput(
+                                    "Force removal of worktree " + worktreePath.getFileName() + " cancelled by user.");
                         }
                     } catch (InterruptedException ie) {
                         throw new RuntimeException(ie);
                     } catch (ExecutionException ee) {
-                        logger.error("Error obtaining dialog result for force removal of worktree {}: {}", worktreePath, ee.getMessage(), ee);
-                        reportRemoveError(worktreePath, new Exception("Failed to get dialog result for force removal.", ee));
+                        logger.error(
+                                "Error obtaining dialog result for force removal of worktree {}: {}",
+                                worktreePath,
+                                ee.getMessage(),
+                                ee);
+                        reportRemoveError(
+                                worktreePath, new Exception("Failed to get dialog result for force removal.", ee));
                         anyFailed = true;
                     }
                 } catch (GitRepo.GitRepoException ge) {
-                    logger.error("GitRepoException during (non-forced) removal of worktree {}: {}", worktreePath, ge.getMessage(), ge);
+                    logger.error(
+                            "GitRepoException during (non-forced) removal of worktree {}: {}",
+                            worktreePath,
+                            ge.getMessage(),
+                            ge);
                     reportRemoveError(worktreePath, ge);
                     anyFailed = true;
                 }
@@ -794,8 +908,9 @@ public class GitWorktreeTab extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
                 if (windowToClose != null) {
-                    windowToClose.getFrame().dispatchEvent(
-                            new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
+                    windowToClose
+                            .getFrame()
+                            .dispatchEvent(new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
                 }
             });
         } catch (GitRepo.WorktreeNeedsForceException wnf) {
@@ -804,27 +919,31 @@ public class GitWorktreeTab extends JPanel {
             } else {
                 // If 'force' was true and we still get this, it's an unexpected error.
                 throw new GitRepo.GitRepoException(
-                        "Worktree removal for " + worktreePath.getFileName() + " reported 'needs force' even when force was active.", wnf);
+                        "Worktree removal for " + worktreePath.getFileName()
+                                + " reported 'needs force' even when force was active.",
+                        wnf);
             }
         } catch (GitAPIException gae) { // Includes other JGit/GitAPI specific exceptions
             throw new GitRepo.GitRepoException(
-                    "Git API error during " + (force ? "forced " : "") + "removal of worktree " + worktreePath.getFileName() + ": " + gae.getMessage(), gae);
+                    "Git API error during " + (force ? "forced " : "") + "removal of worktree "
+                            + worktreePath.getFileName() + ": " + gae.getMessage(),
+                    gae);
         } catch (RuntimeException re) { // Catches GitWrappedIOException or other runtime issues
             throw new GitRepo.GitRepoException(
-                    "Runtime error during " + (force ? "forced " : "") + "removal of worktree " + worktreePath.getFileName() + ": " + re.getMessage(), re);
+                    "Runtime error during " + (force ? "forced " : "") + "removal of worktree "
+                            + worktreePath.getFileName() + ": " + re.getMessage(),
+                    re);
         }
     }
 
     private void reportRemoveError(Path worktreePath, Exception e) {
         final String pathName = worktreePath.getFileName().toString();
-        SwingUtilities.invokeLater(() ->
-            JOptionPane.showMessageDialog(this,
-                    "Error during removal of worktree " + pathName + ":\n" + e.getMessage(),
-                    "Worktree Removal Error",
-                    JOptionPane.ERROR_MESSAGE)
-        );
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                this,
+                "Error during removal of worktree " + pathName + ":\n" + e.getMessage(),
+                "Worktree Removal Error",
+                JOptionPane.ERROR_MESSAGE));
     }
-
 
     public void refresh() {
         IGitRepo repo = contextManager.getProject().getRepo();
@@ -843,7 +962,8 @@ public class GitWorktreeTab extends JPanel {
      *
      * @param parentProject The main project.
      * @param gitRepo The GitRepo instance of the main project.
-     * @param branchForWorktree The name of the branch the new worktree will be on. If creating a new branch, this is its name.
+     * @param branchForWorktree The name of the branch the new worktree will be on. If creating a new branch, this is
+     *     its name.
      * @param isCreatingNewBranch True if a new branch should be created.
      * @param sourceBranchForNew The branch to create from, if {@code isCreatingNewBranch} is true. Otherwise null.
      * @return A {@link WorktreeSetupResult} containing the path to the newly created worktree and the branch name used.
@@ -863,7 +983,11 @@ public class GitWorktreeTab extends JPanel {
         Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
 
         if (isCreatingNewBranch) {
-            logger.debug("Creating new branch '{}' from '{}' for worktree at {}", branchForWorktree, sourceBranchForNew, newWorktreePath);
+            logger.debug(
+                    "Creating new branch '{}' from '{}' for worktree at {}",
+                    branchForWorktree,
+                    sourceBranchForNew,
+                    newWorktreePath);
             gitRepo.createBranch(branchForWorktree, sourceBranchForNew);
         }
 
@@ -885,14 +1009,15 @@ public class GitWorktreeTab extends JPanel {
                 var destCpg = newWorktreePath.resolve(relative);
                 Files.createDirectories(destCpg.getParent());
                 try {
-                    Files.createLink(destCpg, srcCpg);  // Try hard-link first
+                    Files.createLink(destCpg, srcCpg); // Try hard-link first
                     logger.debug("Hard-linked CPG cache from {} to {}", srcCpg, destCpg);
                 } catch (UnsupportedOperationException | IOException linkEx) {
                     Files.copy(srcCpg, destCpg, StandardCopyOption.REPLACE_EXISTING);
                     logger.debug("Copied CPG cache from {} to {}", srcCpg, destCpg);
                 }
             } catch (IOException copyEx) {
-                logger.warn("Failed to replicate CPG cache for language {}: {}", lang.name(), copyEx.getMessage(), copyEx);
+                logger.warn(
+                        "Failed to replicate CPG cache for language {}: {}", lang.name(), copyEx.getMessage(), copyEx);
             }
         }
 
@@ -946,7 +1071,8 @@ public class GitWorktreeTab extends JPanel {
         JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
         var lastMergeMode = parentProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
         mergeModeComboBox.setSelectedItem(lastMergeMode);
-        mergeModeComboBox.addActionListener(MergeBranchDialogPanel.createMergeModePersistenceListener(mergeModeComboBox, parentProject));
+        mergeModeComboBox.addActionListener(
+                MergeBranchDialogPanel.createMergeModePersistenceListener(mergeModeComboBox, parentProject));
         dialogPanel.add(mergeModeComboBox, gbc);
         gbc.weightx = 0;
 
@@ -968,7 +1094,6 @@ public class GitWorktreeTab extends JPanel {
             targetBranchComboBox.addItem("Unsupported parent repo type");
             targetBranchComboBox.setEnabled(false);
         }
-
 
         // Checkboxes
         gbc.gridwidth = GridBagConstraints.REMAINDER; // Span full width for checkboxes and label
@@ -1008,7 +1133,8 @@ public class GitWorktreeTab extends JPanel {
         for (Component comp : optionPane.getComponents()) {
             if (comp instanceof JPanel buttonBar) { // JPanel often contains buttons
                 for (Component btnComp : buttonBar.getComponents()) {
-                    if (btnComp instanceof JButton jButton && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                    if (btnComp instanceof JButton jButton
+                            && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
                         okButton = jButton;
                         break;
                     }
@@ -1024,12 +1150,14 @@ public class GitWorktreeTab extends JPanel {
             for (int i = components.length - 1; i >= 0; i--) {
                 if (components[i] instanceof JPanel panel) {
                     for (Component c : panel.getComponents()) {
-                        if (c instanceof JButton jButton && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                        if (c instanceof JButton jButton
+                                && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
                             okButton = jButton;
                             break;
                         }
                     }
-                } else if (components[i] instanceof JButton jButton && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                } else if (components[i] instanceof JButton jButton
+                        && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
                     okButton = jButton;
                 }
                 if (okButton != null) break;
@@ -1038,16 +1166,20 @@ public class GitWorktreeTab extends JPanel {
 
         // Add ActionListeners to combo boxes
         final JButton finalOkButton = okButton; // effectively final for lambda
-        targetBranchComboBox.addActionListener(e -> checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
-        mergeModeComboBox.addActionListener(e -> checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
+        targetBranchComboBox.addActionListener(e -> checkConflictsAsync(
+                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
+        mergeModeComboBox.addActionListener(e -> checkConflictsAsync(
+                targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
 
         if (okButton != null) {
             // Initial conflict check, now passing the button
-            checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, okButton);
+            checkConflictsAsync(
+                    targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, okButton);
         } else {
             logger.warn("Could not find the OK button in the merge dialog. OK button state will not be managed.");
             // Fallback: perform an initial check without button control if OK button not found
-            checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, null);
+            checkConflictsAsync(
+                    targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, null);
         }
 
         dialog.setVisible(true);
@@ -1061,29 +1193,40 @@ public class GitWorktreeTab extends JPanel {
             final GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
             String currentConflictText = conflictStatusLabel.getText(); // Check the final state of the label
-            if (currentConflictText.startsWith("No conflicts detected") || currentConflictText.startsWith("Checking for conflicts")) {
-                 logger.info("Merge confirmed for worktree branch '{}' into target branch '{}' using mode '{}'. Remove worktree: {}, Remove branch: {}",
-                    finalWorktreeBranchName,
-                    selectedTargetBranch,
-                    selectedMergeMode,
-                    removeWorktreeCb.isSelected(),
-                    removeBranchCb.isSelected());
-                performMergeOperation(finalWorktreeBranchName,
-                                      selectedTargetBranch,
-                                      selectedMergeMode,
-                                      removeWorktreeCb.isSelected(),
-                                      removeBranchCb.isSelected());
+            if (currentConflictText.startsWith("No conflicts detected")
+                    || currentConflictText.startsWith("Checking for conflicts")) {
+                logger.info(
+                        "Merge confirmed for worktree branch '{}' into target branch '{}' using mode '{}'. Remove worktree: {}, Remove branch: {}",
+                        finalWorktreeBranchName,
+                        selectedTargetBranch,
+                        selectedMergeMode,
+                        removeWorktreeCb.isSelected(),
+                        removeBranchCb.isSelected());
+                performMergeOperation(
+                        finalWorktreeBranchName,
+                        selectedTargetBranch,
+                        selectedMergeMode,
+                        removeWorktreeCb.isSelected(),
+                        removeBranchCb.isSelected());
             } else {
-                logger.info("Merge dialog confirmed with OK, but conflicts were present or an error occurred. Merge not performed.");
-                 JOptionPane.showMessageDialog(this,
-                    "Merge was not performed because conflicts were detected or an error occurred:\n" + currentConflictText,
-                    "Merge Prevented",
-                    JOptionPane.WARNING_MESSAGE);
+                logger.info(
+                        "Merge dialog confirmed with OK, but conflicts were present or an error occurred. Merge not performed.");
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Merge was not performed because conflicts were detected or an error occurred:\n"
+                                + currentConflictText,
+                        "Merge Prevented",
+                        JOptionPane.WARNING_MESSAGE);
             }
         }
     }
 
-    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<GitRepo.MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, @Nullable JButton okButton) {
+    private void checkConflictsAsync(
+            JComboBox<String> targetBranchComboBox,
+            JComboBox<GitRepo.MergeMode> mergeModeComboBox,
+            JLabel conflictStatusLabel,
+            String worktreeBranchName,
+            @Nullable JButton okButton) {
         if (okButton != null) {
             okButton.setEnabled(false);
         }
@@ -1091,7 +1234,12 @@ public class GitWorktreeTab extends JPanel {
         String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
         GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
-        if (selectedTargetBranch == null || selectedTargetBranch.equals("Error loading branches") || selectedTargetBranch.equals("Unsupported parent repo type") || selectedTargetBranch.equals("Parent repo not available") || selectedTargetBranch.equals("Parent project not found") || selectedTargetBranch.equals("Not a worktree project")) {
+        if (selectedTargetBranch == null
+                || selectedTargetBranch.equals("Error loading branches")
+                || selectedTargetBranch.equals("Unsupported parent repo type")
+                || selectedTargetBranch.equals("Parent repo not available")
+                || selectedTargetBranch.equals("Parent project not found")
+                || selectedTargetBranch.equals("Not a worktree project")) {
             conflictStatusLabel.setText("Please select a valid target branch.");
             conflictStatusLabel.setForeground(Color.RED);
             // okButton is already disabled, or null if not found
@@ -1117,9 +1265,8 @@ public class GitWorktreeTab extends JPanel {
                     conflictResultString = "Cannot merge a branch into itself.";
                 } else {
                     // This checks for historical conflicts in a clean, temporary worktree
-                    conflictResultString = gitRepo.checkMergeConflicts(worktreeBranchName,
-                                                                       finalSelectedTargetBranch,
-                                                                       finalSelectedMergeMode);
+                    conflictResultString = gitRepo.checkMergeConflicts(
+                            worktreeBranchName, finalSelectedTargetBranch, finalSelectedMergeMode);
                 }
             } catch (GitRepo.WorktreeDirtyException e) {
                 // uncommitted changes that would prevent even starting a simulation.
@@ -1142,7 +1289,8 @@ public class GitWorktreeTab extends JPanel {
                         okButton.setEnabled(false);
                     }
                 } else {
-                    conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for " + finalSelectedMergeMode.toString().toLowerCase(Locale.ROOT) + ".");
+                    conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for "
+                            + finalSelectedMergeMode.toString().toLowerCase(Locale.ROOT) + ".");
                     conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green for no conflicts
                     if (okButton != null) {
                         okButton.setEnabled(true);
@@ -1153,10 +1301,17 @@ public class GitWorktreeTab extends JPanel {
         });
     }
 
-    private void performMergeOperation(String worktreeBranchName, String targetBranch, GitRepo.MergeMode mode, boolean deleteWorktree, boolean deleteBranch) {
+    private void performMergeOperation(
+            String worktreeBranchName,
+            String targetBranch,
+            GitRepo.MergeMode mode,
+            boolean deleteWorktree,
+            boolean deleteBranch) {
         var project = contextManager.getProject();
         if (!(project instanceof WorktreeProject worktreeProject)) {
-            logger.error("performMergeOperation called on a non-WorktreeProject: {}", project.getClass().getSimpleName());
+            logger.error(
+                    "performMergeOperation called on a non-WorktreeProject: {}",
+                    project.getClass().getSimpleName());
             return;
         }
 
@@ -1177,28 +1332,33 @@ public class GitWorktreeTab extends JPanel {
                 // Use the centralized merge methods from GitRepo
                 logger.info("Performing {} of {} into {}", mode, worktreeBranchName, targetBranch);
                 MergeResult mergeResult = parentGitRepo.performMerge(worktreeBranchName, mode);
-                
+
                 if (!GitRepo.isMergeSuccessful(mergeResult, mode)) {
                     String conflictDetails = mergeResult.getConflicts() != null
-                                             ? String.join(", ", mergeResult.getConflicts().keySet())
-                                             : "unknown conflicts";
-                    String errorMessage = "Merge failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
+                            ? String.join(", ", mergeResult.getConflicts().keySet())
+                            : "unknown conflicts";
+                    String errorMessage = "Merge failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: "
+                            + conflictDetails;
                     logger.error(errorMessage);
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                            GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
                     return null; // Exit the task, finally block will still run
                 }
-                
-                String modeDescription = switch (mode) {
-                    case MERGE_COMMIT -> "merged";
-                    case SQUASH_COMMIT -> "squash merged";
-                    case REBASE_MERGE -> "rebase-merged";
-                };
-                chrome.systemOutput("Successfully " + modeDescription + " " + worktreeBranchName + " into " + targetBranch);
+
+                String modeDescription =
+                        switch (mode) {
+                            case MERGE_COMMIT -> "merged";
+                            case SQUASH_COMMIT -> "squash merged";
+                            case REBASE_MERGE -> "rebase-merged";
+                        };
+                chrome.systemOutput(
+                        "Successfully " + modeDescription + " " + worktreeBranchName + " into " + targetBranch);
 
                 // Post-Merge Cleanup
                 if (deleteWorktree) {
                     logger.info("Attempting to delete worktree: {}", worktreePath);
-                    MainProject.removeFromOpenProjectsListAndClearActiveSession(worktreePath); // Attempt to close if open
+                    MainProject.removeFromOpenProjectsListAndClearActiveSession(
+                            worktreePath); // Attempt to close if open
                     try {
                         parentGitRepo.removeWorktree(worktreePath, true); // Force remove during automated cleanup
                         chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
@@ -1212,11 +1372,15 @@ public class GitWorktreeTab extends JPanel {
                             }
                         });
                     } catch (GitAPIException e) {
-                        String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName() + " during merge cleanup: " + e.getMessage();
+                        String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName()
+                                + " during merge cleanup: " + e.getMessage();
                         logger.error(wtDeleteError, e);
                         // Inform user, but proceed with other cleanup if possible
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                                wtDeleteError, "Worktree Deletion Failed (Cleanup)", JOptionPane.WARNING_MESSAGE));
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                GitWorktreeTab.this,
+                                wtDeleteError,
+                                "Worktree Deletion Failed (Cleanup)",
+                                JOptionPane.WARNING_MESSAGE));
                     }
 
                     if (deleteBranch) {
@@ -1225,23 +1389,27 @@ public class GitWorktreeTab extends JPanel {
                             parentGitRepo.forceDeleteBranch(worktreeBranchName);
                             chrome.systemOutput("Branch " + worktreeBranchName + " deleted.");
                         } catch (GitAPIException e) {
-                            String branchDeleteError = "Failed to delete branch " + worktreeBranchName + ": " + e.getMessage();
+                            String branchDeleteError =
+                                    "Failed to delete branch " + worktreeBranchName + ": " + e.getMessage();
                             logger.error(branchDeleteError, e);
-                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                                    branchDeleteError, "Branch Deletion Failed", JOptionPane.ERROR_MESSAGE));
+                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                    GitWorktreeTab.this,
+                                    branchDeleteError,
+                                    "Branch Deletion Failed",
+                                    JOptionPane.ERROR_MESSAGE));
                         }
                     }
                 }
             } catch (GitAPIException e) {
                 String errorMessage = "Error during merge operation: " + e.getMessage();
                 logger.error(errorMessage, e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                        errorMessage, "Merge Operation Failed", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        GitWorktreeTab.this, errorMessage, "Merge Operation Failed", JOptionPane.ERROR_MESSAGE));
             } catch (Exception e) {
                 String errorMessage = "Unexpected error during merge operation: " + e.getMessage();
                 logger.error(errorMessage, e);
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                        errorMessage, "Unexpected Error", JOptionPane.ERROR_MESSAGE));
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                        GitWorktreeTab.this, errorMessage, "Unexpected Error", JOptionPane.ERROR_MESSAGE));
             } finally {
                 if (originalParentBranch != null) {
                     try {
@@ -1250,10 +1418,13 @@ public class GitWorktreeTab extends JPanel {
                         chrome.systemOutput("Switched parent repository back to branch: " + originalParentBranch);
                     } catch (GitAPIException e) {
                         String restoreError = "Critical: Failed to switch parent repository back to original branch '"
-                                              + originalParentBranch + "': " + e.getMessage();
+                                + originalParentBranch + "': " + e.getMessage();
                         logger.error(restoreError, e);
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                                restoreError, "Repository State Error", JOptionPane.ERROR_MESSAGE));
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                                GitWorktreeTab.this,
+                                restoreError,
+                                "Repository State Error",
+                                JOptionPane.ERROR_MESSAGE));
                     }
                 }
                 SwingUtilities.invokeLater(() -> {

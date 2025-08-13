@@ -1,10 +1,9 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Chrome;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionListener;
+import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 public final class LoadingButton extends JButton {
@@ -12,14 +11,12 @@ public final class LoadingButton extends JButton {
     private final Chrome chrome;
     private String idleText;
     private String idleTooltip;
+
     @Nullable
     private Icon idleIcon;
 
-    public LoadingButton(String initialText,
-                         @Nullable Icon initialIcon,
-                         Chrome chrome,
-                         @Nullable ActionListener actionListener)
-    {
+    public LoadingButton(
+            String initialText, @Nullable Icon initialIcon, Chrome chrome, @Nullable ActionListener actionListener) {
         super(initialText, initialIcon);
 
         this.idleText = initialText;
@@ -37,8 +34,9 @@ public final class LoadingButton extends JButton {
     /**
      * Sets the loading state of the button. This method must be called on the Event Dispatch Thread (EDT).
      *
-     * @param loading   true to enter loading state, false to return to idle state.
-     * @param busyText  The text to display when in the loading state. If null, the button's text area might appear empty or show the icon only.
+     * @param loading true to enter loading state, false to return to idle state.
+     * @param busyText The text to display when in the loading state. If null, the button's text area might appear empty
+     *     or show the icon only.
      */
     public void setLoading(boolean loading, @Nullable String busyText) {
         assert SwingUtilities.isEventDispatchThread() : "LoadingButton.setLoading must be called on the EDT";

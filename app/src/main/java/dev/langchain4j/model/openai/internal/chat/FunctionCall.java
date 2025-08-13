@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = FunctionCall.Builder.class)
@@ -17,6 +16,7 @@ public class FunctionCall {
 
     @JsonProperty
     private final String name;
+
     @JsonProperty
     private final String arguments;
 
@@ -36,13 +36,11 @@ public class FunctionCall {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof FunctionCall
-                && equalTo((FunctionCall) another);
+        return another instanceof FunctionCall && equalTo((FunctionCall) another);
     }
 
     private boolean equalTo(FunctionCall another) {
-        return Objects.equals(name, another.name)
-                && Objects.equals(arguments, another.arguments);
+        return Objects.equals(name, another.name) && Objects.equals(arguments, another.arguments);
     }
 
     @Override
@@ -55,10 +53,7 @@ public class FunctionCall {
 
     @Override
     public String toString() {
-        return "FunctionCall{"
-                + "name=" + name
-                + ", arguments=" + arguments
-                + "}";
+        return "FunctionCall{" + "name=" + name + ", arguments=" + arguments + "}";
     }
 
     public static Builder builder() {

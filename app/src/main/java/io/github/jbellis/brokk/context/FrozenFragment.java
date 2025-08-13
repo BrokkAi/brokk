@@ -1,15 +1,14 @@
 package io.github.jbellis.brokk.context;
 
+import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
+
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.FragmentUtils;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Nullable;
-
-import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -25,19 +24,16 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
-import static java.util.Objects.requireNonNullElse;
-
+import javax.imageio.ImageIO;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * A frozen representation of a dynamic ContextFragment that captures its state at a point in time
- * without depending on the filesystem or analyzer. This allows ContextHistory to accurately
- * represent what the Workspace looked like when the entry was created.
- * The ID of a FrozenFragment is its content hash.
+ * A frozen representation of a dynamic ContextFragment that captures its state at a point in time without depending on
+ * the filesystem or analyzer. This allows ContextHistory to accurately represent what the Workspace looked like when
+ * the entry was created. The ID of a FrozenFragment is its content hash.
  *
- * FrozenFragments are never created for non-dynamic ContextFragments, which are already content-addressable.
+ * <p>FrozenFragments are never created for non-dynamic ContextFragments, which are already content-addressable.
  */
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
@@ -45,17 +41,24 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     // Captured fragment state for behavior and unfreezing
     private final ContextFragment.FragmentType originalType;
+
     @Nullable
     private final String descriptionContent; // Full description
+
     @Nullable
     private final String shortDescriptionContent; // Short description
+
     @Nullable
     private final String textContent; // Null if image fragment
+
     @Nullable
     private final byte[] imageBytesContent; // Null if text fragment
+
     private final boolean isTextFragment;
+
     @Nullable
     private final String syntaxStyle;
+
     private final Set<ProjectFile> files; // Files associated at time of freezing
 
     // Metadata for unfreezing
@@ -63,20 +66,22 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     private final Map<String, String> meta; // Type-specific metadata for reconstruction
 
     /**
-     * Private constructor for creating FrozenFragment instances.
-     * The ID (contentHash) is passed to the super constructor.
+     * Private constructor for creating FrozenFragment instances. The ID (contentHash) is passed to the super
+     * constructor.
      */
-    private FrozenFragment(String contentHashAsId, IContextManager contextManager,
-                           ContextFragment.FragmentType originalType,
-                           @Nullable String description,
-                           @Nullable String shortDescription,
-                           @Nullable String textContent,
-                           @Nullable byte[] imageBytesContent,
-                           boolean isTextFragment,
-                           @Nullable String syntaxStyle,
-                           Set<ProjectFile> files,
-                           String originalClassName,
-                           Map<String, String> meta) {
+    private FrozenFragment(
+            String contentHashAsId,
+            IContextManager contextManager,
+            ContextFragment.FragmentType originalType,
+            @Nullable String description,
+            @Nullable String shortDescription,
+            @Nullable String textContent,
+            @Nullable byte[] imageBytesContent,
+            boolean isTextFragment,
+            @Nullable String syntaxStyle,
+            Set<ProjectFile> files,
+            String originalClassName,
+            Map<String, String> meta) {
         super(requireNonNull(contentHashAsId), contextManager); // ID is the content hash, must not be null
         this.originalType = originalType;
         this.descriptionContent = description;
@@ -132,7 +137,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                <frozen fragmentid="%s" description="%s" originalType="%s">
                %s
                </frozen>
-               """.stripIndent().formatted(id(), descriptionContent, originalType.name(), text());
+               """
+                .stripIndent()
+                .formatted(id(), descriptionContent, originalType.name(), text());
     }
 
     // id() is inherited from VirtualFragment and returns the contentHash.
@@ -142,7 +149,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     public boolean isDynamic() {
         return false;
     }
-    
+
     @Override
     public boolean isText() {
         return isTextFragment;
@@ -154,39 +161,39 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     }
 
     /**
-     * ideally we would snapshot the sources of the live fragment, but this is impractical since to do so we
-     * need an Analyzer, and one is not always available when we are manipulating workspace Fragments.
-     * sources() is otherwise only called by user actions that make sense to block for Analyzer on, so
-     * as a compromise, we force callers who want sources to go through the live Fragment instead.
-    */
+     * ideally we would snapshot the sources of the live fragment, but this is impractical since to do so we need an
+     * Analyzer, and one is not always available when we are manipulating workspace Fragments. sources() is otherwise
+     * only called by user actions that make sense to block for Analyzer on, so as a compromise, we force callers who
+     * want sources to go through the live Fragment instead.
+     */
     @Override
     public Set<CodeUnit> sources() {
         throw new UnsupportedOperationException();
     }
-    
+
     @Override
     public Set<ProjectFile> files() {
         return files;
     }
-    
+
     /**
      * Gets the original class name of the frozen fragment.
-     * 
+     *
      * @return The original class name
      */
     public String originalClassName() {
         return originalClassName;
     }
-    
+
     /**
      * Gets the metadata map for unfreezing.
-     * 
+     *
      * @return The metadata map
      */
     public Map<String, String> meta() {
         return meta;
     }
-    
+
     /**
      * Gets the image bytes content if this is an image fragment.
      *
@@ -197,13 +204,11 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         return imageBytesContent;
     }
 
-
     /**
-     * Factory method for creating FrozenFragment from DTO data.
-     * The provided 'id' from the DTO is expected to be the content hash.
-     * Note: This does not participate in interning by default; primarily for deserialization.
-     * If interning of deserialized objects is desired, one might call freeze() on the result,
-     * or enhance this to use the INTERN_POOL.
+     * Factory method for creating FrozenFragment from DTO data. The provided 'id' from the DTO is expected to be the
+     * content hash. Note: This does not participate in interning by default; primarily for deserialization. If
+     * interning of deserialized objects is desired, one might call freeze() on the result, or enhance this to use the
+     * INTERN_POOL.
      *
      * @param idFromDto The fragment ID from DTO (expected to be the content hash).
      * @param contextManager The context manager.
@@ -219,17 +224,35 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @param meta The metadata map.
      * @return A new FrozenFragment instance.
      */
-    public static FrozenFragment fromDto(String idFromDto, IContextManager contextManager, // id is String
-                                         ContextFragment.FragmentType originalType,
-                                         @Nullable String description, @Nullable String shortDescription, @Nullable String textContent, @Nullable byte[] imageBytesContent,
-                                         boolean isTextFragment, @Nullable String syntaxStyle,
-                                         Set<ProjectFile> files,
-                                         String originalClassName, Map<String, String> meta) {
+    public static FrozenFragment fromDto(
+            String idFromDto,
+            IContextManager contextManager, // id is String
+            ContextFragment.FragmentType originalType,
+            @Nullable String description,
+            @Nullable String shortDescription,
+            @Nullable String textContent,
+            @Nullable byte[] imageBytesContent,
+            boolean isTextFragment,
+            @Nullable String syntaxStyle,
+            Set<ProjectFile> files,
+            String originalClassName,
+            Map<String, String> meta) {
         // idFromDto is the contentHash. Use INTERN_POOL to ensure global uniqueness.
-        return INTERN_POOL.computeIfAbsent(idFromDto,
-                                           hashAsKey -> new FrozenFragment(hashAsKey, contextManager, originalType, description, shortDescription, textContent,
-                                                                           imageBytesContent, isTextFragment, syntaxStyle, files,
-                                                                           originalClassName, meta));
+        return INTERN_POOL.computeIfAbsent(
+                idFromDto,
+                hashAsKey -> new FrozenFragment(
+                        hashAsKey,
+                        contextManager,
+                        originalType,
+                        description,
+                        shortDescription,
+                        textContent,
+                        imageBytesContent,
+                        isTextFragment,
+                        syntaxStyle,
+                        files,
+                        originalClassName,
+                        meta));
     }
 
     /**
@@ -242,7 +265,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @throws InterruptedException If interrupted while reading fragment content
      */
     public static ContextFragment freeze(ContextFragment liveFragment, IContextManager contextManagerForFrozenFragment)
-    throws IOException, InterruptedException {
+            throws IOException, InterruptedException {
         if (liveFragment instanceof FrozenFragment ff) {
             return ff; // Already frozen
         }
@@ -277,7 +300,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     meta.put("repoRoot", pf.file().getRoot().toString());
                     meta.put("relPath", pf.file().getRelPath().toString());
                 }
-                case ExternalPathFragment ef -> meta.put("absPath", ef.file().absPath().toString());
+                case ExternalPathFragment ef ->
+                    meta.put("absPath", ef.file().absPath().toString());
                 case ImageFileFragment iff -> {
                     meta.put("absPath", iff.file().absPath().toString());
                     if (iff.file() instanceof ProjectFile pf) {
@@ -301,14 +325,22 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     meta.put("depth", String.valueOf(cgf.getDepth()));
                     meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
                 }
-                default -> { /* No type-specific meta beyond what's standard for hashing */ }
+                default -> {
+                    /* No type-specific meta beyond what's standard for hashing */
+                }
             }
 
-            String contentHash = FragmentUtils.calculateContentHash(type, fullDescription, shortDescription,
-                                                                    Objects.toString(textContent, ""),
-                                                                    requireNonNullElse(imageBytesContent, new byte[0]),
-                                                                    isText, syntaxStyle, files,
-                                                                    originalClassName, meta);
+            String contentHash = FragmentUtils.calculateContentHash(
+                    type,
+                    fullDescription,
+                    shortDescription,
+                    Objects.toString(textContent, ""),
+                    requireNonNullElse(imageBytesContent, new byte[0]),
+                    isText,
+                    syntaxStyle,
+                    files,
+                    originalClassName,
+                    meta);
 
             final String finalFullDescription = fullDescription;
             final String finalShortDescription = shortDescription;
@@ -316,19 +348,21 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             final byte[] finalImageBytesContent = imageBytesContent;
             final Map<String, String> finalMeta = meta;
 
-            return INTERN_POOL.computeIfAbsent(contentHash,
-                                               k -> new FrozenFragment(k, // k is contentHash, used as ID
-                                                                       contextManagerForFrozenFragment,
-                                                                       type,
-                                                                       finalFullDescription,
-                                                                       finalShortDescription,
-                                                                       finalTextContent,
-                                                                       finalImageBytesContent,
-                                                                       isText,
-                                                                       syntaxStyle,
-                                                                       files,
-                                                                       originalClassName,
-                                                                       finalMeta));
+            return INTERN_POOL.computeIfAbsent(
+                    contentHash,
+                    k -> new FrozenFragment(
+                            k, // k is contentHash, used as ID
+                            contextManagerForFrozenFragment,
+                            type,
+                            finalFullDescription,
+                            finalShortDescription,
+                            finalTextContent,
+                            finalImageBytesContent,
+                            isText,
+                            syntaxStyle,
+                            files,
+                            originalClassName,
+                            finalMeta));
         } catch (UncheckedIOException e) {
             throw new IOException(e.getCause() != null ? e.getCause() : e);
         } catch (CancellationException e) {
@@ -340,7 +374,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     /**
      * Recreates a live fragment from this frozen representation.
-     * 
+     *
      * @param cm The context manager for the new live fragment
      * @return A live fragment equivalent to the original
      * @throws IOException If reconstruction fails
@@ -363,7 +397,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     throw new IllegalArgumentException("Missing metadata for ExternalPathFragment");
                 }
                 var file = new ExternalFile(Path.of(absPath));
-                yield new ContextFragment.ExternalPathFragment(file, cm); 
+                yield new ContextFragment.ExternalPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment" -> {
                 var absPath = meta.get("absPath");
@@ -382,7 +416,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 } else {
                     file = new ExternalFile(Path.of(absPath));
                 }
-                yield new ContextFragment.ImageFileFragment(file, cm); 
+                yield new ContextFragment.ImageFileFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment" -> {
                 var targetIdentifiersStr = meta.get("targetIdentifiers");
@@ -392,7 +426,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 }
                 var targetIdentifiers = Arrays.asList(targetIdentifiersStr.split(";"));
                 var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                yield new ContextFragment.SkeletonFragment(cm, targetIdentifiers, summaryType); 
+                yield new ContextFragment.SkeletonFragment(cm, targetIdentifiers, summaryType);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment" -> {
                 var targetIdentifier = meta.get("targetIdentifier");
@@ -410,25 +444,23 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 }
                 var depth = Integer.parseInt(depthStr);
                 var isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph); 
+                yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph);
             }
             default -> {
-                throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName +
-                                                           ". Implement unfreezing logic if this type needs to become live.");
+                throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName
+                        + ". Implement unfreezing logic if this type needs to become live.");
             }
         };
     }
 
-    /**
-     * Clears the internal intern pool. For testing purposes only.
-     */
+    /** Clears the internal intern pool. For testing purposes only. */
     static void clearInternPoolForTesting() {
         INTERN_POOL.clear();
     }
 
     /**
      * Converts an Image to a byte array in PNG format.
-     * 
+     *
      * @param image The image to convert
      * @return PNG bytes, or null if image is null
      * @throws IOException If conversion fails
@@ -438,25 +470,21 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         if (image instanceof BufferedImage bi) {
             bufferedImage = bi;
         } else {
-            bufferedImage = new BufferedImage(
-                image.getWidth(null),
-                image.getHeight(null),
-                BufferedImage.TYPE_INT_ARGB
-            );
+            bufferedImage = new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
             var g = bufferedImage.createGraphics();
             g.drawImage(image, 0, 0, null);
             g.dispose();
         }
-        
+
         try (var baos = new ByteArrayOutputStream()) {
             ImageIO.write(bufferedImage, "PNG", baos);
             return baos.toByteArray();
         }
     }
-    
+
     /**
      * Converts a byte array to an Image.
-     * 
+     *
      * @param bytes The byte array to convert
      * @return The converted image, or null if bytes is null
      * @throws IOException If conversion fails

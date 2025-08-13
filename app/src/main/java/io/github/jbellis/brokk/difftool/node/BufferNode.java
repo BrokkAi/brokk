@@ -1,6 +1,4 @@
-
 package io.github.jbellis.brokk.difftool.node;
-
 
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 
@@ -10,5 +8,4 @@ public interface BufferNode {
     long getSize();
 
     BufferDocumentIF getDocument();
-
 }

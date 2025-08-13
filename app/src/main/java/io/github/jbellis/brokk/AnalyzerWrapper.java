@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.IWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -7,11 +9,6 @@ import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,20 +21,26 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
-    public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
+    public static final String ANALYZER_BUSY_MESSAGE =
+            "Code Intelligence is still being built. Please wait until completion.";
     public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
 
     @Nullable
     private final AnalyzerListener listener; // can be null if no one is listening
+
     private final Path root;
+
     @Nullable
     private final Path gitRepoRoot;
+
     private final ContextManager.TaskRunner runner;
     private final IProject project;
     private final IWatchService watchService;
@@ -45,7 +48,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
     private volatile boolean rebuildInProgress = false;
-    private volatile boolean externalRebuildRequested = false; // TODO allow requesting either incremental or full rebuild
+    private volatile boolean externalRebuildRequested =
+            false; // TODO allow requesting either incremental or full rebuild
     private volatile boolean rebuildPending = false;
 
     public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener) {
@@ -55,7 +59,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         this.runner = runner;
         this.listener = listener;
         if (listener == null) {
-            this.watchService = new IWatchService() { };
+            this.watchService = new IWatchService() {};
         } else {
             this.watchService = new ProjectWatchService(root, gitRepoRoot, this);
         }
@@ -68,10 +72,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             watchService.start(delayNotificationsUntilCompleted);
 
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
-            long start =  System.currentTimeMillis();
+            long start = System.currentTimeMillis();
             currentAnalyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
-            
+
             delayNotificationsUntilCompleted.complete(null);
 
             // debug logging
@@ -95,7 +99,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            if (batch.isOverflowed || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir))) {
+            if (batch.isOverflowed
+                    || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir))) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
@@ -112,19 +117,19 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         // 3) We have an exact files list to check
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = project.getAnalyzerLanguages();
-        
-        var changedTrackedFiles = batch.files.stream()
-                .filter(trackedFiles::contains)
-                .collect(Collectors.toSet());
-        
+
+        var changedTrackedFiles =
+                batch.files.stream().filter(trackedFiles::contains).collect(Collectors.toSet());
+
         if (!changedTrackedFiles.isEmpty()) {
             // call listener (refreshes git panel)
             logger.debug("Changes in tracked files detected");
             if (listener != null) listener.onTrackedFileChange();
         }
-        
+
         var relevantFiles = changedTrackedFiles.stream()
-                .filter(pf -> projectLanguages.stream().anyMatch(L -> L.getExtensions().contains(pf.extension())))
+                .filter(pf -> projectLanguages.stream()
+                        .anyMatch(L -> L.getExtensions().contains(pf.extension())))
                 .collect(Collectors.toSet());
 
         if (!relevantFiles.isEmpty()) {
@@ -133,7 +138,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 return;
             }
 
-            logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
+            logger.debug(
+                    "Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                     relevantFiles.stream()
                             .filter(pf -> {
                                 Language lang = Language.fromExtension(pf.extension());
@@ -141,11 +147,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             })
                             .distinct()
                             .map(ProjectFile::toString)
-                            .collect(Collectors.joining(", "))
-            );
+                            .collect(Collectors.joining(", ")));
             refresh(() -> requireNonNull(currentAnalyzer).update(relevantFiles));
         } else {
-            logger.trace("No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
+            logger.trace(
+                    "No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
         }
     }
 
@@ -160,21 +166,17 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     /**
      * Builds or loads an {@link IAnalyzer} for the project.
      *
-     * <p>All “loop over every language” work is now delegated to a single
-     * {@link Language} handle:
+     * <p>All “loop over every language” work is now delegated to a single {@link Language} handle:
+     *
      * <ul>
-     *   <li>If the project has exactly one concrete language, that language is used
-     *       directly.</li>
-     *   <li>If the project has several languages, a new
-     *       {@link Language.MultiLanguage} wrapper is created to fan‑out the work
-     *       behind the scenes.</li>
+     *   <li>If the project has exactly one concrete language, that language is used directly.
+     *   <li>If the project has several languages, a new {@link Language.MultiLanguage} wrapper is created to fan‑out
+     *       the work behind the scenes.
      * </ul>
      *
-     * <p>The <strong>cache / staleness</strong> checks that used to live in the
-     * helper method <code>loadSingleCachedAnalyzerForLanguage</code> are now
-     * performed here <em>before</em> we decide whether to call
-     * <code>langHandle.loadAnalyzer()</code> (use cache) or
-     * <code>langHandle.createAnalyzer()</code> (full rebuild).</p>
+     * <p>The <strong>cache / staleness</strong> checks that used to live in the helper method <code>
+     * loadSingleCachedAnalyzerForLanguage</code> are now performed here <em>before</em> we decide whether to call
+     * <code>langHandle.loadAnalyzer()</code> (use cache) or <code>langHandle.createAnalyzer()</code> (full rebuild).
      */
     private IAnalyzer loadOrCreateAnalyzer() {
         // ACHTUNG!
@@ -203,22 +205,23 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
         logger.debug("Scanning for modified project files");
-        boolean needsRebuild = externalRebuildRequested;            // explicit user request wins
+        boolean needsRebuild = externalRebuildRequested; // explicit user request wins
         if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
             for (Language lang : project.getAnalyzerLanguages()) {
-                if (!lang.isCpg()) continue;                       // non‑CPG langs are rebuilt ad‑hoc
+                if (!lang.isCpg()) continue; // non‑CPG langs are rebuilt ad‑hoc
                 Path cpgPath = lang.getCpgPath(project);
-                if (!Files.exists(cpgPath)) {                      // no cache → rebuild
+                if (!Files.exists(cpgPath)) { // no cache → rebuild
                     needsRebuild = true;
                     continue;
                 }
                 // Filter tracked files relevant to this language
                 List<ProjectFile> tracked = project.getAllFiles().stream()
                         .filter(pf -> lang.getExtensions()
-                                .contains(com.google.common.io.Files.getFileExtension(pf.absPath().toString())))
+                                .contains(com.google.common.io.Files.getFileExtension(
+                                        pf.absPath().toString())))
                         .toList();
-                if (isStale(lang, cpgPath, tracked))               // cache older than sources
-                    needsRebuild = true;
+                if (isStale(lang, cpgPath, tracked)) // cache older than sources
+                needsRebuild = true;
             }
         }
 
@@ -245,10 +248,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild
-                && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL
-                && !externalRebuildRequested)
-        {
+        if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
@@ -270,7 +270,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 .collect(Collectors.joining(", "));
 
         if (listener == null) { // Should not happen in normal flow, but good for safety
-            logger.warn("AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
+            logger.warn(
+                    "AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
             // Set a default refresh policy if listener is unexpectedly null
             if (isEmpty || durationMs > 3 * 6000) {
                 project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
@@ -287,64 +288,66 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             listener.afterFirstBuild("");
         } else if (durationMs > 3 * 6000) {
             project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
-            var msg = """
+            var msg =
+                    """
                     Code Intelligence for %s found %d declarations in %,d ms.
                     Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
                     You can change this in the Settings -> Project dialog.
-                    """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
+                    """
+                            .stripIndent()
+                            .formatted(langNames, totalDeclarations, durationMs);
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else if (durationMs > 5000) {
             project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
-            var msg = """
+            var msg =
+                    """
                     Code Intelligence for %s found %d declarations in %,d ms.
                     Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
                     You can change this in the Settings -> Project dialog.
-                    """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
+                    """
+                            .stripIndent()
+                            .formatted(langNames, totalDeclarations, durationMs);
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else {
             project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
-            var msg = """
+            var msg =
+                    """
                     Code Intelligence for %s found %d declarations in %,d ms.
                     If this is fewer than expected, it's probably because Brokk only looks for %s files.
                     If this is not a useful subset of your project, you can change it in the Settings -> Project
                     dialog, or disable Code Intelligence by setting the language(s) to NONE.
-                    """.stripIndent().formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
+                    """
+                            .stripIndent()
+                            .formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
             listener.afterFirstBuild(msg);
             logger.info(msg);
         }
     }
-
 
     public boolean isCpg() {
         return project.getAnalyzerLanguages().stream().anyMatch(Language::isCpg);
     }
 
-    /**
-     * Convenience overload that infers the language set from {@link #project}.
-     */
+    /** Convenience overload that infers the language set from {@link #project}. */
     private Language getLanguageHandle() {
-        var projectLangs = project.getAnalyzerLanguages()
-                .stream()
+        var projectLangs = project.getAnalyzerLanguages().stream()
                 .filter(l -> l != Language.NONE)
                 .collect(Collectors.toUnmodifiableSet());
         if (projectLangs.isEmpty()) {
             return Language.NONE;
         }
-        return (projectLangs.size() == 1)
-                ? projectLangs.iterator().next()
-                : new Language.MultiLanguage(projectLangs);
+        return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
     }
 
     /**
-     * Determine whether the cached analyzer for the given language is stale relative to
-     * its tracked source files and any user-requested rebuilds.
+     * Determine whether the cached analyzer for the given language is stale relative to its tracked source files and
+     * any user-requested rebuilds.
      *
-     * The caller guarantees that {@code analyzerPath} is non-null and exists.
+     * <p>The caller guarantees that {@code analyzerPath} is non-null and exists.
      */
-    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles)
-    {
+    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles) {
         // An explicit external rebuild request always wins.
         if (externalRebuildRequested) {
             return true;
@@ -368,12 +371,21 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 }
                 long fileMTime = Files.getLastModifiedTime(path).toMillis();
                 if (fileMTime > cpgMTime) {
-                    logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
-                            path, lang.name(), analyzerPath, fileMTime, cpgMTime);
+                    logger.debug(
+                            "Tracked file {} for language {} is newer than its CPG {} ({} > {})",
+                            path,
+                            lang.name(),
+                            analyzerPath,
+                            fileMTime,
+                            cpgMTime);
                     return true;
                 }
             } catch (IOException e) {
-                logger.debug("Error reading timestamp for tracked file {} (language {}): {}", rf.absPath(), lang.name(), e.getMessage());
+                logger.debug(
+                        "Error reading timestamp for tracked file {} (language {}): {}",
+                        rf.absPath(),
+                        lang.name(),
+                        e.getMessage());
                 // If we cannot evaluate the timestamp, be conservative.
                 return true;
             }
@@ -383,11 +395,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     }
 
     /**
-     * Refreshes the analyzer by scheduling a job on the analyzerExecutor.
-     * Avoids concurrent rebuilds by setting a flag, but if a change is detected during
-     * the rebuild, a new rebuild will be scheduled immediately afterwards.
-     * This refreshes the entire analyzer setup (single or multi). The supplier
-     * controls whether a new analyzer is created, or an optimistic or pessimistic incremental rebuild.
+     * Refreshes the analyzer by scheduling a job on the analyzerExecutor. Avoids concurrent rebuilds by setting a flag,
+     * but if a change is detected during the rebuild, a new rebuild will be scheduled immediately afterwards. This
+     * refreshes the entire analyzer setup (single or multi). The supplier controls whether a new analyzer is created,
+     * or an optimistic or pessimistic incremental rebuild.
      */
     private synchronized void refresh(Supplier<IAnalyzer> supplier) {
         if (rebuildInProgress) {
@@ -424,9 +435,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         });
     }
 
-    /**
-     * Get the analyzer, showing a spinner UI while waiting if requested.
-     */
+    /** Get the analyzer, showing a spinner UI while waiting if requested. */
     public IAnalyzer get() throws InterruptedException {
         if (SwingUtilities.isEventDispatchThread()) {
             logger.error("Never call blocking get() from EDT", new UnsupportedOperationException());
@@ -452,9 +461,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
     }
 
-    /**
-     * @return null if analyzer is not ready yet
-     */
+    /** @return null if analyzer is not ready yet */
     @Nullable
     public IAnalyzer getNonBlocking() {
         if (currentAnalyzer != null) {
@@ -475,9 +482,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
     }
 
-    /**
-     * @return true if the analyzer is ready for use, false if still building
-     */
+    /** @return true if the analyzer is ready for use, false if still building */
     public boolean isReady() {
         return getNonBlocking() != null;
     }
@@ -494,16 +499,12 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
     }
 
-    /**
-     * Pause the file watching service.
-     */
+    /** Pause the file watching service. */
     public synchronized void pause() {
         watchService.pause();
     }
 
-    /**
-     * Resume the file watching service.
-     */
+    /** Resume the file watching service. */
     public synchronized void resume() {
         watchService.resume();
     }
@@ -512,5 +513,4 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     public void close() {
         watchService.close();
     }
-
 }

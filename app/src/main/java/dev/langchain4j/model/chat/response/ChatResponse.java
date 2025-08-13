@@ -2,11 +2,10 @@ package dev.langchain4j.model.chat.response;
 
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
 
-import java.util.Objects;
-
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.TokenUsage;
+import java.util.Objects;
 
 public class ChatResponse {
 
@@ -45,8 +44,8 @@ public class ChatResponse {
     }
 
     /**
-     * Converts the current instance of {@code ChatResponse} into a {@link Builder},
-     * allowing modifications to the current object's fields.
+     * Converts the current instance of {@code ChatResponse} into a {@link Builder}, allowing modifications to the
+     * current object's fields.
      *
      * @return a new {@link Builder} instance initialized with the current state of this {@code ChatResponse}.
      */

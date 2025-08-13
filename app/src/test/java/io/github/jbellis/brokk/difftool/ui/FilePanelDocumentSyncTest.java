@@ -1,15 +1,15 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;
 
-import javax.swing.text.PlainDocument;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.PlainDocument;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
- * Integration test for FilePanel document synchronization logic.
- * Tests the copyTextFallback approach that fixes the line joining bug.
+ * Integration test for FilePanel document synchronization logic. Tests the copyTextFallback approach that fixes the
+ * line joining bug.
  */
 public class FilePanelDocumentSyncTest {
 
@@ -25,7 +25,8 @@ public class FilePanelDocumentSyncTest {
     @Test
     void testCopyTextFallbackPreservesLineBreaks() throws Exception {
         // Test the copyTextFallback method which is our fix for the line joining bug
-        String initialContent = "// File navigation handlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
+        String initialContent =
+                "// File navigation handlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
         sourceDoc.insertString(0, initialContent, null);
         destDoc.insertString(0, initialContent, null);
 
@@ -37,16 +38,15 @@ public class FilePanelDocumentSyncTest {
         callCopyTextFallback(sourceDoc, destDoc);
 
         String result = destDoc.getText(0, destDoc.getLength());
-        String expected = "// File navigation cqchandlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
+        String expected =
+                "// File navigation cqchandlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
 
         assertEquals(expected, result, "copyTextFallback should preserve line breaks");
         assertFalse(result.contains("cqcbtnPreviousFile"), "Should not join lines");
         assertTrue(result.contains("\nbtnPreviousFile"), "Next line should start with newline");
     }
 
-    /**
-     * Helper method to simulate the copyTextFallback approach from FilePanel.
-     */
+    /** Helper method to simulate the copyTextFallback approach from FilePanel. */
     private void callCopyTextFallback(PlainDocument src, PlainDocument dst) throws BadLocationException {
         String srcText = src.getText(0, src.getLength());
         String dstText = dst.getText(0, dst.getLength());
@@ -91,7 +91,7 @@ public class FilePanelDocumentSyncTest {
         destDoc.insertString(0, initialContent, null);
 
         // Test 1: Small incremental edit should work with incremental sync
-        sourceDoc.insertString(5, "X", null);  // Insert X after "line1"
+        sourceDoc.insertString(5, "X", null); // Insert X after "line1"
 
         // Simulate the new sync logic
         callHybridSync(sourceDoc, destDoc, 5, 1);
@@ -100,7 +100,7 @@ public class FilePanelDocumentSyncTest {
         assertEquals("line1X\nline2\nline3", result1, "Small incremental edit should work");
 
         // Test 2: Large difference should trigger fallback
-        sourceDoc.insertString(0, "LARGE_PREFIX_", null);  // Makes documents very different
+        sourceDoc.insertString(0, "LARGE_PREFIX_", null); // Makes documents very different
 
         // This should trigger fallback due to large length difference
         callHybridSync(sourceDoc, destDoc, 0, 13);
@@ -110,10 +110,9 @@ public class FilePanelDocumentSyncTest {
         assertEquals(expected2, result2, "Large edit should trigger fallback sync");
     }
 
-    /**
-     * Simulates the new hybrid sync logic that chooses incremental vs fallback
-     */
-    private void callHybridSync(PlainDocument src, PlainDocument dst, int offset, int length) throws BadLocationException {
+    /** Simulates the new hybrid sync logic that chooses incremental vs fallback */
+    private void callHybridSync(PlainDocument src, PlainDocument dst, int offset, int length)
+            throws BadLocationException {
         // Simulate the logic from the new syncDocumentChange method
         if (Math.abs(src.getLength() - dst.getLength()) > length) {
             // Large difference - use fallback

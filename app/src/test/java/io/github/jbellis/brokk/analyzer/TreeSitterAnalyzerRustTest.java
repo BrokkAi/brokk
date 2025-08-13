@@ -1,18 +1,17 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.testutil.TestProject;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
+import static io.github.jbellis.brokk.testutil.TestProject.createTestProject;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import static io.github.jbellis.brokk.testutil.TestProject.createTestProject;
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 public class TreeSitterAnalyzerRustTest {
 
@@ -20,10 +19,10 @@ public class TreeSitterAnalyzerRustTest {
     private static RustAnalyzer rsAnalyzer;
     private static ProjectFile pointRsFile;
 
-    // Helper to normalize multiline strings for comparison (strips leading/trailing whitespace from each line and joins)
+    // Helper to normalize multiline strings for comparison (strips leading/trailing whitespace from each line and
+    // joins)
     private static final java.util.function.Function<String, String> normalizeSource =
             (String s) -> s.lines().map(String::strip).filter(l -> !l.isEmpty()).collect(Collectors.joining("\n"));
-
 
     @BeforeAll
     static void setup() {
@@ -66,15 +65,22 @@ public class TreeSitterAnalyzerRustTest {
         // The SCM for impl_item captures the type being implemented as @class.name.
         // So for `impl Point`, simpleName is "Point". For `impl Drawable for Point`, simpleName is "Drawable".
         // The createCodeUnit logic will make `CodeUnit.cls(..., "Point")` for `impl Point`.
-        // If the SCM for `impl_item` has `@class.name` point to `Point` in `impl Drawable for Point`, then `simpleName` for that block would be `Point`.
+        // If the SCM for `impl_item` has `@class.name` point to `Point` in `impl Drawable for Point`, then `simpleName`
+        // for that block would be `Point`.
         // The provided SCM for `impl_item` uses `@impl.type.target` for `impl Trait for ActualType` -> `ActualType`.
-        // Let's adjust the test expectation slightly if `impl Drawable for Point` creates a CU for `Point` rather than `Drawable`.
-        // The current SCM has `type: [ ... (type_identifier) @impl.type.target ... ] @class.name`. This means @class.name will be `Point` for `impl Drawable for Point`.
+        // Let's adjust the test expectation slightly if `impl Drawable for Point` creates a CU for `Point` rather than
+        // `Drawable`.
+        // The current SCM has `type: [ ... (type_identifier) @impl.type.target ... ] @class.name`. This means
+        // @class.name will be `Point` for `impl Drawable for Point`.
 
         CodeUnit drawableTraitCU = CodeUnit.cls(pointRsFile, "", "Drawable"); // From `pub trait Drawable`
 
-        assertTrue(skeletonsInPointRs.containsKey(pointCU), "Skeletons map should contain Point struct/impl. Found: " + skeletonsInPointRs.keySet());
-        assertTrue(skeletonsInPointRs.containsKey(drawableTraitCU), "Skeletons map should contain Drawable trait. Found: " + skeletonsInPointRs.keySet());
+        assertTrue(
+                skeletonsInPointRs.containsKey(pointCU),
+                "Skeletons map should contain Point struct/impl. Found: " + skeletonsInPointRs.keySet());
+        assertTrue(
+                skeletonsInPointRs.containsKey(drawableTraitCU),
+                "Skeletons map should contain Drawable trait. Found: " + skeletonsInPointRs.keySet());
 
         String pointSkeleton = skeletonsInPointRs.get(pointCU);
         assertNotNull(pointSkeleton);
@@ -84,7 +90,8 @@ public class TreeSitterAnalyzerRustTest {
         // The TreeSitterAnalyzer's reconstructSkeletonRecursive method will list all signatures for "Point"
         // (struct, impl Point, impl Drawable for Point) first, then all children (fields and methods),
         // then a single closer.
-        String expectedPointSkeleton = """
+        String expectedPointSkeleton =
+                """
                                        pub struct Point {
                                        impl Point {
                                        impl Drawable for Point {
@@ -98,36 +105,55 @@ public class TreeSitterAnalyzerRustTest {
                                          const ID: u32 = 1;
                                          fn area(&self) -> f64 { ... }
                                        }
-                                       """.stripIndent();
-        assertEquals(normalizeSource.apply(expectedPointSkeleton), normalizeSource.apply(pointSkeleton), "Point struct/impl skeleton mismatch.");
+                                       """
+                        .stripIndent();
+        assertEquals(
+                normalizeSource.apply(expectedPointSkeleton),
+                normalizeSource.apply(pointSkeleton),
+                "Point struct/impl skeleton mismatch.");
 
         String drawableSkeleton = skeletonsInPointRs.get(drawableTraitCU);
-        String expectedDrawableSkeleton = """
+        String expectedDrawableSkeleton =
+                """
                                           pub trait Drawable {
                                             fn draw(&self);
                                           }
-                                          """.stripIndent();
-        assertEquals(normalizeSource.apply(expectedDrawableSkeleton), normalizeSource.apply(drawableSkeleton), "Drawable trait skeleton mismatch.");
+                                          """
+                        .stripIndent();
+        assertEquals(
+                normalizeSource.apply(expectedDrawableSkeleton),
+                normalizeSource.apply(drawableSkeleton),
+                "Drawable trait skeleton mismatch.");
 
         // Test top-level const
         CodeUnit originCU = CodeUnit.field(pointRsFile, "", "_module_.ORIGIN");
         assertTrue(skeletonsInPointRs.containsKey(originCU), "Skeletons map should contain _module_.ORIGIN.");
-        String expectedOriginSkeleton = "pub const ORIGIN: Point = Point { x: 0, y: 0 };"; // SCM captures whole const_item
-        assertEquals(normalizeSource.apply(expectedOriginSkeleton), normalizeSource.apply(skeletonsInPointRs.get(originCU)), "_module_.ORIGIN skeleton mismatch.");
+        String expectedOriginSkeleton =
+                "pub const ORIGIN: Point = Point { x: 0, y: 0 };"; // SCM captures whole const_item
+        assertEquals(
+                normalizeSource.apply(expectedOriginSkeleton),
+                normalizeSource.apply(skeletonsInPointRs.get(originCU)),
+                "_module_.ORIGIN skeleton mismatch.");
 
         // Test top-level function
         CodeUnit distanceCU = CodeUnit.fn(pointRsFile, "", "distance");
         assertTrue(skeletonsInPointRs.containsKey(distanceCU), "Skeletons map should contain distance function.");
-        String expectedDistanceSkeleton = """
+        String expectedDistanceSkeleton =
+                """
                                           pub fn distance(p: &Point, q: &Point) -> f64 { ... }
-                                          """.stripIndent();
-        assertEquals(normalizeSource.apply(expectedDistanceSkeleton), normalizeSource.apply(skeletonsInPointRs.get(distanceCU)), "distance function skeleton mismatch.");
+                                          """
+                        .stripIndent();
+        assertEquals(
+                normalizeSource.apply(expectedDistanceSkeleton),
+                normalizeSource.apply(skeletonsInPointRs.get(distanceCU)),
+                "distance function skeleton mismatch.");
 
         // Test Enum Skeleton with Variants
         CodeUnit colorCU = CodeUnit.cls(pointRsFile, "", "Color");
         assertTrue(skeletonsInPointRs.containsKey(colorCU), "Skeletons map should contain Color enum.");
         String colorSkeleton = skeletonsInPointRs.get(colorCU);
-        String expectedColorSkeleton = """
+        String expectedColorSkeleton =
+                """
                                        pub enum Color {
                                          Red
                                          Green
@@ -135,27 +161,37 @@ public class TreeSitterAnalyzerRustTest {
                                          Rgb(u8, u8, u8)
                                          Named { name: String }
                                        }
-                                       """.stripIndent();
-        assertEquals(normalizeSource.apply(expectedColorSkeleton), normalizeSource.apply(colorSkeleton), "Color enum skeleton mismatch.");
+                                       """
+                        .stripIndent();
+        assertEquals(
+                normalizeSource.apply(expectedColorSkeleton),
+                normalizeSource.apply(colorSkeleton),
+                "Color enum skeleton mismatch.");
 
         // Test Trait Skeleton with Associated Constant and Method
         CodeUnit shapeTraitCU = CodeUnit.cls(pointRsFile, "", "Shape");
         assertTrue(skeletonsInPointRs.containsKey(shapeTraitCU), "Skeletons map should contain Shape trait.");
         String shapeTraitSkeleton = skeletonsInPointRs.get(shapeTraitCU);
-        String expectedShapeTraitSkeleton = """
+        String expectedShapeTraitSkeleton =
+                """
                                             pub trait Shape {
                                               const ID: u32;
                                               fn area(&self) -> f64;
                                             }
-                                            """.stripIndent();
-        assertEquals(normalizeSource.apply(expectedShapeTraitSkeleton), normalizeSource.apply(shapeTraitSkeleton), "Shape trait skeleton mismatch.");
+                                            """
+                        .stripIndent();
+        assertEquals(
+                normalizeSource.apply(expectedShapeTraitSkeleton),
+                normalizeSource.apply(shapeTraitSkeleton),
+                "Shape trait skeleton mismatch.");
     }
 
     @Test
     void testGetSkeletonHeader_Rust() {
         Optional<String> pointHeader = rsAnalyzer.getSkeletonHeader("Point");
         assertTrue(pointHeader.isPresent(), "Skeleton header for Point should be found.");
-        assertEquals("""
+        assertEquals(
+                """
                 pub struct Point {
                 impl Point {
                 impl Drawable for Point {
@@ -166,23 +202,31 @@ public class TreeSitterAnalyzerRustTest {
                   const ID: u32 = 1;
                   [...]
                 }
-                """.strip(), pointHeader.get().trim()); // fixme: These seem to be the siblings not children
+                """
+                        .strip(),
+                pointHeader.get().trim()); // fixme: These seem to be the siblings not children
 
         Optional<String> drawableHeader = rsAnalyzer.getSkeletonHeader("Drawable");
         assertTrue(drawableHeader.isPresent(), "Skeleton header for Drawable should be found.");
-        assertEquals("""
+        assertEquals(
+                """
                 pub trait Drawable {
                   [...]
                 }
-                """.strip(), drawableHeader.get().trim());
+                """
+                        .strip(),
+                drawableHeader.get().trim());
 
         Optional<String> originHeader = rsAnalyzer.getSkeletonHeader("_module_.ORIGIN");
         assertTrue(originHeader.isPresent(), "Skeleton header for _module_.ORIGIN should be found.");
-        assertEquals("pub const ORIGIN: Point = Point { x: 0, y: 0 };", originHeader.get().trim());
+        assertEquals(
+                "pub const ORIGIN: Point = Point { x: 0, y: 0 };",
+                originHeader.get().trim());
 
         Optional<String> colorHeader = rsAnalyzer.getSkeletonHeader("Color");
         assertTrue(colorHeader.isPresent(), "Skeleton header for Color enum should be found.");
-        assertEquals("""
+        assertEquals(
+                """
                 pub enum Color {
                   Red
                   Green
@@ -190,16 +234,21 @@ public class TreeSitterAnalyzerRustTest {
                   Rgb(u8, u8, u8)
                   Named { name: String }
                 }
-                """.strip(), colorHeader.get().trim());
+                """
+                        .strip(),
+                colorHeader.get().trim());
 
         Optional<String> shapeHeader = rsAnalyzer.getSkeletonHeader("Shape");
         assertTrue(shapeHeader.isPresent(), "Skeleton header for Shape trait should be found.");
-        assertEquals("""
+        assertEquals(
+                """
                 pub trait Shape {
                   const ID: u32;
                   [...]
                 }
-                """.strip(), shapeHeader.get().trim());
+                """
+                        .strip(),
+                shapeHeader.get().trim());
 
         Optional<String> nonExistentHeader = rsAnalyzer.getSkeletonHeader("NonExistent");
         assertFalse(nonExistentHeader.isPresent(), "Skeleton header for NonExistent should be empty.");
@@ -207,33 +256,45 @@ public class TreeSitterAnalyzerRustTest {
 
     @Test
     void testGetMembersInClass_Rust() {
-        // Members of struct Point (fields, methods from impl Point, impl Drawable for Point, impl Shape for Point, impl DefaultPosition for Point)
+        // Members of struct Point (fields, methods from impl Point, impl Drawable for Point, impl Shape for Point, impl
+        // DefaultPosition for Point)
         List<CodeUnit> pointMembers = rsAnalyzer.getMembersInClass("Point");
         Set<String> expectedPointMemberFqNames = Set.of(
-                "Point.x", "Point.y",                      // fields from struct Point
-                "Point.new", "Point.translate",            // methods from impl Point
-                "Point.draw",                               // method from impl Drawable for Point
-                "Point.ID",                                 // associated const from impl Shape for Point
-                "Point.area",                               // method from impl Shape for Point
-                "Point.DEFAULT_X", "Point.DEFAULT_Y"       // associated consts from DefaultPosition (via impl DefaultPosition for Point)
+                "Point.x",
+                "Point.y", // fields from struct Point
+                "Point.new",
+                "Point.translate", // methods from impl Point
+                "Point.draw", // method from impl Drawable for Point
+                "Point.ID", // associated const from impl Shape for Point
+                "Point.area", // method from impl Shape for Point
+                "Point.DEFAULT_X",
+                "Point.DEFAULT_Y" // associated consts from DefaultPosition (via impl DefaultPosition for Point)
                 // default_pos is also a member via DefaultPosition trait
-        );
-        Set<String> actualPointMemberFqNames = pointMembers.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+                );
+        Set<String> actualPointMemberFqNames =
+                pointMembers.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        // Expected members: Point.x, Point.y, Point.new, Point.translate, Point.draw, Point.ID (from impl Shape), Point.area, Point.DEFAULT_X, Point.DEFAULT_Y, Point.default_pos
+        // Expected members: Point.x, Point.y, Point.new, Point.translate, Point.draw, Point.ID (from impl Shape),
+        // Point.area, Point.DEFAULT_X, Point.DEFAULT_Y, Point.default_pos
         // Total: 10
         // Note: The 'default_pos' method from DefaultPosition should also be a member of Point through its impl.
-        // We need to ensure methods from traits (even with default implementations) are captured if the trait is implemented.
+        // We need to ensure methods from traits (even with default implementations) are captured if the trait is
+        // implemented.
         // The current SCM for `impl_item` captures the type `Point` as the class for `impl DefaultPosition for Point`.
-        // Children of `impl DefaultPosition for Point {}` (if any were explicitly defined there) would be members of `Point`.
-        // To get members from the trait `DefaultPosition` itself (like default_pos), we need to handle trait inheritance/composition,
+        // Children of `impl DefaultPosition for Point {}` (if any were explicitly defined there) would be members of
+        // `Point`.
+        // To get members from the trait `DefaultPosition` itself (like default_pos), we need to handle trait
+        // inheritance/composition,
         // which is more complex. For now, getMembersInClass will primarily show direct declarations under the impl.
         // Let's adjust expectation: only `Point.ID` from `impl Shape` is directly in an impl for Point.
         // `DEFAULT_X` and `DEFAULT_Y` would appear if `impl DefaultPosition for Point` explicitly defined them or if
-        // we had logic to pull in trait defaults. For now, `getMembersInClass("Point")` will find fields from struct Point,
+        // we had logic to pull in trait defaults. For now, `getMembersInClass("Point")` will find fields from struct
+        // Point,
         // methods from `impl Point`, `impl Drawable for Point`, `impl Shape for Point`.
-        // It will NOT automatically find `Point.DEFAULT_X` unless `impl DefaultPosition for Point` overrode it or re-declared it.
-        // The current `RustAnalyzer` and query don't explicitly resolve trait items into implementing types' member lists
+        // It will NOT automatically find `Point.DEFAULT_X` unless `impl DefaultPosition for Point` overrode it or
+        // re-declared it.
+        // The current `RustAnalyzer` and query don't explicitly resolve trait items into implementing types' member
+        // lists
         // unless they are re-declared in the `impl` block.
 
         // Re-evaluating expected members for "Point":
@@ -244,38 +305,54 @@ public class TreeSitterAnalyzerRustTest {
         // Method in `impl Shape for Point`: Point.area
         // Total 7 directly defined/associated members under 'Point' through its struct and impls.
         Set<String> expectedPointMembersStrict = Set.of(
-                "Point.x", "Point.y",
-                "Point.new", "Point.translate",
+                "Point.x",
+                "Point.y",
+                "Point.new",
+                "Point.translate",
                 "Point.draw",
                 "Point.ID", // from `impl Shape for Point`
-                "Point.area"  // from `impl Shape for Point`
-        );
-        assertEquals(expectedPointMembersStrict.size(), actualPointMemberFqNames.size(),
-                     "Point member count mismatch. Expected: " + expectedPointMembersStrict + ", Got: " + actualPointMemberFqNames);
-        assertTrue(actualPointMemberFqNames.containsAll(expectedPointMembersStrict),
-                   "Point members mismatch. Expected: " + expectedPointMembersStrict + ", Got: " + actualPointMemberFqNames);
-
+                "Point.area" // from `impl Shape for Point`
+                );
+        assertEquals(
+                expectedPointMembersStrict.size(),
+                actualPointMemberFqNames.size(),
+                "Point member count mismatch. Expected: " + expectedPointMembersStrict + ", Got: "
+                        + actualPointMemberFqNames);
+        assertTrue(
+                actualPointMemberFqNames.containsAll(expectedPointMembersStrict),
+                "Point members mismatch. Expected: " + expectedPointMembersStrict + ", Got: "
+                        + actualPointMemberFqNames);
 
         // Members of trait Drawable (methods)
         List<CodeUnit> drawableMembers = rsAnalyzer.getMembersInClass("Drawable");
         CodeUnit drawMethodInTrait = CodeUnit.fn(pointRsFile, "", "Drawable.draw");
-        assertTrue(drawableMembers.contains(drawMethodInTrait), "Drawable members should include draw method signature.");
+        assertTrue(
+                drawableMembers.contains(drawMethodInTrait), "Drawable members should include draw method signature.");
         assertEquals(1, drawableMembers.size(), "Drawable trait should have 1 member (draw signature).");
 
         // Members of enum Color (variants)
         List<CodeUnit> colorMembers = rsAnalyzer.getMembersInClass("Color");
-        Set<String> expectedColorMemberFqNames = Set.of(
-                "Color.Red", "Color.Green", "Color.Blue", "Color.Rgb", "Color.Named"
-        );
-        Set<String> actualColorMemberFqNames = colorMembers.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertEquals(expectedColorMemberFqNames.size(), actualColorMemberFqNames.size(), "Color enum member (variant) count mismatch.");
-        assertTrue(actualColorMemberFqNames.containsAll(expectedColorMemberFqNames), "Color enum members (variants) mismatch.");
+        Set<String> expectedColorMemberFqNames =
+                Set.of("Color.Red", "Color.Green", "Color.Blue", "Color.Rgb", "Color.Named");
+        Set<String> actualColorMemberFqNames =
+                colorMembers.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(
+                expectedColorMemberFqNames.size(),
+                actualColorMemberFqNames.size(),
+                "Color enum member (variant) count mismatch.");
+        assertTrue(
+                actualColorMemberFqNames.containsAll(expectedColorMemberFqNames),
+                "Color enum members (variants) mismatch.");
 
         // Members of trait Shape (associated const and method)
         List<CodeUnit> shapeMembers = rsAnalyzer.getMembersInClass("Shape");
         Set<String> expectedShapeMemberFqNames = Set.of("Shape.ID", "Shape.area");
-        Set<String> actualShapeMemberFqNames = shapeMembers.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertEquals(expectedShapeMemberFqNames.size(), actualShapeMemberFqNames.size(), "Shape trait member count mismatch.");
+        Set<String> actualShapeMemberFqNames =
+                shapeMembers.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(
+                expectedShapeMemberFqNames.size(),
+                actualShapeMemberFqNames.size(),
+                "Shape trait member count mismatch.");
         assertTrue(actualShapeMemberFqNames.containsAll(expectedShapeMemberFqNames), "Shape trait members mismatch.");
 
         List<CodeUnit> nonClassMembers = rsAnalyzer.getMembersInClass("distance"); // 'distance' is a function
@@ -364,20 +441,25 @@ public class TreeSitterAnalyzerRustTest {
         // _module_.ORIGIN (type is Point), distance (param type is Point)
         // The search is on FQ name.
         Set<String> expectedPointRelatedFqNs = Set.of(
-                "Point", "Point.x", "Point.y", "Point.new", "Point.translate", "Point.draw",
-                "Point.ID", "Point.area"
+                "Point", "Point.x", "Point.y", "Point.new", "Point.translate", "Point.draw", "Point.ID", "Point.area"
                 // Point.DEFAULT_X, Point.DEFAULT_Y, Point.default_pos are not directly in `impl Point`
-        );
-        assertTrue(pointFqNames.containsAll(expectedPointRelatedFqNs),
-                   "Search for 'Point' missing expected FQNs. Expected to contain: " + expectedPointRelatedFqNs + ", Got: " + pointFqNames);
-        // Other FQNs containing "Point" (e.g. parameters like in `distance`) are not expected by default with `fqName().contains()`
+                );
+        assertTrue(
+                pointFqNames.containsAll(expectedPointRelatedFqNs),
+                "Search for 'Point' missing expected FQNs. Expected to contain: " + expectedPointRelatedFqNs + ", Got: "
+                        + pointFqNames);
+        // Other FQNs containing "Point" (e.g. parameters like in `distance`) are not expected by default with
+        // `fqName().contains()`
         // if the type information is not part of the FQN for parameters.
 
         var drawResults = rsAnalyzer.searchDefinitions("draw");
         var drawFqNames = drawResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(drawFqNames.contains("Drawable.draw"));
         assertTrue(drawFqNames.contains("Point.draw"));
-        assertTrue(drawFqNames.size() >= 2, "Should find at least 2 symbols containing 'draw' (case-insensitive). Found: " + drawFqNames.size() + " - " + drawFqNames);
+        assertTrue(
+                drawFqNames.size() >= 2,
+                "Should find at least 2 symbols containing 'draw' (case-insensitive). Found: " + drawFqNames.size()
+                        + " - " + drawFqNames);
 
         List<CodeUnit> originResults = rsAnalyzer.searchDefinitions("ORIGIN");
         assertTrue(originResults.stream().anyMatch(cu -> "_module_.ORIGIN".equals(cu.fqName())));
@@ -407,7 +489,8 @@ public class TreeSitterAnalyzerRustTest {
     void testGetClassSource_Rust() {
         // Source for struct Point
         String pointSource = rsAnalyzer.getClassSource("Point");
-        String expectedPointSource = """
+        String expectedPointSource =
+                """
                                      pub struct Point {
                                          pub x: i32,
                                          pub y: i32,
@@ -417,7 +500,8 @@ public class TreeSitterAnalyzerRustTest {
 
         // Source for trait Drawable
         String drawableSource = rsAnalyzer.getClassSource("Drawable");
-        String expectedDrawableSource = """
+        String expectedDrawableSource =
+                """
                                         pub trait Drawable {
                                             fn draw(&self);
                                         }
@@ -426,7 +510,8 @@ public class TreeSitterAnalyzerRustTest {
 
         // Source for enum Color
         String colorSource = rsAnalyzer.getClassSource("Color");
-        String expectedColorSource = """
+        String expectedColorSource =
+                """
                                      pub enum Color {
                                          Red,
                                          Green,
@@ -439,14 +524,14 @@ public class TreeSitterAnalyzerRustTest {
 
         // Source for trait Shape
         String shapeSource = rsAnalyzer.getClassSource("Shape");
-        String expectedShapeSource = """
+        String expectedShapeSource =
+                """
                                      pub trait Shape {
                                          const ID: u32; // Associated constant in trait
                                          fn area(&self) -> f64;
                                      }
                                      """;
         assertEquals(normalizeSource.apply(expectedShapeSource), normalizeSource.apply(shapeSource));
-
 
         // Note: For `impl Point` or `impl Drawable for Point`, getClassSource might be tricky.
         // The CodeUnit "Point" combines struct and impls in its skeleton.
@@ -459,9 +544,13 @@ public class TreeSitterAnalyzerRustTest {
         // Let's assume the `struct_item` is primary for `getClassSource("Point")`.
 
         assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("distance")); // function, not class
-        assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("_module_.ORIGIN")); // field, not class
-        assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("Color.Red")); // enum variant, not class
-        assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("Shape.ID")); // associated const, not class
+        assertThrows(
+                SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("_module_.ORIGIN")); // field, not class
+        assertThrows(
+                SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("Color.Red")); // enum variant, not class
+        assertThrows(
+                SymbolNotFoundException.class,
+                () -> rsAnalyzer.getClassSource("Shape.ID")); // associated const, not class
         assertThrows(SymbolNotFoundException.class, () -> rsAnalyzer.getClassSource("NonExistent"));
     }
 
@@ -469,7 +558,8 @@ public class TreeSitterAnalyzerRustTest {
     void testGetMethodSource_Rust() throws IOException {
         Optional<String> translateSourceOpt = rsAnalyzer.getMethodSource("Point.translate");
         assertTrue(translateSourceOpt.isPresent(), "Source for Point.translate should be found.");
-        String expectedTranslateSource = """
+        String expectedTranslateSource =
+                """
                                          pub fn translate(&mut self, dx: i32, dy: i32) {
                                                  self.x += dx;
                                                  self.y += dy;
@@ -480,11 +570,13 @@ public class TreeSitterAnalyzerRustTest {
         Optional<String> drawInTraitSourceOpt = rsAnalyzer.getMethodSource("Drawable.draw");
         assertTrue(drawInTraitSourceOpt.isPresent(), "Source for Drawable.draw (trait method) should be found.");
         String expectedDrawInTraitSource = "fn draw(&self);"; // From trait definition
-        assertEquals(normalizeSource.apply(expectedDrawInTraitSource), normalizeSource.apply(drawInTraitSourceOpt.get()));
+        assertEquals(
+                normalizeSource.apply(expectedDrawInTraitSource), normalizeSource.apply(drawInTraitSourceOpt.get()));
 
         Optional<String> drawInImplSourceOpt = rsAnalyzer.getMethodSource("Point.draw");
         assertTrue(drawInImplSourceOpt.isPresent(), "Source for Point.draw (impl method) should be found.");
-        String expectedDrawInImplSource = """
+        String expectedDrawInImplSource =
+                """
                                           fn draw(&self) {
                                                   // Simulate drawing
                                                   println!("Drawing point at ({}, {})", self.x, self.y);
@@ -492,10 +584,10 @@ public class TreeSitterAnalyzerRustTest {
                                           """;
         assertEquals(normalizeSource.apply(expectedDrawInImplSource), normalizeSource.apply(drawInImplSourceOpt.get()));
 
-
         Optional<String> distanceSourceOpt = rsAnalyzer.getMethodSource("distance"); // Free function
         assertTrue(distanceSourceOpt.isPresent(), "Source for distance function should be found.");
-        String expectedDistanceSource = """
+        String expectedDistanceSource =
+                """
                                         pub fn distance(p: &Point, q: &Point) -> f64 {
                                             let dx = (p.x - q.x) as f64;
                                             let dy = (p.y - q.y) as f64;
@@ -506,7 +598,9 @@ public class TreeSitterAnalyzerRustTest {
 
         // Test getMethodSource for associated const (should be empty as it's not a method)
         Optional<String> shapeIdSourceOpt = rsAnalyzer.getMethodSource("Shape.ID");
-        assertFalse(shapeIdSourceOpt.isPresent(), "Associated constant Shape.ID should not return source via getMethodSource.");
+        assertFalse(
+                shapeIdSourceOpt.isPresent(),
+                "Associated constant Shape.ID should not return source via getMethodSource.");
 
         Optional<String> nonExistentSourceOpt = rsAnalyzer.getMethodSource("NonExistent.method");
         assertFalse(nonExistentSourceOpt.isPresent());
@@ -525,7 +619,6 @@ public class TreeSitterAnalyzerRustTest {
         CodeUnit colorCU = rsAnalyzer.getDefinition("Color").orElseThrow();
         CodeUnit shapeCU = rsAnalyzer.getDefinition("Shape").orElseThrow();
         CodeUnit circleCU = rsAnalyzer.getDefinition("Circle").orElseThrow();
-
 
         // Test with Point struct (includes its fields and methods from impls)
         Set<String> pointSymbols = rsAnalyzer.getSymbols(Set.of(pointCU));
@@ -558,9 +651,9 @@ public class TreeSitterAnalyzerRustTest {
 
         // Test with Circle struct (includes its fields and methods/consts from impl Shape for Circle)
         Set<String> circleSymbols = rsAnalyzer.getSymbols(Set.of(circleCU));
-        Set<String> expectedCircleSymbols = Set.of("Circle", "center", "radius", "ID", "area"); // ID and area from impl Shape for Circle
+        Set<String> expectedCircleSymbols =
+                Set.of("Circle", "center", "radius", "ID", "area"); // ID and area from impl Shape for Circle
         assertEquals(expectedCircleSymbols, circleSymbols, "Symbols for Circle CU mismatch");
-
 
         // Test with multiple sources
         Set<CodeUnit> combinedSources = Set.of(pointCU, drawableCU, originCU, distanceCU, colorCU, shapeCU, circleCU);
@@ -611,14 +704,16 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals("foo", getPkgName.apply(fooRsFile), "Package name for src/foo.rs should be 'foo'.");
 
         // 5. src/bar/mod.rs (directory module)
-        Path barModRsPath = rsTestProject.getRoot().resolve("src").resolve("bar").resolve("mod.rs");
+        Path barModRsPath =
+                rsTestProject.getRoot().resolve("src").resolve("bar").resolve("mod.rs");
         barModRsPath.getParent().toFile().mkdirs(); // Ensure src/bar directory exists
         barModRsPath.toFile().createNewFile(); // Create dummy file
         ProjectFile barModRsFile = new ProjectFile(rsTestProject.getRoot(), "src/bar/mod.rs");
         assertEquals("bar", getPkgName.apply(barModRsFile), "Package name for src/bar/mod.rs should be 'bar'.");
 
         // 6. src/bar/baz.rs (file in directory module)
-        Path barBazRsPath = rsTestProject.getRoot().resolve("src").resolve("bar").resolve("baz.rs");
+        Path barBazRsPath =
+                rsTestProject.getRoot().resolve("src").resolve("bar").resolve("baz.rs");
         barBazRsPath.toFile().createNewFile(); // Create dummy file
         ProjectFile barBazRsFile = new ProjectFile(rsTestProject.getRoot(), "src/bar/baz.rs");
         assertEquals("bar.baz", getPkgName.apply(barBazRsFile), "Package name for src/bar/baz.rs should be 'bar.baz'.");
@@ -627,14 +722,18 @@ public class TreeSitterAnalyzerRustTest {
         Path otherCratePath = rsTestProject.getRoot().resolve("other_crate_file.rs");
         otherCratePath.toFile().createNewFile(); // Create dummy file
         ProjectFile otherCrateFile = new ProjectFile(rsTestProject.getRoot(), "other_crate_file.rs");
-        assertEquals("", getPkgName.apply(otherCrateFile), "Package name for other_crate_file.rs at root should be empty.");
+        assertEquals(
+                "", getPkgName.apply(otherCrateFile), "Package name for other_crate_file.rs at root should be empty.");
 
         // 8. examples/example1.rs (file in a common directory like examples)
         Path example1Path = rsTestProject.getRoot().resolve("examples").resolve("example1.rs");
         example1Path.getParent().toFile().mkdirs(); // Ensure examples directory exists
         example1Path.toFile().createNewFile(); // Create dummy file
         ProjectFile example1File = new ProjectFile(rsTestProject.getRoot(), "examples/example1.rs");
-        assertEquals("examples.example1", getPkgName.apply(example1File), "Package name for examples/example1.rs should be 'examples.example1'.");
+        assertEquals(
+                "examples.example1",
+                getPkgName.apply(example1File),
+                "Package name for examples/example1.rs should be 'examples.example1'.");
 
         // Cleanup dummy files - not strictly necessary for this test but good practice if state matters across tests
         libRsPath.toFile().delete();
@@ -643,7 +742,8 @@ public class TreeSitterAnalyzerRustTest {
         barBazRsPath.toFile().delete();
         barModRsPath.toFile().delete();
         barModRsPath.getParent().toFile().delete(); // remove src/bar
-        // libRsPath.getParent().toFile().delete(); // careful with src if other tests depend on its structure or Point.rs's implicit "" pkg
+        // libRsPath.getParent().toFile().delete(); // careful with src if other tests depend on its structure or
+        // Point.rs's implicit "" pkg
         otherCratePath.toFile().delete();
         example1Path.toFile().delete();
         example1Path.getParent().toFile().delete(); // remove examples

@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = Tool.Builder.class)
@@ -19,6 +18,7 @@ public class Tool {
 
     @JsonProperty
     private final ToolType type = FUNCTION;
+
     @JsonProperty
     private final Function function;
 
@@ -37,13 +37,11 @@ public class Tool {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof Tool
-                && equalTo((Tool) another);
+        return another instanceof Tool && equalTo((Tool) another);
     }
 
     private boolean equalTo(Tool another) {
-        return Objects.equals(type, another.type)
-                && Objects.equals(function, another.function);
+        return Objects.equals(type, another.type) && Objects.equals(function, another.function);
     }
 
     @Override
@@ -56,16 +54,11 @@ public class Tool {
 
     @Override
     public String toString() {
-        return "Tool{"
-                + "type=" + type
-                + ", function=" + function
-                + "}";
+        return "Tool{" + "type=" + type + ", function=" + function + "}";
     }
 
     public static Tool from(Function function) {
-        return new Builder()
-                .function(function)
-                .build();
+        return new Builder().function(function).build();
     }
 
     public static Builder builder() {

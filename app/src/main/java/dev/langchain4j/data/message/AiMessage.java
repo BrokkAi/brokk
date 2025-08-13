@@ -13,9 +13,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Represents a response message from an AI (language model).
- * The message can contain either a textual response or a request to execute one/multiple tool(s).
- * In the case of tool execution, the response to this message should be one/multiple {@link ToolExecutionResultMessage}.
+ * Represents a response message from an AI (language model). The message can contain either a textual response or a
+ * request to execute one/multiple tool(s). In the case of tool execution, the response to this message should be
+ * one/multiple {@link ToolExecutionResultMessage}.
  */
 public class AiMessage implements ChatMessage {
 
@@ -48,7 +48,7 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text and tool execution requests.
      *
-     * @param text                  the text of the message.
+     * @param text the text of the message.
      * @param toolExecutionRequests the tool execution requests of the message.
      */
     public AiMessage(String text, List<ToolExecutionRequest> toolExecutionRequests) {
@@ -60,7 +60,7 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text and reasoning content.
      *
-     * @param text             the text of the message.
+     * @param text the text of the message.
      * @param reasoningContent the reasoning content of the message.
      */
     public AiMessage(String text, String reasoningContent) {
@@ -72,8 +72,8 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text, reasoning content and tool execution requests.
      *
-     * @param text                  the text of the message.
-     * @param reasoningContent      the reasoning content of the message.
+     * @param text the text of the message.
+     * @param reasoningContent the reasoning content of the message.
      * @param toolExecutionRequests the tool execution requests of the message.
      */
     public AiMessage(String text, String reasoningContent, List<ToolExecutionRequest> toolExecutionRequests) {
@@ -183,7 +183,7 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text and reasoning content.
      *
-     * @param text             the text of the message.
+     * @param text the text of the message.
      * @param reasoningContent the reasoning content of the message.
      * @return the new {@link AiMessage}.
      */
@@ -214,7 +214,7 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text and tool execution requests.
      *
-     * @param text                  the text of the message.
+     * @param text the text of the message.
      * @param toolExecutionRequests the tool execution requests of the message.
      * @return the new {@link AiMessage}.
      */
@@ -225,8 +225,8 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text, reasoning content and tool execution requests.
      *
-     * @param text                  the text of the message.
-     * @param reasoningContent      the reasoning content of the message.
+     * @param text the text of the message.
+     * @param reasoningContent the reasoning content of the message.
      * @param toolExecutionRequests the tool execution requests of the message.
      * @return the new {@link AiMessage}.
      */
@@ -248,7 +248,7 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text and reasoning content.
      *
-     * @param text             the text of the message.
+     * @param text the text of the message.
      * @param reasoningContent the reasoning content of the message.
      * @return the new {@link AiMessage}.
      */
@@ -279,7 +279,7 @@ public class AiMessage implements ChatMessage {
     /**
      * Create a new {@link AiMessage} with the given text and tool execution requests.
      *
-     * @param text                  the text of the message.
+     * @param text the text of the message.
      * @param toolExecutionRequests the tool execution requests of the message.
      * @return the new {@link AiMessage}.
      */

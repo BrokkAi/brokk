@@ -1,22 +1,20 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Timeout;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 /**
- * Comprehensive tests for the ScrollFrameThrottler class to verify
- * frame-based throttling behavior, performance characteristics, and
- * dynamic configuration capabilities.
+ * Comprehensive tests for the ScrollFrameThrottler class to verify frame-based throttling behavior, performance
+ * characteristics, and dynamic configuration capabilities.
  */
 class ScrollFrameThrottlerTest {
 
@@ -52,8 +50,9 @@ class ScrollFrameThrottlerTest {
         assertTrue(latch.await(100, TimeUnit.MILLISECONDS), "First execution should complete quickly");
 
         assertEquals(1, executionCount.get(), "Should execute exactly once");
-        assertTrue(executionTimes.getFirst() < 10,
-                  "First execution should be immediate (< 10ms), but was " + executionTimes.getFirst() + "ms");
+        assertTrue(
+                executionTimes.getFirst() < 10,
+                "First execution should be immediate (< 10ms), but was " + executionTimes.getFirst() + "ms");
         assertTrue(throttler.isFrameActive(), "Frame should be active after first execution");
     }
 
@@ -114,13 +113,16 @@ class ScrollFrameThrottlerTest {
         assertTrue(completionLatch.await(500, TimeUnit.MILLISECONDS), "All events should complete");
 
         int executions = executionCount.get();
-        System.out.printf("Frame throttling: %d events → %d executions (%.1f%% reduction)%n",
-                        rapidEvents, executions, (1.0 - (double)executions/rapidEvents) * 100);
+        System.out.printf(
+                "Frame throttling: %d events → %d executions (%.1f%% reduction)%n",
+                rapidEvents, executions, (1.0 - (double) executions / rapidEvents) * 100);
 
         // Should execute significantly fewer times than events submitted
-        assertTrue(executions < rapidEvents / 2,
-                  String.format("Expected significant throttling: %d events should result in <%d executions, got %d",
-                              rapidEvents, rapidEvents/2, executions));
+        assertTrue(
+                executions < rapidEvents / 2,
+                String.format(
+                        "Expected significant throttling: %d events should result in <%d executions, got %d",
+                        rapidEvents, rapidEvents / 2, executions));
 
         // All executions should be at frame boundaries (except the first immediate one)
         if (executionTimes.size() > 1) {
@@ -129,9 +131,9 @@ class ScrollFrameThrottlerTest {
 
             for (int i = 1; i < executionTimes.size(); i++) {
                 long execution = executionTimes.get(i);
-                assertTrue(execution >= 40, // Allow some tolerance
-                          String.format("Execution %d should be at frame boundary (≥40ms), but was %dms",
-                                      i, execution));
+                assertTrue(
+                        execution >= 40, // Allow some tolerance
+                        String.format("Execution %d should be at frame boundary (≥40ms), but was %dms", i, execution));
             }
         }
     }
@@ -140,9 +142,9 @@ class ScrollFrameThrottlerTest {
     @DisplayName("Frame throttling efficiency improves with rapid scrolling")
     void testThrottlingEfficiency() throws Exception {
         // Test with different event frequencies
-        testThrottlingEfficiencyForEventCount(5);   // Low frequency
-        testThrottlingEfficiencyForEventCount(20);  // Medium frequency
-        testThrottlingEfficiencyForEventCount(50);  // High frequency
+        testThrottlingEfficiencyForEventCount(5); // Low frequency
+        testThrottlingEfficiencyForEventCount(20); // Medium frequency
+        testThrottlingEfficiencyForEventCount(50); // High frequency
     }
 
     private void testThrottlingEfficiencyForEventCount(int eventCount) throws Exception {
@@ -166,13 +168,12 @@ class ScrollFrameThrottlerTest {
         int executions = execCount.get();
         double efficiency = localThrottler.getThrottlingEfficiency();
 
-        System.out.printf("Events: %d, Executions: %d, Efficiency: %.1f%%\n",
-                        eventCount, executions, efficiency);
+        System.out.printf("Events: %d, Executions: %d, Efficiency: %.1f%%\n", eventCount, executions, efficiency);
 
         if (eventCount >= 20) {
-            assertTrue(efficiency > 50,
-                      String.format("Expected >50%% efficiency for %d events, got %.1f%%",
-                                  eventCount, efficiency));
+            assertTrue(
+                    efficiency > 50,
+                    String.format("Expected >50%% efficiency for %d events, got %.1f%%", eventCount, efficiency));
         }
 
         localThrottler.dispose();
@@ -213,8 +214,9 @@ class ScrollFrameThrottlerTest {
         // With rapid events, we should see throttling (fewer executions than events)
         // The exact timing may vary in CI, but throttling should still occur
         int executions = execCount.get();
-        assertTrue(executions < 10 && executions >= 2,
-                  String.format("Expected throttling with 10 rapid events, got %d executions", executions));
+        assertTrue(
+                executions < 10 && executions >= 2,
+                String.format("Expected throttling with 10 rapid events, got %d executions", executions));
 
         // Verify that frame-based throttling is working
         double efficiency = throttler.getThrottlingEfficiency();
@@ -342,8 +344,7 @@ class ScrollFrameThrottlerTest {
             successLatch.countDown();
         });
 
-        assertTrue(successLatch.await(200, TimeUnit.MILLISECONDS),
-                  "Throttler should continue working after exception");
+        assertTrue(successLatch.await(200, TimeUnit.MILLISECONDS), "Throttler should continue working after exception");
 
         assertEquals(2, execCount.get(), "Both actions should execute despite exception in first");
 
@@ -379,8 +380,9 @@ class ScrollFrameThrottlerTest {
         // might fire just as cancel() is called - the immediate execution plus
         // at most one queued execution that was already scheduled
         int finalCount = execCount.get();
-        assertTrue(finalCount <= 2 && finalCount >= 1,
-                  "Should have 1-2 executions after cancel (immediate + possible queued), but got " + finalCount);
+        assertTrue(
+                finalCount <= 2 && finalCount >= 1,
+                "Should have 1-2 executions after cancel (immediate + possible queued), but got " + finalCount);
     }
 
     @Test
@@ -443,8 +445,9 @@ class ScrollFrameThrottlerTest {
         int executions = execCount.get();
         double efficiency = fastThrottler.getThrottlingEfficiency();
 
-        System.out.printf("Stress test: %d events in %dms → %d executions (%.1f%% efficiency)%n",
-                        stressEvents, duration, executions, efficiency);
+        System.out.printf(
+                "Stress test: %d events in %dms → %d executions (%.1f%% efficiency)%n",
+                stressEvents, duration, executions, efficiency);
 
         assertTrue(executions < stressEvents / 5, "Should achieve significant throttling under stress");
         assertTrue(efficiency > 80, "Should achieve high efficiency under stress");

@@ -5,12 +5,12 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
 
 public class EditBlockConflictsParser extends EditBlockParser {
     public static EditBlockConflictsParser instance = new EditBlockConflictsParser();
@@ -23,13 +23,14 @@ public class EditBlockConflictsParser extends EditBlockParser {
     public List<ChatMessage> exampleMessages() {
         return List.of(
                 new UserMessage("Change get_factorial() to use math.factorial"),
-                new AiMessage("""
+                new AiMessage(
+                        """
                   To make this change we need to modify `mathweb/flask/app.py` to:
-                  
+
                   1. Import the math package.
                   2. Remove the existing factorial() function.
                   3. Update get_factorial() to call math.factorial instead.
-                  
+
                   Here are the *SEARCH/REPLACE* blocks:
 
                   <<<<<<< SEARCH mathweb/flask/app.py
@@ -54,9 +55,11 @@ public class EditBlockConflictsParser extends EditBlockParser {
                   ======= mathweb/flask/app.py
                       return str(math.factorial(n))
                   >>>>>>> REPLACE mathweb/flask/app.py
-                  """.stripIndent()),
+                  """
+                                .stripIndent()),
                 new UserMessage("Refactor hello() into its own filename."),
-                new AiMessage("""
+                new AiMessage(
+                        """
                   To make this change we need to modify `main.py` and make a new filename `hello.py`:
 
                   1. Make a new hello.py filename with hello() in it.
@@ -77,8 +80,8 @@ public class EditBlockConflictsParser extends EditBlockParser {
                   ======= main.py
                   from hello import hello
                   >>>>>>> REPLACE main.py
-                  """.stripIndent())
-        );
+                  """
+                                .stripIndent()));
     }
 
     @Override
@@ -92,7 +95,7 @@ public class EditBlockConflictsParser extends EditBlockParser {
         <<<<<<<< SEARCH io/github/jbellis/Foo.java
         ======== io/github/jbellis/Foo.java
         >>>>>>>> REPLACE io/github/jbellis/Foo.java
-        
+
         These markers (the hardcoded tokens, plus the filename) are referred to as the search, dividing,
         and replace markers, respectively.
 
@@ -105,11 +108,12 @@ public class EditBlockConflictsParser extends EditBlockParser {
 
         Use the *FULL* filename, as shown to you by the user. This appears on each of the three marker lines.
         No other text should appear on the marker lines.
-        
+
         You should expect to encounter git merge conflict markers in the files you are editing. These
         bear some resemblance to your *SEARCH/REPLACE* blocks. To avoid confusion, ALWAYS remember to
         include the filename after the *SEARCH/REPLACE* delimiters, including the dividing marker!
-        """.stripIndent();
+        """
+                .stripIndent();
     }
 
     // Pattern for the start of a search block, capturing the filename
@@ -172,16 +176,16 @@ public class EditBlockConflictsParser extends EditBlockParser {
                         if (r2.matches() && r2.group(1).trim().equals(currentFilename)) {
                             replaceIndex = i;
                             break;
-                        } else if (divider2.matches() && divider2.group(1).trim().equals(currentFilename)) {
+                        } else if (divider2.matches()
+                                && divider2.group(1).trim().equals(currentFilename)) {
                             // A second named divider => parse error
-                            parseErrors.append("Multiple named dividers found for ")
-                                    .append(currentFilename).append(" block.\n");
+                            parseErrors
+                                    .append("Multiple named dividers found for ")
+                                    .append(currentFilename)
+                                    .append(" block.\n");
 
                             // Revert everything
-                            revertLinesToLeftover(leftoverText,
-                                                  lines[searchLineIndex],
-                                                  beforeLines,
-                                                  afterLines);
+                            revertLinesToLeftover(leftoverText, lines[searchLineIndex], beforeLines, afterLines);
                             leftoverText.append(lines[i]).append("\n");
                             i++;
                             continue outerLoop;
@@ -193,13 +197,8 @@ public class EditBlockConflictsParser extends EditBlockParser {
 
                     if (replaceIndex < 0) {
                         // We never found "filename >>>>>>> REPLACE"
-                        parseErrors.append("Expected '")
-                                .append(currentFilename)
-                                .append(" >>>>>>> REPLACE' marker.\n");
-                        revertLinesToLeftover(leftoverText,
-                                              lines[searchLineIndex],
-                                              beforeLines,
-                                              afterLines);
+                        parseErrors.append("Expected '").append(currentFilename).append(" >>>>>>> REPLACE' marker.\n");
+                        revertLinesToLeftover(leftoverText, lines[searchLineIndex], beforeLines, afterLines);
                         continue outerLoop;
                     }
 
@@ -253,16 +252,14 @@ public class EditBlockConflictsParser extends EditBlockParser {
                         i++; // skip the REPLACE line
                         break blockLoop;
                     } else {
-                        parseErrors.append("Failed to parse block for '")
+                        parseErrors
+                                .append("Failed to parse block for '")
                                 .append(currentFilename)
                                 .append("': found ")
                                 .append(partialCount)
                                 .append(" standalone '=======' lines.\n");
 
-                        revertLinesToLeftover(leftoverText,
-                                              lines[searchLineIndex],
-                                              beforeLines,
-                                              lines[i]);
+                        revertLinesToLeftover(leftoverText, lines[searchLineIndex], beforeLines, lines[i]);
                         i++;
                         continue outerLoop;
                     }
@@ -275,7 +272,8 @@ public class EditBlockConflictsParser extends EditBlockParser {
 
             // If we exit the while loop normally, we never found a divider or fallback => parse error
             if (!blockSuccess) {
-                parseErrors.append("Expected '")
+                parseErrors
+                        .append("Expected '")
                         .append(currentFilename)
                         .append(" =======' divider after '")
                         .append(currentFilename)
@@ -291,9 +289,7 @@ public class EditBlockConflictsParser extends EditBlockParser {
         return new EditBlock.ExtendedParseResult(outputBlocks, errorText);
     }
 
-    /**
-     * If leftover text is non-blank, add it as a plain-text block; then reset it.
-     */
+    /** If leftover text is non-blank, add it as a plain-text block; then reset it. */
     private static void flushLeftoverText(StringBuilder leftover, List<EditBlock.OutputBlock> outputBlocks) {
         var text = leftover.toString();
         if (!text.isBlank()) {
@@ -303,14 +299,11 @@ public class EditBlockConflictsParser extends EditBlockParser {
     }
 
     /**
-     * Reverts the lines belonging to a malformed block back into leftover text (as plain text),
-     * including the original "SEARCH filename" line, any collected lines, and an optional trailing line.
+     * Reverts the lines belonging to a malformed block back into leftover text (as plain text), including the original
+     * "SEARCH filename" line, any collected lines, and an optional trailing line.
      */
-    private static void revertLinesToLeftover(StringBuilder leftover,
-                                              String searchLine,
-                                              List<String> collectedLines,
-                                              @Nullable String trailingLine)
-    {
+    private static void revertLinesToLeftover(
+            StringBuilder leftover, String searchLine, List<String> collectedLines, @Nullable String trailingLine) {
         leftover.append(searchLine).append("\n");
         for (var ln : collectedLines) {
             leftover.append(ln).append("\n");
@@ -321,15 +314,11 @@ public class EditBlockConflictsParser extends EditBlockParser {
     }
 
     /**
-     * Reverts the lines belonging to a malformed block back into leftover text,
-     * including the original "SEARCH filename" line, any collected lines, and
-     * a list of "afterLines".
+     * Reverts the lines belonging to a malformed block back into leftover text, including the original "SEARCH
+     * filename" line, any collected lines, and a list of "afterLines".
      */
-    private static void revertLinesToLeftover(StringBuilder leftover,
-                                              String searchLine,
-                                              List<String> beforeLines,
-                                              List<String> afterLines)
-    {
+    private static void revertLinesToLeftover(
+            StringBuilder leftover, String searchLine, List<String> beforeLines, List<String> afterLines) {
         leftover.append(searchLine).append("\n");
         for (var ln : beforeLines) {
             leftover.append(ln).append("\n");

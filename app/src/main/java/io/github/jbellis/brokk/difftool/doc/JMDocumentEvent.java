@@ -1,13 +1,14 @@
 package io.github.jbellis.brokk.difftool.doc;
 
-import org.jetbrains.annotations.Nullable;
-
 import javax.swing.event.DocumentEvent;
+import org.jetbrains.annotations.Nullable;
 
 public class JMDocumentEvent {
     private final AbstractBufferDocument document;
+
     @Nullable
     private DocumentEvent de;
+
     private int startLine;
     private int numberOfLines;
 

@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.analyzer.*;
-import org.fife.ui.autocomplete.ShorthandCompletion;
+import static java.util.Objects.requireNonNull;
 
+import io.github.jbellis.brokk.analyzer.*;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -11,8 +11,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
-
-import static java.util.Objects.requireNonNull;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
@@ -48,15 +47,13 @@ public class Completions {
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
-                                .thenComparing(sc -> sc.cu().fqName()))
+                        .thenComparing(sc -> sc.cu().fqName()))
                 .distinct()
                 .map(ScoredCU::cu)
                 .toList();
     }
 
-    /**
-     * Expand paths that may contain wildcards (*, ?), returning all matches.
-     */
+    /** Expand paths that may contain wildcards (*, ?), returning all matches. */
     public static List<BrokkFile> expandPath(IProject project, String pattern) {
         // First check if this is a single file
         var file = maybeExternalFile(project.getRoot(), pattern);
@@ -67,14 +64,15 @@ public class Completions {
         // Handle glob patterns [only in the last part of the path]
         if (pattern.contains("*") || pattern.contains("?")) {
             var parent = file.absPath().getParent();
-            while (parent != null && (parent.getFileName().toString().contains("*") || parent.getFileName().toString().contains("?"))) {
+            while (parent != null
+                    && (parent.getFileName().toString().contains("*")
+                            || parent.getFileName().toString().contains("?"))) {
                 parent = parent.getParent();
             }
             requireNonNull(parent);
             var matcher = FileSystems.getDefault().getPathMatcher("glob:" + file.absPath());
             try (var stream = Files.walk(parent)) {
-                return stream
-                        .filter(Files::isRegularFile)
+                return stream.filter(Files::isRegularFile)
                         .filter(matcher::matches)
                         .map(p -> maybeExternalFile(project.getRoot(), p.toString()))
                         .toList();
@@ -112,13 +110,13 @@ public class Completions {
     private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict
     }
 
-    public static <T> List<ShorthandCompletion> scoreShortAndLong(String pattern,
-                                                                  Collection<T> candidates,
-                                                                  Function<T, String> extractShort,
-                                                                  Function<T, String> extractLong,
-                                                                  Function<T, Integer> tiebreaker,
-                                                                  Function<T, ShorthandCompletion> toCompletion)
-    {
+    public static <T> List<ShorthandCompletion> scoreShortAndLong(
+            String pattern,
+            Collection<T> candidates,
+            Function<T, String> extractShort,
+            Function<T, String> extractLong,
+            Function<T, Integer> tiebreaker,
+            Function<T, ShorthandCompletion> toCompletion) {
         var matcher = new FuzzyMatcher(pattern);
         var scoredCandidates = candidates.stream()
                 .map(c -> {
@@ -131,8 +129,8 @@ public class Completions {
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
-                                .thenComparingInt(ScoredItem::tiebreakScore)
-                                .thenComparing(sc -> extractShort.apply(sc.source)))
+                        .thenComparingInt(ScoredItem::tiebreakScore)
+                        .thenComparing(sc -> extractShort.apply(sc.source)))
                 .toList();
 
         // Find the highest score among the "short" matches

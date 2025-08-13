@@ -4,23 +4,20 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
-import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.DefaultCompletionProvider;
-import org.fife.ui.autocomplete.ShorthandCompletion;
-
-import javax.swing.*;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import javax.swing.*;
+import javax.swing.text.JTextComponent;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 
-/**
- * A reusable panel for selecting Java symbols (classes and members) with autocomplete.
- */
+/** A reusable panel for selecting Java symbols (classes and members) with autocomplete. */
 public class SymbolSelectionPanel extends JPanel {
 
     private final JTextField symbolInput;
@@ -63,23 +60,17 @@ public class SymbolSelectionPanel extends JPanel {
         AutoCompleteUtil.bindCtrlEnter(autoCompletion, symbolInput);
     }
 
-    /**
-     * Create the symbol completion provider using Completions.completeSymbols
-     */
+    /** Create the symbol completion provider using Completions.completeSymbols */
     private SymbolCompletionProvider createSymbolCompletionProvider(IAnalyzer analyzer) {
         return new SymbolCompletionProvider(analyzer, typeFilter);
     }
 
-    /**
-     * Get the text from the input field
-     */
+    /** Get the text from the input field */
     public String getSymbolText() {
         return symbolInput.getText().trim();
     }
 
-    /**
-     * Get the text field component for setting default button actions
-     */
+    /** Get the text field component for setting default button actions */
     public JTextField getInputField() {
         return symbolInput;
     }
@@ -103,9 +94,7 @@ public class SymbolSelectionPanel extends JPanel {
         });
     }
 
-    /**
-     * A completion provider for Java classes and members using Completions.completeClassesAndMembers
-     */
+    /** A completion provider for Java classes and members using Completions.completeClassesAndMembers */
     public class SymbolCompletionProvider extends DefaultCompletionProvider {
 
         private final IAnalyzer analyzer;

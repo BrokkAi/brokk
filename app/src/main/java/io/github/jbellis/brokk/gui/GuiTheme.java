@@ -2,13 +2,6 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import org.fife.ui.rsyntaxtextarea.Theme;
-
-import org.jetbrains.annotations.Nullable;
-import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
 import java.net.URL;
@@ -16,10 +9,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.Theme;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Manages UI theme settings and application across the application.
- */
+/** Manages UI theme settings and application across the application. */
 public class GuiTheme {
     private static final Logger logger = LogManager.getLogger(GuiTheme.class);
 
@@ -27,8 +24,10 @@ public class GuiTheme {
     public static final String THEME_LIGHT = "light";
 
     private final JFrame frame;
+
     @Nullable
     private final JScrollPane mainScrollPane;
+
     private final Chrome chrome;
 
     // Track registered popup menus that need theme updates
@@ -72,9 +71,8 @@ public class GuiTheme {
             // Apply theme to RSyntaxTextArea components
             applyThemeAsync(themeName);
 
-            Brokk.getOpenProjectWindows()
-                    .values()
-                    .forEach(chrome -> chrome.getTheme().applyThemeToChromeComponents());
+            Brokk.getOpenProjectWindows().values().forEach(chrome -> chrome.getTheme()
+                    .applyThemeToChromeComponents());
         } catch (Exception e) {
             chrome.toolError("Failed to switch theme: " + e.getMessage());
         }
@@ -101,29 +99,30 @@ public class GuiTheme {
 
     /**
      * Applies the appropriate theme to all RSyntaxTextArea components
+     *
      * @param themeName "dark" or "light"
      */
     private void applyThemeAsync(String themeName) {
-        loadRSyntaxTheme(THEME_DARK.equals(themeName)).ifPresent(theme ->
-            // Apply to all RSyntaxTextArea components in open windows
-            SwingUtilities.invokeLater(() -> {
-                for (Window window : Window.getWindows()) {
-                    if (window instanceof JFrame win) {
-                        applyThemeToFrame(win, theme);
-                    }
-                    if (window instanceof JDialog dialog) {
-                        // Skip dialogs that are not displayable
-                        if (dialog.isDisplayable()) {
-                            // 1. ThemeAware dialogs can theme themselves
-                            if (dialog instanceof ThemeAware aware) {
-                                aware.applyTheme(this);
+        loadRSyntaxTheme(THEME_DARK.equals(themeName))
+                .ifPresent(theme ->
+                        // Apply to all RSyntaxTextArea components in open windows
+                        SwingUtilities.invokeLater(() -> {
+                            for (Window window : Window.getWindows()) {
+                                if (window instanceof JFrame win) {
+                                    applyThemeToFrame(win, theme);
+                                }
+                                if (window instanceof JDialog dialog) {
+                                    // Skip dialogs that are not displayable
+                                    if (dialog.isDisplayable()) {
+                                        // 1. ThemeAware dialogs can theme themselves
+                                        if (dialog instanceof ThemeAware aware) {
+                                            aware.applyTheme(this);
+                                        }
+                                        applyThemeToComponent(dialog.getContentPane(), theme);
+                                    }
+                                }
                             }
-                            applyThemeToComponent(dialog.getContentPane(), theme);
-                        }
-                    }
-                }
-            })
-        );
+                        }));
     }
 
     /**
@@ -145,15 +144,13 @@ public class GuiTheme {
         try {
             return Optional.of(Theme.load(inputStream));
         } catch (IOException e) {
-            logger.error("Could not load {} RSyntaxTextArea theme from {}: {}", themeChoice, themeResource, e.getMessage());
+            logger.error(
+                    "Could not load {} RSyntaxTextArea theme from {}: {}", themeChoice, themeResource, e.getMessage());
             return Optional.empty();
         }
     }
 
-    /**
-     * Applies the syntax theme to every relevant component contained in the
-     * supplied frame.
-     */
+    /** Applies the syntax theme to every relevant component contained in the supplied frame. */
     private void applyThemeToFrame(JFrame frame, Theme theme) {
         assert SwingUtilities.isEventDispatchThread() : "applyThemeToFrame must be called on EDT";
         applyThemeToComponent(frame.getContentPane(), theme);
@@ -182,7 +179,7 @@ public class GuiTheme {
                     applyThemeToComponent(view, theme);
                 }
             }
-            default -> { }
+            default -> {}
         }
 
         // 4. Recurse into child components (if any)
@@ -195,6 +192,7 @@ public class GuiTheme {
 
     /**
      * Checks if dark theme is currently active
+     *
      * @return true if dark theme is active
      */
     public boolean isDarkTheme() {
@@ -203,6 +201,7 @@ public class GuiTheme {
 
     /**
      * Registers a popup menu to receive theme updates
+     *
      * @param menu The popup menu to register
      */
     public void registerPopupMenu(JPopupMenu menu) {
@@ -216,16 +215,16 @@ public class GuiTheme {
 
     /**
      * Applies the current theme to a specific RSyntaxTextArea
+     *
      * @param textArea The text area to apply theme to
      */
     public void applyCurrentThemeToComponent(RSyntaxTextArea textArea) {
-        loadRSyntaxTheme(isDarkTheme()).ifPresent(theme ->
-            SwingUtilities.invokeLater(() -> theme.apply(textArea))
-        );
+        loadRSyntaxTheme(isDarkTheme()).ifPresent(theme -> SwingUtilities.invokeLater(() -> theme.apply(textArea)));
     }
 
     /**
      * Registers custom icons for the application based on the current theme
+     *
      * @param isDark true for dark theme icons, false for light theme icons
      */
     private void registerCustomIcons(boolean isDark) {
@@ -256,6 +255,7 @@ public class GuiTheme {
 
     /**
      * Discovers PNG and GIF icon files from a resource directory
+     *
      * @param directoryUrl The URL of the directory resource
      * @param iconBase The base path for constructing resource paths
      * @return List of resource paths to icon files
@@ -275,16 +275,17 @@ public class GuiTheme {
                 var dirPath = java.nio.file.Paths.get(directoryUrl.toURI());
                 try (var stream = java.nio.file.Files.list(dirPath)) {
                     stream.filter(path -> {
-                        var fileNamePath = path.getFileName();
-                        if (fileNamePath == null) {
-                            return false;
-                        }
-                        String name = fileNamePath.toString().toLowerCase(Locale.ROOT);
-                        return name.endsWith(".png") || name.endsWith(".gif");
-                    }).forEach(path -> {
-                        String filename = path.getFileName().toString();
-                        iconFiles.add(iconBase + filename);
-                    });
+                                var fileNamePath = path.getFileName();
+                                if (fileNamePath == null) {
+                                    return false;
+                                }
+                                String name = fileNamePath.toString().toLowerCase(Locale.ROOT);
+                                return name.endsWith(".png") || name.endsWith(".gif");
+                            })
+                            .forEach(path -> {
+                                String filename = path.getFileName().toString();
+                                iconFiles.add(iconBase + filename);
+                            });
                 }
             } else if ("jar".equals(protocol)) {
                 // Running from JAR file
@@ -304,7 +305,9 @@ public class GuiTheme {
                             var entry = entries.nextElement();
                             String entryName = entry.getName();
                             if (entryName.startsWith(entryPath) && !entry.isDirectory()) {
-                                var filename = entryName.substring(entryName.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+                                var filename = entryName
+                                        .substring(entryName.lastIndexOf('/') + 1)
+                                        .toLowerCase(Locale.ROOT);
                                 if (filename.endsWith(".png") || filename.endsWith(".gif")) {
                                     iconFiles.add("/" + entryName);
                                 }
@@ -322,6 +325,7 @@ public class GuiTheme {
 
     /**
      * Registers a single icon in the UIManager
+     *
      * @param key The UIManager key for the icon
      * @param resourcePath The resource path to the icon file
      */
