@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
 import org.jetbrains.annotations.Nullable;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.treesitter.TSNode;
 
 import java.util.ArrayList;
@@ -12,6 +14,7 @@ import java.util.function.Predicate;
  * Eliminates code duplication in recursive node searching and traversal operations.
  */
 public class ASTTraversalUtils {
+    private static final Logger log = LogManager.getLogger(ASTTraversalUtils.class);
 
     /**
      * Recursively finds the first node matching the given predicate.
@@ -125,6 +128,7 @@ public class ASTTraversalUtils {
      */
     public static String safeSubstringFromByteOffsets(String source, int startByte, int endByte) {
         if (startByte < 0 || endByte < startByte) {
+            log.warn("Requstef bytes outside byte range for '{}' between {} and {}", source, startByte, endByte);
             return "";
         }
 
