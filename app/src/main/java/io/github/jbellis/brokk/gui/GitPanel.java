@@ -6,6 +6,13 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import io.github.jbellis.brokk.gui.components.VerticalLabel;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
@@ -80,8 +87,8 @@ public class GitPanel extends JPanel {
             }
         });
 
-        // Tabbed pane for commit, log, and file-history tabs
-        tabbedPane = new JTabbedPane();
+        // Tabbed pane for commit, log, and file-history tabs (placed on the LEFT)
+        tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
         add(tabbedPane, BorderLayout.CENTER);
 
         // 1) Changes tab (displays uncommitted changes, uses GitCommitTab internally)
@@ -112,6 +119,9 @@ public class GitPanel extends JPanel {
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
             tabbedPane.addTab("Issues", issuesTab);
         }
+
+        // Rotate tab captions vertically after all tabs are present
+        applyVerticalTabLabels(tabbedPane);
 
         updateBorderTitle(); // Set initial title with branch name
     }
@@ -305,5 +315,18 @@ public class GitPanel extends JPanel {
     String getFileTabName(String filePath) {
         int lastSlash = filePath.lastIndexOf('/');
         return (lastSlash >= 0) ? filePath.substring(lastSlash + 1) : filePath;
+    }
+
+    /**
+     * Replace each tab title with a vertically-painted label so the text
+     * reads sideways when the tabs are placed on the LEFT.
+     */
+    private static void applyVerticalTabLabels(JTabbedPane pane)
+    {
+        for (int i = 0; i < pane.getTabCount(); i++) {
+            String title = pane.getTitleAt(i);
+            var label = new VerticalLabel(title);
+            pane.setTabComponentAt(i, label);
+        }
     }
 }

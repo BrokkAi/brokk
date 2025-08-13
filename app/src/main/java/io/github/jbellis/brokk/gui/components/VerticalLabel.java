@@ -30,7 +30,7 @@ public final class VerticalLabel extends JLabel
         Insets insets = getInsets();
         // After rotation the logical width is the font height; height is the string width
         // Width is font height plus horizontal padding
-        int width  = stringHeight + insets.left + insets.right - 4;
+        int width  = stringHeight + PAD_H;
         int height = stringWidth  + insets.top  + insets.bottom;
         return new Dimension(width, height);
     }
