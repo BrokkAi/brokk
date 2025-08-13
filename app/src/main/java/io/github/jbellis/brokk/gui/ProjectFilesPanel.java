@@ -4,6 +4,19 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
+import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -48,7 +61,9 @@ private static final String PLACEHOLDER_TEXT = "Search";
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
 
-        add(searchField, BorderLayout.NORTH);
+        var searchFieldPane =
+                OverlayPanel.wrapTextComponentWithPlaceholder(searchField, PLACEHOLDER_TEXT);
+        add(searchFieldPane, BorderLayout.NORTH);
         JScrollPane treeScrollPane = new JScrollPane(projectTree);
         add(treeScrollPane, BorderLayout.CENTER);
     }
@@ -61,30 +76,6 @@ private static final String PLACEHOLDER_TEXT = "Search";
         searchField = new JTextField(20);
         searchField.setToolTipText("Type to search for project files");
 
-        /* --- placeholder text handling --- */
-        var placeholderColor = Color.GRAY;
-        Color normalColor = UIManager.getColor("TextField.foreground");
-        searchField.setForeground(placeholderColor);
-        searchField.setText(PLACEHOLDER_TEXT);
-
-        searchField.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusGained(java.awt.event.FocusEvent e) {
-                if (searchField.getText().equals(PLACEHOLDER_TEXT)) {
-                    searchField.setText("");
-                    searchField.setForeground(normalColor);
-                }
-            }
-
-            @Override
-            public void focusLost(java.awt.event.FocusEvent e) {
-                if (searchField.getText().isBlank()) {
-                    searchField.setForeground(placeholderColor);
-                    searchField.setText(PLACEHOLDER_TEXT);
-                }
-            }
-        });
-        /* ---------------------------------- */
 
         var provider = new ProjectFileCompletionProvider(project);
         provider.setAutoActivationRules(true, null); // Activate on letters
@@ -114,7 +105,7 @@ private static final String PLACEHOLDER_TEXT = "Search";
             private void handleTextChange() {
                 SwingUtilities.invokeLater(() -> {
                     String currentText = searchField.getText();
-                    if (currentText.trim().isEmpty() || currentText.equals(PLACEHOLDER_TEXT)) {
+                    if (currentText.trim().isEmpty()) {
                         return;
                     }
 
@@ -182,7 +173,7 @@ private static final String PLACEHOLDER_TEXT = "Search";
         }
 
         // No tree selection - try to find and select a file based on search text
-        if (searchText == null || searchText.trim().isEmpty() || searchText.equals(PLACEHOLDER_TEXT)) {
+        if (searchText == null || searchText.trim().isEmpty()) {
             return; // Nothing to do if no selection and no search text
         }
 
