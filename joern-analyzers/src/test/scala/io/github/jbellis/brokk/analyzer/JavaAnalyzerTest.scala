@@ -204,6 +204,19 @@ class JavaAnalyzerTest {
   }
 
   @Test
+  def getSkeletonTestXExtendsY(): Unit = {
+    val skeletonOpt = getAnalyzer.getSkeleton("XExtendsY")
+    assertTrue(skeletonOpt.isPresent)
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
+    val expected =
+      """class XExtendsY extends BaseClass implements Serializable {
+        |  public void someMethod() {...}
+        |  public void <init>() {...}
+        |}""".stripMargin.stripIndent
+    assertEquals(expected, skeleton)
+  }
+
+  @Test
   def getSkeletonTestD(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("D")
     assertTrue(skeletonOpt.isPresent)
