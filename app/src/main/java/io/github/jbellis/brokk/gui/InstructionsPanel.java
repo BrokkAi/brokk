@@ -137,6 +137,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.commandInputUndoManager = new UndoManager();
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), PLACEHOLDER_TEXT       // show full guidance text in the overlay
         );
+        commandInputOverlay.setToolTipText("Click to enter your instructions");
         commandInputOverlay.setTextAlignmentTop(true);   // draw it at the top
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
