@@ -957,7 +957,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
         List<ChatMessage> messages;
         try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question);
+            messages = CodePrompts.instance.collectAskMessages(cm, question, model);
         } catch (InterruptedException e) {
             return new TaskResult(cm,
                                   "Ask: " + question,

@@ -328,7 +328,7 @@ public class MultiFileSelectionDialog extends JDialog {
 
         Map<String, CodeUnit> knownClasses = Completions.completeSymbols("", activeAnalyzer)
                 .stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS)
+                .filter(CodeUnit::isClass)
                 .collect(Collectors.toMap(CodeUnit::fqName, cu -> cu, (cu1, cu2) -> cu1));
 
         for (String className : classNames) {
@@ -402,7 +402,7 @@ public class MultiFileSelectionDialog extends JDialog {
                 try {
                     return Completions.completeSymbols("", analyzerWrapperField.get())
                             .stream()
-                            .filter(c -> c.kind() == CodeUnitType.CLASS)
+                            .filter(CodeUnit::isClass)
                             .toList();
                 } catch (Exception e) {
                     logger.error("Error loading symbol completions in background", e);

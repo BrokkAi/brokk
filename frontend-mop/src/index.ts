@@ -4,12 +4,17 @@ import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
+import {createSearchController, type SearchController} from './search/search';
 
-// Initialization calls at the top
+let searchCtrl: SearchController | null = null;
+
+ // Initialization calls at the top
 checkWorkerSupport();
 initializeApp();
 const buffer = setupBrokkInterface();
 replayBufferedItems(buffer);
+void initSearchController();
+setupSearchRehighlight();
 
 // Function definitions below
 function checkWorkerSupport(): void {
@@ -36,7 +41,15 @@ function setupBrokkInterface(): any[] {
         clear: clearChat,
         setTheme: setAppTheme,
         showSpinner: showSpinnerMessage,
-        hideSpinner: hideSpinnerMessage
+        hideSpinner: hideSpinnerMessage,
+
+        // Search API
+        setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),
+        clearSearch: () => searchCtrl?.clear(),
+        nextMatch: () => searchCtrl?.next(),
+        prevMatch: () => searchCtrl?.prev(),
+        scrollToCurrent: () => searchCtrl?.scrollCurrent(),
+        getSearchState: () => searchCtrl?.getState()
     };
     return buffer;
 }
@@ -95,4 +108,30 @@ function replayBufferedItems(buffer: any[]): void {
             }
         });
     }
+}
+
+async function initSearchController(): Promise<void> {
+    await tick();
+    const container = document.getElementById('chat-container') ?? document.getElementById('mop-root')!;
+    if (!container) {
+        console.warn('[search] container not found');
+        return;
+    }
+    searchCtrl = createSearchController(container);
+}
+
+function setupSearchRehighlight(): void {
+    let pending = false;
+    bubblesStore.subscribe(() => {
+        if (!searchCtrl || !searchCtrl.getState().query) return;
+        if (pending) return;
+        pending = true;
+
+        tick().then(() => {
+            requestAnimationFrame(() => {
+                pending = false;
+                searchCtrl?.onContentChanged();
+            });
+        });
+    });
 }

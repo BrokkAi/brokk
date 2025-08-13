@@ -16,12 +16,14 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
+import static io.github.jbellis.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
+
 public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_declaration", "class_expression", "class"),
-            Set.of("function_declaration", "arrow_function", "method_definition", "function_expression"),
-            Set.of("variable_declarator"),
+            Set.of(CLASS_DECLARATION, CLASS_EXPRESSION, CLASS),
+            Set.of(FUNCTION_DECLARATION, ARROW_FUNCTION, METHOD_DEFINITION, FUNCTION_EXPRESSION),
+            Set.of(VARIABLE_DECLARATOR),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             "name",       // identifierFieldName
             "body",       // bodyFieldName

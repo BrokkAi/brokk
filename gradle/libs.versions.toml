@@ -10,6 +10,7 @@ nullaway = "0.12.7"
 flatlaf = "3.6"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
+treesitter-lang = "0.23.4"
 picocli = "4.7.7"
 maven-embedder = "3.9.6"
 maven-resolver = "1.9.20"
@@ -86,12 +87,13 @@ bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
 # TreeSitter
 treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
-treesitter-java = "io.github.bonede:tree-sitter-java:0.23.4"
+treesitter-java = { module = "io.github.bonede:tree-sitter-java", version.ref = "treesitter-lang" }
+treesitter-cpp = { module = "io.github.bonede:tree-sitter-cpp", version.ref = "treesitter-lang" }
 treesitter-csharp = "io.github.bonede:tree-sitter-c-sharp:0.23.1"
 treesitter-go = "io.github.bonede:tree-sitter-go:0.23.3"
 treesitter-javascript = "io.github.bonede:tree-sitter-javascript:0.23.1"
 treesitter-php = "io.github.bonede:tree-sitter-php:0.23.11"
-treesitter-python = "io.github.bonede:tree-sitter-python:0.23.4"
+treesitter-python = { module = "io.github.bonede:tree-sitter-python", version.ref = "treesitter-lang" }
 treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
 treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
 
@@ -116,7 +118,7 @@ scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
 ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-java", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 
 [plugins]

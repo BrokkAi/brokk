@@ -1,20 +1,20 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
-import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
+import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.ManageDependenciesDialog;
-import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
-import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
-import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
-import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 
 import javax.swing.*;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -22,8 +22,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import javax.swing.event.MenuEvent;
-import javax.swing.event.MenuListener;
 
 public class MenuBar {
     /**
@@ -75,6 +73,16 @@ public class MenuBar {
             openSettingsDialog(chrome);
         });
         fileMenu.add(settingsItem);
+
+        // Exit menu item (Cmd/Ctrl+Q)
+        var exitItem = new JMenuItem("Exit");
+        exitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Q,
+                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        exitItem.addActionListener(e -> {
+            chrome.systemOutput("Exiting Brokk...");
+            Thread.ofPlatform().start(Brokk::exit);
+        });
+        fileMenu.add(exitItem);
 
         menuBar.add(fileMenu);
 

@@ -15,13 +15,15 @@ import org.treesitter.TreeSitterGo;
 import java.util.Collections;
 import java.util.Set;
 
+import static io.github.jbellis.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
+
 public final class GoAnalyzer extends TreeSitterAnalyzer {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
     // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("type_spec"), // classLikeNodeTypes
-            Set.of("function_declaration", "method_declaration"), // functionLikeNodeTypes
+            Set.of(TYPE_SPEC), // classLikeNodeTypes
+            Set.of(FUNCTION_DECLARATION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of("var_spec", "const_spec"), // fieldLikeNodeTypes
             Set.of(), // decoratorNodeTypes (Go doesn't have them in the typical sense)
             "name",        // identifierFieldName (used as fallback if specific .name capture is missing)
@@ -41,7 +43,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             "", // asyncKeywordNodeType (Go uses 'go' keyword, not an async modifier on func signature)
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)
     );
-    
+
     @Nullable
     private final ThreadLocal<TSQuery> packageQuery;
 
@@ -191,7 +193,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         log.trace("GoAnalyzer.renderFunctionDeclaration for node type '{}', functionName '{}'. Params: '{}', Return: '{}'", funcNode.getType(), functionName, paramsText, returnTypeText);
         String rt = !returnTypeText.isEmpty() ? " " + returnTypeText : "";
         String signature;
-        if ("method_declaration".equals(funcNode.getType())) {
+        if (METHOD_DECLARATION.equals(funcNode.getType())) {
             TSNode receiverNode = funcNode.getChildByFieldName("receiver");
             String receiverText = "";
             if (receiverNode != null && !receiverNode.isNull()) {
@@ -201,7 +203,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             // For methods, paramsText is for the method's own parameters, not the receiver.
             signature = String.format("func %s %s%s%s%s", receiverText, functionName, typeParamsText, paramsText, rt);
             return signature + " { " + bodyPlaceholder() + " }";
-        } else if ("method_elem".equals(funcNode.getType())) { // Interface method
+        } else if (METHOD_ELEM.equals(funcNode.getType())) { // Interface method
             // Interface methods don't have 'func', receiver, or body placeholder in their definition.
             // functionName is the method name.
             // paramsText is the parameters (e.g., "()", "(p int)").
@@ -223,7 +225,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         TSNode typeSpecNode = null;
         for (int i = 0; i < classNode.getNamedChildCount(); i++) {
             TSNode child = classNode.getNamedChild(i);
-            if ("type_spec".equals(child.getType())) {
+            if (TYPE_SPEC.equals(child.getType())) {
                 typeSpecNode = child;
                 break;
             }
@@ -246,9 +248,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         String kindText;
         String kindNodeType = kindNode.getType();
 
-        if ("struct_type".equals(kindNodeType)) {
+        if (STRUCT_TYPE.equals(kindNodeType)) {
             kindText = "struct";
-        } else if ("interface_type".equals(kindNodeType)) {
+        } else if (INTERFACE_TYPE.equals(kindNodeType)) {
             kindText = "interface";
         } else {
             log.warn("renderClassHeader for Go: Unhandled kind node type '{}' for classNode {}. Falling back.", kindNodeType, textSlice(classNode,src).lines().findFirst().orElse(""));

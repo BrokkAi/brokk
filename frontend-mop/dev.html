@@ -6,7 +6,7 @@
 </head>
 <style>
     #mop-root {
-        top: 350px !important;
+        top: 450px !important;
     }
 
     #dev-tools {
@@ -30,6 +30,16 @@
         Test Spinner
     </button>
     <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
+    <h3>Search Tools</h3>
+    <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
+    <label><input type="checkbox" id="search-case-sensitive"> Case Sensitive</label>
+    <button onclick="setSearchFromInput()">Set Search</button>
+    <button onclick="window.brokk.clearSearch()">Clear Search</button>
+    <button onclick="window.brokk.nextMatch()">Next Match</button>
+    <button onclick="window.brokk.prevMatch()">Prev Match</button>
+    <button onclick="window.brokk.scrollToCurrent()">Scroll To Current</button>
+    <p>Search State: <span id="search-state-display">N/A</span></p>
+
     <textarea id="md-playground"
               placeholder="Type Markdown here..."
               style="width:100%;height:150px;margin:1em 0;box-sizing:border-box;"></textarea>
@@ -68,7 +78,13 @@
     })();
     // Mock Java bridge for dev mode
     window.javaBridge = {
-        onAck: (epoch) => {
+        onAck: (epoch) => {},
+        searchStateChanged: (total, current) => {
+            console.log(`[Java Bridge Mock] Search State: total=${total}, current=${current}`);
+            const stateDisplay = document.getElementById('search-state-display');
+            if (stateDisplay) {
+                stateDisplay.textContent = `Total: ${total}, Current: ${current}`;
+            }
         }
     };
 
@@ -739,6 +755,24 @@ if (buffer.length > 0) {
     }
 
 
+    function setSearchFromInput() {
+        const queryInput = document.getElementById('search-query-input');
+        const caseSensitiveCheckbox = document.getElementById('search-case-sensitive');
+        if (queryInput && caseSensitiveCheckbox) {
+            const query = queryInput.value;
+            const caseSensitive = caseSensitiveCheckbox.checked;
+            window.brokk.setSearch(query, caseSensitive);
+        }
+    }
+
+    function getSearchStateAndDisplay() {
+        const state = window.brokk.getSearchState();
+        const stateDisplay = document.getElementById('search-state-display');
+        if (stateDisplay && state) {
+            stateDisplay.textContent = `Total: ${state.total}, Current: ${state.current}, Query: '${state.query}', Case Sensitive: ${state.caseSensitive}`;
+        }
+    }
+
     (function () {
         const mdInput = document.getElementById('md-playground');
         let rafId = 0;
@@ -754,6 +788,9 @@ if (buffer.length > 0) {
                 });
             });
         });
+
+        // Initialize search state display on load
+        getSearchStateAndDisplay();
     })();
 
 </script>

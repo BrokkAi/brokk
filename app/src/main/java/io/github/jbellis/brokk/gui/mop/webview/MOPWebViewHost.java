@@ -12,9 +12,11 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -24,6 +26,7 @@ public final class MOPWebViewHost extends JPanel {
     private final AtomicReference<MOPBridge> bridgeRef = new AtomicReference<>();
     private final AtomicReference<WebView> webViewRef = new AtomicReference<>();
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
+    private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile boolean darkTheme = true; // Default to dark theme
 
     // Theme configuration as a record for DRY principle
@@ -90,6 +93,10 @@ public final class MOPWebViewHost extends JPanel {
                 if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {
                     var window = (JSObject) view.getEngine().executeScript("window");
                     window.setMember("javaBridge", bridge);
+
+                    for (var l : searchListeners) {
+                        bridge.addSearchStateListener(l);
+                    }
                     
                     // Inject JavaScript to intercept console methods and forward to Java bridge with stack traces
             view.getEngine().executeScript("""
@@ -200,6 +207,67 @@ public final class MOPWebViewHost extends JPanel {
     public void hideSpinner() {
         sendOrQueue(new HostCommand.HideSpinner(),
                      bridge -> bridge.hideSpinner());
+    }
+
+    public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+        searchListeners.add(l);
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.addSearchStateListener(l);
+        }
+    }
+
+    public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+        searchListeners.remove(l);
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.removeSearchStateListener(l);
+        }
+    }
+
+    public void setSearch(String query, boolean caseSensitive) {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("setSearch ignored; bridge not ready");
+            return;
+        }
+        bridge.setSearch(query, caseSensitive);
+    }
+
+    public void clearSearch() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("clearSearch ignored; bridge not ready");
+            return;
+        }
+        bridge.clearSearch();
+    }
+
+    public void nextMatch() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("nextMatch ignored; bridge not ready");
+            return;
+        }
+        bridge.nextMatch();
+    }
+
+    public void prevMatch() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("prevMatch ignored; bridge not ready");
+            return;
+        }
+        bridge.prevMatch();
+    }
+
+    public void scrollToCurrent() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("scrollToCurrent ignored; bridge not ready");
+            return;
+        }
+        bridge.scrollToCurrent();
     }
 
     private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {

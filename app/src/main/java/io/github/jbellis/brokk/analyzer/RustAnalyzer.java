@@ -11,14 +11,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
+import static io.github.jbellis.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
+
 public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            /* classLikeNodeTypes  */ Set.of("impl_item", "trait_item", "struct_item", "enum_item"),
-            /* functionLikeNodes   */ Set.of("function_item", "function_signature_item"),
-            /* fieldLikeNodes      */ Set.of("field_declaration", "const_item", "static_item", "enum_variant"),
-            /* decoratorNodes      */ Set.of("attribute_item"), // Rust attributes like #[derive(...)]
+            /* classLikeNodeTypes  */ Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
+            /* functionLikeNodes   */ Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
+            /* fieldLikeNodes      */ Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
+            /* decoratorNodes      */ Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
             /* identifierFieldName */ "name", // Common field name for identifiers
             /* bodyFieldName       */ "body", // e.g., function_item.body, impl_item.body
             /* parametersFieldName */ "parameters", // e.g., function_item.parameters
@@ -31,7 +33,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     "field.definition", SkeletonType.FIELD_LIKE
             ),
             /* async keyword node   */ "",
-            /* modifier node types  */ Set.of("visibility_modifier")
+            /* modifier node types  */ Set.of(VISIBILITY_MODIFIER)
     );
 
     public RustAnalyzer(IProject project, Set<String> excludedFiles) {
@@ -182,7 +184,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         // We check the first few children as its position can vary slightly (e.g. after attributes).
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
-            if (!child.isNull() && "visibility_modifier".equals(child.getType())) {
+            if (!child.isNull() && VISIBILITY_MODIFIER.equals(child.getType())) {
                 String text = textSlice(child, src).strip();
                 return text + " ";
             }
@@ -239,17 +241,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
-        if ("impl_item".equals(decl.getType())) {
+        if (IMPL_ITEM.equals(decl.getType())) {
             TSNode typeNode = decl.getChildByFieldName("type");
             // In `impl Trait for Type`, typeNode is `Type`.
             // In `impl Type`, typeNode is `Type`.
             if (typeNode != null && !typeNode.isNull()) {
                 String typeNodeType = typeNode.getType();
                 return switch (typeNodeType) {
-                    case "type_identifier" -> Optional.of(textSlice(typeNode, src));
-                    case "generic_type" -> {
+                    case TYPE_IDENTIFIER -> Optional.of(textSlice(typeNode, src));
+                    case GENERIC_TYPE -> {
                         TSNode genericTypeNameNode = typeNode.getChildByFieldName("type");
-                        if (!genericTypeNameNode.isNull() && "type_identifier".equals(genericTypeNameNode.getType())) {
+                        if (!genericTypeNameNode.isNull() && TYPE_IDENTIFIER.equals(genericTypeNameNode.getType())) {
                             yield Optional.of(textSlice(genericTypeNameNode, src));
                         }
                         String fullGenericTypeNodeText = textSlice(typeNode, src);
@@ -257,9 +259,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                                  fullGenericTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
                         yield Optional.of(fullGenericTypeNodeText);
                     }
-                    case "scoped_type_identifier" -> {
+                    case SCOPED_TYPE_IDENTIFIER -> {
                         TSNode scopedNameNode = typeNode.getChildByFieldName("name");
-                        if (!scopedNameNode.isNull() && "type_identifier".equals(scopedNameNode.getType())) {
+                        if (!scopedNameNode.isNull() && TYPE_IDENTIFIER.equals(scopedNameNode.getType())) {
                             yield Optional.of(textSlice(scopedNameNode, src));
                         }
                         String fullScopedTypeNodeText = textSlice(typeNode, src);

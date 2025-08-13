@@ -368,7 +368,7 @@ public final class BrokkCli implements Callable<Integer> {
             return List.of();
         }
         Supplier<Collection<CodeUnit>> source = () -> analyzer.getAllDeclarations().stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS).toList();
+                .filter(CodeUnit::isClass).toList();
         return inputs.stream()
                 .map(input -> resolve(input, source, List::of, CodeUnit::fqName, entityType))
                 .flatMap(Optional::stream)
@@ -380,7 +380,7 @@ public final class BrokkCli implements Callable<Integer> {
                                     Supplier<Collection<T>> primarySourceSupplier,
                                     Supplier<Collection<T>> secondarySourceSupplier,
                                     Function<T, String> nameExtractor,
-                                    String entityType) 
+                                    String entityType)
     {
         var primarySource = primarySourceSupplier.get();
         var primaryResult = findUnique(userInput, primarySource, nameExtractor, entityType, "primary source");

@@ -1229,18 +1229,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void close() {
+        // we're not in a hurry when calling close(), this indicates a single window shutting down
+        closeAsync(5_000);
+    }
+
+    public CompletableFuture<Void> closeAsync(long awaitMillis) {
         // Cancel BuildAgent task if still running
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
             logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
             buildAgentFuture.cancel(true);
         }
 
-        userActionExecutor.shutdown();
-        contextActionExecutor.shutdown();
-        lowMemoryWatcherManager.close();
-        backgroundTasks.shutdown();
-        project.close();
+        // Close watchers before shutting down executors that may be used by them
         analyzerWrapper.close();
+        lowMemoryWatcherManager.close();
+
+        var userActionFuture = userActionExecutor.shutdownAndAwait(awaitMillis, "userActionExecutor");
+        var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
+        var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
+
+        return CompletableFuture
+                .allOf(userActionFuture, contextActionFuture, backgroundFuture)
+                .whenComplete((v, t) -> project.close());
     }
 
     /**

@@ -10,16 +10,22 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import javax.swing.SwingUtilities;
 
 public final class MOPBridge {
     private static final Logger logger = LogManager.getLogger(MOPBridge.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    public record SearchState(int totalMatches, int currentDisplayIndex) {}
+
+    private final List<Consumer<SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private final WebEngine engine;
     private final ScheduledExecutorService xmit;
     private final AtomicBoolean pending = new AtomicBoolean();
@@ -34,6 +40,49 @@ public final class MOPBridge {
             t.setDaemon(true);
             return t;
         });
+    }
+
+    public void addSearchStateListener(Consumer<SearchState> l) {
+        searchListeners.add(l);
+    }
+
+    public void removeSearchStateListener(Consumer<SearchState> l) {
+        searchListeners.remove(l);
+    }
+
+    public void searchStateChanged(int total, int current) {
+        logger.debug("searchStateChanged: total={}, current={}", total, current);
+        var state = new SearchState(total, current);
+        SwingUtilities.invokeLater(() -> {
+            for (var l : searchListeners) {
+                try {
+                    l.accept(state);
+                } catch (Exception ex) {
+                    logger.warn("search listener failed", ex);
+                }
+            }
+        });
+    }
+
+    public void setSearch(String query, boolean caseSensitive) {
+        var js = "window.brokk.setSearch(" + toJson(query) + ", " + caseSensitive + ")";
+        Platform.runLater(() -> engine.executeScript(js));
+    }
+
+    public void clearSearch() {
+        Platform.runLater(() -> engine.executeScript("window.brokk.clearSearch()"));
+    }
+
+    public void nextMatch() {
+        Platform.runLater(() -> engine.executeScript("window.brokk.nextMatch()"));
+    }
+
+    public void prevMatch() {
+        Platform.runLater(() -> engine.executeScript("window.brokk.prevMatch()"));
+    }
+
+    public void scrollToCurrent() {
+        Platform.runLater(() -> engine.executeScript("window.brokk.scrollToCurrent()"));
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {

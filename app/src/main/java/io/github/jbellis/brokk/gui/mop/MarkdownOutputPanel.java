@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.mop.webview.MOPBridge;
 import io.github.jbellis.brokk.gui.mop.webview.MOPWebViewHost;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
@@ -18,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
@@ -202,6 +204,34 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             var selection = new StringSelection(textToCopy);
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, selection);
         }
+    }
+
+    public void setSearch(String query, boolean caseSensitive) {
+        webHost.setSearch(query, caseSensitive);
+    }
+
+    public void clearSearch() {
+        webHost.clearSearch();
+    }
+
+    public void nextMatch() {
+        webHost.nextMatch();
+    }
+
+    public void prevMatch() {
+        webHost.prevMatch();
+    }
+
+    public void scrollSearchCurrent() {
+        webHost.scrollToCurrent();
+    }
+
+    public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+        webHost.addSearchStateListener(l);
+    }
+
+    public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+        webHost.removeSearchStateListener(l);
     }
 
     public void dispose() {

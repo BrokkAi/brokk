@@ -834,7 +834,8 @@ public class ArchitectAgent {
     {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
-        messages.add(ArchitectPrompts.instance.systemMessage(contextManager, CodePrompts.ARCHITECT_REMINDER));
+        var reminder = CodePrompts.instance.architectReminder(contextManager.getService(), model);
+        messages.add(ArchitectPrompts.instance.systemMessage(contextManager, reminder));
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
