@@ -313,7 +313,7 @@ public class Context {
     }
 
     public static SkeletonFragment buildAutoContextFragment(IContextManager contextManager, IAnalyzer analyzer, Map<String, Double> weightedSeeds, Set<CodeUnit> ineligibleSources, int topK) {
-        var pagerankResults = AnalyzerUtil.combinedPagerankFor(analyzer, weightedSeeds);
+        var pagerankResults = AnalyzerUtil.combinedRankingFor(analyzer, contextManager.getProject().getRoot(), weightedSeeds);
 
         List<String> targetFqns = new ArrayList<>();
         for (var codeUnit : pagerankResults) {

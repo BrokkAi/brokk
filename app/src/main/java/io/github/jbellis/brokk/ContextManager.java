@@ -1679,7 +1679,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.systemOutput("Generating project style guide...");
                 var analyzer = getAnalyzerUninterrupted();
                 // Use a reasonable limit for style guide generation context
-                var topClasses = AnalyzerUtil.combinedPagerankFor(analyzer, Map.of()).stream().limit(10).toList();
+                var topClasses = AnalyzerUtil.combinedRankingFor(analyzer, project.getRoot(), Map.of()).stream().limit(10).toList();
 
                 if (topClasses.isEmpty()) {
                     io.systemOutput("No classes found via PageRank for style guide generation.");

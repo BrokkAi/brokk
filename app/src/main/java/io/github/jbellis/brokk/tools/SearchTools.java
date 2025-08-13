@@ -293,7 +293,7 @@ public class SearchTools {
             weightedSeeds.put(className, 1.0);
         }
 
-        var pageRankUnits = AnalyzerUtil.combinedPagerankFor(getAnalyzer(), weightedSeeds);
+        var pageRankUnits = AnalyzerUtil.combinedRankingFor(getAnalyzer(), contextManager.getProject().getRoot(), weightedSeeds);
 
         if (pageRankUnits.isEmpty()) {
             return "No related code found via PageRank for seeds: " + String.join(", ", classNames);

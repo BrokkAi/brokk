@@ -23,7 +23,7 @@ class DisabledAnalyzer extends IAnalyzer {
   override def getDeclarationsInFile(file: ProjectFile): util.Set[CodeUnit] =
     Collections.emptySet()
 
-  override def getPagerank(
+  override def getRelevantCodeUnits(
     seedClassWeights: java.util.Map[String, java.lang.Double],
     k: Int,
     reversed: Boolean = false

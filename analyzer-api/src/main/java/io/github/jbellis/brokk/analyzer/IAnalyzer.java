@@ -33,9 +33,9 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default List<CodeUnitRelevance> getPagerank(Map<String, Double> seedClassWeights,
-                                                int k,
-                                                boolean reversed) {
+    default List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights,
+                                                         int k,
+                                                         boolean reversed) {
         throw new UnsupportedOperationException();
     }
 

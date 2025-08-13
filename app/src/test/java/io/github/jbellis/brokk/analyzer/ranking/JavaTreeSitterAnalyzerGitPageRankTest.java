@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.testutil.TestProject;
-import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;

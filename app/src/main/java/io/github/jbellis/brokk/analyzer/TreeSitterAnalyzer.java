@@ -520,7 +520,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnitRelevance> getPagerank(Map<String, Double> seedClassWeights, int k, boolean reversed) {
+    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
         try {
             return GitDistance.getPagerank(this, project.getRoot(), seedClassWeights, k, reversed);
         } catch (GitAPIException e) {
