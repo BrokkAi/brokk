@@ -184,57 +184,61 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         systemOutput("Opening project at " + getProject().getRoot());
 
         // Create workspace panel and project files panel
-    workspacePanel = new WorkspacePanel(this, contextManager);
-    projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+        workspacePanel = new WorkspacePanel(this, contextManager);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
 
-    // Create left vertical-tabbed pane for ProjectFiles and Git with WEST (vertical) tab placement
-    leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
-    leftTabbedPanel.addTab("Project Files", projectFilesPanel);
-    // Add Git tab if available
-    if (getProject().hasGit()) {
-        gitPanel = new GitPanel(this, contextManager);
-        leftTabbedPanel.addTab("Git", gitPanel);
-        gitPanel.updateRepo();
-    } else {
-        gitPanel = null;
-    }
-    // Rotate tab captions vertically
-    applyVerticalTabLabels(leftTabbedPanel);
+        // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
+        leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
+        // Allow the divider to move further left by reducing the minimum width
+        leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+        leftTabbedPanel.addTab("Project Files", projectFilesPanel);
 
-    /*
-     * Desired layout (left→right, top→bottom):
-     * ┌────────────────────────────┬──────────────────────────────┐
-     * │ Vert-tabbed (Project/Git)  │  Output (top)               │
-     * │                            │  Workspace (middle)         │
-     * │                            │  Instructions (bottom)      │
-     * └────────────────────────────┴──────────────────────────────┘
-     */
+        // Add Git tab if available
+        if (getProject().hasGit()) {
+            gitPanel = new GitPanel(this, contextManager);
+            leftTabbedPanel.addTab("Git", gitPanel);
+            gitPanel.updateRepo();
+        } else {
+            gitPanel = null;
+        }
+        // Rotate tab captions vertically
+        applyVerticalTabLabels(leftTabbedPanel);
 
-    // 1) Nested split for Workspace (top) / Instructions (bottom)
-    JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-    workspaceInstructionsSplit.setTopComponent(workspacePanel);
-    workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
-    workspaceInstructionsSplit.setResizeWeight(0.5); // even split for now
+        /*
+         * Desired layout (left→right, top→bottom):
+         * ┌────────────────────────────┬──────────────────────────────┐
+         * │ Vert-tabbed (Project/Git)  │  Output (top)               │
+         * │                            │  Workspace (middle)         │
+         * │                            │  Instructions (bottom)      │
+         * └────────────────────────────┴──────────────────────────────┘
+         */
 
-    // Keep reference so existing persistence logic still works
-    topSplitPane = workspaceInstructionsSplit;
+        // 1) Nested split for Workspace (top) / Instructions (bottom)
+        JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        workspaceInstructionsSplit.setTopComponent(workspacePanel);
+        workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
+        workspaceInstructionsSplit.setResizeWeight(0.5); // even split for now
 
-    // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
-    JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-    outputStackSplit.setTopComponent(historyOutputPanel);
-    outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
-    outputStackSplit.setResizeWeight(0.3); // ~30 % to Output
+        // Keep reference so existing persistence logic still works
+        topSplitPane = workspaceInstructionsSplit;
 
-    // Keep reference so existing persistence logic still works
-    mainVerticalSplitPane = outputStackSplit;
+        // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
+        JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        outputStackSplit.setTopComponent(historyOutputPanel);
+        outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
+        outputStackSplit.setResizeWeight(0.3); // ~30 % to Output
 
-    // 3) Final horizontal split: left tabs | right stack
-    JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-    bottomSplitPane.setLeftComponent(leftTabbedPanel);
-    bottomSplitPane.setRightComponent(outputStackSplit);
-    bottomSplitPane.setResizeWeight(0.0);  // left pane keeps fixed size; divider set to 30 % later
+        // Keep reference so existing persistence logic still works
+        mainVerticalSplitPane = outputStackSplit;
 
-    bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
+        // 3) Final horizontal split: left tabs | right stack
+        JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        bottomSplitPane.setLeftComponent(leftTabbedPanel);
+        bottomSplitPane.setRightComponent(outputStackSplit);
+        bottomSplitPane.setResizeWeight(0.0);  // left pane keeps fixed size
+        bottomSplitPane.setDividerLocation(0.5); // start with ~30 % for tabs
+
+        bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
