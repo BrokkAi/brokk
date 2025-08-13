@@ -38,7 +38,7 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   override def defaultConfig: Config = JavaAnalyzer.defaultConfig
 
   override implicit val defaultBuilder: CpgBuilder[Config] = javaSrcBuilder
-  
+
   override protected val threadIdentifier = "java"
 
   /** Java-specific method signature builder.
@@ -145,8 +145,34 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     val sb = new StringBuilder
 
     val className = sanitizeType(td.name)
-    sb.append("  " * indent).append("class ").append(className).append(" {\n")
+    sb.append("  " * indent).append("class ").append(className)
 
+    // Inheritance
+    val directParentTypeDecls = td.start.baseTypeDecl.whereNot(_.fullNameExact("java.lang.Object")).l
+    val (interfaces, baseTypes) = {
+      // We lose info on whether external types are classes or interfaces, so
+      // we need some heuristics. If we cannot determine if a parent types
+      // have any classes, then we assume they're all interface
+      if (directParentTypeDecls.exists(_.code.contains("class"))) {
+        // if we know which one is the class, we can safely assume the rest are interfaces
+        directParentTypeDecls.partition(typ => !typ.code.contains("class"))
+      } else if (directParentTypeDecls.count(x => !x.code.contains("interface")) == 1) {
+        // If we have exactly 1 non-class file, e.g., 1 external, we can assume it's
+        // a class and it won't look too bad
+        directParentTypeDecls.partition(_.code.contains("interface"))
+      } else {
+        // Otherwise assume the rest are interfaces
+        (directParentTypeDecls, List.empty)
+      }
+    }
+    // Only one base type should exist, if any
+    baseTypes.name.headOption.foreach(baseType => sb.append(s" extends $baseType"))
+    // Interfaces are comma-separated after the first one
+    if (interfaces.nonEmpty) {
+      sb.append(s" implements ${interfaces.name.mkString(", ")}")
+    }
+
+    sb.append(" {\n")
     // Methods: skip any whose name starts with "<lambda>"
     td.method.filterNot(_.name.startsWith("<lambda>")).foreach { m =>
       sb.append("  " * (indent + 1))
@@ -416,9 +442,9 @@ object JavaAnalyzer {
       logger.info(s"Deleting existing CPG at '$cpgPath' to ensure a fresh build.")
       Files.delete(cpgPath)
     logger.info(s"Creating Java CPG at '$cpgPath'")
-    
+
     // Build the CPG. Since we are outside a JoernAnalyzer, we must provide a thread pool
-    implicit val pool: ForkJoinPool = 
+    implicit val pool: ForkJoinPool =
       ForkJoinPool(Runtime.getRuntime.availableProcessors() - 1, JoernAnalyzer.threadFactory("java"), null, true)
     try {
       defaultConfig
