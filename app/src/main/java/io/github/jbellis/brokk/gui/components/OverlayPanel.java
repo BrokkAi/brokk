@@ -25,6 +25,8 @@ public class OverlayPanel extends JPanel {
     private final Color overlayColor; // Never null
     private final boolean isBlocking;
     private boolean isActive = true;
+    // If true, placeholder text is drawn near the top edge instead of centred.
+    private boolean alignTop = false;
 
     public OverlayPanel(Consumer<OverlayPanel> onActivate, @Nullable String tooltipText, Color overlayColor, boolean isBlocking) {
         this.onActivate = onActivate;
@@ -84,12 +86,19 @@ public class OverlayPanel extends JPanel {
         g2d.setColor(overlayColor); // overlayColor is never null
         g2d.fillRect(0, 0, getWidth(), getHeight());
 
-        // Draw placeholder / tooltip text (centered) if active
+        // Draw placeholder / tooltip text
         if (isActive && tooltipText != null && !tooltipText.isBlank()) {
             g2d.setColor(Color.GRAY);
             FontMetrics fm = g2d.getFontMetrics();
             int x = 5; // left-aligned with small padding
-            int y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+            int y;
+            if (alignTop) {
+                // A little padding from the top edge
+                y = fm.getAscent() + 2;
+            } else {
+                // Vertically centred
+                y = (getHeight() + fm.getAscent() - fm.getDescent()) / 2;
+            }
             g2d.drawString(tooltipText, x, y);
         }
 
@@ -120,6 +129,15 @@ public class OverlayPanel extends JPanel {
     public void hideOverlay() {
         setVisible(false);
         isActive = false;
+    }
+
+    /**
+     * Choose where the placeholder text is drawn.
+     * @param top true ⇒ draw near the top; false ⇒ centre vertically (default)
+     */
+    public void setTextAlignmentTop(boolean top) {
+        this.alignTop = top;
+        repaint();
     }
 
     @Override

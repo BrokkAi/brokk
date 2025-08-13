@@ -136,10 +136,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.contextManager = chrome.getContextManager();
         this.commandInputUndoManager = new UndoManager();
         commandInputOverlay = new OverlayPanel(overlay -> activateCommandInput(), "Click to enter your instructions");
+        // Place the guidance text at the top for multi-line instructions.
+        commandInputOverlay.setTextAlignmentTop(true);
         commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
+        // If the area already contains text, start with the overlay hidden
+        if (!instructionsArea.getText().isBlank()) {
+            commandInputOverlay.hideOverlay();
+        }
         micButton = new VoiceInputButton(
                 instructionsArea,
                 contextManager,
