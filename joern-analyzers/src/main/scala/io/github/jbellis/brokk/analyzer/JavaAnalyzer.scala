@@ -148,7 +148,7 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     sb.append("  " * indent).append("class ").append(className)
 
     // Inheritance
-    val directParentTypeDecls = td.start.baseTypeDecl.l
+    val directParentTypeDecls = td.start.baseTypeDecl.whereNot(_.fullNameExact("java.lang.Object")).l
     val (interfaces, baseTypes) = {
       // We lose info on whether external types are classes or interfaces, so
       // we need some heuristics. If we cannot determine if a parent types
