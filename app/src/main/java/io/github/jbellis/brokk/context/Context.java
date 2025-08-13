@@ -306,7 +306,7 @@ public class Context {
         // If no seeds, we can't compute pagerank
         if (weightedSeeds.isEmpty()) {
             // Pass contextManager to SkeletonFragment constructor
-            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CLASS_SKELETON); // Empty skeleton fragment
+            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON); // Empty skeleton fragment
         }
 
         return buildAutoContextFragment(contextManager, analyzer, weightedSeeds, ineligibleSources, topK);
@@ -355,10 +355,10 @@ public class Context {
         }
         if (targetFqns.isEmpty()) {
             // Pass contextManager to SkeletonFragment constructor
-            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CLASS_SKELETON); // Empty
+            return new SkeletonFragment(contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON); // Empty
         }
         // Pass contextManager to SkeletonFragment constructor
-        return new SkeletonFragment(contextManager, targetFqns, ContextFragment.SummaryType.CLASS_SKELETON);
+        return new SkeletonFragment(contextManager, targetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON);
     }
 
     // ---------------------------------------------------------

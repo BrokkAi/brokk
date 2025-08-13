@@ -7,6 +7,8 @@ import org.treesitter.TreeSitterJava;
 
 import java.util.*;
 
+import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
+
 public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     public JavaTreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
@@ -24,9 +26,9 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile JAVA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "annotation_type_declaration"),
-            Set.of("method_declaration", "constructor_declaration"),
-            Set.of("field_declaration", "enum_constant"),
+            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, ENUM_DECLARATION, RECORD_DECLARATION, ANNOTATION_TYPE_DECLARATION),
+            Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
+            Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
             Set.of("annotation", "marker_annotation"),
             "name", // identifier field name
             "body", // body field name
@@ -81,7 +83,7 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         final List<String> namespaceParts = new ArrayList<>();
 
         final var maybeDeclaration = rootNode.getChildCount() > 0 ? rootNode.getChild(0) : null;
-        if (maybeDeclaration != null && "package_declaration".equals(maybeDeclaration.getType())) {
+        if (maybeDeclaration != null && PACKAGE_DECLARATION.equals(maybeDeclaration.getType())) {
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {

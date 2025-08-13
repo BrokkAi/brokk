@@ -12,10 +12,6 @@ import javax.swing.*;
 import java.util.List;
 
 public interface IConsoleIO {
-    default void actionOutput(String msg) {
-        systemOutput(msg);
-    }
-
     default void actionComplete() {
     }
 

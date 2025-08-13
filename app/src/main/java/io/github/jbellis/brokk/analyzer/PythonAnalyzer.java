@@ -11,14 +11,16 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Set;
 
+import static io.github.jbellis.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
+
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_definition"),
-            Set.of("function_definition"),
-            Set.of("assignment", "typed_parameter"),
-            Set.of("decorator"),
+            Set.of(CLASS_DEFINITION),
+            Set.of(FUNCTION_DEFINITION),
+            Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(DECORATOR),
             "name",        // identifierFieldName
             "body",        // bodyFieldName
             "parameters",  // parametersFieldName

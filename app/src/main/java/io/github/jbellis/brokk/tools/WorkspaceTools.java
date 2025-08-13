@@ -4,10 +4,11 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,9 +17,9 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -39,6 +40,53 @@ public class WorkspaceTools {
     // Changed constructor parameter type to concrete ContextManager
     public WorkspaceTools(ContextManager contextManager) {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
+    }
+
+    public static  void addToWorkspace(ContextManager contextManager, ContextAgent.RecommendationResult recommendationResult) {
+        logger.debug("Recommended context fits within final budget.");
+        List<ContextFragment> selected = recommendationResult.fragments();
+        // Group selected fragments by type
+        var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
+
+        // Process ProjectPathFragments
+        var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
+                .map(ContextFragment.ProjectPathFragment.class::cast)
+                .toList();
+        if (!pathFragments.isEmpty()) {
+            logger.debug("Adding selected ProjectPathFragments: {}", pathFragments.stream().map(ContextFragment.ProjectPathFragment::shortDescription).collect(Collectors.joining(", ")));
+            contextManager.editFiles(pathFragments);
+        }
+
+        // Process SkeletonFragments
+        var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
+                .map(ContextFragment.SkeletonFragment.class::cast)
+                .toList();
+
+        if (!skeletonFragments.isEmpty()) {
+            // For CLASS_SKELETON, collect all target FQNs.
+            // For FILE_SKELETONS, collect all target file paths.
+            // Create one fragment per type.
+            List<String> classTargetFqns = skeletonFragments.stream()
+                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.CODEUNIT_SKELETON)
+                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
+                    .distinct()
+                    .toList();
+
+            List<String> fileTargetPaths = skeletonFragments.stream()
+                    .filter(sf -> sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
+                    .flatMap(sf -> sf.getTargetIdentifiers().stream())
+                    .distinct()
+                    .toList();
+
+            if (!classTargetFqns.isEmpty()) {
+                logger.debug("Adding combined SkeletonFragment for classes: {}", classTargetFqns);
+                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, classTargetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON));
+            }
+            if (!fileTargetPaths.isEmpty()) {
+                logger.debug("Adding combined SkeletonFragment for files: {}", fileTargetPaths);
+                contextManager.addVirtualFragment(new ContextFragment.SkeletonFragment(contextManager, fileTargetPaths, ContextFragment.SummaryType.FILE_SKELETONS));
+            }
+        }
     }
 
     @Tool("Edit project files to the Workspace. Use this when Code Agent will need to make changes to these files, or if you need to read the full source. Only call when you have identified specific filenames. DO NOT call this to create new files -- Code Agent can do that without extra steps.")
@@ -264,7 +312,7 @@ public class WorkspaceTools {
              return "Cannot add summary: class names list resolved to empty";
         }
 
-        var fragment = new ContextFragment.SkeletonFragment(contextManager, distinctClassNames, ContextFragment.SummaryType.CLASS_SKELETON); // Pass contextManager
+        var fragment = new ContextFragment.SkeletonFragment(contextManager, distinctClassNames, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass contextManager
         contextManager.addVirtualFragment(fragment);
 
         return "Added dynamic class summaries for: [%s]".formatted(String.join(", ", distinctClassNames));

@@ -197,11 +197,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // immediately during construction, which means our own reference to it will still be null
         this.io = new IConsoleIO() {
             @Override
-            public void actionOutput(String msg) {
-                logger.info(msg);
-            }
-
-            @Override
             public void toolError(String msg, String title) {
                 logger.info(msg);
             }
@@ -552,14 +547,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Returns the configured Ask model, falling back to the system model if unavailable.
-     */
-    public StreamingChatModel getAskModel() {
-        var config = project.getAskModelConfig();
-        return getModelOrDefault(config, "Ask");
-    }
-
-    /**
      * Returns the configured Search model, falling back to the system model if unavailable.
      */
     public StreamingChatModel getSearchModel() {
@@ -817,7 +804,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public boolean undoContext() {
-        UndoResult result = contextHistory.undo(1, io);
+        UndoResult result = contextHistory.undo(1, io, project);
         if (result.wasUndone()) {
             notifyContextListeners(topContext());
             project.getSessionManager().saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
@@ -832,7 +819,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitUserTask("Undoing", () -> {
-            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io);
+            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -848,7 +835,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> redoContextAsync() {
         return submitUserTask("Redoing", () -> {
-            boolean wasRedone = contextHistory.redo(io);
+            boolean wasRedone = contextHistory.redo(io, project);
             if (wasRedone) {
                 notifyContextListeners(topContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1151,7 +1138,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             List<String> classFqns = classes.stream()
                     .map(CodeUnit::fqName)
                     .collect(Collectors.toList());
-            var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CLASS_SKELETON); // Pass IContextManager
+            var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
             io.systemOutput("Summarized " + String.join(", ", classFqns));
             summariesAdded = true;
@@ -1242,18 +1229,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void close() {
+        // we're not in a hurry when calling close(), this indicates a single window shutting down
+        closeAsync(5_000);
+    }
+
+    public CompletableFuture<Void> closeAsync(long awaitMillis) {
         // Cancel BuildAgent task if still running
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
             logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
             buildAgentFuture.cancel(true);
         }
 
-        userActionExecutor.shutdown();
-        contextActionExecutor.shutdown();
-        lowMemoryWatcherManager.close();
-        backgroundTasks.shutdown();
-        project.close();
+        // Close watchers before shutting down executors that may be used by them
         analyzerWrapper.close();
+        lowMemoryWatcherManager.close();
+
+        var userActionFuture = userActionExecutor.shutdownAndAwait(awaitMillis, "userActionExecutor");
+        var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
+        var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
+
+        return CompletableFuture
+                .allOf(userActionFuture, contextActionFuture, backgroundFuture)
+                .whenComplete((v, t) -> project.close());
     }
 
     /**
@@ -1642,6 +1639,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
         service.reinit(project);
     }
 
+    public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
+        analyzerWrapper.pause();
+        try {
+            return callable.call();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            analyzerWrapper.resume();
+        }
+    }
+
     @FunctionalInterface
     public interface TaskRunner {
         /**
@@ -1728,7 +1736,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                         """.stripIndent().formatted(codeForLLM))
                 );
 
-                var result = getLlm(getAskModel(), "Generate style guide").sendRequest(messages);
+                var result = getLlm(getSearchModel(), "Generate style guide").sendRequest(messages);
                 if (result.error() != null || result.originalResponse() == null) {
                     io.systemOutput("Failed to generate style guide: " + (result.error() != null ? result.error().getMessage() : "LLM unavailable or cancelled"));
                     project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");

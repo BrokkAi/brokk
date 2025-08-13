@@ -148,6 +148,36 @@ public class LoggingExecutorService implements ExecutorService {
         return delegate.awaitTermination(timeout, unit);
     }
 
+    /**
+     * Gracefully shutdown this executor and await termination for up to the given timeout (seconds),
+     * forcing shutdownNow() if the timeout elapses. Returns a CompletableFuture that completes when
+     * shutdown sequence finishes.
+     *
+     * @param timeoutMillis ms to wait for termination before forcing shutdownNow
+     * @param name            Name used in logging
+     * @return CompletableFuture that completes when shutdown process finishes
+     */
+    public CompletableFuture<Void> shutdownAndAwait(long timeoutMillis, String name) {
+        return CompletableFuture.runAsync(() -> {
+            delegate.shutdown();
+            try {
+                if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                    logger.warn("{} did not terminate within {}ms; forcing shutdownNow()", name, timeoutMillis);
+                    var pending = delegate.shutdownNow();
+                    if (!pending.isEmpty()) {
+                        logger.debug("Canceled {} queued tasks in {}", pending.size(), name);
+                    }
+                    if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                        logger.warn("{} still not terminated after shutdownNow()", name);
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while awaiting termination of {}", name, e);
+            }
+        });
+    }
+
     @Override
     public <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks) throws InterruptedException {
         var wrappedTasks = tasks.stream().map(this::wrap).toList();

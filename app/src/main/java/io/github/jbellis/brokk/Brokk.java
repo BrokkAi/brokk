@@ -868,4 +868,33 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
     public static ConcurrentHashMap<Path, Chrome> getOpenProjectWindows() {
         return openProjectWindows;
     }
+
+    /**
+     * Gracefully exit the application:
+     * - request each open project's ContextManager to close with a timeout
+     * - wait for all closes to complete
+     * - then terminate the JVM
+     */
+    public static void exit() {
+        logger.info("Exit requested. Closing all open project contexts...");
+        var futures = openProjectWindows.values().stream()
+                .map(chrome -> {
+                    try {
+                        return chrome.getContextManager().closeAsync(1_000);
+                    } catch (Throwable th) {
+                        logger.warn("Error initiating close for project {}",
+                                    chrome.getContextManager().getProject().getRoot(),
+                                    th);
+                        return CompletableFuture.completedFuture(null);
+                    }
+                })
+                .toArray(CompletableFuture[]::new);
+
+        try {
+            CompletableFuture.allOf(futures).join();
+            logger.info("All project contexts closed. Exiting.");
+        } finally {
+            System.exit(0);
+        }
+    }
 }

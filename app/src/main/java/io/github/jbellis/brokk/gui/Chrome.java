@@ -442,7 +442,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             workspacePanel.setWorkspaceEditable(isEditable);
             if (updateOutput) {
                 if (ctx.getParsedOutput() != null) {
-                    historyOutputPanel.setLlmOutputAndCompact(ctx.getParsedOutput(), true);
+                    historyOutputPanel.setLlmOutput(ctx.getParsedOutput());
                 } else {
                     historyOutputPanel.clearLlmOutput();
                 }
@@ -569,19 +569,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var toggleMicKeyStroke = io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
-    }
-
-    @Override
-    public void actionOutput(String msg) {
-        SwingUtilities.invokeLater(() -> {
-            instructionsPanel.setCommandResultText(msg);
-            logger.info(msg);
-        });
-    }
-
-    @Override
-    public void actionComplete() {
-        SwingUtilities.invokeLater(() -> instructionsPanel.clearCommandResultText());
     }
 
     @Override
@@ -940,7 +927,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
                 markdownPanel.updateTheme(themeManager.isDarkTheme());
                 markdownPanel.setText(combinedMessages);
-                markdownPanel.scheduleCompaction();
 
                 // Use shared utility method to create searchable content panel without scroll pane
                 JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);

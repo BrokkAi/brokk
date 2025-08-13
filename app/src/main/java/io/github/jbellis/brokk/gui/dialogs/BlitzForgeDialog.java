@@ -721,7 +721,7 @@ public class BlitzForgeDialog extends JDialog {
         var fm = tempLabel.getFontMetrics(tempLabel.getFont());
         var cm = chrome.getContextManager();
         String architectModelName = service.nameOf(cm.getArchitectModel());
-        String askModelName = service.nameOf(cm.getAskModel());
+        String askModelName = service.nameOf(cm.getSearchModel());
         int maxWidth = fm.stringWidth("Model: " + architectModelName);
         maxWidth = Math.max(maxWidth, fm.stringWidth("Model: " + askModelName));
 
@@ -909,7 +909,7 @@ public class BlitzForgeDialog extends JDialog {
                 String modelName = cm.getService().nameOf(cm.getArchitectModel());
                 postProcessingModelLabel.setText("Model: " + modelName);
             } else if (ask) {
-                String modelName = cm.getService().nameOf(cm.getAskModel());
+                String modelName = cm.getService().nameOf(cm.getSearchModel());
                 postProcessingModelLabel.setText("Model: " + modelName);
             } else {
                 postProcessingModelLabel.setText(" ");

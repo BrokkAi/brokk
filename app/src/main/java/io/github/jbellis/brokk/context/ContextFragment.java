@@ -1297,7 +1297,7 @@ public interface ContextFragment {
     }
 
     enum SummaryType {
-        CLASS_SKELETON, // Summary for a list of FQ class names
+        CODEUNIT_SKELETON, // Summary for a list of FQ symbols
         FILE_SKELETONS  // Summaries for all classes in a list of file paths/patterns
     }
 
@@ -1328,12 +1328,10 @@ public interface ContextFragment {
             IAnalyzer analyzer = getAnalyzer();
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
             switch (summaryType) {
-                case CLASS_SKELETON -> {
+                case CODEUNIT_SKELETON -> {
                     for (String className : targetIdentifiers) {
                         analyzer.getDefinition(className).ifPresent(cu -> {
-                            if (cu.isClass()) { // Ensure it's a class for getSkeleton
-                                analyzer.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
-                            }
+                            analyzer.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
                         });
                     }
                 }
@@ -1386,7 +1384,7 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             return switch (summaryType) {
-                case CLASS_SKELETON -> sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+                case CODEUNIT_SKELETON -> sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
                 case FILE_SKELETONS -> targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
             };
         }
@@ -1394,7 +1392,7 @@ public interface ContextFragment {
         @Override
         public String repr() {
             return switch (summaryType) {
-                case CLASS_SKELETON ->
+                case CODEUNIT_SKELETON ->
                         "ClassSummaries([%s])".formatted(
                                 targetIdentifiers.stream().map(s -> "'" + s + "'").collect(Collectors.joining(", ")));
                 case FILE_SKELETONS ->
@@ -1414,7 +1412,7 @@ public interface ContextFragment {
             // User-added summaries are fine.
             // This needs a way to distinguish. For now, assume all are eligible if user-added.
             // AutoContext itself isn't represented by a SkeletonFragment that users add via tools.
-            return summaryType != SummaryType.CLASS_SKELETON; // A heuristic: auto-context typically CLASS_SKELETON of many classes
+            return summaryType != SummaryType.CODEUNIT_SKELETON; // A heuristic: auto-context typically CLASS_SKELETON of many classes
         }
 
         @Override

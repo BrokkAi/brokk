@@ -1,19 +1,17 @@
 package io.github.jbellis.brokk.git;
 
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.diff.DiffEntry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import io.github.jbellis.brokk.git.CommitInfo;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 
@@ -1013,5 +1011,38 @@ public class GitRepoTest {
                 GitTestCleanupUtil.cleanupGitResources(clonedRepo);
             }
         }
+    }
+
+    @Test
+    void testForceRemoveFiles() throws Exception {
+        // 1. Create and commit a file
+        Path fileToRemove = projectRoot.resolve("file-to-remove.txt");
+        Files.writeString(fileToRemove, "This file will be removed.");
+        repo.getGit().add().addFilepattern("file-to-remove.txt").call();
+        repo.getGit().commit().setMessage("Add file for removal test").setSign(false).call();
+
+        // Verify it exists and is tracked
+        assertTrue(Files.exists(fileToRemove));
+        var trackedFilesBefore = repo.getTrackedFiles();
+        assertTrue(trackedFilesBefore.stream().anyMatch(pf -> pf.getFileName().equals("file-to-remove.txt")));
+
+        // 2. Call forceRemoveFiles
+        var projectFile = new ProjectFile(projectRoot, "file-to-remove.txt");
+        repo.forceRemoveFiles(List.of(projectFile));
+
+        // 3. Verify file is deleted from filesystem
+        assertFalse(Files.exists(fileToRemove), "File should be deleted from the filesystem.");
+
+        // 4. Verify the removal is staged and there are no unstaged changes
+        var stagedDiffs = repo.getGit().diff().setCached(true).call();
+        assertEquals(1, stagedDiffs.size());
+        var diff = stagedDiffs.get(0);
+        assertEquals(DiffEntry.ChangeType.DELETE, diff.getChangeType());
+        assertEquals("file-to-remove.txt", diff.getOldPath());
+
+        var unstagedStatus = repo.getGit().status().call();
+        assertTrue(unstagedStatus.getModified().isEmpty(), "No unstaged modifications");
+        assertTrue(unstagedStatus.getMissing().isEmpty(), "No missing files");
+        assertTrue(unstagedStatus.getUntracked().isEmpty(), "No untracked files");
     }
 }

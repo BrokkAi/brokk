@@ -574,9 +574,14 @@ public class Service {
             value = (Integer) info.get("max_output_tokens");
         }
 
-        // some models can output a lot of tokens, but if you ask for them it gets subtracted from the input budget
+        // Most providers subtract the max output tokens from the input token budget. Since we very infrequently
+        // need the entire output token budget, and even when we might we can recover and retry starting from where
+        // we left off, we limit the output tokens to 1/8 of the input token budget.
+        // (Previously we hard-capped this at 32k, but gpt5-mini and gpt5-nano with reasoning=high will blow past that,
+        // causing request failures. So now it's uncapped.)
+        int ceiling = min(value, getMaxInputTokens(location) / 8);
         int floor = min(8192, value);
-        return max(floor, min(32768, value / 8));
+        return max(floor, ceiling);
     }
 
     /**
@@ -585,6 +590,10 @@ public class Service {
      */
     public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
+        return getMaxInputTokens(location);
+    }
+
+    private int getMaxInputTokens(String location) {
         var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
@@ -786,15 +795,15 @@ public class Service {
 
     public boolean requiresEmulatedTools(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
-        var info = getModelInfo(location);
 
-        // first check litellm metadata
+        var info = getModelInfo(location);
         if (info == null) {
              logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
              return true;
         }
-        var b = info.get("supports_function_calling");
+
         // if it doesn't support function calling then we need to emulate
+        var b = info.get("supports_function_calling");
         return !(b instanceof Boolean bVal) || !bVal;
     }
 
@@ -810,6 +819,7 @@ public class Service {
     public boolean supportsParallelCalls(StreamingChatModel model) {
         // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with that
         // that serial calls is the lesser evil
+        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can do parallel calls
         var location = model.defaultRequestParameters().modelName();
         return !location.contains("gemini")
                 && !location.contains("o3")

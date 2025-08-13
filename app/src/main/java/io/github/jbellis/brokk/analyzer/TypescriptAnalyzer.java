@@ -16,6 +16,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import static io.github.jbellis.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
+
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
 
@@ -26,30 +28,30 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     // Fast lookups for type checks
     private static final Set<String> FUNCTION_NODE_TYPES = Set.of(
-        "function_declaration", "generator_function_declaration", "function_signature"
+        FUNCTION_DECLARATION, GENERATOR_FUNCTION_DECLARATION, FUNCTION_SIGNATURE
     );
 
     // Class keyword mapping for fast lookup
     private static final Map<String, String> CLASS_KEYWORDS = Map.of(
-        "interface_declaration", "interface",
-        "enum_declaration", "enum",
-        "module", "namespace",
-        "internal_module", "namespace",
-        "ambient_declaration", "namespace",
-        "abstract_class_declaration", "abstract class"
+        INTERFACE_DECLARATION, INTERFACE,
+        ENUM_DECLARATION, ENUM,
+        MODULE, NAMESPACE,
+        INTERNAL_MODULE, NAMESPACE,
+        AMBIENT_DECLARATION, NAMESPACE,
+        ABSTRACT_CLASS_DECLARATION, ABSTRACT_CLASS
     );
 
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
-            Set.of("class_declaration", "interface_declaration", "enum_declaration", "abstract_class_declaration", "module", "internal_module"),
+            Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, ENUM_DECLARATION, ABSTRACT_CLASS_DECLARATION, MODULE, INTERNAL_MODULE),
             // functionLikeNodeTypes
-            Set.of("function_declaration", "method_definition", "arrow_function", "generator_function_declaration",
-                   "function_signature", "method_signature", "abstract_method_signature"), // function_signature for overloads, method_signature for interfaces, abstract_method_signature for abstract classes
+            Set.of(FUNCTION_DECLARATION, METHOD_DEFINITION, ARROW_FUNCTION, GENERATOR_FUNCTION_DECLARATION,
+                   FUNCTION_SIGNATURE, METHOD_SIGNATURE, ABSTRACT_METHOD_SIGNATURE), // function_signature for overloads, method_signature for interfaces, abstract_method_signature for abstract classes
             // fieldLikeNodeTypes
-            Set.of("variable_declarator", "public_field_definition", "property_signature", "enum_member", "lexical_declaration", "variable_declaration"), // type_alias_declaration will be ALIAS_LIKE
+            Set.of(VARIABLE_DECLARATOR, PUBLIC_FIELD_DEFINITION, PROPERTY_SIGNATURE, ENUM_MEMBER, LEXICAL_DECLARATION, VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
-            Set.of("decorator"),
+            Set.of(DECORATOR),
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -193,7 +195,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
         // For arrow functions, handle specially
-        if ("arrow_function".equals(funcNode.getType())) {
+        if (ARROW_FUNCTION.equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
             String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
@@ -252,8 +254,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // For construct signatures, we need a space before params
-        boolean needsSpaceBeforeParams = "construct_signature".equals(funcNode.getType());
-        
+        boolean needsSpaceBeforeParams = CONSTRUCT_SIGNATURE.equals(funcNode.getType());
+
         String signature = String.join(" ", parts);
         if (!paramsText.isEmpty()) {
             signature += (needsSpaceBeforeParams && !signature.isEmpty() ? " " : "") + paramsText;
@@ -602,7 +604,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
                 String fullDeclaration = textSlice(funcNode, src).strip();
-                
+
                 // Replace function body with placeholder
                 TSNode bodyNode = valueNode.getChildByFieldName("body");
                 if (bodyNode != null && !bodyNode.isNull()) {
@@ -615,7 +617,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 return;
             }
         }
-        
+
         // Handle constructor signatures specially
         if ("construct_signature".equals(funcNode.getType())) {
             TSNode typeNode = funcNode.getChildByFieldName("type");

@@ -112,20 +112,22 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         // 3) We have an exact files list to check
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = project.getAnalyzerLanguages();
-        var relevantFiles = batch.files.stream()
-                .filter(pf -> {
-                    if (!trackedFiles.contains(pf)) {
-                        return false;
-                    }
-                    return projectLanguages.stream().anyMatch(L -> L.getExtensions().contains(pf.extension()));
-                })
+        
+        var changedTrackedFiles = batch.files.stream()
+                .filter(trackedFiles::contains)
                 .collect(Collectors.toSet());
-
-        if (!relevantFiles.isEmpty()) {
+        
+        if (!changedTrackedFiles.isEmpty()) {
             // call listener (refreshes git panel)
             logger.debug("Changes in tracked files detected");
             if (listener != null) listener.onTrackedFileChange();
+        }
+        
+        var relevantFiles = changedTrackedFiles.stream()
+                .filter(pf -> projectLanguages.stream().anyMatch(L -> L.getExtensions().contains(pf.extension())))
+                .collect(Collectors.toSet());
 
+        if (!relevantFiles.isEmpty()) {
             // update the analyzer if we're configured to do so
             if (project.getAnalyzerRefresh() != IProject.CpgRefresh.AUTO) {
                 return;
@@ -143,7 +145,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             );
             refresh(() -> requireNonNull(currentAnalyzer).update(relevantFiles));
         } else {
-            logger.trace("No tracked files changed (overall); skipping analyzer rebuild");
+            logger.trace("No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
         }
     }
 

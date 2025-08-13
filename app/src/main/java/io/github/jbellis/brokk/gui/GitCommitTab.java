@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -538,43 +539,97 @@ public class GitCommitTab extends JPanel {
     private void rollbackChangesWithUndo(List<ProjectFile> selectedFiles) {
         if (selectedFiles.isEmpty()) {
             chrome.toolError("No files selected for rollback");
-return;
+            return;
+        }
+        if (selectedFiles.stream().anyMatch(pf -> !pf.isText())) {
+            chrome.toolError("Only text files can be rolled back with the ability to undo and redo the rollback operation");
+            return;
         }
 
         contextManager.submitUserTask("Rolling back files", () -> {
             try {
-                // Add any files that we're rolling back that aren't in the workspace already,
-                // so they are part of the snapshot and we can undo the rollback if we want
+                // 1. Identify which files are not in the workspace.
                 var filesNotInWorkspace = selectedFiles.stream()
-                        .filter(pf -> contextManager.topContext().allFragments().noneMatch(f -> {
-                            return (f.getType() == ContextFragment.FragmentType.PROJECT_PATH) && f.files().iterator().next().equals(pf);
-                        }))
-                        .collect(Collectors.toSet());
-                contextManager.editFiles(filesNotInWorkspace); // read-only files are ignored during undo/redo
+                                                       .filter(pf -> contextManager.liveContext().allFragments().noneMatch(f -> f.files().contains(pf)))
+                                                       .collect(Collectors.toSet());
 
-                // Perform the actual rollback
-                logger.debug("Rolling back {} files to HEAD", selectedFiles.size());
-                getRepo().checkoutFilesFromCommit("HEAD", selectedFiles);
+                // 2. Add all selected files to the workspace to snapshot their current state.
+                contextManager.editFiles(selectedFiles);
 
-                // Create a task result for the activity history
+                // 3. Separate files into "new" and "other".
+                var newFiles = selectedFiles.stream()
+                                            .filter(pf -> "new".equals(fileStatusPane.statusFor(pf)))
+                                            .toList();
+                var otherFiles = selectedFiles.stream()
+                                              .filter(pf -> !"new".equals(fileStatusPane.statusFor(pf)))
+                                              .toList();
+
+                // 4. Identify fragments for "new" files that are now in the workspace to be removed.
+                // These fragments were just created by `editFiles`.
+                var fragmentsForNewFiles = contextManager.liveContext().editableFiles()
+                                                         .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf && newFiles.contains(ppf.file()))
+                                                         .toList();
+                var deletedFilesInfo = fragmentsForNewFiles.stream()
+                    .map(f -> {
+                        var ppf = (ContextFragment.ProjectPathFragment) f;
+                        try {
+                            return new ContextHistory.DeletedFile(ppf.file(), ppf.text());
+                        } catch (java.io.UncheckedIOException e) {
+                            logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
+                            return null;
+                        }
+                    })
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+
+                // 5. Drop the fragments for "new" files from the workspace *before* creating the history entry.
+                if (!fragmentsForNewFiles.isEmpty()) {
+                    contextManager.drop(fragmentsForNewFiles);
+                }
+                
+                // 6. Perform the actual git rollback.
+                if (!otherFiles.isEmpty()) {
+                    logger.debug("Rolling back {} modified/deleted files to HEAD", otherFiles.size());
+                    getRepo().checkoutFilesFromCommit("HEAD", otherFiles);
+                }
+                if (!newFiles.isEmpty()) {
+                    getRepo().forceRemoveFiles(newFiles);
+                }
+                
+                // 7. Create a task result for the activity history.
                 String fileList = GitUiUtil.formatFileList(selectedFiles);
-                var rollbackDescription = "Rollback " + fileList + " to HEAD";
-                var taskResult = new TaskResult(
-                        rollbackDescription,
-                        new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
-                        new HashSet<>(selectedFiles),
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
-                );
+                var rollbackDescription = otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
+                var taskResult = new TaskResult(rollbackDescription,
+                                                new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
+                                                new HashSet<>(selectedFiles),
+                                                new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                
+                // 8. Add the result to history. The snapshot will not contain the fragments for `newFiles`.
                 contextManager.addToHistory(taskResult, false);
 
-                // drop the files from the workspace that weren't there originally
-                var fragmentsAdded = contextManager.topContext().editableFiles()
-                        .filter(f -> (f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
-                                     && filesNotInWorkspace.contains(f.files().iterator().next()))
-                        .toList();
-                contextManager.drop(fragmentsAdded);
+                // 9. Now that the context is pushed, add the EntryInfo for the deleted files.
+                if (!deletedFilesInfo.isEmpty()) {
+                    var contextHistory = contextManager.getContextHistory();
+                    var frozenContext = contextHistory.topContext();
+                    var info = new ContextHistory.ContextHistoryEntryInfo(deletedFilesInfo);
+                    contextHistory.addEntryInfo(frozenContext.id(), info);
+                    contextManager.getProject().getSessionManager().saveHistory(contextHistory, contextManager.getCurrentSessionId());
+                }
 
-                // Update UI on EDT
+                // 10. Drop the "other" files that were not originally in the workspace.
+                var otherFilesToDrop = filesNotInWorkspace.stream()
+                                                          .filter(otherFiles::contains)
+                                                          .collect(Collectors.toSet());
+                if (!otherFilesToDrop.isEmpty()) {
+                    var fragmentsToDrop = contextManager.liveContext().editableFiles()
+                                                        .filter(f -> f instanceof ContextFragment.ProjectPathFragment ppf && otherFilesToDrop.contains(ppf.file()))
+                                                        .toList();
+                    if (!fragmentsToDrop.isEmpty()) {
+                        contextManager.drop(fragmentsToDrop);
+                    }
+                }
+
+                // 11. Update UI on EDT.
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.systemOutput(successMessage);

@@ -16,7 +16,6 @@ public class TestConsoleIO implements IConsoleIO {
     private final StringBuilder streamingAiMessage = new StringBuilder();
 
 
-    @Override
     public void actionOutput(String text) {
         outputLog.append(text).append("\n");
     }

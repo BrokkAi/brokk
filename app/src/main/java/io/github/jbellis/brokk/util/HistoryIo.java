@@ -34,6 +34,7 @@ public final class HistoryIo {
     private static final String V1_FRAGMENTS_FILENAME = "fragments-v1.json";
     private static final String RESET_EDGES_FILENAME = "reset_edges.json";
     private static final String GIT_STATES_FILENAME = "git_states.json";
+    private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
     /* legacy format (no UUID / resetEdges) */
     private static final int V1_FORMAT_VERSION = 1;
@@ -81,6 +82,7 @@ public final class HistoryIo {
         Map<String, byte[]> imageBytesMap = new HashMap<>();
         List<ContextHistory.ResetEdge> resetEdges = new java.util.ArrayList<>();
         Map<String, DtoMapper.GitStateDto> gitStateDtos = new HashMap<>();
+        Map<String, ContextHistory.ContextHistoryEntryInfo> entryInfoDtos = new HashMap<>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
@@ -115,6 +117,10 @@ public final class HistoryIo {
                     byte[] gitStatesBytes = zis.readAllBytes();
                     var mapType = objectMapper.getTypeFactory().constructMapType(HashMap.class, String.class, DtoMapper.GitStateDto.class);
                     gitStateDtos = objectMapper.readValue(gitStatesBytes, mapType);
+                } else if (entry.getName().equals(ENTRY_INFOS_FILENAME)) {
+                    byte[] bytes = zis.readAllBytes();
+                    var mapType = objectMapper.getTypeFactory().constructMapType(HashMap.class, String.class, ContextHistory.ContextHistoryEntryInfo.class);
+                    entryInfoDtos = objectMapper.readValue(bytes, mapType);
                 } else if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
                     String fragmentIdHash = idFromNameV1(entry.getName());
                     imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
@@ -172,7 +178,13 @@ public final class HistoryIo {
             gitStates.put(contextId, new ContextHistory.GitState(dto.commitHash(), dto.diff()));
         }
 
-        return new ContextHistory(contexts, resetEdges, gitStates);
+        var entryInfos = new HashMap<java.util.UUID, ContextHistory.ContextHistoryEntryInfo>();
+        for (var entry : entryInfoDtos.entrySet()) {
+            var contextId = java.util.UUID.fromString(entry.getKey());
+            entryInfos.put(contextId, entry.getValue());
+        }
+
+        return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
     }
 
     private static String summarizeAction(Context ctx) {
@@ -315,6 +327,20 @@ public final class HistoryIo {
                 ZipEntry gitStatesEntry = new ZipEntry(GIT_STATES_FILENAME);
                 zos.putNextEntry(gitStatesEntry);
                 zos.write(gitStatesJson);
+                zos.closeEntry();
+            }
+
+            /* -------- EntryInfos (V2) -------- */
+            var entryInfos = ch.getEntryInfos();
+            if (!entryInfos.isEmpty()) {
+                var entryInfosToStringKeys = new HashMap<String, ContextHistory.ContextHistoryEntryInfo>();
+                for (var entry : entryInfos.entrySet()) {
+                    entryInfosToStringKeys.put(entry.getKey().toString(), entry.getValue());
+                }
+                var entryInfosJson = objectMapper.writeValueAsBytes(entryInfosToStringKeys);
+                ZipEntry entryInfosEntry = new ZipEntry(ENTRY_INFOS_FILENAME);
+                zos.putNextEntry(entryInfosEntry);
+                zos.write(entryInfosJson);
                 zos.closeEntry();
             }
 

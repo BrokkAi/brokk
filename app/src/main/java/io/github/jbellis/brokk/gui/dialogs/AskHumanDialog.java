@@ -33,7 +33,6 @@ public final class AskHumanDialog {
             var fragment = new ContextFragment.TaskFragment(chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
             questionPanel.setText(fragment);
             questionPanel.applyTheme(chrome.getTheme());
-            questionPanel.scheduleCompaction();
 
             var questionScroll = new JScrollPane(questionPanel);
             questionScroll.setPreferredSize(new Dimension(800, 400));

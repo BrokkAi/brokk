@@ -140,7 +140,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                 mustache.execute(writer, scope);
                 String finalCommand = writer.toString();
 
-                dialogConsoleIO.actionOutput("Executing per-file command: " + finalCommand);
+                dialogConsoleIO.systemOutput("Executing per-file command: " + finalCommand);
                 logger.info("Executing per-file command for {}: {}", file, finalCommand);
                 String commandOutputText;
                 try {
