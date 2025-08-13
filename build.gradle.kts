@@ -25,6 +25,7 @@ fun getVersionFromGit(): String {
 
 plugins {
     alias(libs.plugins.dependency.analysis)
+    alias(libs.plugins.spotless)
 }
 
 dependencyAnalysis {
@@ -55,9 +56,29 @@ tasks.register("printVersion") {
     }
 }
 
+tasks.register("tidy") {
+    description = "Formats code using Spotless (alias for spotlessApply)"
+    group = "formatting"
+    dependsOn("spotlessApply")
+}
+
 subprojects {
     apply(plugin = "java-library")
     apply(plugin = "com.autonomousapps.dependency-analysis")
+    apply(plugin = "com.diffplug.spotless")
+
+    // Spotless formatting rules
+    spotless {
+        java {
+            // Format all Java sources, excluding generated or build outputs
+            target("src/**/*.java")
+            targetExclude("**/build/**", "**/test/resources/**", "**/generated/**")
+            // Use Palantir Java Format (opinionated formatter similar to Google Java Format,
+            // but with improved blank-line and lambda indentation handling)
+            palantirJavaFormat(libs.versions.palantirJavaFormat.get()).formatJavadoc(true)
+            removeUnusedImports()
+        }
+    }
 
     repositories {
         mavenCentral()
