@@ -299,13 +299,19 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         // Add the filters container to the north of the panel to keep them at the top
         verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
 
-        filtersAndTablePanel.add(verticalFilterPanel, BorderLayout.WEST);
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
         JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Added V_GAP
-        // Add search panel above the table, inside issueTableAndButtonsPanel
-        // The searchPanel will now be constrained by the width of this panel, which is aligned with the table.
-        issueTableAndButtonsPanel.add(searchPanel, BorderLayout.NORTH);
+        // Create a container that stacks the Search bar and the Filters one above
+        // the other so they live in a single vertical column.
+        JPanel searchAndFiltersPanel = new JPanel();
+        searchAndFiltersPanel.setLayout(new BoxLayout(searchAndFiltersPanel, BoxLayout.Y_AXIS));
+        searchAndFiltersPanel.add(searchPanel);
+        searchAndFiltersPanel.add(Box.createVerticalStrut(Constants.V_GAP));  // small gap
+        searchAndFiltersPanel.add(verticalFilterPanel);                       // contains all filter boxes
+
+        // Position this combined panel at the top of the issues area
+        issueTableAndButtonsPanel.add(searchAndFiltersPanel, BorderLayout.NORTH);
 
         // Issue Table
         issueTableModel =
