@@ -95,7 +95,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final JSplitPane topSplitPane; // Instructions | Workspace
     private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
 
-    private final JTabbedPane bottomTabbedPane; // Output, ProjectFiles, Git tabs
+    private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final HistoryOutputPanel historyOutputPanel;
 
     // Panels:
@@ -188,19 +188,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     projectFilesPanel = new ProjectFilesPanel(this, contextManager);
 
     // Create left vertical-tabbed pane for ProjectFiles and Git with WEST (vertical) tab placement
-    bottomTabbedPane = new JTabbedPane(JTabbedPane.LEFT);
-    bottomTabbedPane.addTab("Project Files", projectFilesPanel);
-
+    leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
+    leftTabbedPanel.addTab("Project Files", projectFilesPanel);
     // Add Git tab if available
     if (getProject().hasGit()) {
         gitPanel = new GitPanel(this, contextManager);
-        bottomTabbedPane.addTab("Git", gitPanel);
+        leftTabbedPanel.addTab("Git", gitPanel);
         gitPanel.updateRepo();
     } else {
         gitPanel = null;
     }
     // Rotate tab captions vertically
-    applyVerticalTabLabels(bottomTabbedPane);
+    applyVerticalTabLabels(leftTabbedPanel);
 
     /*
      * Desired layout (left→right, top→bottom):
@@ -231,7 +230,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // 3) Final horizontal split: left tabs | right stack
     JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-    bottomSplitPane.setLeftComponent(bottomTabbedPane);
+    bottomSplitPane.setLeftComponent(leftTabbedPanel);
     bottomSplitPane.setRightComponent(outputStackSplit);
     bottomSplitPane.setResizeWeight(0.0);  // left pane keeps fixed size; divider set to 30 % later
 
@@ -1233,9 +1232,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Switch to Git tab in the left vertical-tabbed pane
-        for (int i = 0; i < bottomTabbedPane.getTabCount(); i++) {
-            if ("Git".equals(bottomTabbedPane.getTitleAt(i))) {
-                bottomTabbedPane.setSelectedIndex(i);
+        for (int i = 0; i < leftTabbedPanel.getTabCount(); i++) {
+            if ("Git".equals(leftTabbedPanel.getTitleAt(i))) {
+                leftTabbedPanel.setSelectedIndex(i);
                 break;
             }
         }
