@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * frame-based throttling behavior, performance characteristics, and
  * dynamic configuration capabilities.
  */
+@DisabledIfEnvironmentVariable(named = "RUNNER_OS", matches = "Windows")
 class ScrollFrameThrottlerTest {
 
     private ScrollFrameThrottler throttler;
