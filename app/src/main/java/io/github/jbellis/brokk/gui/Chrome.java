@@ -97,6 +97,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final HistoryOutputPanel historyOutputPanel;
+    /** Horizontal split between left tab stack and right output stack */
+    private JSplitPane bottomSplitPane;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -232,11 +234,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         mainVerticalSplitPane = outputStackSplit;
 
         // 3) Final horizontal split: left tabs | right stack
-        JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         bottomSplitPane.setLeftComponent(leftTabbedPanel);
         bottomSplitPane.setRightComponent(outputStackSplit);
-        bottomSplitPane.setResizeWeight(0.0);  // left pane keeps fixed size
-        bottomSplitPane.setDividerLocation(0.5); // start with ~30 % for tabs
+        bottomSplitPane.setResizeWeight(0.3);   // keep roughly 30 % for the left tabs when resizing
+        bottomSplitPane.setDividerLocation(0.3); // initial 30 % divider
 
         bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
@@ -289,6 +291,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.setVisible(true);
         frame.validate();
         frame.repaint();
+
+        // After the frame is visible, (re)apply the 30 % divider if no saved position exists yet
+        SwingUtilities.invokeLater(() -> {
+            if (getProject().getHorizontalSplitPosition() == 0) {
+                bottomSplitPane.setDividerLocation(0.3);
+            }
+        });
 
         // Possibly check if .gitignore is set
         if (getProject().hasGit()) {
