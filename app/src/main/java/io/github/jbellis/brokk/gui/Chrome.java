@@ -141,7 +141,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Create instructions panel and history/output panel
         instructionsPanel = new InstructionsPanel(this);
-        historyOutputPanel = new HistoryOutputPanel(this, this.contextManager, instructionsPanel);
+        historyOutputPanel = new HistoryOutputPanel(this, this.contextManager);
 
         // Bottom Area: Context/Git + Status
         bottomPanel = new JPanel(new BorderLayout());
