@@ -92,12 +92,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final List<String> systemMessages = new ArrayList<>();
     private final JPanel bottomPanel;
 
-    private final JSplitPane mainHorizontalSplitPane;
-    private final JSplitPane leftVerticalSplitPane;
+    private final JSplitPane topSplitPane; // Instructions | Workspace
+    private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
 
-    @Nullable
-    private JSplitPane rightVerticalSplitPane; // Can be null if no git
-
+    private final JTabbedPane bottomTabbedPane; // Output, ProjectFiles, Git tabs
     private final HistoryOutputPanel historyOutputPanel;
 
     // Panels:
@@ -186,39 +184,58 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         systemOutput("Opening project at " + getProject().getRoot());
 
         // Create workspace panel and project files panel
-        workspacePanel = new WorkspacePanel(this, contextManager);
-        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+    workspacePanel = new WorkspacePanel(this, contextManager);
+    projectFilesPanel = new ProjectFilesPanel(this, contextManager);
 
-        // Create a vertical split pane for the left side: ProjectFilesPanel on top, WorkspacePanel on bottom
-        leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        leftVerticalSplitPane.setTopComponent(projectFilesPanel);
-        leftVerticalSplitPane.setBottomComponent(workspacePanel);
-        leftVerticalSplitPane.setResizeWeight(0.7); // 70% for project files panel, 30% for workspace
+    // Create left vertical-tabbed pane for ProjectFiles and Git with WEST (vertical) tab placement
+    bottomTabbedPane = new JTabbedPane(JTabbedPane.LEFT);
+    bottomTabbedPane.addTab("Project Files", projectFilesPanel);
 
-        // Create main horizontal split pane: leftVerticalSplitPane on left, right side content on right
-        mainHorizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainHorizontalSplitPane.setResizeWeight(0.3); // 30% for the entire left side
-        mainHorizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
+    // Add Git tab if available
+    if (getProject().hasGit()) {
+        gitPanel = new GitPanel(this, contextManager);
+        bottomTabbedPane.addTab("Git", gitPanel);
+        gitPanel.updateRepo();
+    } else {
+        gitPanel = null;
+    }
+    // Rotate tab captions vertically
+    applyVerticalTabLabels(bottomTabbedPane);
 
-        // Create right side content
-        if (getProject().hasGit()) {
-            gitPanel = new GitPanel(this, contextManager);
+    /*
+     * Desired layout (left→right, top→bottom):
+     * ┌────────────────────────────┬──────────────────────────────┐
+     * │ Vert-tabbed (Project/Git)  │  Output (top)               │
+     * │                            │  Workspace (middle)         │
+     * │                            │  Instructions (bottom)      │
+     * └────────────────────────────┴──────────────────────────────┘
+     */
 
-            // Right side has HistoryOutput on top, Git on bottom
-            rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-            rightVerticalSplitPane.setResizeWeight(0.5); // 50% for history output
-            rightVerticalSplitPane.setTopComponent(historyOutputPanel);
-            rightVerticalSplitPane.setBottomComponent(gitPanel);
+    // 1) Nested split for Workspace (top) / Instructions (bottom)
+    JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+    workspaceInstructionsSplit.setTopComponent(workspacePanel);
+    workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
+    workspaceInstructionsSplit.setResizeWeight(0.5); // even split for now
 
-            mainHorizontalSplitPane.setRightComponent(rightVerticalSplitPane);
-            gitPanel.updateRepo();
-        } else {
-            // No Git => only history output on the right
-            gitPanel = null;
-            mainHorizontalSplitPane.setRightComponent(historyOutputPanel);
-        }
+    // Keep reference so existing persistence logic still works
+    topSplitPane = workspaceInstructionsSplit;
 
-        bottomPanel.add(mainHorizontalSplitPane, BorderLayout.CENTER);
+    // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
+    JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+    outputStackSplit.setTopComponent(historyOutputPanel);
+    outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
+    outputStackSplit.setResizeWeight(0.3); // ~30 % to Output
+
+    // Keep reference so existing persistence logic still works
+    mainVerticalSplitPane = outputStackSplit;
+
+    // 3) Final horizontal split: left tabs | right stack
+    JSplitPane bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+    bottomSplitPane.setLeftComponent(bottomTabbedPane);
+    bottomSplitPane.setRightComponent(outputStackSplit);
+    bottomSplitPane.setResizeWeight(0.0);  // left pane keeps fixed size; divider set to 30 % later
+
+    bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
@@ -1092,56 +1109,56 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         SwingUtilities.invokeLater(() -> {
-            // Load and set main horizontal split position
-            int horizontalPos = project.getHorizontalSplitPosition();
-            if (horizontalPos > 0) {
-                mainHorizontalSplitPane.setDividerLocation(horizontalPos);
+            // Load and set top split position (Instructions | Workspace)
+            int topSplitPos = project.getLeftVerticalSplitPosition(); // Reuse this setting
+            if (topSplitPos > 0) {
+                topSplitPane.setDividerLocation(topSplitPos);
             } else {
-                mainHorizontalSplitPane.setDividerLocation(0.3);
+                topSplitPane.setDividerLocation(0.3);
             }
-            mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (mainHorizontalSplitPane.isShowing()) {
-                    var newPos = mainHorizontalSplitPane.getDividerLocation();
+            topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (topSplitPane.isShowing()) {
+                    var newPos = topSplitPane.getDividerLocation();
+                    if (newPos > 0) {
+                        project.saveLeftVerticalSplitPosition(newPos); // Reuse this setting
+                    }
+                }
+            });
+
+            // Load and set main vertical split position (Top | Bottom tabs)
+            int mainVerticalPos = project.getRightVerticalSplitPosition(); // Reuse this setting
+            if (mainVerticalPos > 0) {
+                mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
+            } else {
+                mainVerticalSplitPane.setDividerLocation(0.6);
+            }
+            mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (mainVerticalSplitPane.isShowing()) {
+                    var newPos = mainVerticalSplitPane.getDividerLocation();
+                    if (newPos > 0) {
+                        project.saveRightVerticalSplitPosition(newPos); // Reuse this setting
+                    }
+                }
+            });
+
+            // Store reference to bottom split pane for position saving
+            JSplitPane bottomSplitPane = (JSplitPane) mainVerticalSplitPane.getBottomComponent();
+
+            // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
+            int bottomHorizPos = project.getHorizontalSplitPosition();
+            if (bottomHorizPos > 0) {
+                bottomSplitPane.setDividerLocation(bottomHorizPos);
+            } else {
+                bottomSplitPane.setDividerLocation(0.3);
+            }
+            bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (bottomSplitPane.isShowing()) {
+                    var newPos = bottomSplitPane.getDividerLocation();
                     if (newPos > 0) {
                         project.saveHorizontalSplitPosition(newPos);
                     }
                 }
             });
-
-            // Load and set left vertical split position (project files on top, workspace on bottom)
-            int leftVerticalPos = project.getLeftVerticalSplitPosition();
-            if (leftVerticalPos > 0) {
-                leftVerticalSplitPane.setDividerLocation(leftVerticalPos);
-            } else {
-                leftVerticalSplitPane.setDividerLocation(0.7);
-            }
-            leftVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (leftVerticalSplitPane.isShowing()) {
-                    var newPos = leftVerticalSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveLeftVerticalSplitPosition(newPos);
-                    }
-                }
-            });
-
-            if (rightVerticalSplitPane != null) {
-                int rightVerticalPos = project.getRightVerticalSplitPosition();
-                if (rightVerticalPos > 0) {
-                    rightVerticalSplitPane.setDividerLocation(rightVerticalPos);
-                } else {
-                    rightVerticalSplitPane.setDividerLocation(0.5);
-                }
-
-                rightVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                    // Add null check before dereferencing
-                    if (rightVerticalSplitPane != null && rightVerticalSplitPane.isShowing()) {
-                        var newPos = rightVerticalSplitPane.getDividerLocation();
-                        if (newPos > 0) {
-                            project.saveRightVerticalSplitPosition(newPos);
-                        }
-                    }
-                });
-            }
         });
     }
 
@@ -1211,20 +1228,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void toggleGitPanel() {
-        if (rightVerticalSplitPane == null) {
+        if (gitPanel == null) {
             return;
         }
 
-        // For collapsing/expanding the Git panel
-        int lastGitPanelDividerLocation = rightVerticalSplitPane.getDividerLocation();
-        var totalHeight = rightVerticalSplitPane.getHeight();
-        var dividerSize = rightVerticalSplitPane.getDividerSize();
-        rightVerticalSplitPane.setDividerLocation(totalHeight - dividerSize - 1);
-
-        logger.debug("Git panel collapsed; stored divider location={}", lastGitPanelDividerLocation);
-
-        rightVerticalSplitPane.revalidate();
-        rightVerticalSplitPane.repaint();
+        // Switch to Git tab in the left vertical-tabbed pane
+        for (int i = 0; i < bottomTabbedPane.getTabCount(); i++) {
+            if ("Git".equals(bottomTabbedPane.getTitleAt(i))) {
+                bottomTabbedPane.setSelectedIndex(i);
+                break;
+            }
+        }
     }
 
     @Override
@@ -1294,6 +1308,78 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         boolean inHistoryTable = historyOutputPanel.getHistoryTable() != null
                 && SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable());
         return inContextPanel || inHistoryTable;
+    }
+
+    /**
+     * Replace each tab title with a vertically-painted label so the text
+     * reads sideways when the tabs are placed on the LEFT.
+     */
+    private static void applyVerticalTabLabels(JTabbedPane tabbedPane)
+    {
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            var title = tabbedPane.getTitleAt(i);
+            var vertLabel = new VerticalLabel(title);
+            tabbedPane.setTabComponentAt(i, vertLabel);
+        }
+    }
+
+    /**
+     * JLabel that renders its text vertically (top-to-bottom) by drawing one
+     * character per line.  This avoids the clipping problems seen with long
+     * captions such as “Project Files”.
+     */
+    private static final class VerticalLabel extends JLabel
+    {
+        private static final int PAD_V = 4;
+        private static final int PAD_H = 2;
+
+        VerticalLabel(String text) {
+            super(text);
+            setBorder(BorderFactory.createEmptyBorder(PAD_V, PAD_H, PAD_V, PAD_H));
+            setFont(UIManager.getFont("TabbedPane.font"));
+            setHorizontalAlignment(SwingConstants.CENTER);
+            setVerticalAlignment(SwingConstants.CENTER);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            FontMetrics fm = getFontMetrics(getFont());
+            int stringWidth  = fm.stringWidth(getText());
+            int stringHeight = fm.getHeight();
+
+            Insets insets = getInsets();
+            // After rotation the logical width is the font height; height is the string width
+            // Width is font height plus horizontal padding
+            int width  = stringHeight + insets.left + insets.right - 4;
+            int height = stringWidth  + insets.top  + insets.bottom;
+            return new Dimension(width, height);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            // Paint background
+            if (isOpaque()) {
+                g.setColor(getBackground());
+                g.fillRect(0, 0, getWidth(), getHeight());
+            }
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+            FontMetrics fm    = g2.getFontMetrics();
+            Insets insets     = getInsets();
+
+            // Rotate 90° counter-clockwise to paint text sideways
+            g2.rotate(Math.toRadians(-90));
+            // After rotation, translate so the text starts inside the original component bounds
+            g2.translate(-getHeight() + insets.top, insets.left);
+
+            g2.setColor(getForeground());
+            g2.drawString(getText(), 0, fm.getAscent());
+
+            g2.dispose();
+        }
     }
 
     // --- Global Undo/Redo Action Classes ---
