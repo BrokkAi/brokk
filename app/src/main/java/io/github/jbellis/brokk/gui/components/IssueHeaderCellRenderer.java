@@ -1,16 +1,17 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Constants;
-import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.gui.SwingUtil;
-import io.github.jbellis.brokk.issues.IssueHeader;
 import java.awt.*;
-import java.time.LocalDate;
-import java.time.ZoneId;
+import java.util.Objects;
 import javax.swing.*;
+import javax.swing.table.TableCellRenderer;
 
-/** ListCellRenderer that mimics IntelliJ’s issue list style. */
-public class IssueHeaderCellRenderer extends JPanel implements ListCellRenderer<IssueHeader> {
+/**
+ * TableCellRenderer that mimics IntelliJ-style issue rows. It expects the JTable row to contain: [id, title, author,
+ * updated] with the title column being the one rendered.
+ */
+public class IssueHeaderCellRenderer extends JPanel implements TableCellRenderer {
 
     private final JLabel titleLabel = new JLabel();
     private final JPanel avatarPanel = new JPanel();
@@ -44,40 +45,35 @@ public class IssueHeaderCellRenderer extends JPanel implements ListCellRenderer<
     }
 
     @Override
-    public Component getListCellRendererComponent(
-            JList<? extends IssueHeader> list, IssueHeader value, int index, boolean isSelected, boolean cellHasFocus) {
+    public Component getTableCellRendererComponent(
+            JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
 
-        titleLabel.setText(value.title());
+        String id = table.getModel().getValueAt(row, 0).toString();
+        String author = table.getModel().getValueAt(row, 2).toString();
+        String updated = table.getModel().getValueAt(row, 3).toString();
 
-        // right-aligned author + assignees
+        titleLabel.setText(Objects.toString(value, ""));
+
         avatarPanel.removeAll();
-        value.assignees().forEach(this::addAvatarOrName);
+        addAvatarOrName(author); // show author on the right
 
-        var today = LocalDate.now(ZoneId.systemDefault());
-        String dateText = value.updated() == null
-                ? ""
-                : GitUiUtil.formatRelativeDate(value.updated().toInstant(), today);
-
-        String secondaryText = value.id() + "  " + dateText + "  by " + value.author();
+        String secondaryText = id + "  " + updated + "  by " + author;
         secondaryLabel.setText(secondaryText);
 
-        // ── Compact the cell if there are no avatar icons ─────────────────────
+        // Compact if no avatars
         boolean hasAvatars = avatarPanel.getComponentCount() > 0;
         int vPad = hasAvatars ? Constants.V_GLUE : 0;
-
-        // Adjust border and vertical gap dynamically
         setBorder(BorderFactory.createEmptyBorder(vPad, Constants.H_PAD, vPad, Constants.H_PAD));
         ((BorderLayout) getLayout()).setVgap(vPad);
 
-        // Force the renderer to use the list’s width, preventing horizontal growth
-        this.setPreferredSize(new Dimension(list.getWidth(), getPreferredSize().height));
+        setPreferredSize(new Dimension(table.getWidth(), getPreferredSize().height));
 
         if (isSelected) {
-            setBackground(list.getSelectionBackground());
-            setForeground(list.getSelectionForeground());
+            setBackground(table.getSelectionBackground());
+            setForeground(table.getSelectionForeground());
         } else {
-            setBackground(list.getBackground());
-            setForeground(list.getForeground());
+            setBackground(table.getBackground());
+            setForeground(table.getForeground());
         }
         return this;
     }
