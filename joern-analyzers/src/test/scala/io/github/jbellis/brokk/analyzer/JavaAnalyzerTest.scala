@@ -204,6 +204,19 @@ class JavaAnalyzerTest {
   }
 
   @Test
+  def getSkeletonTestXExtendsY(): Unit = {
+    val skeletonOpt = getAnalyzer.getSkeleton("XExtendsY")
+    assertTrue(skeletonOpt.isPresent)
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
+    val expected =
+      """class XExtendsY extends BaseClass implements Serializable {
+        |  public void someMethod() {...}
+        |  public void <init>() {...}
+        |}""".stripMargin.stripIndent
+    assertEquals(expected, skeleton)
+  }
+
+  @Test
   def getSkeletonTestD(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("D")
     assertTrue(skeletonOpt.isPresent)
@@ -284,7 +297,7 @@ class JavaAnalyzerTest {
     import scala.jdk.javaapi.*
 
     val seeds  = CollectionConverters.asJava(Map("D" -> (1.0: java.lang.Double)))
-    val ranked = analyzer.getPagerank(seeds, 3, false)
+    val ranked = analyzer.getRelevantCodeUnits(seeds, 3, false)
 
     // D calls A and B
     assert(ranked.size() == 2, ranked)
@@ -299,7 +312,7 @@ class JavaAnalyzerTest {
 
     // Seed with CamelClass, which has no connections
     val seeds  = CollectionConverters.asJava(Map("CamelClass" -> (1.0: java.lang.Double)))
-    val ranked = analyzer.getPagerank(seeds, 5, false)
+    val ranked = analyzer.getRelevantCodeUnits(seeds, 5, false)
 
     // Expect an empty list because CamelClass has few connections,
     // and after filtering itself and zero-scores, nothing should remain.
@@ -811,12 +824,12 @@ class JavaAnalyzerTest {
     val analyzer = getAnalyzer
 
     def check(
-      fqn: String,
-      expectedType: CodeUnitType,
-      expectedPkg: String,
-      expectedCls: String,
-      expectedMem: String
-    ): Unit = {
+               fqn: String,
+               expectedType: CodeUnitType,
+               expectedPkg: String,
+               expectedCls: String,
+               expectedMem: String
+             ): Unit = {
       val result     = analyzer.parseFqName(fqn, expectedType) // Call protected method directly
       val typeString = if (expectedType != null) expectedType.toString else "null"
       assertEquals(expectedPkg, result._1(), s"Package name mismatch for FQN [$fqn] with type [$typeString]")

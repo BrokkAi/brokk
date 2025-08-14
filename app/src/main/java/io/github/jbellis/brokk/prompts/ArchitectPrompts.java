@@ -14,7 +14,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
         var workspaceSummary = formatWorkspaceDescriptions(cm);
         var styleGuide = cm.getProject().getStyleGuide();
 
-        var text = """
+        var text =
+                """
           <instructions>
           %s
           </instructions>
@@ -24,7 +25,10 @@ public abstract class ArchitectPrompts extends CodePrompts {
           <style_guide>
           %s
           </style_guide>
-          """.stripIndent().formatted(systemIntro(reminder), workspaceSummary, styleGuide).trim();
+          """
+                        .stripIndent()
+                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .trim();
         return new SystemMessage(text);
     }
 
@@ -63,7 +67,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
         Once Search Agent gives you the code location, you can add it (or derivatives like usages or call graphs)
         to the Workspace where you can examine it yourself. However! if you already know where to
         find the necessary information yourself, prefer adding it directly to searching redundantly.
-        
+
         It's fine to add things to the Workspace just to see if they are relevant, and drop them later if it turns out that they are not.
         Conversely, if you want to add something back that you dropped earlier, you can look at the result of the
         dropWorkspaceFragments tool call to remind yourself what they were. But! only code fragments can
@@ -72,7 +76,7 @@ public abstract class ArchitectPrompts extends CodePrompts {
         If you are not COMPLETELY SURE what part of the goal refers to, you MUST
         determine what it means before attempting any code changes!  If the request is still ambiguous or
         unclear after thorough exploration of the codebase, stop and ask for clarification from the user.
-        
+
         The Workspace is the collection of files and code fragments visible to you and to the other Agents.
         Irrelevant information or too much detail will confuse the the other agents, so you always use
         class summaries or function excerpts instead of full-text files where possible, and should remove irrelevant
@@ -124,7 +128,8 @@ public abstract class ArchitectPrompts extends CodePrompts {
         DO NOT assume that the workspace is correctly configured to start solving the goal! You MUST
         evaluate the workspace contents INDEPENDENTLY at each step and drop irrelevant fragments for
         the next step in your plan!
-        """.stripIndent();
+        """
+                .stripIndent();
     }
 
     public String getFinalInstructions(ContextManager cm, String goal, int workspaceTokenSize, int minInputTokenLimit) {
@@ -135,33 +140,39 @@ public abstract class ArchitectPrompts extends CodePrompts {
             double percentage = (double) workspaceTokenSize / minInputTokenLimit * 100;
 
             if (workspaceTokenSize > criticalLimit) {
-                workspaceWarning = """
+                workspaceWarning =
+                        """
                     CRITICAL WORKSPACE NOTICE:
                     The current workspace size is %,d tokens. Your effective context limit for complex reasoning is %,d tokens.
                     The workspace is consuming %.0f%% of this limit. This is critically high and may lead to errors or degraded performance.
-                    
+
                     IMMEDIATE ACTION REQUIRED: Reduce the workspace size. Strategies:
                     1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`).
                     2. Add your own commentary on the essential information in a fragment and then drop the original (e.g., using `addTextToWorkspace` then `dropWorkspaceFragments`).
                     3. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
                     4. Operations like replacing a fragment (e.g., a file with its summary) involve an 'add' and a 'drop', which can be performed in parallel.
-                    
+
                     A lean, focused workspace is essential for complex tasks.
-                    """.stripIndent().formatted(workspaceTokenSize, minInputTokenLimit, percentage);
+                    """
+                                .stripIndent()
+                                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
             } else if (workspaceTokenSize > warningLimit) {
-                workspaceWarning = """
+                workspaceWarning =
+                        """
                     IMPORTANT WORKSPACE NOTICE:
                     The current workspace size is %,d tokens. Your maximum context limit for complex reasoning is %,d tokens.
                     The workspace is consuming %.0f%% of this limit.
-                    
+
                     To maintain optimal performance and avoid errors, consider reducing the workspace size. Strategies:
                     1. Replace full files/fragments with concise summaries (e.g., using `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`).
                     2. Add your own commentary on the essential information in a fragment and then drop the original (e.g., using `addTextToWorkspace` then `dropWorkspaceFragments`).
                     3. Critically evaluate if every item in the workspace is essential for the *current* step. Drop irrelevant items using `dropWorkspaceFragments`.
                     4. Operations like replacing a fragment (e.g., a file with its summary) involve an 'add' and a 'drop', which can be performed in parallel.
-                    
+
                     A lean, focused workspace is crucial for complex tasks.
-                    """.stripIndent().formatted(workspaceTokenSize, minInputTokenLimit, percentage);
+                    """
+                                .stripIndent()
+                                .formatted(workspaceTokenSize, minInputTokenLimit, percentage);
             }
         }
 
@@ -169,28 +180,30 @@ public abstract class ArchitectPrompts extends CodePrompts {
             <goal>
             %s
             </goal>
-            
+
             Please decide the next tool action(s) to make progress towards resolving the goal.
-            
+
             You MUST think carefully before each function call, and reflect extensively on the outcomes of the previous function calls.
             DO NOT do this entire process by making function calls only, as this can impair your ability to solve the problem and think insightfully.
-            
+
             You are encouraged to call multiple tools simultaneously, especially
             - when searching for relevant code: you can invoke callSearchAgent multiple times at once
             - when manipulating Workspace context: make all desired manipulations at once
-            
+
             Conversely, it does not make sense to call multiple tools with
             - callCodeAgent, since you want to see what changes get made before proceeding
             - projectFinished or abortProject, since they terminate execution
-            
+
             When you are done, call projectFinished or abortProject.
-            
+
             Here is a summary of the current Workspace. Its full contents were sent earlier in the chat.
             <workspace_summary>
             %s
             </workspace_summary>
-            
+
             %s
-            """.stripIndent().formatted(goal, formatWorkspaceDescriptions(cm), workspaceWarning);
+            """
+                .stripIndent()
+                .formatted(goal, formatWorkspaceDescriptions(cm), workspaceWarning);
     }
 }

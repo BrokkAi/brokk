@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = ResponseFormat.Builder.class)
@@ -18,6 +17,7 @@ public class ResponseFormat {
 
     @JsonProperty
     private final ResponseFormatType type;
+
     @JsonProperty
     private final JsonSchema jsonSchema;
 
@@ -38,13 +38,11 @@ public class ResponseFormat {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ResponseFormat
-                && equalTo((ResponseFormat) another);
+        return another instanceof ResponseFormat && equalTo((ResponseFormat) another);
     }
 
     private boolean equalTo(ResponseFormat another) {
-        return Objects.equals(type, another.type)
-                && Objects.equals(jsonSchema, another.jsonSchema);
+        return Objects.equals(type, another.type) && Objects.equals(jsonSchema, another.jsonSchema);
     }
 
     @Override
@@ -57,10 +55,7 @@ public class ResponseFormat {
 
     @Override
     public String toString() {
-        return "ResponseFormat{" +
-                "type=" + type +
-                ", jsonSchema=" + jsonSchema +
-                "}";
+        return "ResponseFormat{" + "type=" + type + ", jsonSchema=" + jsonSchema + "}";
     }
 
     public static Builder builder() {

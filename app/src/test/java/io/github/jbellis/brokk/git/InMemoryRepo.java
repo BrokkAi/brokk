@@ -1,19 +1,18 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.ObjectId;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ObjectId;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * A simple in-memory IGitRepo implementation for testing purposes.
- * It tracks added and removed files without actual Git operations.
+ * A simple in-memory IGitRepo implementation for testing purposes. It tracks added and removed files without actual Git
+ * operations.
  */
 public class InMemoryRepo implements IGitRepo {
 
@@ -21,8 +20,7 @@ public class InMemoryRepo implements IGitRepo {
     private final Set<ProjectFile> addedFiles = new HashSet<>();
     private final Set<ProjectFile> removedFiles = new HashSet<>();
 
-    public InMemoryRepo() {
-    }
+    public InMemoryRepo() {}
 
     public InMemoryRepo(Set<ProjectFile> initialTrackedFiles) {
         this.trackedFiles.addAll(initialTrackedFiles);
@@ -102,35 +100,31 @@ public class InMemoryRepo implements IGitRepo {
         if (newCommitId == null || oldCommitId == null) {
             throw new GitAPIException("Commit IDs cannot be null for diffing in InMemoryRepo") {};
         }
-        return String.format("""
+        return String.format(
+                """
                              diff --git a/%s b/%s
                              index 0000000..0000000
                              --- a/%s
                              +++ b/%s
                              @@ -0,0 +0,0 @@
                              [Simulated diff content for %s vs %s in InMemoryRepo]
-                             """, oldCommitId, newCommitId, oldCommitId, newCommitId, newCommitId, oldCommitId);
+                             """,
+                oldCommitId, newCommitId, oldCommitId, newCommitId, newCommitId, oldCommitId);
     }
 
-    /**
-     * Clears all tracked, added, and removed files. For test cleanup.
-     */
+    /** Clears all tracked, added, and removed files. For test cleanup. */
     public synchronized void reset() {
         trackedFiles.clear();
         addedFiles.clear();
         removedFiles.clear();
     }
 
-    /**
-     * Gets the set of files explicitly marked as 'added'. For test verification.
-     */
+    /** Gets the set of files explicitly marked as 'added'. For test verification. */
     public Set<ProjectFile> getAddedFilesSnapshot() {
         return Collections.unmodifiableSet(new HashSet<>(addedFiles));
     }
 
-    /**
-     * Gets the set of files explicitly marked as 'removed'. For test verification.
-     */
+    /** Gets the set of files explicitly marked as 'removed'. For test verification. */
     public Set<ProjectFile> getRemovedFilesSnapshot() {
         return Collections.unmodifiableSet(new HashSet<>(removedFiles));
     }

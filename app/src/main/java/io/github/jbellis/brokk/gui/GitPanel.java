@@ -6,23 +6,20 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import java.awt.*;
+import java.util.HashMap;
+import java.util.Map;
+import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import javax.swing.border.TitledBorder;
-import java.awt.*;
-import java.util.HashMap;
-import java.util.Map;
-
 /**
- * Main Git panel that hosts tabs for commit actions and various histories/logs.
- * Public API remains the same as before, but the commit tab is now handled by GitCommitTab,
- * and file-history is handled by GitHistoryTab.
+ * Main Git panel that hosts tabs for commit actions and various histories/logs. Public API remains the same as before,
+ * but the commit tab is now handled by GitCommitTab, and file-history is handled by GitHistoryTab.
  */
-public class GitPanel extends JPanel
-{
+public class GitPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitPanel.class);
 
     private final Chrome chrome;
@@ -36,7 +33,7 @@ public class GitPanel extends JPanel
     private final GitLogTab gitLogTab;
 
     // The "Pull Requests" tab - conditionally added
-    @Nullable 
+    @Nullable
     private GitPullRequestsTab pullRequestsTab;
 
     // The "Issues" tab - conditionally added
@@ -50,11 +47,8 @@ public class GitPanel extends JPanel
     // Tracks open file-history tabs by file path
     private final Map<String, GitHistoryTab> fileHistoryTabs = new HashMap<>();
 
-    /**
-     * Constructs the GitPanel containing the Commit tab, Log tab, etc.
-     */
-    public GitPanel(Chrome chrome, ContextManager contextManager)
-    {
+    /** Constructs the GitPanel containing the Commit tab, Log tab, etc. */
+    public GitPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -64,8 +58,7 @@ public class GitPanel extends JPanel
                 "Git ▼",
                 javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
                 javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         // Size / layout
         int rows = 15;
@@ -124,8 +117,8 @@ public class GitPanel extends JPanel
     }
 
     /**
-     * Recreates the Issues tab, typically after a change in issue provider settings.
-     * This ensures the tab uses the correct IssueService and reflects the new provider.
+     * Recreates the Issues tab, typically after a change in issue provider settings. This ensures the tab uses the
+     * correct IssueService and reflects the new provider.
      */
     public void recreateIssuesTab() {
         SwingUtilities.invokeLater(() -> {
@@ -141,8 +134,7 @@ public class GitPanel extends JPanel
             }
 
             // Re-evaluate condition for showing the issues tab
-            if (project.getIssuesProvider().type() != IssueProviderType.NONE)
-            {
+            if (project.getIssuesProvider().type() != IssueProviderType.NONE) {
                 issuesTab = new GitIssuesTab(chrome, contextManager, this); // New tab will register itself as listener
                 if (issuesTabIndex != -1) {
                     tabbedPane.insertTab("Issues", null, issuesTab, "GitHub/Jira Issues", issuesTabIndex);
@@ -151,10 +143,13 @@ public class GitPanel extends JPanel
                     tabbedPane.addTab("Issues", issuesTab);
                     tabbedPane.setSelectedIndex(tabbedPane.getTabCount() - 1);
                 }
-                logger.info("Recreated Issues tab for provider type: {}", project.getIssuesProvider().type());
+                logger.info(
+                        "Recreated Issues tab for provider type: {}",
+                        project.getIssuesProvider().type());
             } else {
-                logger.info("Issues tab not recreated as conditions are not met (provider: {}).",
-                            project.getIssuesProvider().type());
+                logger.info(
+                        "Issues tab not recreated as conditions are not met (provider: {}).",
+                        project.getIssuesProvider().type());
             }
             // No need to call updateIssueList() here, the new GitIssuesTab constructor does it.
         });
@@ -176,9 +171,7 @@ public class GitPanel extends JPanel
         SwingUtilities.invokeLater(() -> {
             var border = getBorder();
             if (border instanceof TitledBorder titledBorder) {
-                String newTitle = !branchName.isBlank()
-                                  ? "Git (" + branchName + ") ▼"
-                                  : "Git ▼";
+                String newTitle = !branchName.isBlank() ? "Git (" + branchName + ") ▼" : "Git ▼";
                 titledBorder.setTitle(newTitle);
                 revalidate();
                 repaint();
@@ -186,12 +179,8 @@ public class GitPanel extends JPanel
         });
     }
 
-    /**
-     * Updates the panel to reflect the current repo state.
-     * Refreshes both the log tab and the commit tab.
-     */
-    public void updateRepo()
-    {
+    /** Updates the panel to reflect the current repo state. Refreshes both the log tab and the commit tab. */
+    public void updateRepo() {
         // Refresh commit state and stashes
         commitTab.updateCommitPanel();
 
@@ -205,35 +194,23 @@ public class GitPanel extends JPanel
         updateBorderTitle(); // Refresh title on repo update
     }
 
-    /**
-     * Public API to re-populate the commit table etc. (delegated to GitCommitTab now).
-     */
+    /** Public API to re-populate the commit table etc. (delegated to GitCommitTab now). */
     public void updateCommitPanel() {
         commitTab.updateCommitPanel();
     }
 
-    /**
-     * For GitCommitTab or external code to re-populate the Log tab.
-     */
-    void updateLogTab()
-    {
+    /** For GitCommitTab or external code to re-populate the Log tab. */
+    void updateLogTab() {
         gitLogTab.update();
     }
 
-    /**
-     * For GitCommitTab or external code to select the current branch in the Log tab.
-     */
-    void selectCurrentBranchInLogTab()
-    {
+    /** For GitCommitTab or external code to select the current branch in the Log tab. */
+    void selectCurrentBranchInLogTab() {
         gitLogTab.selectCurrentBranch();
     }
 
-    /**
-     * Switches to the Log tab and highlights the specified commit.
-     * Called by GitHistoryTab or external code.
-     */
-    void showCommitInLogTab(String commitId)
-    {
+    /** Switches to the Log tab and highlights the specified commit. Called by GitHistoryTab or external code. */
+    void showCommitInLogTab(String commitId) {
         // Switch to "Log" tab if not visible
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             if ("Log".equals(tabbedPane.getTitleAt(i))) {
@@ -245,12 +222,8 @@ public class GitPanel extends JPanel
         gitLogTab.selectCommitById(commitId);
     }
 
-    /**
-     * Adds a new tab showing the commit-history of a specific file.
-     * If already opened, just selects it.
-     */
-    public void addFileHistoryTab(ProjectFile file)
-    {
+    /** Adds a new tab showing the commit-history of a specific file. If already opened, just selects it. */
+    public void addFileHistoryTab(ProjectFile file) {
         String filePath = file.toString();
         if (fileHistoryTabs.containsKey(filePath)) {
             // Already open; bring it to front
@@ -283,6 +256,7 @@ public class GitPanel extends JPanel
                 closeButton.setForeground(Color.RED);
                 closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             }
+
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
                 closeButton.setForeground(null);
@@ -308,11 +282,8 @@ public class GitPanel extends JPanel
         fileHistoryTabs.put(filePath, historyTab);
     }
 
-    /**
-     * Helper to switch to a previously opened file-history tab by file path.
-     */
-    private void selectExistingFileHistoryTab(String filePath)
-    {
+    /** Helper to switch to a previously opened file-history tab by file path. */
+    private void selectExistingFileHistoryTab(String filePath) {
         GitHistoryTab existing = fileHistoryTabs.get(filePath);
         if (existing == null) {
             return; // safety check
@@ -326,16 +297,12 @@ public class GitPanel extends JPanel
         }
     }
 
-    public GitCommitTab getCommitTab()
-    {
+    public GitCommitTab getCommitTab() {
         return commitTab;
     }
 
-    /**
-     * Helper to return a short filename for tab titles, e.g. "Main.java" from "src/foo/Main.java".
-     */
-    String getFileTabName(String filePath)
-    {
+    /** Helper to return a short filename for tab titles, e.g. "Main.java" from "src/foo/Main.java". */
+    String getFileTabName(String filePath) {
         int lastSlash = filePath.lastIndexOf('/');
         return (lastSlash >= 0) ? filePath.substring(lastSlash + 1) : filePath;
     }

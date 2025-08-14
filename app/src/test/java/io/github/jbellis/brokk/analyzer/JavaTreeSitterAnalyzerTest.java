@@ -1,13 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.testutil.TestProject;
-import org.jetbrains.annotations.Nullable;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,24 +10,32 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class JavaTreeSitterAnalyzerTest {
 
-    private final static Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerTest.class);
 
     @Nullable
     private static JavaTreeSitterAnalyzer analyzer;
+
     @Nullable
     private static TestProject testProject;
 
     @BeforeAll
     public static void setup() throws IOException {
-        final var testPath = Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
+        final var testPath =
+                Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testPath), "Test resource directory 'testcode-java' not found.");
         testProject = new TestProject(testPath, Language.JAVA);
-        logger.debug("Setting up analyzer with test code from {}", testPath.toAbsolutePath().normalize());
+        logger.debug(
+                "Setting up analyzer with test code from {}",
+                testPath.toAbsolutePath().normalize());
         analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
     }
 
@@ -54,16 +57,19 @@ public class JavaTreeSitterAnalyzerTest {
         final var sourceOpt = analyzer.getMethodSource("A.method2");
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
-        final String expected = """
+        final String expected =
+                """
                 public String method2(String input) {
                         return "prefix_" + input;
                     }
-                
+
                 public String method2(String input, int otherInput) {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
                     }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
 
         assertEquals(expected, source);
     }
@@ -74,11 +80,14 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public void method7() {
                                 System.out.println("hello");
                             }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
 
         assertEquals(expected, source);
     }
@@ -94,7 +103,9 @@ public class JavaTreeSitterAnalyzerTest {
                         public B() {
                                 System.out.println("B constructor");
                             }
-                        """.trim().stripIndent();
+                        """
+                        .trim()
+                        .stripIndent();
 
         assertEquals(expected, source);
     }
@@ -115,7 +126,8 @@ public class JavaTreeSitterAnalyzerTest {
         assertNotNull(maybeSource);
         final var source = maybeSource.stripIndent();
         // Verify the source contains inner class definition
-        final var expected = """
+        final var expected =
+                """
                 public class AInner {
                         public class AInnerInner {
                             public void method7() {
@@ -123,7 +135,9 @@ public class JavaTreeSitterAnalyzerTest {
                             }
                         }
                     }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, source);
     }
 
@@ -133,13 +147,16 @@ public class JavaTreeSitterAnalyzerTest {
         assertNotNull(maybeSource);
         final var source = maybeSource.stripIndent();
         // Verify the source contains inner class definition
-        final var expected = """
+        final var expected =
+                """
                         public class AInnerInner {
                             public void method7() {
                                 System.out.println("hello");
                             }
                         }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, source);
     }
 
@@ -159,7 +176,8 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public class A {
                   void method1()
                   String method2(String input)
@@ -177,7 +195,9 @@ public class JavaTreeSitterAnalyzerTest {
                   public static class AInnerStatic {
                   }
                 }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, skeleton);
     }
 
@@ -187,7 +207,8 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public class D {
                   public static int field1;
                   private String field2;
@@ -198,7 +219,9 @@ public class JavaTreeSitterAnalyzerTest {
                   private class DSub {
                   }
                 }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, skeleton);
     }
 
@@ -208,23 +231,49 @@ public class JavaTreeSitterAnalyzerTest {
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public class D {
                   public static int field1;
                   private String field2;
                   [...]
                 }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, skeleton);
     }
 
     @Test
     public void getAllClassesTest() {
-        final var classes = analyzer.getAllDeclarations().stream().map(CodeUnit::fqName).sorted().toList();
-        final var expected = List.of("A", "A$AInner", "A$AInner$AInnerInner", "A$AInnerStatic",
-                "AnonymousUsage", "AnonymousUsage$NestedClass", "B", "BaseClass", "C", "C$Foo", "CamelClass",
-                "CyclicMethods", "D", "D$DSub", "D$DSubStatic", "E", "F", "Interface", "MethodReturner",
-                "UseE", "UsePackaged", "XExtendsY", "io.github.jbellis.brokk.Foo");
+        final var classes = analyzer.getAllDeclarations().stream()
+                .map(CodeUnit::fqName)
+                .sorted()
+                .toList();
+        final var expected = List.of(
+                "A",
+                "A$AInner",
+                "A$AInner$AInnerInner",
+                "A$AInnerStatic",
+                "AnonymousUsage",
+                "AnonymousUsage$NestedClass",
+                "B",
+                "BaseClass",
+                "C",
+                "C$Foo",
+                "CamelClass",
+                "CyclicMethods",
+                "D",
+                "D$DSub",
+                "D$DSubStatic",
+                "E",
+                "F",
+                "Interface",
+                "MethodReturner",
+                "UseE",
+                "UsePackaged",
+                "XExtendsY",
+                "io.github.jbellis.brokk.Foo");
         assertEquals(expected, classes);
     }
 
@@ -245,8 +294,7 @@ public class JavaTreeSitterAnalyzerTest {
                 CodeUnit.fn(file, "", "D.methodD2"),
                 // Fields
                 CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2")
-        );
+                CodeUnit.field(file, "", "D.field2"));
         assertEquals(expected, classes);
     }
 
@@ -260,7 +308,7 @@ public class JavaTreeSitterAnalyzerTest {
                 // Method
                 CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar")
                 // No fields in Packaged.java
-        );
+                );
         assertEquals(expected, declarations);
     }
 
@@ -303,16 +351,17 @@ public class JavaTreeSitterAnalyzerTest {
         final var file = maybeFile.get();
 
         final var expected = Stream.of(
-                // Methods
-                CodeUnit.fn(file, "", "D.methodD1"),
-                CodeUnit.fn(file, "", "D.methodD2"),
-                // Fields
-                CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2"),
-                // Classes
-                CodeUnit.cls(file, "", "D$DSubStatic"),
-                CodeUnit.cls(file, "", "D$DSub")
-        ).sorted().toList();
+                        // Methods
+                        CodeUnit.fn(file, "", "D.methodD1"),
+                        CodeUnit.fn(file, "", "D.methodD2"),
+                        // Fields
+                        CodeUnit.field(file, "", "D.field1"),
+                        CodeUnit.field(file, "", "D.field2"),
+                        // Classes
+                        CodeUnit.cls(file, "", "D$DSubStatic"),
+                        CodeUnit.cls(file, "", "D$DSub"))
+                .sorted()
+                .toList();
         assertEquals(expected, members);
     }
 
@@ -323,22 +372,22 @@ public class JavaTreeSitterAnalyzerTest {
         final var maybeFile = analyzer.getFileFor("D");
         assertTrue(maybeFile.isPresent());
 
-        final var children = analyzer.directChildren(maybeClassD.get()).stream().sorted().toList();
+        final var children =
+                analyzer.directChildren(maybeClassD.get()).stream().sorted().toList();
         final var file = maybeFile.get();
 
         final var expected = Stream.of(
-                // Classes
-                CodeUnit.cls(file, "", "D$DSub"),
-                CodeUnit.cls(file, "", "D$DSubStatic"),
-                // Methods
-                CodeUnit.fn(file, "", "D.methodD1"),
-                CodeUnit.fn(file, "", "D.methodD2"),
-                // Fields
-                CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2")
-        ).sorted().toList();
+                        // Classes
+                        CodeUnit.cls(file, "", "D$DSub"),
+                        CodeUnit.cls(file, "", "D$DSubStatic"),
+                        // Methods
+                        CodeUnit.fn(file, "", "D.methodD1"),
+                        CodeUnit.fn(file, "", "D.methodD2"),
+                        // Fields
+                        CodeUnit.field(file, "", "D.field1"),
+                        CodeUnit.field(file, "", "D.field2"))
+                .sorted()
+                .toList();
         assertEquals(expected, children);
     }
-
 }
-

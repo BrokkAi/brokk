@@ -5,14 +5,12 @@ import static java.util.Arrays.asList;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 
-import org.slf4j.Logger;
-
+import dev.langchain4j.http.client.HttpRequest;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import dev.langchain4j.http.client.HttpRequest;
+import org.slf4j.Logger;
 
 class HttpRequestLogger {
 
@@ -45,8 +43,10 @@ class HttpRequestLogger {
     }
 
     static String format(String headerKey, List<String> headerValues) {
-        if (COMMON_SECRET_HEADERS.contains(headerKey.toLowerCase()) || headerKey.toLowerCase().contains("api-key")) {
-            headerValues = headerValues.stream().map(HttpRequestLogger::maskSecretKey).collect(toList());
+        if (COMMON_SECRET_HEADERS.contains(headerKey.toLowerCase())
+                || headerKey.toLowerCase().contains("api-key")) {
+            headerValues =
+                    headerValues.stream().map(HttpRequestLogger::maskSecretKey).collect(toList());
         }
 
         if (headerValues.size() == 1) {

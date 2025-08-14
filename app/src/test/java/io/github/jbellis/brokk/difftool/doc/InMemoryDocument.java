@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.difftool.doc;
 
-import java.io.IOException;
 import java.io.Reader;
 import java.io.StringReader;
-import java.io.Writer;
 import java.io.StringWriter;
-import java.util.ArrayList;
+import java.io.Writer;
 import java.util.Arrays;
 import java.util.List;
 
 /**
- * In-memory implementation of BufferDocumentIF for testing purposes.
- * Provides a simple way to create test documents without file I/O.
+ * In-memory implementation of BufferDocumentIF for testing purposes. Provides a simple way to create test documents
+ * without file I/O.
  */
 public class InMemoryDocument extends AbstractBufferDocument {
-    
+
     private final String content;
     private boolean readonly = false;
 

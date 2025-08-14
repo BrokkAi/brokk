@@ -4,7 +4,6 @@ import static dev.langchain4j.internal.Exceptions.illegalArgument;
 import static dev.langchain4j.internal.JsonSchemaElementUtils.toMap;
 import static dev.langchain4j.internal.Utils.isNullOrBlank;
 import static dev.langchain4j.internal.Utils.isNullOrEmpty;
-import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 import static dev.langchain4j.model.chat.request.ResponseFormat.JSON;
 import static dev.langchain4j.model.chat.request.ResponseFormatType.TEXT;
 import static dev.langchain4j.model.openai.internal.chat.ResponseFormatType.JSON_OBJECT;
@@ -18,13 +17,6 @@ import static java.lang.String.format;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.image.Image;
@@ -36,7 +28,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.exception.UnsupportedFeatureException;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -64,6 +55,12 @@ import dev.langchain4j.model.openai.internal.shared.CompletionTokensDetails;
 import dev.langchain4j.model.openai.internal.shared.PromptTokensDetails;
 import dev.langchain4j.model.openai.internal.shared.Usage;
 import dev.langchain4j.model.output.FinishReason;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @SuppressWarnings("deprecation")
 public class OpenAiUtils {
@@ -153,7 +150,6 @@ public class OpenAiUtils {
         }
     }
 
-
     private static dev.langchain4j.model.openai.internal.chat.Content toOpenAiContent(TextContent content) {
         return dev.langchain4j.model.openai.internal.chat.Content.builder()
                 .type(ContentType.TEXT)
@@ -207,17 +203,13 @@ public class OpenAiUtils {
         return Tool.from(function);
     }
 
-    /**
-     * @deprecated Functions are deprecated by OpenAI, use {@link #toTools(Collection, boolean)} instead
-     */
+    /** @deprecated Functions are deprecated by OpenAI, use {@link #toTools(Collection, boolean)} instead */
     @Deprecated
     public static List<Function> toFunctions(Collection<ToolSpecification> toolSpecifications) {
         return toolSpecifications.stream().map(OpenAiUtils::toFunction).collect(toList());
     }
 
-    /**
-     * @deprecated Functions are deprecated by OpenAI, use {@link #toTool(ToolSpecification, boolean)} instead
-     */
+    /** @deprecated Functions are deprecated by OpenAI, use {@link #toTool(ToolSpecification, boolean)} instead */
     @Deprecated
     private static Function toFunction(ToolSpecification toolSpecification) {
         return Function.builder()
@@ -237,7 +229,8 @@ public class OpenAiUtils {
             map.put("required", new ArrayList<>());
             if (strict) {
                 // When strict, additionalProperties must be false:
-                // See https://platform.openai.com/docs/guides/structured-outputs/additionalproperties-false-must-always-be-set-in-objects?api-mode=chat#additionalproperties-false-must-always-be-set-in-objects
+                // See
+                // https://platform.openai.com/docs/guides/structured-outputs/additionalproperties-false-must-always-be-set-in-objects?api-mode=chat#additionalproperties-false-must-always-be-set-in-objects
                 map.put("additionalProperties", false);
             }
             return map;
@@ -332,7 +325,8 @@ public class OpenAiUtils {
         }
     }
 
-    static dev.langchain4j.model.openai.internal.chat.ResponseFormat toOpenAiResponseFormat(ResponseFormat responseFormat, Boolean strict) {
+    static dev.langchain4j.model.openai.internal.chat.ResponseFormat toOpenAiResponseFormat(
+            ResponseFormat responseFormat, Boolean strict) {
         if (responseFormat == null || responseFormat.type() == TEXT) {
             return null;
         }
@@ -348,11 +342,12 @@ public class OpenAiUtils {
                         "For OpenAI, the root element of the JSON Schema must be a JsonObjectSchema, but it was: "
                                 + jsonSchema.rootElement().getClass());
             }
-            dev.langchain4j.model.openai.internal.chat.JsonSchema openAiJsonSchema = dev.langchain4j.model.openai.internal.chat.JsonSchema.builder()
-                    .name(jsonSchema.name())
-                    .strict(strict)
-                    .schema(toMap(jsonSchema.rootElement(), strict))
-                    .build();
+            dev.langchain4j.model.openai.internal.chat.JsonSchema openAiJsonSchema =
+                    dev.langchain4j.model.openai.internal.chat.JsonSchema.builder()
+                            .name(jsonSchema.name())
+                            .strict(strict)
+                            .schema(toMap(jsonSchema.rootElement(), strict))
+                            .build();
             return dev.langchain4j.model.openai.internal.chat.ResponseFormat.builder()
                     .type(JSON_SCHEMA)
                     .jsonSchema(openAiJsonSchema)

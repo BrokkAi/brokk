@@ -4,11 +4,6 @@ import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.GitUiUtil;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;
@@ -19,19 +14,20 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.Optional;
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableRowSorter;
+import org.jetbrains.annotations.Nullable;
 
-public class OpenProjectDialog extends JDialog
-{
+public class OpenProjectDialog extends JDialog {
     private static final Pattern GITHUB_URL_PATTERN = Pattern.compile("https://github.com/([^/]+)/([^/\\s]+)");
     private final @Nullable Frame parentFrame;
     private @Nullable Path selectedProjectPath = null;
 
-    public OpenProjectDialog(@Nullable Frame parent)
-    {
+    public OpenProjectDialog(@Nullable Frame parent) {
         super(parent, "Open Project", true);
         this.parentFrame = parent;
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
@@ -40,8 +36,7 @@ public class OpenProjectDialog extends JDialog
         setLocationRelativeTo(parent);
     }
 
-    private void initComponents()
-    {
+    private void initComponents() {
         var mainPanel = new JPanel(new BorderLayout());
 
         var leftPanel = new JPanel();
@@ -49,8 +44,7 @@ public class OpenProjectDialog extends JDialog
         leftPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         var iconUrl = Brokk.class.getResource(Brokk.ICON_RESOURCE);
-        if (iconUrl != null)
-        {
+        if (iconUrl != null) {
             var originalIcon = new ImageIcon(iconUrl);
             var image = originalIcon.getImage().getScaledInstance(128, 128, Image.SCALE_SMOOTH);
             var projectsLabel = new JLabel("Projects");
@@ -72,8 +66,7 @@ public class OpenProjectDialog extends JDialog
 
         var tabbedPane = new JTabbedPane();
         var knownProjectsPanel = createKnownProjectsPanel();
-        if (knownProjectsPanel != null)
-        {
+        if (knownProjectsPanel != null) {
             tabbedPane.addTab("Known Projects", knownProjectsPanel);
         }
         tabbedPane.addTab("Open Local", createOpenLocalPanel());
@@ -86,38 +79,32 @@ public class OpenProjectDialog extends JDialog
     }
 
     @Nullable
-    private JPanel createKnownProjectsPanel()
-    {
+    private JPanel createKnownProjectsPanel() {
         var panel = new JPanel(new BorderLayout());
-        String[] columnNames = { "Project", "Last Opened" };
+        String[] columnNames = {"Project", "Last Opened"};
 
-        var tableModel = new DefaultTableModel(columnNames, 0)
-        {
+        var tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
-            public boolean isCellEditable(int row, int column)
-            {
+            public boolean isCellEditable(int row, int column) {
                 return false;
             }
 
             @Override
-            public Class<?> getColumnClass(int columnIndex)
-            {
+            public Class<?> getColumnClass(int columnIndex) {
                 return columnIndex == 1 ? Instant.class : String.class;
             }
         };
 
         var recentProjects = MainProject.loadRecentProjects();
-        if (recentProjects.isEmpty())
-        {
+        if (recentProjects.isEmpty()) {
             return null;
         }
         var today = LocalDate.now(ZoneId.systemDefault());
-        for (var entry : recentProjects.entrySet())
-        {
+        for (var entry : recentProjects.entrySet()) {
             var path = entry.getKey();
             var metadata = entry.getValue();
             var lastOpenedInstant = Instant.ofEpochMilli(metadata.lastOpened());
-            tableModel.addRow(new Object[]{path.toString(), lastOpenedInstant});
+            tableModel.addRow(new Object[] {path.toString(), lastOpenedInstant});
         }
 
         var table = new JTable(tableModel);
@@ -125,13 +112,10 @@ public class OpenProjectDialog extends JDialog
         table.getColumnModel().getColumn(1).setCellRenderer((table1, value, isSelected, hasFocus, row, column) -> {
             var label = new JLabel(GitUiUtil.formatRelativeDate((Instant) value, today));
             label.setOpaque(true);
-            if (isSelected)
-            {
+            if (isSelected) {
                 label.setBackground(table1.getSelectionBackground());
                 label.setForeground(table1.getSelectionForeground());
-            }
-            else
-            {
+            } else {
                 label.setBackground(table1.getBackground());
                 label.setForeground(table1.getForeground());
             }
@@ -144,16 +128,12 @@ public class OpenProjectDialog extends JDialog
         sorter.setSortKeys(List.of(new RowSorter.SortKey(1, SortOrder.DESCENDING)));
         sorter.setComparator(0, Comparator.comparing(Object::toString));
 
-        table.addMouseListener(new java.awt.event.MouseAdapter()
-        {
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent evt)
-            {
-                if (evt.getClickCount() == 2)
-                {
+            public void mouseClicked(java.awt.event.MouseEvent evt) {
+                if (evt.getClickCount() == 2) {
                     int viewRow = table.getSelectedRow();
-                    if (viewRow >= 0)
-                    {
+                    if (viewRow >= 0) {
                         int modelRow = table.convertRowIndexToModel(viewRow);
                         String pathString = (String) tableModel.getValueAt(modelRow, 0);
                         openProject(Paths.get(pathString));
@@ -171,8 +151,7 @@ public class OpenProjectDialog extends JDialog
 
         openButton.addActionListener(e -> {
             int viewRow = table.getSelectedRow();
-            if (viewRow >= 0)
-            {
+            if (viewRow >= 0) {
                 int modelRow = table.convertRowIndexToModel(viewRow);
                 String pathString = (String) tableModel.getValueAt(modelRow, 0);
                 openProject(Paths.get(pathString));
@@ -182,8 +161,7 @@ public class OpenProjectDialog extends JDialog
         return panel;
     }
 
-    private JPanel createOpenLocalPanel()
-    {
+    private JPanel createOpenLocalPanel() {
         var panel = new JPanel(new BorderLayout());
         var chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -198,8 +176,7 @@ public class OpenProjectDialog extends JDialog
 
         openButton.addActionListener(e -> {
             var selectedFile = chooser.getSelectedFile();
-            if (selectedFile != null)
-            {
+            if (selectedFile != null) {
                 openProject(selectedFile.toPath());
             }
         });
@@ -207,37 +184,41 @@ public class OpenProjectDialog extends JDialog
         return panel;
     }
 
-    private JPanel createClonePanel()
-    {
+    private JPanel createClonePanel() {
         var panel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        gbc.gridx = 0; gbc.gridy = 0; panel.add(new JLabel("Repository URL:"), gbc);
-        gbc.gridx = 1; gbc.gridy = 0; gbc.gridwidth = 2; gbc.weightx = 1.0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        panel.add(new JLabel("Repository URL:"), gbc);
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
         var urlField = new JTextField(40);
         panel.add(urlField, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 1; gbc.weightx = 0.0; panel.add(new JLabel("Directory:"), gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.gridwidth = 1;
+        gbc.weightx = 0.0;
+        panel.add(new JLabel("Directory:"), gbc);
         var dirField = new JTextField(System.getProperty("user.home"));
 
         var chooseIcon = UIManager.getIcon("FileChooser.directoryIcon");
-        if (chooseIcon == null)
-        {
+        if (chooseIcon == null) {
             chooseIcon = UIManager.getIcon("FileView.directoryIcon");
         }
         var chooseButton = chooseIcon != null ? new JButton(chooseIcon) : new JButton("...");
-        if (chooseIcon != null)
-        {
+        if (chooseIcon != null) {
             var iconDim = new Dimension(chooseIcon.getIconWidth(), chooseIcon.getIconHeight());
             chooseButton.setPreferredSize(iconDim);
             chooseButton.setMinimumSize(iconDim);
             chooseButton.setMaximumSize(iconDim);
             chooseButton.setMargin(new Insets(0, 0, 0, 0));
-        }
-        else
-        {
+        } else {
             chooseButton.setMargin(new Insets(0, 0, 0, 0));
             var size = chooseButton.getPreferredSize();
             var minDim = new Dimension(size.height, size.height);
@@ -251,7 +232,11 @@ public class OpenProjectDialog extends JDialog
         directoryInputPanel.add(dirField, BorderLayout.CENTER);
         directoryInputPanel.add(chooseButton, BorderLayout.EAST);
 
-        gbc.gridx = 1; gbc.gridy = 1; gbc.gridwidth = 2; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 1;
+        gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         panel.add(directoryInputPanel, gbc);
 
         var shallowCloneCheckbox = new JCheckBox("Shallow clone with");
@@ -265,7 +250,11 @@ public class OpenProjectDialog extends JDialog
         shallowPanel.add(depthSpinner);
         shallowPanel.add(commitsLabel);
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 3; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 3;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(shallowPanel, gbc);
 
@@ -276,8 +265,7 @@ public class OpenProjectDialog extends JDialog
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
             chooser.setDialogTitle("Select Directory to Clone Into");
             chooser.setCurrentDirectory(new File(System.getProperty("user.home")));
-            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION)
-            {
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
                 dirField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
         });
@@ -286,73 +274,65 @@ public class OpenProjectDialog extends JDialog
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cloneButton);
 
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 3; gbc.anchor = GridBagConstraints.SOUTHEAST;
-gbc.fill = GridBagConstraints.NONE;
-gbc.weightx = 1.0; gbc.weighty = 1.0;
-panel.add(buttonPanel, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 3;
+        gbc.anchor = GridBagConstraints.SOUTHEAST;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0;
+        panel.add(buttonPanel, gbc);
 
-        cloneButton.addActionListener(e -> cloneAndOpen(urlField.getText(),
-                                                        dirField.getText(),
-                                                        shallowCloneCheckbox.isSelected(),
-                                                        (Integer) depthSpinner.getValue()));
+        cloneButton.addActionListener(
+                e -> cloneAndOpen(urlField.getText(), dirField.getText(), shallowCloneCheckbox.isSelected(), (Integer)
+                        depthSpinner.getValue()));
         return panel;
     }
 
-    private void cloneAndOpen(String url, String dir, boolean shallow, int depth)
-    {
-        if (url.isBlank() || dir.isBlank())
-        {
-            JOptionPane.showMessageDialog(this,
-                                          "URL and Directory must be provided.",
-                                          "Error",
-                                          JOptionPane.ERROR_MESSAGE);
+    private void cloneAndOpen(String url, String dir, boolean shallow, int depth) {
+        if (url.isBlank() || dir.isBlank()) {
+            JOptionPane.showMessageDialog(
+                    this, "URL and Directory must be provided.", "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
         final var normalizedUrl = normalizeGitUrl(url);
-        final var directory      = Paths.get(dir);
+        final var directory = Paths.get(dir);
 
         // 1. Build the modal progress dialog on the EDT
         final var progressDialog = new JDialog(parentFrame, "Cloning...", true);
         var progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
-        progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl),
-                           BorderLayout.NORTH);
+        progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl), BorderLayout.NORTH);
         progressDialog.add(progressBar, BorderLayout.CENTER);
         progressDialog.pack();
         progressDialog.setLocationRelativeTo(parentFrame);
 
         // 2. Start background clone
-        var worker = new SwingWorker<Path, Void>()
-        {
+        var worker = new SwingWorker<Path, Void>() {
             @Override
-            protected Path doInBackground() throws Exception
-            {
+            protected Path doInBackground() throws Exception {
                 // Heavy-weight Git operation happens off the EDT
                 GitRepo.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
                 return directory;
             }
 
             @Override
-            protected void done()
-            {
+            protected void done() {
                 // Always dispose dialog on EDT
                 SwingUtilities.invokeLater(() -> {
                     progressDialog.dispose();
-                    try
-                    {
+                    try {
                         Path projectPath = get();
-                        if (projectPath != null)
-                        {
+                        if (projectPath != null) {
                             openProject(projectPath);
                         }
-                    }
-                    catch (Exception e)
-                    {
-                        JOptionPane.showMessageDialog(OpenProjectDialog.this,
-                                                      "Failed to clone repository: " + e.getMessage(),
-                                                      "Clone Failed",
-                                                      JOptionPane.ERROR_MESSAGE);
+                    } catch (Exception e) {
+                        JOptionPane.showMessageDialog(
+                                OpenProjectDialog.this,
+                                "Failed to clone repository: " + e.getMessage(),
+                                "Clone Failed",
+                                JOptionPane.ERROR_MESSAGE);
                     }
                 });
             }
@@ -364,14 +344,11 @@ panel.add(buttonPanel, gbc);
         progressDialog.setVisible(true);
     }
 
-    private static String normalizeGitUrl(String url)
-    {
+    private static String normalizeGitUrl(String url) {
         Matcher matcher = GITHUB_URL_PATTERN.matcher(url.trim());
-        if (matcher.matches())
-        {
+        if (matcher.matches()) {
             String repo = matcher.group(2);
-            if (repo.endsWith(".git"))
-            {
+            if (repo.endsWith(".git")) {
                 return url;
             }
             return url + ".git";
@@ -379,8 +356,7 @@ panel.add(buttonPanel, gbc);
         return url;
     }
 
-    private void openProject(Path projectPath)
-    {
+    private void openProject(Path projectPath) {
         if (!Files.isDirectory(projectPath)) {
             var message = "The selected path is not a directory.";
             JOptionPane.showMessageDialog(this, message, "Invalid Project", JOptionPane.ERROR_MESSAGE);
@@ -397,10 +373,9 @@ panel.add(buttonPanel, gbc);
      * @param owner the parent frame (may be {@code null})
      * @return Optional containing the selected project path; empty if the user cancelled
      */
-    public static Optional<Path> showDialog(@Nullable Frame owner)
-    {
+    public static Optional<Path> showDialog(@Nullable Frame owner) {
         var dlg = new OpenProjectDialog(owner);
-        dlg.setVisible(true);   // modal; blocks
+        dlg.setVisible(true); // modal; blocks
         return Optional.ofNullable(dlg.selectedProjectPath);
     }
 }

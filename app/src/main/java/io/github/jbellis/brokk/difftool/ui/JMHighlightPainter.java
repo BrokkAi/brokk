@@ -1,19 +1,17 @@
 package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.difftool.utils.Colors;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import io.github.jbellis.brokk.gui.SwingUtil;
+import java.awt.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.JTextComponent;
-import io.github.jbellis.brokk.gui.SwingUtil;
-import java.awt.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * Highlight painter for diff views.
- * Instances are created dynamically with theme-appropriate colors.
- * Search highlighters remain static as they are currently theme-independent.
+ * Highlight painter for diff views. Instances are created dynamically with theme-appropriate colors. Search
+ * highlighters remain static as they are currently theme-independent.
  */
 public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPainter {
     private static final Logger logger = LogManager.getLogger(JMHighlightPainter.class);
@@ -36,6 +34,7 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
 
     /**
      * Creates a painter for a specific color, painting only the text bounds.
+     *
      * @param color The highlight color.
      */
     public JMHighlightPainter(Color color) {
@@ -44,6 +43,7 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
 
     /**
      * Creates a painter for a specific color.
+     *
      * @param color The highlight color.
      * @param paintFullLine If true, paints the entire line background; otherwise, paints only the text bounds.
      */
@@ -93,7 +93,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
                     // Check if the range is reasonable for enhanced highlighting
                     int highlightRange = p1 - p0;
                     int docLength = comp.getDocument().getLength();
-                    boolean useEnhancedHighlighting = highlightRange < LONG_LINE_THRESHOLD && docLength < LARGE_DOCUMENT_THRESHOLD;
+                    boolean useEnhancedHighlighting =
+                            highlightRange < LONG_LINE_THRESHOLD && docLength < LARGE_DOCUMENT_THRESHOLD;
 
                     if (useEnhancedHighlighting) {
                         try {
@@ -122,7 +123,9 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
 
                                 // Calculate the actual document offset
                                 int nextLineStart = textStart + nextNewline + 1;
-                                if (text.charAt(nextNewline) == '\r' && nextNewline + 1 < text.length() && text.charAt(nextNewline + 1) == '\n') {
+                                if (text.charAt(nextNewline) == '\r'
+                                        && nextNewline + 1 < text.length()
+                                        && text.charAt(nextNewline + 1) == '\n') {
                                     nextLineStart++; // Skip \r\n
                                 }
 
@@ -181,8 +184,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     }
 
     /**
-     * Paint highlighting for very long single lines using viewport-aware approach.
-     * Only highlights the visible portion of the line to avoid performance issues.
+     * Paint highlighting for very long single lines using viewport-aware approach. Only highlights the visible portion
+     * of the line to avoid performance issues.
      */
     private void paintLongSingleLine(Graphics g, Rectangle r1, Rectangle r2, JTextComponent comp) {
         // Get viewport bounds to determine what's actually visible
@@ -206,11 +209,11 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     }
 
     /**
-     * Add visual indicators to help users understand when long line highlighting is active.
-     * Shows subtle indicators at the edges when highlighting extends beyond the viewport.
+     * Add visual indicators to help users understand when long line highlighting is active. Shows subtle indicators at
+     * the edges when highlighting extends beyond the viewport.
      */
-    private void addLongLineIndicators(Graphics g, Rectangle lineRect, Rectangle visibleRect,
-                                     int highlightStartX, int highlightEndX) {
+    private void addLongLineIndicators(
+            Graphics g, Rectangle lineRect, Rectangle visibleRect, int highlightStartX, int highlightEndX) {
         Color originalColor = g.getColor();
 
         // Use a slightly darker version of the highlight color for indicators
@@ -239,8 +242,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     // --- Subclasses for Specific Paint Styles ---
 
     /**
-     * Painter that highlights the full line background and visually adds a newline space at the end.
-     * (Simulates the effect of a highlighted newline character).
+     * Painter that highlights the full line background and visually adds a newline space at the end. (Simulates the
+     * effect of a highlighted newline character).
      */
     public static class JMHighlightNewLinePainter extends JMHighlightPainter {
 
@@ -276,8 +279,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     }
 
     /**
-     * Painter that draws a horizontal line at the start offset's line.
-     * Useful for indicating deleted lines without filling the background.
+     * Painter that draws a horizontal line at the start offset's line. Useful for indicating deleted lines without
+     * filling the background.
      */
     public static class JMHighlightLinePainter extends JMHighlightPainter {
 
@@ -291,7 +294,7 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
             Rectangle bounds = shape.getBounds();
             try {
                 Rectangle r1 = SwingUtil.modelToView(comp, p0);
-                 if (r1 == null) return;
+                if (r1 == null) return;
 
                 g.setColor(this.color);
                 int yLine = r1.y; // Draw line at the top of the starting line's view
@@ -301,5 +304,4 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
             }
         }
     }
-
 }

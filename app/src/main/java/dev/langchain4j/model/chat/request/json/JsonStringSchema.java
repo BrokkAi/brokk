@@ -54,8 +54,6 @@ public class JsonStringSchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonStringSchema {" +
-                "description = " + quoted(description) +
-                " }";
+        return "JsonStringSchema {" + "description = " + quoted(description) + " }";
     }
 }

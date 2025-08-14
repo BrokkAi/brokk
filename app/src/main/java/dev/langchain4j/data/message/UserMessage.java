@@ -12,14 +12,12 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Represents a message from a user, typically an end user of the application.
- * <br>
- * Depending on the supported modalities (text, image, audio, video, etc.) of the model,
- * user messages can contain either a single text (a {@code String}) or multiple {@link Content}s,
- * which can be either {@link TextContent}, {@link ImageContent}.
- * <br>
- * Optionally, user message can contain a {@link #name} of the user.
- * Be aware that not all models support names in {@code UserMessage}.
+ * Represents a message from a user, typically an end user of the application. <br>
+ * Depending on the supported modalities (text, image, audio, video, etc.) of the model, user messages can contain
+ * either a single text (a {@code String}) or multiple {@link Content}s, which can be either {@link TextContent},
+ * {@link ImageContent}. <br>
+ * Optionally, user message can contain a {@link #name} of the user. Be aware that not all models support names in
+ * {@code UserMessage}.
  */
 public class UserMessage implements ChatMessage {
 
@@ -46,8 +44,7 @@ public class UserMessage implements ChatMessage {
     }
 
     /**
-     * Creates a {@link UserMessage} from one or multiple {@link Content}s.
-     * <br>
+     * Creates a {@link UserMessage} from one or multiple {@link Content}s. <br>
      * Will have a {@code null} name.
      *
      * @param contents the contents.
@@ -59,7 +56,7 @@ public class UserMessage implements ChatMessage {
     /**
      * Creates a {@link UserMessage} from a name and one or multiple {@link Content}s.
      *
-     * @param name     the name.
+     * @param name the name.
      * @param contents the contents.
      */
     public UserMessage(String name, Content... contents) {
@@ -67,8 +64,7 @@ public class UserMessage implements ChatMessage {
     }
 
     /**
-     * Creates a {@link UserMessage} from a list of {@link Content}s.
-     * <br>
+     * Creates a {@link UserMessage} from a list of {@link Content}s. <br>
      * Will have a {@code null} name.
      *
      * @param contents the contents.
@@ -81,7 +77,7 @@ public class UserMessage implements ChatMessage {
     /**
      * Creates a {@link UserMessage} from a name and a list of {@link Content}s.
      *
-     * @param name     the name.
+     * @param name the name.
      * @param contents the contents.
      */
     public UserMessage(String name, List<Content> contents) {
@@ -108,10 +104,9 @@ public class UserMessage implements ChatMessage {
     }
 
     /**
-     * Returns text from a single {@link TextContent}.
-     * Use this accessor only if you are certain that the message contains only a single text.
-     * If the message contains multiple {@link Content}s, or if the only {@link Content} is not a {@link TextContent},
-     * a {@link RuntimeException} is thrown.
+     * Returns text from a single {@link TextContent}. Use this accessor only if you are certain that the message
+     * contains only a single text. If the message contains multiple {@link Content}s, or if the only {@link Content} is
+     * not a {@link TextContent}, a {@link RuntimeException} is thrown.
      *
      * @return a single text.
      * @see #hasSingleText()
@@ -143,8 +138,7 @@ public class UserMessage implements ChatMessage {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         UserMessage that = (UserMessage) o;
-        return Objects.equals(this.name, that.name)
-                && Objects.equals(this.contents, that.contents);
+        return Objects.equals(this.name, that.name) && Objects.equals(this.contents, that.contents);
     }
 
     @Override
@@ -154,10 +148,7 @@ public class UserMessage implements ChatMessage {
 
     @Override
     public String toString() {
-        return "UserMessage {" +
-                " name = " + quoted(name) +
-                " contents = " + contents +
-                " }";
+        return "UserMessage {" + " name = " + quoted(name) + " contents = " + contents + " }";
     }
 
     public static Builder builder() {
@@ -226,7 +217,7 @@ public class UserMessage implements ChatMessage {
     /**
      * Create a {@link UserMessage} from a name and contents.
      *
-     * @param name     the name.
+     * @param name the name.
      * @param contents the contents.
      * @return the {@link UserMessage}.
      */
@@ -247,7 +238,7 @@ public class UserMessage implements ChatMessage {
     /**
      * Create a {@link UserMessage} from a name and contents.
      *
-     * @param name     the name.
+     * @param name the name.
      * @param contents the contents.
      * @return the {@link UserMessage}.
      */
@@ -289,7 +280,7 @@ public class UserMessage implements ChatMessage {
     /**
      * Create a {@link UserMessage} from a name and contents.
      *
-     * @param name     the name.
+     * @param name the name.
      * @param contents the contents.
      * @return the {@link UserMessage}.
      */
@@ -310,7 +301,7 @@ public class UserMessage implements ChatMessage {
     /**
      * Create a {@link UserMessage} from a name and contents.
      *
-     * @param name     the name.
+     * @param name the name.
      * @param contents the contents.
      * @return the {@link UserMessage}.
      */

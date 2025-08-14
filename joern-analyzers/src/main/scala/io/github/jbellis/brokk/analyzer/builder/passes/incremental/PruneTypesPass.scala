@@ -6,14 +6,14 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 /** There may be unused external types once the update is complete, so we prune these away for consistency.
-  */
+ */
 class PruneTypesPass(cpg: Cpg) extends CpgPass(cpg) {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
   override def run(diffGraph: DiffGraphBuilder): Unit = {
     val typesToPrune = cpg.typ
-      .whereNot(_.evalTypeIn) // no usages
+      .whereNot(_.or(_.evalTypeIn, _.inheritsFromIn)) // no usages
       .where(_.referencedTypeDecl.isExternal(true)) // is not a user-defined type, i.e., is external
       .l
     logger.info(s"Found ${typesToPrune.size} types no longer referenced")

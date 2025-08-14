@@ -53,8 +53,7 @@ public class JsonArraySchema implements JsonSchemaElement {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         JsonArraySchema that = (JsonArraySchema) o;
-        return Objects.equals(this.description, that.description)
-                && Objects.equals(this.items, that.items);
+        return Objects.equals(this.description, that.description) && Objects.equals(this.items, that.items);
     }
 
     @Override
@@ -64,9 +63,6 @@ public class JsonArraySchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonArraySchema {" +
-                "description = " + quoted(description) +
-                ", items = " + items +
-                " }";
+        return "JsonArraySchema {" + "description = " + quoted(description) + ", items = " + items + " }";
     }
 }

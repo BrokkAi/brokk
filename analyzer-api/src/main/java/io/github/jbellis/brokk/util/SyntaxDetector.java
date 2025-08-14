@@ -2,9 +2,7 @@ package io.github.jbellis.brokk.util;
 
 import java.util.Map;
 
-/**
- * Utility class to detect the appropriate RSyntaxTextArea syntax style based on file extension.
- */
+/** Utility class to detect the appropriate RSyntaxTextArea syntax style based on file extension. */
 public final class SyntaxDetector {
     // Map file extensions (lowercase) to syntax style strings
     private static final Map<String, String> EXT_TO_SYNTAX = Map.ofEntries(
@@ -95,8 +93,7 @@ public final class SyntaxDetector {
             Map.entry("as", "text/actionscript"),
             Map.entry("sas", "text/sas"),
             Map.entry("hosts", "text/hosts"),
-            Map.entry("htaccess", "text/htaccess")
-    );
+            Map.entry("htaccess", "text/htaccess"));
 
     // Private constructor to prevent instantiation
     private SyntaxDetector() {}

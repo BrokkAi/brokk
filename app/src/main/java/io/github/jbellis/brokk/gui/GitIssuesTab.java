@@ -5,23 +5,15 @@ import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.issues.*;
-import io.github.jbellis.brokk.util.HtmlUtil;
-import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
-import okhttp3.OkHttpClient;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.table.DefaultTableModel;
+import io.github.jbellis.brokk.issues.*;
+import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.HtmlUtil;
+import io.github.jbellis.brokk.util.ImageUtil;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
-import javax.swing.Timer;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
@@ -33,8 +25,14 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-
-import io.github.jbellis.brokk.util.Environment;
+import javax.swing.*;
+import javax.swing.Timer;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableModel;
+import okhttp3.OkHttpClient;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
@@ -61,8 +59,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private JButton captureButton;
 
     private FilterBox statusFilter;
+
     @Nullable
     private FilterBox resolutionFilter; // Initialized conditionally
+
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
@@ -74,11 +74,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     // Debouncing for issue description loading
     private static final int DESCRIPTION_DEBOUNCE_DELAY = 250; // ms
     private final Timer descriptionDebounceTimer;
+
     @Nullable
     private IssueHeader pendingHeaderForDescription;
+
     @Nullable
     private Future<?> currentDescriptionFuture;
-
 
     // Context Menu for Issue Table
     private JPopupMenu issueContextMenu;
@@ -97,11 +98,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
     @Nullable
     private volatile Future<?> currentSearchFuture;
+
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
     private final Set<Future<?>> activeFutures = ConcurrentHashMap.newKeySet();
-
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
         super(new BorderLayout());
@@ -111,11 +112,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
         this.httpClient = initializeHttpClient();
-        
+
         // Initialize nullable fields to avoid NullAway errors
         this.pendingHeaderForDescription = null;
         this.currentDescriptionFuture = null;
-        
+
         // Load dynamic statuses after issueService and statusFilter are initialized
         var future = contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
             List<String> fetchedStatuses = null;
@@ -162,7 +163,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         JPanel searchPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         // Removed setBorder for searchPanel as it will be part of issueTableAndButtonsPanel
         searchBox = new LoadingTextBox("Search", 20, chrome); // Placeholder text "Search"
-        searchBox.asTextField().setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
+        searchBox
+                .asTextField()
+                .setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
         // topContentPanel no longer contains searchPanel
@@ -245,7 +248,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
         if (this.issueService instanceof JiraIssueService) {
-            resolutionFilter = new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
+            resolutionFilter =
+                    new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
             resolutionFilter.setToolTipText("Filter by Jira issue resolution");
             resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
             // API call needed when resolution changes
@@ -253,11 +257,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             filtersContainer.add(resolutionFilter); // Add to filtersContainer
             filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-
-            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
+            statusFilter = new FilterBox(
+                    this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
             statusFilter.setToolTipText("Filter by Jira issue status");
         } else { // GitHub or default
-            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, "Open"); // Default "Open" for GitHub
+            statusFilter = new FilterBox(
+                    this.chrome, "Status", () -> actualStatusFilterOptions, "Open"); // Default "Open" for GitHub
             statusFilter.setToolTipText("Filter by GitHub issue status");
         }
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -268,21 +273,24 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         filtersContainer.add(statusFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        authorFilter = new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
+        authorFilter =
+                new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
         authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
         filtersContainer.add(authorFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        labelFilter = new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
+        labelFilter =
+                new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
         labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
         filtersContainer.add(labelFilter);
         filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
-        assigneeFilter = new FilterBox(this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
+        assigneeFilter = new FilterBox(
+                this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
         assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
@@ -300,29 +308,29 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueTableAndButtonsPanel.add(searchPanel, BorderLayout.NORTH);
 
         // Issue Table
-        issueTableModel = new DefaultTableModel(
-                new Object[]{"#", "Title", "Author", "Updated", "Labels", "Assignees", "Status"}, 0)
-        {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
+        issueTableModel =
+                new DefaultTableModel(
+                        new Object[] {"#", "Title", "Author", "Updated", "Labels", "Assignees", "Status"}, 0) {
+                    @Override
+                    public boolean isCellEditable(int row, int column) {
+                        return false;
+                    }
 
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                return String.class;
-            }
-        };
+                    @Override
+                    public Class<?> getColumnClass(int columnIndex) {
+                        return String.class;
+                    }
+                };
         issueTable = new JTable(issueTableModel);
         issueTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         issueTable.setRowHeight(18);
-        issueTable.getColumnModel().getColumn(ISSUE_COL_NUMBER).setPreferredWidth(50);    // #
-        issueTable.getColumnModel().getColumn(ISSUE_COL_TITLE).setPreferredWidth(350);   // Title
-        issueTable.getColumnModel().getColumn(ISSUE_COL_AUTHOR).setPreferredWidth(100);   // Author
+        issueTable.getColumnModel().getColumn(ISSUE_COL_NUMBER).setPreferredWidth(50); // #
+        issueTable.getColumnModel().getColumn(ISSUE_COL_TITLE).setPreferredWidth(350); // Title
+        issueTable.getColumnModel().getColumn(ISSUE_COL_AUTHOR).setPreferredWidth(100); // Author
         issueTable.getColumnModel().getColumn(ISSUE_COL_UPDATED).setPreferredWidth(120); // Updated
-        issueTable.getColumnModel().getColumn(ISSUE_COL_LABELS).setPreferredWidth(150);    // Labels
+        issueTable.getColumnModel().getColumn(ISSUE_COL_LABELS).setPreferredWidth(150); // Labels
         issueTable.getColumnModel().getColumn(ISSUE_COL_ASSIGNEES).setPreferredWidth(150); // Assignees
-        issueTable.getColumnModel().getColumn(ISSUE_COL_STATUS).setPreferredWidth(70);    // Status
+        issueTable.getColumnModel().getColumn(ISSUE_COL_STATUS).setPreferredWidth(70); // Status
 
         // Ensure tooltips are enabled for the table
         ToolTipManager.sharedInstance().registerComponent(issueTable);
@@ -336,7 +344,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 copySelectedIssueDescription();
             }
         };
-        copyDescriptionAction.putValue(Action.SHORT_DESCRIPTION, "Copy the selected issue's description to the clipboard");
+        copyDescriptionAction.putValue(
+                Action.SHORT_DESCRIPTION, "Copy the selected issue's description to the clipboard");
         copyDescriptionAction.setEnabled(false);
 
         openInBrowserAction = new AbstractAction("Open in Browser") {
@@ -382,7 +391,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueTableAndButtonsPanel.add(issueButtonPanel, BorderLayout.SOUTH);
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
-
 
         // Right side - Details of the selected issue
         JPanel issueDetailPanel = new JPanel(new BorderLayout());
@@ -446,7 +454,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 if (viewRow != -1) {
                     int modelRow = issueTable.convertRowIndexToModel(viewRow);
                     if (modelRow < 0 || modelRow >= displayedIssues.size()) {
-                        logger.warn("Selected row {} (model {}) is out of bounds for displayed issues size {}", viewRow, modelRow, displayedIssues.size());
+                        logger.warn(
+                                "Selected row {} (model {}) is out of bounds for displayed issues size {}",
+                                viewRow,
+                                modelRow,
+                                displayedIssues.size());
                         disableIssueActionsAndClearDetails();
                         pendingHeaderForDescription = null;
                         if (descriptionDebounceTimer.isRunning()) {
@@ -488,7 +500,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     @Override
     public void issueProviderChanged() {
         SwingUtilities.invokeLater(() -> {
-            logger.debug("Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
+            logger.debug(
+                    "Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
             cancelActiveFutures();
             // Ask GitPanel to recreate this tab.
             // GitPanel is final and assigned in constructor, so it won't be null here.
@@ -519,9 +532,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         activeFutures.clear(); // Clear the set after attempting cancellation
     }
 
-    /**
-     * Tracks a Future that might need to be cancelled if settings change (e.g. GitHub token, issue provider).
-     */
+    /** Tracks a Future that might need to be cancelled if settings change (e.g. GitHub token, issue provider). */
     private void trackCancellableFuture(Future<?> future) {
         activeFutures.removeIf(Future::isDone);
         activeFutures.add(future);
@@ -562,16 +573,22 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static IssueService createDefaultIssueService(ContextManager contextManager) {
         IProject project = contextManager.getProject();
         // This line will cause a compile error until IProject.getIssuesProvider() is added. This is expected.
-        io.github.jbellis.brokk.issues.IssueProviderType providerType = project.getIssuesProvider().type();
+        io.github.jbellis.brokk.issues.IssueProviderType providerType =
+                project.getIssuesProvider().type();
         Logger staticLogger = LogManager.getLogger(GitIssuesTab.class);
 
         return switch (providerType) {
             case JIRA -> {
-                staticLogger.info("Using JiraIssueService for project {} (provider: JIRA)", project.getRoot().getFileName());
+                staticLogger.info(
+                        "Using JiraIssueService for project {} (provider: JIRA)",
+                        project.getRoot().getFileName());
                 yield new JiraIssueService(project);
             } // Explicitly handle NONE, though it might default to GitHub or a NoOp service later
             default -> {
-                staticLogger.info("Using GitHubIssueService for project {} (provider: {})", project.getRoot().getFileName(), providerType);
+                staticLogger.info(
+                        "Using GitHubIssueService for project {} (provider: {})",
+                        project.getRoot().getFileName(),
+                        providerType);
                 yield new GitHubIssueService(project);
             }
         };
@@ -582,10 +599,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         try {
             // Attempt to get the client from the already initialized issueService
             client = this.issueService.httpClient(); // This can throw IOException
-            logger.info("Successfully initialized HTTP client from IssueService: {}", this.issueService.getClass().getSimpleName());
+            logger.info(
+                    "Successfully initialized HTTP client from IssueService: {}",
+                    this.issueService.getClass().getSimpleName());
         } catch (IOException e) {
-            logger.error("Failed to initialize authenticated client from IssueService ({}) for GitIssuesTab, falling back to unauthenticated client. Error: {}",
-                         this.issueService.getClass().getSimpleName(), e.getMessage(), e);
+            logger.error(
+                    "Failed to initialize authenticated client from IssueService ({}) for GitIssuesTab, falling back to unauthenticated client. Error: {}",
+                    this.issueService.getClass().getSimpleName(),
+                    e.getMessage(),
+                    e);
             client = new OkHttpClient.Builder()
                     .connectTimeout(5, TimeUnit.SECONDS)
                     .readTimeout(10, TimeUnit.SECONDS)
@@ -595,7 +617,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             // Avoid calling chrome.toolErrorRaw if chrome might not be fully initialized or if on a background thread.
             // The caller or a more appropriate UI update mechanism should handle user notification if needed.
             // For now, logging is sufficient here.
-            // Consider if a generic "Issue provider http client setup failed" message is needed for the user via chrome.toolErrorRaw if appropriate.
+            // Consider if a generic "Issue provider http client setup failed" message is needed for the user via
+            // chrome.toolErrorRaw if appropriate.
         }
         return client;
     }
@@ -612,7 +635,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         assert SwingUtilities.isEventDispatchThread();
 
         issueBodyTextPane.setContentType("text/html");
-        issueBodyTextPane.setText("<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
+        issueBodyTextPane.setText(
+                "<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
 
         var future = contextManager.submitBackgroundTask("Fetching/Rendering Issue Details for " + header.id(), () -> {
             try {
@@ -653,7 +677,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     logger.error("Failed to load/render details for issue {}: {}", header.id(), e.getMessage(), e);
                     SwingUtilities.invokeLater(() -> {
                         issueBodyTextPane.setContentType("text/plain");
-                        issueBodyTextPane.setText("Failed to load/render description for " + header.id() + ":\n" + e.getMessage());
+                        issueBodyTextPane.setText(
+                                "Failed to load/render description for " + header.id() + ":\n" + e.getMessage());
                         issueBodyTextPane.setCaretPosition(0);
                     });
                 }
@@ -675,9 +700,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         return false;
     }
 
-    /**
-     * Fetches open GitHub issues and populates the issue table.
-     */
+    /** Fetches open GitHub issues and populates the issue table. */
     private void updateIssueList() {
         if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
@@ -691,23 +714,37 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
-                final String authorVal = getBaseFilterValue(authorFilter.getSelected()); // For GitHub server-side search
-                final String labelVal = getBaseFilterValue(labelFilter.getSelected());   // For GitHub server-side search
-                final String assigneeVal = getBaseFilterValue(assigneeFilter.getSelected());// For GitHub server-side search
-
+                final String authorVal =
+                        getBaseFilterValue(authorFilter.getSelected()); // For GitHub server-side search
+                final String labelVal = getBaseFilterValue(labelFilter.getSelected()); // For GitHub server-side search
+                final String assigneeVal =
+                        getBaseFilterValue(assigneeFilter.getSelected()); // For GitHub server-side search
 
                 io.github.jbellis.brokk.issues.FilterOptions apiFilterOptions;
                 if (this.issueService instanceof JiraIssueService) {
-                    String resolutionVal = (resolutionFilter != null) ? getBaseFilterValue(resolutionFilter.getSelected()) : "Unresolved";
+                    String resolutionVal = (resolutionFilter != null)
+                            ? getBaseFilterValue(resolutionFilter.getSelected())
+                            : "Unresolved";
                     // For Jira, author/label/assignee are client-filtered. Query is passed for server-side text search.
-                    apiFilterOptions = new io.github.jbellis.brokk.issues.JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
-                    logger.debug("Jira API filters: Status='{}', Resolution='{}', Query='{}'", statusVal, resolutionVal, queryForApi);
+                    apiFilterOptions = new io.github.jbellis.brokk.issues.JiraFilterOptions(
+                            statusVal, resolutionVal, null, null, null, queryForApi);
+                    logger.debug(
+                            "Jira API filters: Status='{}', Resolution='{}', Query='{}'",
+                            statusVal,
+                            resolutionVal,
+                            queryForApi);
                 } else { // GitHub or default
                     // For GitHub, all filters including query are passed for server-side search if query is present.
                     // If query is null, service handles client-side filtering for author/label/assignee.
-                    apiFilterOptions = new io.github.jbellis.brokk.issues.GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
-                    logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
-                                 statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    apiFilterOptions = new io.github.jbellis.brokk.issues.GitHubFilterOptions(
+                            statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    logger.debug(
+                            "GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
+                            statusVal,
+                            authorVal,
+                            labelVal,
+                            assigneeVal,
+                            queryForApi);
                 }
 
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
@@ -722,9 +759,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
-                        issueTableModel.addRow(new Object[]{
-                                "", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""
-                        });
+                        issueTableModel.addRow(
+                                new Object[] {"", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""});
                         disableIssueActionsAndClearDetails();
                         searchBox.setLoading(false, ""); // Stop loading on error
                     });
@@ -747,7 +783,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private void triggerClientSideFilterUpdate() {
         // This method is called when author, label, or assignee filters change.
         // It re-filters the existing 'allIssuesFromApi' list.
-        if (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() > 0 && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues")) {
+        if (allIssuesFromApi.isEmpty()
+                && issueTableModel.getRowCount() > 0
+                && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues")) {
             logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
             return;
         }
@@ -755,12 +793,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi); // Use a snapshot
 
         contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
-            logger.debug("Client-side filter update triggered. Processing {} issues from current API list.", currentIssuesToFilter.size());
-            processAndDisplayWorker(currentIssuesToFilter, false); // 'false' means don't update allIssuesFromApi, just displayedIssues
+            logger.debug(
+                    "Client-side filter update triggered. Processing {} issues from current API list.",
+                    currentIssuesToFilter.size());
+            processAndDisplayWorker(
+                    currentIssuesToFilter, false); // 'false' means don't update allIssuesFromApi, just displayedIssues
             return null;
         });
     }
-
 
     private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
         if (Thread.currentThread().isInterrupted()) {
@@ -769,15 +809,21 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             return;
         }
         // This method runs on a background thread.
-        logger.debug("processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}", sourceList.size(), isFullUpdate);
+        logger.debug(
+                "processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}",
+                sourceList.size(),
+                isFullUpdate);
 
         // Read filter values. These are assumed to be safe to read from a background thread
         // as FilterBox.getSelected() should be a simple getter.
         String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
         String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
         String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
-        logger.debug("processAndDisplayWorker: Filters - Author: '{}', Label: '{}', Assignee: '{}'",
-                     selectedAuthorActual, selectedLabelActual, selectedAssigneeActual);
+        logger.debug(
+                "processAndDisplayWorker: Filters - Author: '{}', Label: '{}', Assignee: '{}'",
+                selectedAuthorActual,
+                selectedLabelActual,
+                selectedAssigneeActual);
 
         List<IssueHeader> filteredIssues = new ArrayList<>();
         // Guard against null sourceList
@@ -803,7 +849,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         logger.debug("processAndDisplayWorker: After filtering, {} issues remain.", filteredIssues.size());
 
         // Sort issues by update date, newest first
-        filteredIssues.sort(Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+        filteredIssues.sort(
+                Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
         logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
 
         // Data for EDT update
@@ -815,7 +862,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
             if (isFullUpdate && finalSourceListForApiField != null) {
                 allIssuesFromApi = finalSourceListForApiField;
-                logger.debug("processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.", allIssuesFromApi.size());
+                logger.debug(
+                        "processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.",
+                        allIssuesFromApi.size());
                 // FilterBoxes will lazily re-generate options using the new allIssuesFromApi
                 // when the user interacts with them.
             }
@@ -826,18 +875,25 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             issueTableModel.setRowCount(0);
             var today = LocalDate.now(java.time.ZoneId.systemDefault());
             if (displayedIssues.isEmpty()) {
-                issueTableModel.addRow(new Object[]{"", "No matching issues found", "", "", "", "", ""});
+                issueTableModel.addRow(new Object[] {"", "No matching issues found", "", "", "", "", ""});
                 disableIssueActions();
             } else {
                 for (var header : displayedIssues) {
                     String formattedUpdated;
-                    formattedUpdated = header.updated() != null ? GitUiUtil.formatRelativeDate(header.updated().toInstant(), today) : "";
+                    formattedUpdated = header.updated() != null
+                            ? GitUiUtil.formatRelativeDate(header.updated().toInstant(), today)
+                            : "";
                     String labelsStr = String.join(", ", header.labels());
                     String assigneesStr = String.join(", ", header.assignees());
 
-                    issueTableModel.addRow(new Object[]{
-                            header.id(), header.title(), header.author(), formattedUpdated,
-                            labelsStr, assigneesStr, header.status()
+                    issueTableModel.addRow(new Object[] {
+                        header.id(),
+                        header.title(),
+                        header.author(),
+                        formattedUpdated,
+                        labelsStr,
+                        assigneesStr,
+                        header.status()
                     });
                 }
             }
@@ -916,7 +972,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         int parenthesisIndex = displayOptionWithCount.lastIndexOf(" (");
         if (parenthesisIndex != -1) {
             // Ensure the part in parenthesis is a number to avoid stripping part of a name
-            String countPart = displayOptionWithCount.substring(parenthesisIndex + 2, displayOptionWithCount.length() - 1);
+            String countPart =
+                    displayOptionWithCount.substring(parenthesisIndex + 2, displayOptionWithCount.length() - 1);
             if (countPart.matches("\\d+")) {
                 return displayOptionWithCount.substring(0, parenthesisIndex);
             }
@@ -945,7 +1002,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 IssueDetails details = issueService.loadDetails(header.id());
 
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
-                ContextFragment.TaskFragment issueTextFragment = createIssueTextFragmentFromDetails(details, issueTextMessages);
+                ContextFragment.TaskFragment issueTextFragment =
+                        createIssueTextFragmentFromDetails(details, issueTextMessages);
                 contextManager.addVirtualFragment(issueTextFragment);
 
                 List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments());
@@ -955,9 +1013,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
                 int capturedImageCount = processAndCaptureImagesFromDetails(details);
 
-                String commentMessage = details.comments().isEmpty() ? "" : " with " + details.comments().size() + " comment(s)";
+                String commentMessage = details.comments().isEmpty()
+                        ? ""
+                        : " with " + details.comments().size() + " comment(s)";
                 String imageMessage = capturedImageCount == 0 ? "" : " and " + capturedImageCount + " image(s)";
-                chrome.systemOutput("Issue " + header.id() + " captured to workspace" + commentMessage + imageMessage + ".");
+                chrome.systemOutput(
+                        "Issue " + header.id() + " captured to workspace" + commentMessage + imageMessage + ".");
 
             } catch (Exception e) { // General catch for robustness
                 logger.error("Failed to capture all details for issue {}: {}", header.id(), e.getMessage(), e);
@@ -974,40 +1035,39 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             bodyForCapture = HtmlUtil.convertToMarkdown(bodyForCapture);
         }
         bodyForCapture = bodyForCapture.isBlank() ? "*No description provided.*" : bodyForCapture;
-        String content = String.format("""
+        String content = String.format(
+                """
                                        # Issue #%s: %s
-                                       
+
                                        **Author:** %s
                                        **Status:** %s
                                        **URL:** %s
                                        **Labels:** %s
                                        **Assignees:** %s
-                                       
+
                                        ---
-                                       
+
                                        %s
-                                       """.stripIndent(),
-                                       header.id(),
-                                       header.title(),
-                                       header.author(),
-                                       header.status(),
-                                       header.htmlUrl(),
-                                       header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
-                                       header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
-                                       bodyForCapture
-        );
+                                       """
+                        .stripIndent(),
+                header.id(),
+                header.title(),
+                header.author(),
+                header.status(),
+                header.htmlUrl(),
+                header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
+                header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
+                bodyForCapture);
         return List.of(new CustomMessage(Map.of("text", content)));
     }
 
-    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(IssueDetails details, List<ChatMessage> messages) {
+    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(
+            IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
         return new ContextFragment.TaskFragment(
-                this.contextManager,
-                messages,
-                description,
-                false // some issues contain HTML
-        );
+                this.contextManager, messages, description, false // some issues contain HTML
+                );
     }
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
@@ -1028,15 +1088,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         return chatMessages;
     }
 
-    private ContextFragment.TaskFragment createCommentsFragmentFromDetails(IssueDetails details, List<ChatMessage> commentMessages) {
+    private ContextFragment.TaskFragment createCommentsFragmentFromDetails(
+            IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
         return new ContextFragment.TaskFragment(
-                this.contextManager,
-                commentMessages,
-                description,
-                false // some comments contain HTML
-        );
+                this.contextManager, commentMessages, description, false // some comments contain HTML
+                );
     }
 
     private int processAndCaptureImagesFromDetails(IssueDetails details) {
@@ -1051,12 +1109,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         try {
             clientToUse = issueService.httpClient(); // Use authenticated client from service
         } catch (IOException e) {
-            logger.error("Failed to get authenticated client from IssueService for image download, falling back. Error: {}", e.getMessage());
+            logger.error(
+                    "Failed to get authenticated client from IssueService for image download, falling back. Error: {}",
+                    e.getMessage());
             // Fallback to the one initialized in GitIssuesTab constructor (might be unauthenticated)
             clientToUse = this.httpClient; // Assumes this.httpClient is still available and initialized
-            chrome.systemOutput("Could not get authenticated client for image download. Private images might not load. Error: " + e.getMessage());
+            chrome.systemOutput(
+                    "Could not get authenticated client for image download. Private images might not load. Error: "
+                            + e.getMessage());
         }
-
 
         for (URI imageUri : attachmentUris) {
             try {

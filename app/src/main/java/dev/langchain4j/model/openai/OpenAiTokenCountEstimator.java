@@ -11,11 +11,6 @@ import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
 import com.knuddels.jtokkit.api.IntArrayList;
-
-import java.util.List;
-import java.util.Map;
-import java.util.function.Supplier;
-
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -25,11 +20,14 @@ import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.TokenCountEstimator;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
 
 /**
- * This class can be used to estimate the cost (in tokens) before calling OpenAI.
- * Magic numbers present in this class were found empirically while testing.
- * There are integration tests in place that are making sure that the calculations here are very close to that of OpenAI.
+ * This class can be used to estimate the cost (in tokens) before calling OpenAI. Magic numbers present in this class
+ * were found empirically while testing. There are integration tests in place that are making sure that the calculations
+ * here are very close to that of OpenAI.
  */
 public class OpenAiTokenCountEstimator implements TokenCountEstimator {
 
@@ -39,9 +37,7 @@ public class OpenAiTokenCountEstimator implements TokenCountEstimator {
     private final String modelName;
     private final Encoding encoding;
 
-    /**
-     * Creates an instance of the {@code OpenAiTokenCountEstimator} for a given model name.
-     */
+    /** Creates an instance of the {@code OpenAiTokenCountEstimator} for a given model name. */
     public OpenAiTokenCountEstimator(String modelName) {
         this.modelName = ensureNotBlank(modelName, "modelName");
         if (modelName.startsWith("o") || modelName.startsWith("gpt-4.")) {
@@ -110,7 +106,8 @@ public class OpenAiTokenCountEstimator implements TokenCountEstimator {
             tokenCount += 6;
             if (aiMessage.toolExecutionRequests().size() == 1) {
                 tokenCount -= 1;
-                ToolExecutionRequest toolExecutionRequest = aiMessage.toolExecutionRequests().get(0);
+                ToolExecutionRequest toolExecutionRequest =
+                        aiMessage.toolExecutionRequests().get(0);
                 tokenCount += estimateTokenCountInText(toolExecutionRequest.name()) * 2;
                 tokenCount += estimateTokenCountInText(toolExecutionRequest.arguments());
             } else {
@@ -156,7 +153,7 @@ public class OpenAiTokenCountEstimator implements TokenCountEstimator {
         for (ChatMessage message : messages) {
             tokenCount += estimateTokenCountInMessage(message);
         }
-        if (modelName.startsWith("o") ) {
+        if (modelName.startsWith("o")) {
             tokenCount -= 1;
         }
         return tokenCount;

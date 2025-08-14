@@ -1,17 +1,15 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.IProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class SqlAnalyzerTest {
 
@@ -110,7 +108,8 @@ class SqlAnalyzerTest {
     @Test
     void testMultipleStatements() throws IOException {
         Path sqlFile = tempDir.resolve("multi.sql");
-        String sqlContent = """
+        String sqlContent =
+                """
                 CREATE TABLE t1 (c1 INT);
                 -- This is a comment
                 CREATE OR REPLACE VIEW v_schema.v1 AS
@@ -183,7 +182,10 @@ class SqlAnalyzerTest {
         assertEquals(2, r2.startLine(), "v_two start line");
         assertEquals(2, r2.endLine(), "v_two end line");
         // Start byte is after line1 and the newline character
-        assertEquals(line1.getBytes(StandardCharsets.UTF_8).length + "\n".getBytes(StandardCharsets.UTF_8).length, r2.startByte(), "v_two start byte");
+        assertEquals(
+                line1.getBytes(StandardCharsets.UTF_8).length + "\n".getBytes(StandardCharsets.UTF_8).length,
+                r2.startByte(),
+                "v_two start byte");
         assertEquals(sqlContent.getBytes(StandardCharsets.UTF_8).length, r2.endByte(), "v_two end byte");
 
         // Test skeleton extraction based on these ranges
@@ -200,7 +202,8 @@ class SqlAnalyzerTest {
     void testExcludedFile() throws IOException {
         Path includedSqlFile = tempDir.resolve("included.sql");
         Files.writeString(includedSqlFile, "CREATE TABLE tbl_included (id INT);", StandardCharsets.UTF_8);
-        ProjectFile includedProjectFile = new ProjectFile(tempDir, includedSqlFile.getFileName().toString());
+        ProjectFile includedProjectFile =
+                new ProjectFile(tempDir, includedSqlFile.getFileName().toString());
 
         Path excludedDir = tempDir.resolve("excluded_dir");
         Files.createDirectories(excludedDir);
@@ -209,8 +212,10 @@ class SqlAnalyzerTest {
         // Note: ProjectFile for excluded file won't be created if it's correctly filtered by getAllFiles mock setup,
         // but SqlAnalyzer expects ProjectFile instances from project.getAllFiles().
         // So, we must provide it, and SqlAnalyzer's internal exclusion logic will filter it.
-        ProjectFile excludedProjectFile = new ProjectFile(tempDir, excludedDir.getFileName().toString() + "/" + excludedSqlFile.getFileName().toString());
-
+        ProjectFile excludedProjectFile = new ProjectFile(
+                tempDir,
+                excludedDir.getFileName().toString() + "/"
+                        + excludedSqlFile.getFileName().toString());
 
         var testProject = createTestProject(Set.of(includedProjectFile, excludedProjectFile));
         // Exclude the directory "excluded_dir"
@@ -220,7 +225,8 @@ class SqlAnalyzerTest {
         assertEquals(1, allDecls.size(), "Only one declaration from non-excluded file should be found.");
         assertEquals("tbl_included", allDecls.get(0).shortName());
 
-        assertTrue(analyzer.getDefinition("tbl_excluded").isEmpty(), "Definition from excluded file should not be found.");
+        assertTrue(
+                analyzer.getDefinition("tbl_excluded").isEmpty(), "Definition from excluded file should not be found.");
     }
 
     @Test
@@ -256,7 +262,8 @@ class SqlAnalyzerTest {
     void testInvalidSqlStatement() throws IOException {
         Path sqlFile = tempDir.resolve("invalid.sql");
         // Contains a valid statement and an invalid one
-        String sqlContent = "CREATE TABLE valid_table (id INT);\nINVALID SQL STATEMENT;\nCREATE VIEW valid_view AS SELECT 1;";
+        String sqlContent =
+                "CREATE TABLE valid_table (id INT);\nINVALID SQL STATEMENT;\nCREATE VIEW valid_view AS SELECT 1;";
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());

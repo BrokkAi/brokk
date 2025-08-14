@@ -54,8 +54,6 @@ public class JsonNumberSchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonNumberSchema {" +
-                "description = " + quoted(description) +
-                " }";
+        return "JsonNumberSchema {" + "description = " + quoted(description) + " }";
     }
 }

@@ -5,12 +5,11 @@ import static dev.langchain4j.internal.Utils.isNullOrEmpty;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotEmpty;
 import static java.util.Arrays.asList;
 
-import java.util.List;
-import java.util.Objects;
-
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import java.util.List;
+import java.util.Objects;
 
 public class ChatRequest {
 
@@ -136,9 +135,7 @@ public class ChatRequest {
         return "ChatRequest {" + " messages = " + messages + ", parameters = " + parameters + " }";
     }
 
-    /**
-     * Transforms this instance to a {@link Builder} with all of the same field values
-     */
+    /** Transforms this instance to a {@link Builder} with all of the same field values */
     public Builder toBuilder() {
         return new Builder(this);
     }

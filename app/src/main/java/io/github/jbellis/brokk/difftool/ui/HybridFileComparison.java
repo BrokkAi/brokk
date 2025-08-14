@@ -3,27 +3,28 @@ package io.github.jbellis.brokk.difftool.ui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import java.nio.charset.StandardCharsets;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.nio.charset.StandardCharsets;
-
 /**
- * hybrid file comparison that uses synchronous processing for small files
- * and asynchronous processing only for large files that benefit from background computation.
+ * hybrid file comparison that uses synchronous processing for small files and asynchronous processing only for large
+ * files that benefit from background computation.
  */
 public class HybridFileComparison {
     private static final Logger logger = LogManager.getLogger(HybridFileComparison.class);
 
-    /**
-     * Creates and displays a diff panel using the optimal sync/async strategy.
-     */
-    public static void createDiffPanel(BufferSource leftSource, BufferSource rightSource,
-                                     BrokkDiffPanel mainPanel, GuiTheme theme,
-                                     ContextManager contextManager, boolean isMultipleCommitsContext,
-                                     int fileIndex) {
+    /** Creates and displays a diff panel using the optimal sync/async strategy. */
+    public static void createDiffPanel(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            BrokkDiffPanel mainPanel,
+            GuiTheme theme,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext,
+            int fileIndex) {
 
         long startTime = System.currentTimeMillis();
 
@@ -31,18 +32,21 @@ public class HybridFileComparison {
         SizeEstimation rightEstimation = estimateSizeIntelligent(rightSource);
 
         long maxSize = Math.max(leftEstimation.estimatedBytes(), rightEstimation.estimatedBytes());
-        boolean isLowConfidence = leftEstimation.confidence() == SizeConfidence.LOW ||
-                                 rightEstimation.confidence() == SizeConfidence.LOW;
+        boolean isLowConfidence =
+                leftEstimation.confidence() == SizeConfidence.LOW || rightEstimation.confidence() == SizeConfidence.LOW;
 
         // More detailed logging with human-readable sizes
         String leftSizeStr = formatFileSize(leftEstimation.estimatedBytes());
         String rightSizeStr = formatFileSize(rightEstimation.estimatedBytes());
         String maxSizeStr = formatFileSize(maxSize);
 
-        logger.debug("Size estimation: left={} ({}), right={} ({}), max={}",
-                    leftSizeStr, leftEstimation.confidence(),
-                    rightSizeStr, rightEstimation.confidence(),
-                    maxSizeStr);
+        logger.debug(
+                "Size estimation: left={} ({}), right={} ({}), max={}",
+                leftSizeStr,
+                leftEstimation.confidence(),
+                rightSizeStr,
+                rightEstimation.confidence(),
+                maxSizeStr);
 
         // Use consistent file size validation from FileComparisonHelper
         var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
@@ -65,32 +69,52 @@ public class HybridFileComparison {
         }
 
         // Use async for large files OR when size estimation is uncertain and file is medium+
-        boolean useAsync = maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES ||
-                          (isLowConfidence && maxSize > PerformanceConstants.MEDIUM_FILE_THRESHOLD_BYTES);
+        boolean useAsync = maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES
+                || (isLowConfidence && maxSize > PerformanceConstants.MEDIUM_FILE_THRESHOLD_BYTES);
 
         if (useAsync) {
             logger.info("Using async processing: size={}, lowConfidence={}", maxSizeStr, isLowConfidence);
-            createAsyncDiffPanel(leftSource, rightSource, mainPanel, theme, contextManager, isMultipleCommitsContext, fileIndex, startTime);
+            createAsyncDiffPanel(
+                    leftSource,
+                    rightSource,
+                    mainPanel,
+                    theme,
+                    contextManager,
+                    isMultipleCommitsContext,
+                    fileIndex,
+                    startTime);
         } else {
             logger.debug("Using sync processing: size={}", maxSizeStr);
-            createSyncDiffPanel(leftSource, rightSource, mainPanel, theme, contextManager, isMultipleCommitsContext, fileIndex, startTime);
+            createSyncDiffPanel(
+                    leftSource,
+                    rightSource,
+                    mainPanel,
+                    theme,
+                    contextManager,
+                    isMultipleCommitsContext,
+                    fileIndex,
+                    startTime);
         }
     }
 
-    /**
-     * Synchronous diff creation for small files - faster and simpler.
-     */
-    private static void createSyncDiffPanel(BufferSource leftSource, BufferSource rightSource,
-                                          BrokkDiffPanel mainPanel, GuiTheme theme,
-                                          ContextManager contextManager, boolean isMultipleCommitsContext,
-                                          int fileIndex, long startTime) {
+    /** Synchronous diff creation for small files - faster and simpler. */
+    private static void createSyncDiffPanel(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            BrokkDiffPanel mainPanel,
+            GuiTheme theme,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext,
+            int fileIndex,
+            long startTime) {
 
         SwingUtilities.invokeLater(() -> {
             try {
                 long diffStartTime = System.currentTimeMillis();
 
                 // Create diff node and compute diff synchronously
-                var diffNode = FileComparisonHelper.createDiffNode(leftSource, rightSource, contextManager, isMultipleCommitsContext);
+                var diffNode = FileComparisonHelper.createDiffNode(
+                        leftSource, rightSource, contextManager, isMultipleCommitsContext);
 
                 long diffCreationTime = System.currentTimeMillis() - diffStartTime;
                 if (diffCreationTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS / 2) {
@@ -102,7 +126,8 @@ public class HybridFileComparison {
 
                 long diffComputeTime = System.currentTimeMillis() - diffStartTime;
                 if (diffComputeTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                    logger.warn("Slow diff computation (sync): {}ms - consider lowering size threshold", diffComputeTime);
+                    logger.warn(
+                            "Slow diff computation (sync): {}ms - consider lowering size threshold", diffComputeTime);
                 }
 
                 // Create and configure panel
@@ -118,8 +143,11 @@ public class HybridFileComparison {
                 long totalElapsedTime = System.currentTimeMillis() - startTime;
 
                 if (totalElapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                    logger.warn("Slow sync diff creation: {}ms (diff: {}ms, total: {}ms)",
-                               diffComputeTime, totalElapsedTime, totalElapsedTime);
+                    logger.warn(
+                            "Slow sync diff creation: {}ms (diff: {}ms, total: {}ms)",
+                            diffComputeTime,
+                            totalElapsedTime,
+                            totalElapsedTime);
                 } else {
                     logger.debug("Sync diff panel created successfully in {}ms", totalElapsedTime);
                 }
@@ -132,22 +160,29 @@ public class HybridFileComparison {
     }
 
     /**
-     * Asynchronous diff creation for large files - prevents UI blocking.
-     * Uses simple background thread instead of over-engineered SwingWorker.
+     * Asynchronous diff creation for large files - prevents UI blocking. Uses simple background thread instead of
+     * over-engineered SwingWorker.
      */
-    private static void createAsyncDiffPanel(BufferSource leftSource, BufferSource rightSource,
-                                           BrokkDiffPanel mainPanel, GuiTheme theme,
-                                           ContextManager contextManager, boolean isMultipleCommitsContext,
-                                           int fileIndex, long startTime) {
+    private static void createAsyncDiffPanel(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            BrokkDiffPanel mainPanel,
+            GuiTheme theme,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext,
+            int fileIndex,
+            long startTime) {
 
-        var taskDescription = "Computing diff: %s".formatted(mainPanel.fileComparisons.get(fileIndex).getDisplayName());
-        logger.debug("Starting async diff computation for large file: {} vs {}",
-                    leftSource.title(), rightSource.title());
+        var taskDescription = "Computing diff: %s"
+                .formatted(mainPanel.fileComparisons.get(fileIndex).getDisplayName());
+        logger.debug(
+                "Starting async diff computation for large file: {} vs {}", leftSource.title(), rightSource.title());
 
         contextManager.submitBackgroundTask(taskDescription, () -> {
             try {
                 // Create diff node and compute diff in background
-                var diffNode = FileComparisonHelper.createDiffNode(leftSource, rightSource, contextManager, isMultipleCommitsContext);
+                var diffNode = FileComparisonHelper.createDiffNode(
+                        leftSource, rightSource, contextManager, isMultipleCommitsContext);
 
                 logger.debug("Computing diff for large file in background thread");
                 diffNode.diff(); // This is the potentially slow operation for large files
@@ -189,8 +224,8 @@ public class HybridFileComparison {
     }
 
     /**
-     * Intelligently estimates the content size for a BufferSource with confidence assessment.
-     * Uses different strategies based on source type and available information.
+     * Intelligently estimates the content size for a BufferSource with confidence assessment. Uses different strategies
+     * based on source type and available information.
      */
     private static SizeEstimation estimateSizeIntelligent(BufferSource source) {
         try {
@@ -215,34 +250,30 @@ public class HybridFileComparison {
             } else {
                 // Unknown BufferSource type - use conservative estimate
                 logger.warn("Unknown BufferSource type: {}", source.getClass().getName());
-                return new SizeEstimation(PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES / 8,
-                                        SizeConfidence.LOW, "unknown source type");
+                return new SizeEstimation(
+                        PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES / 8, SizeConfidence.LOW, "unknown source type");
             }
 
         } catch (RuntimeException ex) {
             logger.error("Error estimating size for source: {}", source, ex);
-            return new SizeEstimation(PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES / 4,
-                                    SizeConfidence.LOW, "estimation error: " + ex.getMessage());
+            return new SizeEstimation(
+                    PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES / 4,
+                    SizeConfidence.LOW,
+                    "estimation error: " + ex.getMessage());
         }
     }
 
-    /**
-     * Represents a size estimation with confidence level and method used.
-     */
+    /** Represents a size estimation with confidence level and method used. */
     private record SizeEstimation(long estimatedBytes, SizeConfidence confidence, @Nullable String method) {}
 
-    /**
-     * Confidence level in size estimation accuracy.
-     */
+    /** Confidence level in size estimation accuracy. */
     private enum SizeConfidence {
-        HIGH,   // Exact or very accurate (e.g., file.length(), string.getBytes().length)
+        HIGH, // Exact or very accurate (e.g., file.length(), string.getBytes().length)
         MEDIUM, // Good approximation (e.g., string.length() * avg_char_size)
-        LOW     // Rough estimate or fallback (e.g., unknown types, errors)
+        LOW // Rough estimate or fallback (e.g., unknown types, errors)
     }
 
-    /**
-     * Format file size in human-readable format with appropriate units.
-     */
+    /** Format file size in human-readable format with appropriate units. */
     private static String formatFileSize(long bytes) {
         if (bytes < 1024) {
             return bytes + "B";

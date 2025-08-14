@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
 import io.github.jbellis.brokk.*
+import io.github.jbellis.brokk.analyzer.IAnalyzer.CodeUnitRelevance
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
@@ -1024,11 +1025,11 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
   /** Weighted PageRank at the class level. If seedClassWeights is non-empty, seeds are assigned according to those
     * weights. Otherwise, all classes are seeded equally.
     */
-  override def getPagerank(
+  override def getRelevantCodeUnits(
     seedClassWeights: java.util.Map[String, java.lang.Double],
     k: Int,
     reversed: Boolean
-  ): java.util.List[IAnalyzer.PageRankResult] = {
+  ): java.util.List[CodeUnitRelevance] = {
     import scala.jdk.CollectionConverters.*
     val seedWeights = seedClassWeights.asScala.view.mapValues(_.doubleValue()).toMap
     // restrict to classes (FQCNs) that are in the graph
@@ -1150,7 +1151,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
 
     // Coalesce and convert to PageRankResult, filtering out zero scores
     coalesceInnerClasses(sortedCodeUnits, k)
-      .map { case (cu, d) => new IAnalyzer.PageRankResult(cu, d) }
+      .map { case (cu, d) => new CodeUnitRelevance(cu, d) }
       .filter(_.score() > 0.0) // Filter out results with zero score
       .asJava
   }

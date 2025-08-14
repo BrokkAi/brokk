@@ -1,24 +1,23 @@
 package io.github.jbellis.brokk.util;
 
 import com.google.common.base.Splitter;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * <p>Represents a java stack trace.</p>
+ * Represents a java stack trace.
  *
- * <p>The first line contains the error that happened and all following lines (stack trace
- * elements) indicate which pieces of code lead to this error.</p>
+ * <p>The first line contains the error that happened and all following lines (stack trace elements) indicate which
+ * pieces of code lead to this error.
  */
 public class StackTrace {
-    /**
-     * The first line of the stack trace containing the error that happened.
-     */
-    @Nullable private final String exceptionType;
+    /** The first line of the stack trace containing the error that happened. */
+    @Nullable
+    private final String exceptionType;
+
     private final String originalStackTrace;
 
     /**
@@ -30,9 +29,9 @@ public class StackTrace {
     /**
      * Creates a new instance of {@code StackTrace}.
      *
-     * @param firstLine       the first line of the stack trace containing the error that happened
+     * @param firstLine the first line of the stack trace containing the error that happened
      * @param stackTraceLines the stack trace lines of the stack trace indicating which pieces of code lead to the error
-     *                        mentioned at the first line
+     *     mentioned at the first line
      */
     public StackTrace(String firstLine, List<StackTraceElement> stackTraceLines, String originalStackTrace) {
         this.exceptionType = parseExceptionType(firstLine);
@@ -53,7 +52,7 @@ public class StackTrace {
      * Gets the stack trace lines of the stack trace.
      *
      * @return the stack trace lines of the stack trace indicating which pieces of code lead to the error mentioned at
-     * the first line
+     *     the first line
      */
     public List<StackTraceElement> getFrames() {
         return this.stackTraceLines;
@@ -109,7 +108,8 @@ public class StackTrace {
     // sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)                      // native method
     // org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:71)                  // anonymous inner classes
     // org.junit.runners.ParentRunner.access$000(ParentRunner.java:58)                  // lambda expressions
-    // org.apache.maven.surefire.junit4.JUnit4TestSet.execute(JUnit4TestSet.java:53)    // numbers for package and class names
+    // org.apache.maven.surefire.junit4.JUnit4TestSet.execute(JUnit4TestSet.java:53)    // numbers for package and class
+    // names
 
     // Using the predefined structure of a stack trace element and allowed signs for its components, the following
     // regular expression can be used to parse stack trace elements and it's components. Parentheses ('(', ')') are used
@@ -138,8 +138,8 @@ public class StackTrace {
      * {@code java.lang.StackTraceElement}s.
      *
      * @param stackTraceString the java stack trace as a {@code String}
-     * @return a StackTrace containing the first (error) line and a list of {@code StackTraceElements},
-     *         or null if no stack trace could be parsed
+     * @return a StackTrace containing the first (error) line and a list of {@code StackTraceElements}, or null if no
+     *     stack trace could be parsed
      */
     public static @Nullable StackTrace parse(String stackTraceString) {
         List<String> lines = Splitter.on('\n').splitToList(stackTraceString);
@@ -181,21 +181,16 @@ public class StackTrace {
             String className = lastDot > 0 ? classAndMethod.substring(0, lastDot) : classAndMethod;
             String methodName = lastDot > 0 ? classAndMethod.substring(lastDot + 1) : "unknown";
 
-                        String fileName = matcher.group(2);
+            String fileName = matcher.group(2);
             int lineNumber = -1;
 
             if (matcher.group(3) != null) {
                 lineNumber = Integer.parseInt(matcher.group(3));
-                        } else if (matcher.group(4) != null && matcher.group(4).equals("Native Method")) {
+            } else if (matcher.group(4) != null && matcher.group(4).equals("Native Method")) {
                 lineNumber = -2;
             }
 
-            StackTraceElement element = new StackTraceElement(
-                    className,
-                    methodName,
-                    fileName,
-                    lineNumber
-            );
+            StackTraceElement element = new StackTraceElement(className, methodName, fileName, lineNumber);
 
             stackTraceLines.add(element);
         }

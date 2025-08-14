@@ -1,27 +1,23 @@
 package io.github.jbellis.brokk.difftool.ui;
 
+import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Chunk;
+import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
-
-import com.github.difflib.patch.AbstractDelta;
-import com.github.difflib.patch.Chunk;
-import com.github.difflib.patch.Patch;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * RevisionBar is the thin vertical bar at the left or right side
- * that gives a top-to-bottom overview of diff changes.
+ * RevisionBar is the thin vertical bar at the left or right side that gives a top-to-bottom overview of diff changes.
  */
-public class RevisionBar extends JComponent
-{
+public class RevisionBar extends JComponent {
     private static final long serialVersionUID = 1L;
     private static final Logger logger = LogManager.getLogger(RevisionBar.class);
 
@@ -29,8 +25,7 @@ public class RevisionBar extends JComponent
     private final FilePanel filePanel;
     private final boolean original; // true if showing the "original" side (left), false if "revised" side (right)
 
-    public RevisionBar(BufferDiffPanel diffPanel, FilePanel filePanel, boolean original)
-    {
+    public RevisionBar(BufferDiffPanel diffPanel, FilePanel filePanel, boolean original) {
         this.diffPanel = diffPanel;
         this.filePanel = filePanel;
         this.original = original;
@@ -51,8 +46,7 @@ public class RevisionBar extends JComponent
     }
 
     @Override
-    public void paintComponent(Graphics g)
-    {
+    public void paintComponent(Graphics g) {
         super.paintComponent(g);
 
         Rectangle r = getDrawableRectangle();
@@ -83,7 +77,7 @@ public class RevisionBar extends JComponent
         for (AbstractDelta<String> delta : patch.getDeltas()) {
             Chunk<String> chunk = original ? delta.getSource() : delta.getTarget();
             int anchor = chunk.getPosition();
-            int size   = chunk.size();
+            int size = chunk.size();
 
             int y = r.y + (r.height * anchor) / numberOfLines;
             int height = (r.height * size) / numberOfLines;
@@ -111,11 +105,9 @@ public class RevisionBar extends JComponent
     }
 
     /**
-     * Returns the area we can actually use for painting diffs,
-     * ignoring space used by the scrollbar arrows if present.
+     * Returns the area we can actually use for painting diffs, ignoring space used by the scrollbar arrows if present.
      */
-    private Rectangle getDrawableRectangle()
-    {
+    private Rectangle getDrawableRectangle() {
         JScrollBar sb = filePanel.getScrollPane().getVerticalScrollBar();
         Rectangle r = sb.getBounds();
         int buttonHeight = 0;
@@ -135,16 +127,13 @@ public class RevisionBar extends JComponent
     }
 
     /**
-     * Mouse click: map the Y coordinate to an approximate line,
-     * then see if there's a delta anchor in a small tolerance range.
-     * If so, jump to that delta. Otherwise, jump to that line directly.
+     * Mouse click: map the Y coordinate to an approximate line, then see if there's a delta anchor in a small tolerance
+     * range. If so, jump to that delta. Otherwise, jump to that line directly.
      */
-    private MouseListener getMouseListener()
-    {
+    private MouseListener getMouseListener() {
         return new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e)
-            {
+            public void mouseClicked(MouseEvent e) {
                 Rectangle r = getDrawableRectangle();
                 if (r.height <= 0) {
                     return;
@@ -173,7 +162,7 @@ public class RevisionBar extends JComponent
 
                 // tolerance range
                 int lineBefore = ((y - 3) * numberOfLines) / r.height;
-                int lineAfter  = ((y + 3) * numberOfLines) / r.height;
+                int lineAfter = ((y + 3) * numberOfLines) / r.height;
 
                 for (AbstractDelta<String> delta : patch.getDeltas()) {
                     Chunk<String> chunk = original ? delta.getSource() : delta.getTarget();

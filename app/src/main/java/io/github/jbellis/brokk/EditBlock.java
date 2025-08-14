@@ -2,11 +2,6 @@ package io.github.jbellis.brokk;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,10 +13,12 @@ import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Utility for extracting and applying before/after search-replace blocks in content.
- */
+/** Utility for extracting and applying before/after search-replace blocks in content. */
 public class EditBlock {
     private static final Logger logger = LogManager.getLogger(EditBlock.class);
 
@@ -30,18 +27,17 @@ public class EditBlock {
     }
 
     /**
-     * Helper that returns the first code block found between triple backticks.
-     * Skips any text on the same line as the opening backticks (like language specifiers)
-     * and starts capturing from the next line.
-     * Returns an empty string if no valid block is found.
+     * Helper that returns the first code block found between triple backticks. Skips any text on the same line as the
+     * opening backticks (like language specifiers) and starts capturing from the next line. Returns an empty string if
+     * no valid block is found.
      */
     public static String extractCodeFromTripleBackticks(String text) {
         // Pattern: ``` followed by optional non-newline chars, then newline, then capture until ```
         // The (.*) is greedy to ensure embedded ``` within the block are treated as content.
         var matcher = Pattern.compile(
-                "```[^\\n]*\\n(.*)```", // Skips language specifier line; (.*) captures content greedily.
-                Pattern.DOTALL
-        ).matcher(text);
+                        "```[^\\n]*\\n(.*)```", // Skips language specifier line; (.*) captures content greedily.
+                        Pattern.DOTALL)
+                .matcher(text);
 
         if (matcher.find()) {
             // group(1) captures the content between the initial newline (after ```[lang]) and the closing ```
@@ -72,18 +68,14 @@ public class EditBlock {
 
     // -- Exceptions for file resolution --
 
-    /**
-     * Thrown when a filename provided by the LLM cannot be uniquely resolved.
-     */
+    /** Thrown when a filename provided by the LLM cannot be uniquely resolved. */
     public static class SymbolNotFoundException extends Exception {
         public SymbolNotFoundException(String message) {
             super(message);
         }
     }
 
-    /**
-     * Thrown when a filename provided by the LLM matches multiple files.
-     */
+    /** Thrown when a filename provided by the LLM matches multiple files. */
     public static class SymbolAmbiguousException extends Exception {
         public SymbolAmbiguousException(String message) {
             super(message);
@@ -93,12 +85,11 @@ public class EditBlock {
     /**
      * Parse the LLM response for SEARCH/REPLACE blocks and apply them.
      *
-     * Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles)
-     * to create empty files for blocks corresponding to new files.
+     * <p>Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles) to create empty files for
+     * blocks corresponding to new files.
      */
-    public static EditResult applyEditBlocks(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
-    throws IOException
-    {
+    public static EditResult applyEditBlocks(
+            IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks) throws IOException {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
@@ -134,31 +125,41 @@ public class EditBlock {
                 // If it was a deletion, replaceInFile handled it and returned; file will not exist.
                 // If it was a modification or creation, the file will exist with new content.
                 succeeded.put(block, file);
-            } catch(NoMatchException | AmbiguousMatchException e) {
+            } catch (NoMatchException | AmbiguousMatchException e) {
                 assert changedFiles.containsKey(file);
                 var originalContent = changedFiles.get(file);
                 String commentary;
                 try {
                     replaceMostSimilarChunk(originalContent, block.afterText, "");
                     // if it didn't throw:
-                    commentary = """
+                    commentary =
+                            """
                                  The replacement text is already present in the file. If we no longer need to apply
                                  this block, omit it from your reply.
-                                 """.stripIndent();
+                                 """
+                                    .stripIndent();
                 } catch (NoMatchException | AmbiguousMatchException e2) {
                     commentary = "";
                 }
 
                 // Check if the search block looks like a diff
                 if (block.beforeText().lines().anyMatch(line -> line.startsWith("-") || line.startsWith("+"))) {
-                    commentary += """
+                    commentary +=
+                            """
                                   Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
                                   Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
-                                  """.stripIndent();
+                                  """
+                                    .stripIndent();
                 }
 
-                logger.debug("Edit application failed for file [{}] {}: {}", file, e.getClass().getSimpleName(), e.getMessage());
-                var reason = e instanceof NoMatchException ? EditBlockFailureReason.NO_MATCH : EditBlockFailureReason.AMBIGUOUS_MATCH;
+                logger.debug(
+                        "Edit application failed for file [{}] {}: {}",
+                        file,
+                        e.getClass().getSimpleName(),
+                        e.getMessage());
+                var reason = e instanceof NoMatchException
+                        ? EditBlockFailureReason.NO_MATCH
+                        : EditBlockFailureReason.AMBIGUOUS_MATCH;
                 failed.add(new FailedBlock(block, reason, commentary));
             } catch (IOException e) {
                 var msg = "Error applying edit to " + file;
@@ -176,48 +177,36 @@ public class EditBlock {
     }
 
     /**
-     * Simple record storing the parts of a search-replace block.
-     * If {@code filename} is non-null, then this block corresponds to a filename’s
-     * search/replace
+     * Simple record storing the parts of a search-replace block. If {@code filename} is non-null, then this block
+     * corresponds to a filename’s search/replace
      */
-    public record SearchReplaceBlock(@Nullable String filename, String beforeText, String afterText) {
-    }
+    public record SearchReplaceBlock(@Nullable String filename, String beforeText, String afterText) {}
 
-    public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {
-    }
+    public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {}
 
-    public record ExtendedParseResult(List<OutputBlock> blocks, @Nullable String parseError) {
-    }
+    public record ExtendedParseResult(List<OutputBlock> blocks, @Nullable String parseError) {}
 
-    /**
-     * Represents a segment of the LLM output, categorized as either plain text or a parsed Edit Block.
-     */
+    /** Represents a segment of the LLM output, categorized as either plain text or a parsed Edit Block. */
     public record OutputBlock(@Nullable String text, @Nullable SearchReplaceBlock block) {
-        /**
-         * Ensures that exactly one of the fields is non-null.
-         */
+        /** Ensures that exactly one of the fields is non-null. */
         public OutputBlock {
             assert (text == null) != (block == null);
         }
 
-        /**
-         * Convenience constructor for plain text blocks.
-         */
+        /** Convenience constructor for plain text blocks. */
         public static OutputBlock plain(String text) {
             return new OutputBlock(text, null);
         }
 
-        /**
-         * Convenience constructor for Edit blocks.
-         */
+        /** Convenience constructor for Edit blocks. */
         public static OutputBlock edit(SearchReplaceBlock block) {
             return new OutputBlock(null, block);
         }
     }
 
     /**
-     * Determines if an edit operation constitutes a logical deletion of file content.
-     * A deletion occurs if the original content was non-blank and the updated content becomes blank.
+     * Determines if an edit operation constitutes a logical deletion of file content. A deletion occurs if the original
+     * content was non-blank and the updated content becomes blank.
      *
      * @param originalContent The content of the file before the edit.
      * @param updatedContent The content of the file after the edit.
@@ -233,18 +222,14 @@ public class EditBlock {
     }
 
     /**
-     * Replace the first occurrence of `beforeText` lines with `afterText` lines in the given file.
-     * If the operation results in the file becoming blank (and it wasn't already), the file is deleted
-     * and the deletion is staged in Git via the contextManager.
-     * Throws NoMatchException if `beforeText` is not found in the file content.
-     * Throws AmbiguousMatchException if more than one match is found.
+     * Replace the first occurrence of `beforeText` lines with `afterText` lines in the given file. If the operation
+     * results in the file becoming blank (and it wasn't already), the file is deleted and the deletion is staged in Git
+     * via the contextManager. Throws NoMatchException if `beforeText` is not found in the file content. Throws
+     * AmbiguousMatchException if more than one match is found.
      */
-    public static void replaceInFile(ProjectFile file,
-                                     String beforeText,
-                                     String afterText,
-                                     IContextManager contextManager)
-    throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException
-    {
+    public static void replaceInFile(
+            ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
+            throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException {
         String original = file.exists() ? file.read() : "";
         String updated = replaceMostSimilarChunk(original, beforeText, afterText);
 
@@ -258,18 +243,14 @@ public class EditBlock {
         file.write(updated);
     }
 
-    /**
-     * Custom exception thrown when no matching location is found in the file.
-     */
+    /** Custom exception thrown when no matching location is found in the file. */
     public static class NoMatchException extends Exception {
         public NoMatchException(String msg) {
             super(msg);
         }
     }
 
-    /**
-     * Thrown when more than one matching location is found.
-     */
+    /** Thrown when more than one matching location is found. */
     public static class AmbiguousMatchException extends Exception {
         public AmbiguousMatchException(String message) {
             super(message);
@@ -277,13 +258,11 @@ public class EditBlock {
     }
 
     /**
-     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy.
-     * Returns the post-replacement content, or null if no match found.
-     * Throws AmbiguousMatchException if multiple matches are found.
+     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content, or
+     * null if no match found. Throws AmbiguousMatchException if multiple matches are found.
      */
     static String replaceMostSimilarChunk(String content, String target, String replace)
-    throws AmbiguousMatchException, NoMatchException
-    {
+            throws AmbiguousMatchException, NoMatchException {
         // 1) prep for line-based matching
         ContentLines originalCL = prep(content);
         ContentLines targetCl = prep(target);
@@ -311,8 +290,10 @@ public class EditBlock {
 
         // 3a) If that failed, attempt dropping a spurious leading blank line from the "search" block:
         if (targetCl.lines().size() > 2 && targetCl.lines().getFirst().trim().isEmpty()) {
-            List<String> splicedTargetList = targetCl.lines().subList(1, targetCl.lines().size());
-            List<String> splicedReplaceList = replaceCL.lines().subList(1, replaceCL.lines().size());
+            List<String> splicedTargetList =
+                    targetCl.lines().subList(1, targetCl.lines().size());
+            List<String> splicedReplaceList =
+                    replaceCL.lines().subList(1, replaceCL.lines().size());
 
             String[] splicedTargetArray = splicedTargetList.toArray(String[]::new);
             String[] splicedReplaceArray = splicedReplaceList.toArray(String[]::new);
@@ -323,9 +304,7 @@ public class EditBlock {
                 return attempt;
             }
 
-            attempt = tryDotdotdots(content,
-                                    String.join("", splicedTargetArray),
-                                    String.join("", splicedReplaceArray));
+            attempt = tryDotdotdots(content, String.join("", splicedTargetArray), String.join("", splicedReplaceArray));
             if (attempt != null) {
                 return attempt;
             }
@@ -334,9 +313,7 @@ public class EditBlock {
         throw new NoMatchException("No matching oldLines found in content");
     }
 
-    /**
-     * Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()).
-     */
+    /** Counts how many leading lines in 'lines' are completely blank (trim().isEmpty()). */
     static int countLeadingBlankLines(String[] lines) {
         int c = 0;
         for (String ln : lines) {
@@ -349,9 +326,7 @@ public class EditBlock {
         return c;
     }
 
-    /**
-     * If the search/replace has lines of "..." as placeholders, do naive partial replacements.
-     */
+    /** If the search/replace has lines of "..." as placeholders, do naive partial replacements. */
     public static @Nullable String tryDotdotdots(String whole, String target, String replace) throws NoMatchException {
         // If there's no "..." in target or whole, skip
         if (!target.contains("...") && !whole.contains("...")) {
@@ -391,15 +366,11 @@ public class EditBlock {
     }
 
     /**
-     * Tries perfect replace first, then leading-whitespace-insensitive.
-     * Throws AmbiguousMatchException if more than one match is found in either step,
-     * or NoMatchException if no matches are found
+     * Tries perfect replace first, then leading-whitespace-insensitive. Throws AmbiguousMatchException if more than one
+     * match is found in either step, or NoMatchException if no matches are found
      */
-    static @Nullable String perfectOrWhitespace(String[] originalLines,
-                                                String[] targetLines,
-                                                String[] replaceLines)
-    throws AmbiguousMatchException, NoMatchException
-    {
+    static @Nullable String perfectOrWhitespace(String[] originalLines, String[] targetLines, String[] replaceLines)
+            throws AmbiguousMatchException, NoMatchException {
         try {
             return perfectReplace(originalLines, targetLines, replaceLines);
         } catch (NoMatchException e) {
@@ -408,15 +379,11 @@ public class EditBlock {
     }
 
     /**
-     * Tries exact line-by-line match. Returns the post-replacement lines on success.
-     * Throws AmbiguousMatchException if multiple exact matches are found.
-     * Throws NoMatchException if no exact match is found.
+     * Tries exact line-by-line match. Returns the post-replacement lines on success. Throws AmbiguousMatchException if
+     * multiple exact matches are found. Throws NoMatchException if no exact match is found.
      */
-    static @Nullable String perfectReplace(String[] originalLines,
-                                           String[] targetLines,
-                                           String[] replaceLines)
-    throws AmbiguousMatchException, NoMatchException
-    {
+    static @Nullable String perfectReplace(String[] originalLines, String[] targetLines, String[] replaceLines)
+            throws AmbiguousMatchException, NoMatchException {
         // special-case replace entire file (empty target)
         if (targetLines.length == 0) {
             return String.join("", replaceLines);
@@ -449,24 +416,20 @@ public class EditBlock {
         // add replacement
         newLines.addAll(Arrays.asList(replaceLines));
         // everything after
-        newLines.addAll(Arrays.asList(originalLines)
-                                .subList(matchStart + targetLines.length, originalLines.length));
+        newLines.addAll(Arrays.asList(originalLines).subList(matchStart + targetLines.length, originalLines.length));
 
         return String.join("", newLines);
     }
 
     /**
-     * Attempt a line-for-line match ignoring whitespace. If found, replace that
-     * slice by adjusting each replacement line's indentation to preserve the relative
-     * indentation from the 'search' lines.
-     * Throws AmbiguousMatchException if multiple matches are found ignoring whitespace.
-     * Throws NoMatchException if no match is found ignoring whitespace, or if the search block contained only whitespace.
+     * Attempt a line-for-line match ignoring whitespace. If found, replace that slice by adjusting each replacement
+     * line's indentation to preserve the relative indentation from the 'search' lines. Throws AmbiguousMatchException
+     * if multiple matches are found ignoring whitespace. Throws NoMatchException if no match is found ignoring
+     * whitespace, or if the search block contained only whitespace.
      */
-    static @Nullable String replaceIgnoringWhitespace(String[] originalLines,
-                                                      String[] targetLines,
-                                                      String[] replaceLines)
-    throws AmbiguousMatchException, NoMatchException
-    {
+    static @Nullable String replaceIgnoringWhitespace(
+            String[] originalLines, String[] targetLines, String[] replaceLines)
+            throws AmbiguousMatchException, NoMatchException {
         var truncatedTarget = removeLeadingTrailingEmptyLines(targetLines);
         var truncatedReplace = removeLeadingTrailingEmptyLines(replaceLines);
 
@@ -482,7 +445,8 @@ public class EditBlock {
             if (matchesIgnoringWhitespace(originalLines, start, truncatedTarget)) {
                 matches.add(start);
                 if (matches.size() > 1) {
-                    throw new AmbiguousMatchException("No exact matches found, and multiple matches found ignoring whitespace");
+                    throw new AmbiguousMatchException(
+                            "No exact matches found, and multiple matches found ignoring whitespace");
                 }
             }
         }
@@ -496,13 +460,11 @@ public class EditBlock {
 
         List<String> newLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
-            var adjusted = getLeadingWhitespace(originalLines[matchStart])
-                    + truncatedReplace[0].trim() + "\n";
+            var adjusted = getLeadingWhitespace(originalLines[matchStart]) + truncatedReplace[0].trim() + "\n";
             newLines.add(adjusted);
             newLines.addAll(Arrays.asList(truncatedReplace).subList(1, truncatedReplace.length));
         }
-        newLines.addAll(Arrays.asList(originalLines)
-                                .subList(matchStart + needed, originalLines.length));
+        newLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
         return String.join("", newLines);
     }
 
@@ -519,9 +481,7 @@ public class EditBlock {
         return Arrays.copyOfRange(targetLines, pStart, pEnd);
     }
 
-    /**
-     * return true if the targetLines match the originalLines starting at 'start', ignoring whitespace.
-     */
+    /** return true if the targetLines match the originalLines starting at 'start', ignoring whitespace. */
     static boolean matchesIgnoringWhitespace(String[] originalLines, int start, String[] targetLines) {
         if (start + targetLines.length > originalLines.length) {
             return false;
@@ -534,9 +494,7 @@ public class EditBlock {
         return true;
     }
 
-    /**
-     * @return the non-whitespace characters in `line`
-     */
+    /** @return the non-whitespace characters in `line` */
     private static String nonWhitespace(String line) {
         StringBuilder result = new StringBuilder();
         for (int i = 0; i < line.length(); i++) {
@@ -548,9 +506,7 @@ public class EditBlock {
         return result.toString();
     }
 
-    /**
-     * @return the whitespace prefix in this line.
-     */
+    /** @return the whitespace prefix in this line. */
     static String getLeadingWhitespace(String line) {
         assert line.endsWith("\n");
         int count = 0;
@@ -565,8 +521,8 @@ public class EditBlock {
     }
 
     /**
-     * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to
-     * currentFilename if it's not null.
+     * Scanning for a filename up to 3 lines above the HEAD block index. If none found, fallback to currentFilename if
+     * it's not null.
      */
     private static ContentLines prep(String content) {
         Objects.requireNonNull(content, "Content cannot be null");
@@ -583,18 +539,17 @@ public class EditBlock {
     }
 
     /**
-     * Resolves a filename string to a ProjectFile.
-     * Handles partial paths, checks against editable files, tracked files, and project files.
+     * Resolves a filename string to a ProjectFile. Handles partial paths, checks against editable files, tracked files,
+     * and project files.
      *
-     * @param cm        The context manager.
-     * @param filename  The filename string to resolve (potentially partial).
+     * @param cm The context manager.
+     * @param filename The filename string to resolve (potentially partial).
      * @return The resolved ProjectFile.
-     * @throws SymbolNotFoundException  if the file cannot be found.
+     * @throws SymbolNotFoundException if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      */
     static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
-    throws SymbolNotFoundException, SymbolAmbiguousException
-    {
+            throws SymbolNotFoundException, SymbolAmbiguousException {
         if (filename == null || filename.isBlank()) { // Handle null or blank filename early
             throw new SymbolNotFoundException("Filename cannot be null or blank.");
         }
@@ -614,7 +569,8 @@ public class EditBlock {
             return editableMatches.getFirst();
         }
         if (editableMatches.size() > 1) {
-            throw new SymbolAmbiguousException("Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
+            throw new SymbolAmbiguousException(
+                    "Filename '%s' matches multiple editable files: %s".formatted(filename, editableMatches));
         }
 
         // 3. Check tracked files in git repo (substring match)
@@ -632,13 +588,18 @@ public class EditBlock {
                     .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                     .toList();
             if (exactBaseMatches.size() == 1) {
-                logger.debug("Resolved ambiguous tracked filename [{}] to exact basename match [{}]", filename, exactBaseMatches.getFirst());
+                logger.debug(
+                        "Resolved ambiguous tracked filename [{}] to exact basename match [{}]",
+                        filename,
+                        exactBaseMatches.getFirst());
                 return exactBaseMatches.getFirst();
             }
-            throw new SymbolAmbiguousException("Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
+            throw new SymbolAmbiguousException(
+                    "Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
         }
 
         // 4. Not found anywhere
-        throw new SymbolNotFoundException("Filename '%s' could not be resolved to an existing file.".formatted(filename));
+        throw new SymbolNotFoundException(
+                "Filename '%s' could not be resolved to an existing file.".formatted(filename));
     }
 }

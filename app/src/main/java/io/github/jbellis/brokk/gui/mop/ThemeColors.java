@@ -4,9 +4,7 @@ import java.awt.Color;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Helper class for managing theme-specific colors throughout the application.
- */
+/** Helper class for managing theme-specific colors throughout the application. */
 public class ThemeColors {
     // Color constants for dark theme
     private static final Map<String, Color> DARK_COLORS = new HashMap<>();
@@ -20,7 +18,7 @@ public class ThemeColors {
         DARK_COLORS.put("chat_text", new Color(212, 212, 212));
         DARK_COLORS.put("chat_header_text", new Color(114, 159, 207));
         DARK_COLORS.put("message_border_custom", new Color(46, 100, 55));
-        DARK_COLORS.put("message_border_ai", new Color(86,142,130));
+        DARK_COLORS.put("message_border_ai", new Color(86, 142, 130));
         DARK_COLORS.put("message_border_user", new Color(94, 125, 175));
 
         // Code and text colors
@@ -42,7 +40,7 @@ public class ThemeColors {
         LIGHT_COLORS.put("chat_text", new Color(30, 30, 30));
         LIGHT_COLORS.put("chat_header_text", new Color(51, 103, 214));
         LIGHT_COLORS.put("message_border_custom", new Color(46, 100, 55));
-        LIGHT_COLORS.put("message_border_ai", new Color(86,142,130));
+        LIGHT_COLORS.put("message_border_ai", new Color(86, 142, 130));
         LIGHT_COLORS.put("message_border_user", new Color(94, 125, 175));
 
         // Code and text colors
@@ -63,16 +61,16 @@ public class ThemeColors {
         DARK_COLORS.put("git_status_modified", new Color(71, 239, 230));
         DARK_COLORS.put("git_status_deleted", new Color(147, 99, 63));
         DARK_COLORS.put("git_status_unknown", new Color(128, 128, 128));
-        DARK_COLORS.put("git_status_added", new Color(88, 203, 63));      // Same as new
+        DARK_COLORS.put("git_status_added", new Color(88, 203, 63)); // Same as new
         LIGHT_COLORS.put("git_status_new", new Color(42, 119, 34));
         LIGHT_COLORS.put("git_status_modified", new Color(60, 118, 202));
         LIGHT_COLORS.put("git_status_deleted", new Color(67, 100, 109));
         LIGHT_COLORS.put("git_status_unknown", new Color(180, 180, 180));
-        LIGHT_COLORS.put("git_status_added", new Color(42, 119, 34));     // Same as new
+        LIGHT_COLORS.put("git_status_added", new Color(42, 119, 34)); // Same as new
 
         // Git changed lines color
-        DARK_COLORS.put("git_changed", new Color(239, 202, 8));       // Amber/Yellow
-        LIGHT_COLORS.put("git_changed", new Color(204, 143, 0));      // Darker Amber/Yellow
+        DARK_COLORS.put("git_changed", new Color(239, 202, 8)); // Amber/Yellow
+        LIGHT_COLORS.put("git_changed", new Color(204, 143, 0)); // Darker Amber/Yellow
 
         // File reference badge colors (same for both themes for now)
         Color badgeBorder = new Color(66, 139, 202);
@@ -107,7 +105,7 @@ public class ThemeColors {
      * Gets a color for the specified theme and key.
      *
      * @param isDarkTheme true for dark theme, false for light theme
-     * @param key         the color key
+     * @param key the color key
      * @return the Color for the specified theme and key
      * @throws IllegalArgumentException if the key doesn't exist
      */
@@ -126,7 +124,7 @@ public class ThemeColors {
      * Gets a color as a hex string (e.g., "#rrggbb") for use in HTML/CSS.
      *
      * @param isDarkTheme true for dark theme, false for light theme
-     * @param key         the color key ending with "_hex"
+     * @param key the color key ending with "_hex"
      * @return the color as a hex string
      */
     public static String getColorHex(boolean isDarkTheme, String key) {
@@ -137,8 +135,8 @@ public class ThemeColors {
     /**
      * Adds or updates a color in the theme maps.
      *
-     * @param key        the color key
-     * @param darkColor  the color for dark theme
+     * @param key the color key
+     * @param darkColor the color for dark theme
      * @param lightColor the color for light theme
      */
     public static void setColor(String key, Color darkColor, Color lightColor) {

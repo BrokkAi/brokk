@@ -42,9 +42,7 @@ public class JsonObjectSchema implements JsonSchemaElement {
         return additionalProperties;
     }
 
-    /**
-     * Used together with {@link JsonReferenceSchema} when recursion is required.
-     */
+    /** Used together with {@link JsonReferenceSchema} when recursion is required. */
     public Map<String, JsonSchemaElement> definitions() {
         return definitions;
     }
@@ -67,8 +65,8 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds all properties in the parameter Map to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds all properties in the parameter Map to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addStringProperty(String)
@@ -88,8 +86,8 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds a single property to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single property to the properties of this JSON object. Please note that {@link #required(List)} should
+         * be set explicitly if you want the properties to be mandatory.
          *
          * @see #addProperties(Map)
          * @see #addStringProperty(String)
@@ -109,8 +107,8 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds a single string property to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single string property to the properties of this JSON object. Please note that {@link #required(List)}
+         * should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addStringProperty(String, String)
          * @see #addProperty(String, JsonSchemaElement)
@@ -122,21 +120,22 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds a single string property with a description to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single string property with a description to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addStringProperty(String)
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addProperties(Map)
          */
         public Builder addStringProperty(String name, String description) {
-            this.properties.put(name, JsonStringSchema.builder().description(description).build());
+            this.properties.put(
+                    name, JsonStringSchema.builder().description(description).build());
             return this;
         }
 
         /**
-         * Adds a single integer property to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single integer property to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addIntegerProperty(String, String)
          * @see #addProperty(String, JsonSchemaElement)
@@ -148,21 +147,22 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds a single integer property with a description to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single integer property with a description to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addIntegerProperty(String)
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addProperties(Map)
          */
         public Builder addIntegerProperty(String name, String description) {
-            this.properties.put(name, JsonIntegerSchema.builder().description(description).build());
+            this.properties.put(
+                    name, JsonIntegerSchema.builder().description(description).build());
             return this;
         }
 
         /**
-         * Adds a single number property to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single number property to the properties of this JSON object. Please note that {@link #required(List)}
+         * should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addNumberProperty(String, String)
          * @see #addProperty(String, JsonSchemaElement)
@@ -174,21 +174,22 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds a single number property with a description to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single number property with a description to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addNumberProperty(String)
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addProperties(Map)
          */
         public Builder addNumberProperty(String name, String description) {
-            this.properties.put(name, JsonNumberSchema.builder().description(description).build());
+            this.properties.put(
+                    name, JsonNumberSchema.builder().description(description).build());
             return this;
         }
 
         /**
-         * Adds a single boolean property to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single boolean property to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addBooleanProperty(String, String)
          * @see #addProperty(String, JsonSchemaElement)
@@ -200,41 +201,48 @@ public class JsonObjectSchema implements JsonSchemaElement {
         }
 
         /**
-         * Adds a single boolean property with a description to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single boolean property with a description to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addBooleanProperty(String)
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addProperties(Map)
          */
         public Builder addBooleanProperty(String name, String description) {
-            this.properties.put(name, JsonBooleanSchema.builder().description(description).build());
+            this.properties.put(
+                    name, JsonBooleanSchema.builder().description(description).build());
             return this;
         }
 
         /**
-         * Adds a single enum property to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single enum property to the properties of this JSON object. Please note that {@link #required(List)}
+         * should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addEnumProperty(String, List, String)
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addProperties(Map)
          */
         public Builder addEnumProperty(String name, List<String> enumValues) {
-            this.properties.put(name, JsonEnumSchema.builder().enumValues(enumValues).build());
+            this.properties.put(
+                    name, JsonEnumSchema.builder().enumValues(enumValues).build());
             return this;
         }
 
         /**
-         * Adds a single enum property with a description to the properties of this JSON object.
-         * Please note that {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
+         * Adds a single enum property with a description to the properties of this JSON object. Please note that
+         * {@link #required(List)} should be set explicitly if you want the properties to be mandatory.
          *
          * @see #addEnumProperty(String, List)
          * @see #addProperty(String, JsonSchemaElement)
          * @see #addProperties(Map)
          */
         public Builder addEnumProperty(String name, List<String> enumValues, String description) {
-            this.properties.put(name, JsonEnumSchema.builder().enumValues(enumValues).description(description).build());
+            this.properties.put(
+                    name,
+                    JsonEnumSchema.builder()
+                            .enumValues(enumValues)
+                            .description(description)
+                            .build());
             return this;
         }
 
@@ -252,9 +260,7 @@ public class JsonObjectSchema implements JsonSchemaElement {
             return this;
         }
 
-        /**
-         * Used together with {@link JsonReferenceSchema} when recursion is required.
-         */
+        /** Used together with {@link JsonReferenceSchema} when recursion is required. */
         public Builder definitions(Map<String, JsonSchemaElement> definitions) {
             this.definitions = definitions;
             return this;
@@ -284,12 +290,11 @@ public class JsonObjectSchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonObjectSchema {" +
-                "description = " + quoted(description) +
-                ", properties = " + properties +
-                ", required = " + required +
-                ", additionalProperties = " + additionalProperties +
-                ", definitions = " + definitions +
-                " }";
+        return "JsonObjectSchema {" + "description = "
+                + quoted(description) + ", properties = "
+                + properties + ", required = "
+                + required + ", additionalProperties = "
+                + additionalProperties + ", definitions = "
+                + definitions + " }";
     }
 }

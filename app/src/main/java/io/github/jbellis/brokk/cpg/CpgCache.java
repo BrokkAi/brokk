@@ -4,9 +4,6 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -20,45 +17,41 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * Very small, project-scoped cache that maps a hash of (filePath + mtime) to a
- * previously-built CPG.  Performs simple LRU eviction based
- * on {@link java.nio.file.attribute.FileTime} of the cached files.
+ * Very small, project-scoped cache that maps a hash of (filePath + mtime) to a previously-built CPG. Performs simple
+ * LRU eviction based on {@link java.nio.file.attribute.FileTime} of the cached files.
  *
- * Enabled only when the environment variable {@code BRK_CPG_CACHE} is set.
+ * <p>Enabled only when the environment variable {@code BRK_CPG_CACHE} is set.
  */
-public final class CpgCache
-{
+public final class CpgCache {
     private static final Logger logger = LogManager.getLogger(CpgCache.class);
     private static final String ENV_FLAG = "BRK_CPG_CACHE";
     private static final int MAX_ENTRIES = 100;
 
     private CpgCache() {}
 
-    public static IAnalyzer getOrCompute(IProject project,
-                                         Language language,
-                                         Supplier<IAnalyzer> builder)
-    {
+    public static IAnalyzer getOrCompute(IProject project, Language language, Supplier<IAnalyzer> builder) {
         // Fast path: cache disabled or language not CPG-based
         if (!language.isCpg() || System.getenv(ENV_FLAG) == null) {
             return builder.get();
         }
 
         try {
-            Path cacheDir = project.getMasterRootPathForConfig()
-                                   .resolve(".brokk")
-                                   .resolve("cache");
+            Path cacheDir =
+                    project.getMasterRootPathForConfig().resolve(".brokk").resolve("cache");
             Files.createDirectories(cacheDir);
 
-            String key       = computeHash(project, language);
-            Path   cacheFile = cacheDir.resolve(key + ".cpg");
-            Path   projCpg   = language.getCpgPath(project);
+            String key = computeHash(project, language);
+            Path cacheFile = cacheDir.resolve(key + ".cpg");
+            Path projCpg = language.getCpgPath(project);
 
             if (Files.exists(cacheFile)) {
                 logger.debug("CPG cache hit for {} ({})", language.name(), key);
                 copy(cacheFile, projCpg);
-                touch(cacheFile);              // update access time for LRU
+                touch(cacheFile); // update access time for LRU
                 return language.loadAnalyzer(project);
             }
 
@@ -82,41 +75,39 @@ public final class CpgCache
 
     /**
      * Compute a stable fingerprint for the project w.r.t. one language.
-     * <p>
-     * Each file’s contribution is <code>path + ':' + SHA-256(contents)</code>.
-     * The list is built in parallel (content hashing) and then sorted to keep the
-     * final digest deterministic.
+     *
+     * <p>Each file’s contribution is <code>path + ':' + SHA-256(contents)</code>. The list is built in parallel
+     * (content hashing) and then sorted to keep the final digest deterministic.
      */
     private static String computeHash(IProject project, Language lang) throws IOException, NoSuchAlgorithmException {
         // Collect all relevant project files first (serial); order does not matter here.
-        List<ProjectFile> files = project.getAllFiles()
-                                         .stream()
-                                         .filter(pf -> lang.getExtensions().contains(pf.extension()))
-                                         .toList();
+        List<ProjectFile> files = project.getAllFiles().stream()
+                .filter(pf -> lang.getExtensions().contains(pf.extension()))
+                .toList();
 
         // Hash individual files in parallel.
         List<String> perFileEntries = files.parallelStream()
-                                           .map(pf -> {
-                                               Path p = pf.absPath();
-                                               if (!Files.exists(p)) return ""; // deleted; ignore
-                                               try {
-                                                   // Hash file contents
-                                                   MessageDigest md = MessageDigest.getInstance("SHA-256");
-                                                   byte[] content   = Files.readAllBytes(p);
-                                                   md.update(content);
-                                                   String contentHash = HexFormat.of().formatHex(md.digest());
-                                                   return pf.toString() + ':' + contentHash + '\n';
-                                               } catch (IOException e) {
-                                                   logger.debug("Could not read {} while computing CPG cache key: {}", p, e.getMessage());
-                                                   return "";
-                                               } catch (NoSuchAlgorithmException e) {
-                                                   // Should never happen; rethrow unchecked so the caller will fail fast.
-                                                   throw new RuntimeException(e);
-                                               }
-                                           })
-                                           .filter(s -> !s.isEmpty())
-                                           .sorted()           // deterministic order
-                                           .toList();
+                .map(pf -> {
+                    Path p = pf.absPath();
+                    if (!Files.exists(p)) return ""; // deleted; ignore
+                    try {
+                        // Hash file contents
+                        MessageDigest md = MessageDigest.getInstance("SHA-256");
+                        byte[] content = Files.readAllBytes(p);
+                        md.update(content);
+                        String contentHash = HexFormat.of().formatHex(md.digest());
+                        return pf.toString() + ':' + contentHash + '\n';
+                    } catch (IOException e) {
+                        logger.debug("Could not read {} while computing CPG cache key: {}", p, e.getMessage());
+                        return "";
+                    } catch (NoSuchAlgorithmException e) {
+                        // Should never happen; rethrow unchecked so the caller will fail fast.
+                        throw new RuntimeException(e);
+                    }
+                })
+                .filter(s -> !s.isEmpty())
+                .sorted() // deterministic order
+                .toList();
 
         // Combine into one digest
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -138,8 +129,7 @@ public final class CpgCache
 
     private static void touch(Path path) {
         try {
-            Files.setLastModifiedTime(path,
-                                      java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
+            Files.setLastModifiedTime(path, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()));
         } catch (IOException e) {
             // Non-fatal: log at debug level and continue; cache entry is still usable.
             logger.debug("Failed to update last-modified time for cache file {}", path, e);
@@ -148,8 +138,8 @@ public final class CpgCache
 
     private static void evictOldest(Path cacheDir) {
         try (Stream<Path> files = Files.list(cacheDir)
-                                      .filter(p -> p.getFileName().toString().endsWith(".cpg"))
-                                      .sorted(Comparator.comparing(CpgCache::lastModifiedTime))) {
+                .filter(p -> p.getFileName().toString().endsWith(".cpg"))
+                .sorted(Comparator.comparing(CpgCache::lastModifiedTime))) {
 
             List<Path> all = files.toList();
             if (all.size() <= MAX_ENTRIES) return;

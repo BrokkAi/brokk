@@ -1,25 +1,24 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.DisplayName;
-
-import javax.swing.*;
 import java.awt.event.AdjustmentListener;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.*;
+import javax.swing.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
 /**
- * High-value, low-overhead tests for ScrollSynchronizer that focus on pure logic
- * and minimal Swing component testing without requiring full UI hierarchy.
+ * High-value, low-overhead tests for ScrollSynchronizer that focus on pure logic and minimal Swing component testing
+ * without requiring full UI hierarchy.
  */
 class ScrollSynchronizerTest {
 
@@ -108,8 +107,12 @@ class ScrollSynchronizerTest {
 
         // Test mapping from original side (original to revised)
         assertEquals(3, callApproximateLineMapping(patch, 3, true), "Line before insert should map directly");
-        assertEquals(8, callApproximateLineMapping(patch, 5, true), "Line at insert should map to position after all inserts");
-        assertEquals(10, callApproximateLineMapping(patch, 7, true), "Line after insert should be offset by insert size");
+        assertEquals(
+                8,
+                callApproximateLineMapping(patch, 5, true),
+                "Line at insert should map to position after all inserts");
+        assertEquals(
+                10, callApproximateLineMapping(patch, 7, true), "Line after insert should be offset by insert size");
 
         // Test mapping from revised side (revised to original)
         assertEquals(3, callApproximateLineMapping(patch, 3, false), "Line before insert maps directly");
@@ -126,15 +129,22 @@ class ScrollSynchronizerTest {
         // 1. Empty patch should return lines unchanged
         var emptyPatch = DiffUtils.diff(createNumberedLines(5), createNumberedLines(5));
         assertEquals(10, callApproximateLineMapping(emptyPatch, 10, true), "Empty patch should return line unchanged");
-        assertEquals(10, callApproximateLineMapping(emptyPatch, 10, false), "Empty patch should return line unchanged in reverse");
+        assertEquals(
+                10,
+                callApproximateLineMapping(emptyPatch, 10, false),
+                "Empty patch should return line unchanged in reverse");
 
         // 2. Lines before any changes should map directly
         var insertPatch = createInsertPatch(10, "new_line");
         assertEquals(5, callApproximateLineMapping(insertPatch, 5, true), "Lines before changes should map directly");
-        assertEquals(5, callApproximateLineMapping(insertPatch, 5, false), "Lines before changes should map directly in reverse");
+        assertEquals(
+                5,
+                callApproximateLineMapping(insertPatch, 5, false),
+                "Lines before changes should map directly in reverse");
 
         // 3. Algorithm should handle negative lines gracefully
-        assertEquals(-1, callApproximateLineMapping(insertPatch, -1, true), "Negative lines should be handled gracefully");
+        assertEquals(
+                -1, callApproximateLineMapping(insertPatch, -1, true), "Negative lines should be handled gracefully");
 
         // 4. Algorithm should not crash with various delta types
         var deletePatch = createDeletePatch(5, 2);
@@ -215,7 +225,6 @@ class ScrollSynchronizerTest {
     // TIMER-BASED LOGIC TESTS WITH MINIMAL SWING
     // =================================================================
 
-
     @Test
     @DisplayName("Timer logic: programmatic scroll flag timing")
     void testProgrammaticScrollFlagTiming() throws Exception {
@@ -278,10 +287,12 @@ class ScrollSynchronizerTest {
 
         // Simulate the reset timer logic from ScrollSynchronizer.performScroll()
         SwingUtilities.invokeAndWait(() -> {
-            Timer resetTimer = new Timer(30, e -> { // Use short delay for testing
-                resetExecuted.set(true);
-                resetLatch.countDown();
-            });
+            Timer resetTimer = new Timer(
+                    30,
+                    e -> { // Use short delay for testing
+                        resetExecuted.set(true);
+                        resetLatch.countDown();
+                    });
             resetTimer.setRepeats(false);
             resetTimer.start();
         });
@@ -350,13 +361,17 @@ class ScrollSynchronizerTest {
         var synchronizer = new ScrollSynchronizer(null, null, null, true);
 
         // This should not throw NoSuchMethodException
-        var singleParamMethod = ScrollSynchronizer.class.getMethod("scrollToLine",
-            io.github.jbellis.brokk.difftool.ui.FilePanel.class, int.class);
-        assertNotNull(singleParamMethod, "Single-parameter scrollToLine method should exist for backward compatibility");
+        var singleParamMethod = ScrollSynchronizer.class.getMethod(
+                "scrollToLine", io.github.jbellis.brokk.difftool.ui.FilePanel.class, int.class);
+        assertNotNull(
+                singleParamMethod, "Single-parameter scrollToLine method should exist for backward compatibility");
 
         // Test that the two-parameter method exists
-        var twoParamMethod = ScrollSynchronizer.class.getMethod("scrollToLine",
-            io.github.jbellis.brokk.difftool.ui.FilePanel.class, int.class, ScrollSynchronizer.ScrollMode.class);
+        var twoParamMethod = ScrollSynchronizer.class.getMethod(
+                "scrollToLine",
+                io.github.jbellis.brokk.difftool.ui.FilePanel.class,
+                int.class,
+                ScrollSynchronizer.ScrollMode.class);
         assertNotNull(twoParamMethod, "Two-parameter scrollToLine method should exist");
     }
 
@@ -381,13 +396,10 @@ class ScrollSynchronizerTest {
     // HELPER METHODS
     // =================================================================
 
-    /**
-     * Helper method to test line mapping using LineMapper directly
-     */
-     private int callApproximateLineMapping(Patch<String> patch, int line, boolean fromOriginal) throws Exception {
+    /** Helper method to test line mapping using LineMapper directly */
+    private int callApproximateLineMapping(Patch<String> patch, int line, boolean fromOriginal) throws Exception {
         // Use LineMapper directly instead of reflection
         var lineMapper = new LineMapper();
         return lineMapper.mapLine(patch, line, fromOriginal);
     }
-
 }

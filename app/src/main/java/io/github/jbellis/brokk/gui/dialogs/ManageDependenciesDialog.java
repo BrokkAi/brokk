@@ -1,16 +1,11 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.util.Decompiler;
-
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableColumnModel;
-import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -20,19 +15,23 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import static java.util.Objects.requireNonNull;
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableColumnModel;
+import javax.swing.table.TableRowSorter;
 
 public class ManageDependenciesDialog extends JDialog {
 
     public interface DependencyLifecycleListener {
         void dependencyImportStarted(String name);
+
         void dependencyImportFinished(String name);
     }
 
@@ -51,7 +50,8 @@ public class ManageDependenciesDialog extends JDialog {
         }
 
         @Override
-        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             if (value instanceof Number) {
                 value = String.format("%,d", (Number) value);
             }
@@ -86,9 +86,8 @@ public class ManageDependenciesDialog extends JDialog {
         table.setRowSorter(sorter);
         var sortKeys = new ArrayList<RowSorter.SortKey>();
         sortKeys.add(new RowSorter.SortKey(0, SortOrder.DESCENDING)); // Enabled first
-        sortKeys.add(new RowSorter.SortKey(1, SortOrder.ASCENDING));  // Then by name
+        sortKeys.add(new RowSorter.SortKey(1, SortOrder.ASCENDING)); // Then by name
         sorter.setSortKeys(sortKeys);
-
 
         table.setDefaultRenderer(Long.class, new NumberRenderer());
 
@@ -128,7 +127,7 @@ public class ManageDependenciesDialog extends JDialog {
 
         // Honor platform-specific button order
         var order = UIManager.getString("OptionPane.buttonOrder");
-        if (order == null) order = "OC";   // sensible fallback
+        if (order == null) order = "OC"; // sensible fallback
 
         for (int i = 0; i < order.length(); i++) {
             char ch = order.charAt(i);
@@ -204,7 +203,7 @@ public class ManageDependenciesDialog extends JDialog {
 
     private void addPendingDependencyRow(String name) {
         if (isUpdatingTotals) return; // a bit of a hack to avoid flicker
-        tableModel.addRow(new Object[]{true, name, 0L, 0L});
+        tableModel.addRow(new Object[] {true, name, 0L, 0L});
         updateTotals();
     }
 
@@ -220,7 +219,7 @@ public class ManageDependenciesDialog extends JDialog {
             String name = dep.getRelPath().getFileName().toString();
             dependencyProjectFileMap.put(name, dep);
             boolean isLive = liveDeps.contains(dep);
-            tableModel.addRow(new Object[]{isLive, name, 0L, 0L});
+            tableModel.addRow(new Object[] {isLive, name, 0L, 0L});
         }
         updateTotals(); // Initial totals calculation
 
@@ -237,8 +236,11 @@ public class ManageDependenciesDialog extends JDialog {
                 if (pf != null) {
                     // We need the top-level directory of the dependency, not its full relative path
                     // which is like .brokk/dependencies/dep-name. We want just the dep-name part as Path.
-                    var depTopLevelDir = chrome.getProject().getMasterRootPathForConfig()
-                                               .resolve(".brokk").resolve("dependencies").resolve(pf.getRelPath().getFileName());
+                    var depTopLevelDir = chrome.getProject()
+                            .getMasterRootPathForConfig()
+                            .resolve(".brokk")
+                            .resolve("dependencies")
+                            .resolve(pf.getRelPath().getFileName());
                     newLiveDependencyTopLevelDirs.add(depTopLevelDir);
                 }
             }
@@ -261,9 +263,7 @@ public class ManageDependenciesDialog extends JDialog {
         }
     }
 
-    /**
-     * Recalculate totals for enabled dependencies and update the total labels.
-     */
+    /** Recalculate totals for enabled dependencies and update the total labels. */
     private void updateTotals() {
         if (isUpdatingTotals) return;
         isUpdatingTotals = true;
@@ -300,18 +300,20 @@ public class ManageDependenciesDialog extends JDialog {
 
                     // count lines in parallel
                     long fileCount = files.size();
-                    long lineCount = files.parallelStream().mapToLong(p -> {
-                        try (var lines = Files.lines(p)) {
-                            return lines.count();
-                        } catch (IOException | UncheckedIOException e) {
-                            // Ignore unreadable/non-text files
-                            return 0;
-                        }
-                    }).sum();
-                    publish(new Object[]{i, fileCount, lineCount});
+                    long lineCount = files.parallelStream()
+                            .mapToLong(p -> {
+                                try (var lines = Files.lines(p)) {
+                                    return lines.count();
+                                } catch (IOException | UncheckedIOException e) {
+                                    // Ignore unreadable/non-text files
+                                    return 0;
+                                }
+                            })
+                            .sum();
+                    publish(new Object[] {i, fileCount, lineCount});
                 } catch (IOException e) {
                     // Could not walk the directory
-                    publish(new Object[]{i, 0L, 0L});
+                    publish(new Object[] {i, 0L, 0L});
                 }
             }
             return null;
@@ -338,11 +340,12 @@ public class ManageDependenciesDialog extends JDialog {
         int selectedRowInModel = table.convertRowIndexToModel(selectedRowInView);
 
         String depName = (String) tableModel.getValueAt(selectedRowInModel, 1);
-        int choice = JOptionPane.showConfirmDialog(this,
-                                                   "Are you sure you want to delete the dependency '" + depName + "'?\nThis action cannot be undone.",
-                                                   "Confirm Deletion",
-                                                   JOptionPane.YES_NO_OPTION,
-                                                   JOptionPane.WARNING_MESSAGE);
+        int choice = JOptionPane.showConfirmDialog(
+                this,
+                "Are you sure you want to delete the dependency '" + depName + "'?\nThis action cannot be undone.",
+                "Confirm Deletion",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
 
         if (choice == JOptionPane.YES_OPTION) {
             var pf = dependencyProjectFileMap.get(depName);
@@ -351,10 +354,11 @@ public class ManageDependenciesDialog extends JDialog {
                     Decompiler.deleteDirectoryRecursive(pf.absPath());
                     loadDependencies();
                 } catch (IOException ex) {
-                    JOptionPane.showMessageDialog(this,
-                                                  "Error deleting dependency '" + depName + "':\n" + ex.getMessage(),
-                                                  "Deletion Error",
-                                                  JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Error deleting dependency '" + depName + "':\n" + ex.getMessage(),
+                            "Deletion Error",
+                            JOptionPane.ERROR_MESSAGE);
                 }
             }
         }

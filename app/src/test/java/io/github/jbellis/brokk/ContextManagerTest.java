@@ -1,19 +1,14 @@
 package io.github.jbellis.brokk;
 
-import org.junit.jupiter.api.Test;
-
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Unit tests for {@link ContextManager#TEST_FILE_PATTERN}.
- */
-class ContextManagerTest
-{
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+/** Unit tests for {@link ContextManager#TEST_FILE_PATTERN}. */
+class ContextManagerTest {
     @Test
-    void shouldMatchTestFilenames()
-    {
+    void shouldMatchTestFilenames() {
         var positives = List.of(
                 // match in path
                 "src/test/java/MyClass.java",
@@ -47,8 +42,7 @@ class ContextManagerTest
                 "src/foo/bar/x_test.py",
                 "src/foo/bar/x_tests.py",
                 "src/foo/bar/under_test_score.py",
-                "src/foo/bar/under_tests_score.py"
-        );
+                "src/foo/bar/under_tests_score.py");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
         var mismatches = new java.util.ArrayList<String>();
@@ -59,21 +53,18 @@ class ContextManagerTest
             }
         });
 
-        assertTrue(mismatches.isEmpty(),
-                   "Expected to match but didn't: " + mismatches);
+        assertTrue(mismatches.isEmpty(), "Expected to match but didn't: " + mismatches);
     }
 
     @Test
-    void shouldNotMatchNonTestFilenames()
-    {
+    void shouldNotMatchNonTestFilenames() {
         var negatives = List.of(
                 "testing/Bar.java",
                 "src/production/java/MyClass.java",
                 "contest/file.java",
                 "testament/Foo.java",
                 "src/main/java/Testament.java",
-                "src/main/java/Contest.java"
-        );
+                "src/main/java/Contest.java");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
         var unexpectedMatches = new java.util.ArrayList<String>();
@@ -84,7 +75,6 @@ class ContextManagerTest
             }
         });
 
-        assertTrue(unexpectedMatches.isEmpty(),
-                   "Unexpectedly matched: " + unexpectedMatches);
+        assertTrue(unexpectedMatches.isEmpty(), "Unexpectedly matched: " + unexpectedMatches);
     }
 }

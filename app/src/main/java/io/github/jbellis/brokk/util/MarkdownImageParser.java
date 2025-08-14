@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -8,7 +7,8 @@ import java.util.regex.Pattern;
 
 public final class MarkdownImageParser {
     private static final Pattern IMAGE_MARKDOWN_PATTERN = Pattern.compile("!\\[(?:[^\\]]*)\\]\\(([^\\)]+)\\)");
-    private static final Pattern HTML_IMG_TAG_PATTERN = Pattern.compile("<img\\s+[^>]*?src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*?/?>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern HTML_IMG_TAG_PATTERN =
+            Pattern.compile("<img\\s+[^>]*?src\\s*=\\s*[\"']([^\"']+)[\"'][^>]*?/?>", Pattern.CASE_INSENSITIVE);
 
     private MarkdownImageParser() {
         // Prevent instantiation

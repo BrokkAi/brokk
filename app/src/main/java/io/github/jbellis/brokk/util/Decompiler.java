@@ -2,12 +2,6 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
-
-import javax.swing.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
@@ -18,13 +12,16 @@ import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipFile;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 public class Decompiler {
     private static final Logger logger = LogManager.getLogger(Decompiler.class);
 
-    /**
-     * Extracts Maven coordinates from a {@code pom.properties} file found under {@code META-INF/maven/}.
-     */
+    /** Extracts Maven coordinates from a {@code pom.properties} file found under {@code META-INF/maven/}. */
     private static Optional<String> getMavenCoordinatesFromPomProperties(Path jarPath) {
         try (var zip = new ZipFile(jarPath.toFile())) {
             var entries = zip.entries();
@@ -53,8 +50,8 @@ public class Decompiler {
     }
 
     /**
-     * Performs the decompilation of the selected JAR file.
-     * This method assumes jarPath is a valid JAR file.
+     * Performs the decompilation of the selected JAR file. This method assumes jarPath is a valid JAR file.
+     *
      * @param io The Chrome instance for UI feedback
      * @param jarPath Path to the JAR file to decompile.
      * @param runner TaskRunner to run the decompilation task on
@@ -63,13 +60,9 @@ public class Decompiler {
         decompileJar(io, jarPath, runner, null);
     }
 
-    /**
-     * Overload that accepts an optional EDT callback once decompilation finishes.
-     */
-    public static void decompileJar(Chrome io,
-                                    Path jarPath,
-                                    ContextManager.TaskRunner runner,
-                                    @Nullable Runnable onComplete) {
+    /** Overload that accepts an optional EDT callback once decompilation finishes. */
+    public static void decompileJar(
+            Chrome io, Path jarPath, ContextManager.TaskRunner runner, @Nullable Runnable onComplete) {
         String jarName = jarPath.getFileName().toString();
         Path originalProjectRoot = io.getContextManager().getRoot();
         Path brokkDir = originalProjectRoot.resolve(".brokk");
@@ -94,7 +87,9 @@ public class Decompiler {
                 // If not downloaded, check for a local sibling
                 if (sourcesJarPathOpt.isEmpty()) {
                     if (coordsOpt.isEmpty()) {
-                        logger.info("No pom.properties found in {}. Checking for local *-sources.jar before decompiling.", jarPath.getFileName());
+                        logger.info(
+                                "No pom.properties found in {}. Checking for local *-sources.jar before decompiling.",
+                                jarPath.getFileName());
                     }
                     Path localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
                     if (Files.exists(localSources)) {
@@ -147,11 +142,11 @@ public class Decompiler {
 
                             Delete output directory and import again?
                             (Choosing 'No' will leave the existing files unchanged.)
-                            """.formatted(outputDir.toString()),
+                            """
+                                    .formatted(outputDir.toString()),
                             "Dependency exists",
                             JOptionPane.YES_NO_OPTION,
-                            JOptionPane.QUESTION_MESSAGE
-                    );
+                            JOptionPane.QUESTION_MESSAGE);
                     proceed.set(choice == JOptionPane.YES_OPTION);
                 } finally {
                     latch.countDown();
@@ -182,17 +177,15 @@ public class Decompiler {
 
             Map<String, Object> options = Map.of("hes", "1", "hdc", "1", "dgs", "1", "ren", "1");
             ConsoleDecompiler decompiler = new ConsoleDecompiler(
-                    outputDir.toFile(),
-                    options,
-                    new org.jetbrains.java.decompiler.main.extern.IFernflowerLogger() {
+                    outputDir.toFile(), options, new org.jetbrains.java.decompiler.main.extern.IFernflowerLogger() {
                         @Override
                         public void writeMessage(String message, Severity severity) {
                             switch (severity) {
                                 case ERROR -> logger.error("Fernflower: {}", message);
-                                case WARN  -> logger.warn("Fernflower: {}", message);
-                                case INFO  -> logger.info("Fernflower: {}", message);
+                                case WARN -> logger.warn("Fernflower: {}", message);
+                                case INFO -> logger.info("Fernflower: {}", message);
                                 case TRACE -> logger.trace("Fernflower: {}", message);
-                                default    -> logger.debug("Fernflower: {}", message);
+                                default -> logger.debug("Fernflower: {}", message);
                             }
                         }
 
@@ -200,14 +193,13 @@ public class Decompiler {
                         public void writeMessage(String message, Severity severity, Throwable t) {
                             switch (severity) {
                                 case ERROR -> logger.error("Fernflower: {}", message, t);
-                                case WARN  -> logger.warn("Fernflower: {}", message, t);
-                                case INFO  -> logger.info("Fernflower: {}", message, t);
+                                case WARN -> logger.warn("Fernflower: {}", message, t);
+                                case INFO -> logger.info("Fernflower: {}", message, t);
                                 case TRACE -> logger.trace("Fernflower: {}", message, t);
-                                default   -> logger.debug("Fernflower: {}", message, t);
+                                default -> logger.debug("Fernflower: {}", message, t);
                             }
                         }
-                    }
-            );
+                    });
 
             decompiler.addSource(tempDir.toFile());
             decompiler.decompileContext();

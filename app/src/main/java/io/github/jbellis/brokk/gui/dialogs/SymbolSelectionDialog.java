@@ -2,16 +2,13 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.util.Set;
+import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * A dialog for selecting Java symbols (classes and members) with autocomplete.
- */
+/** A dialog for selecting Java symbols (classes and members) with autocomplete. */
 public class SymbolSelectionDialog extends JDialog {
 
     private final SymbolSelectionPanel selectionPanel;
@@ -49,11 +46,15 @@ public class SymbolSelectionDialog extends JDialog {
 
         // Handle escape key to close dialog
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        getRootPane().registerKeyboardAction(e -> {
-            confirmed = false;
-            selectedSymbol = null;
-            dispose();
-        }, escapeKeyStroke, JComponent.WHEN_IN_FOCUSED_WINDOW);
+        getRootPane()
+                .registerKeyboardAction(
+                        e -> {
+                            confirmed = false;
+                            selectedSymbol = null;
+                            dispose();
+                        },
+                        escapeKeyStroke,
+                        JComponent.WHEN_IN_FOCUSED_WINDOW);
 
         // Set OK as the default button (responds to Enter key)
         getRootPane().setDefaultButton(okButton);
@@ -66,9 +67,7 @@ public class SymbolSelectionDialog extends JDialog {
         setLocationRelativeTo(parent);
     }
 
-    /**
-     * When OK is pressed, get the symbol from the text input.
-     */
+    /** When OK is pressed, get the symbol from the text input. */
     private void doOk() {
         confirmed = true;
         selectedSymbol = null;
@@ -80,16 +79,12 @@ public class SymbolSelectionDialog extends JDialog {
         dispose();
     }
 
-    /**
-     * Return true if user confirmed the selection.
-     */
+    /** Return true if user confirmed the selection. */
     public boolean isConfirmed() {
         return confirmed;
     }
 
-    /**
-     * Return the selected symbol or null if none.
-     */
+    /** Return the selected symbol or null if none. */
     public @Nullable String getSelectedSymbol() {
         return selectedSymbol;
     }

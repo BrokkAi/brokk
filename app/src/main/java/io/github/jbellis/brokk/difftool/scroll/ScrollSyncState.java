@@ -1,14 +1,12 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
-import org.jetbrains.annotations.Nullable;
-
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Thread-safe state management for scroll synchronization.
- * Tracks user scrolling state, programmatic scrolling, and timing information
- * to prevent race conditions and scroll jumping issues.
+ * Thread-safe state management for scroll synchronization. Tracks user scrolling state, programmatic scrolling, and
+ * timing information to prevent race conditions and scroll jumping issues.
  */
 public final class ScrollSyncState {
     private final AtomicBoolean isUserScrolling = new AtomicBoolean(false);
@@ -35,6 +33,7 @@ public final class ScrollSyncState {
 
     /**
      * Atomically checks and clears the pending scroll flag.
+     *
      * @return true if there was a pending scroll, false otherwise
      */
     public boolean getAndClearPendingScroll() {
@@ -60,6 +59,7 @@ public final class ScrollSyncState {
 
     /**
      * Checks if user scrolling is active within the specified time window.
+     *
      * @param windowMs time window in milliseconds
      * @return true if user scrolled within the window
      */
@@ -67,9 +67,7 @@ public final class ScrollSyncState {
         return isUserScrolling() || getTimeSinceLastUserScroll() < windowMs;
     }
 
-    /**
-     * Result of checking whether scroll sync should be suppressed.
-     */
+    /** Result of checking whether scroll sync should be suppressed. */
     public record SyncSuppressionResult(boolean shouldSuppress, @Nullable String reason) {
         public static SyncSuppressionResult allow() {
             return new SyncSuppressionResult(false, null);
@@ -82,6 +80,7 @@ public final class ScrollSyncState {
 
     /**
      * Comprehensive check for whether scroll synchronization should be suppressed.
+     *
      * @param userScrollWindowMs time window for considering user scrolling active
      */
     public SyncSuppressionResult shouldSuppressSync(long userScrollWindowMs) {

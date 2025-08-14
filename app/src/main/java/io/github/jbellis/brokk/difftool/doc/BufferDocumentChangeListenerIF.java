@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.doc;
 
 public interface BufferDocumentChangeListenerIF {

@@ -11,7 +11,8 @@ public record IssueProvider(IssueProviderType type, IssuesProviderConfig config)
 
     // Default GitHub: owner/repo derived from current project's git remote, host defaults to github.com
     public static IssueProvider github() {
-        return new IssueProvider(IssueProviderType.GITHUB, new IssuesProviderConfig.GithubConfig()); // owner="", repo="", host=""
+        return new IssueProvider(
+                IssueProviderType.GITHUB, new IssuesProviderConfig.GithubConfig()); // owner="", repo="", host=""
     }
 
     // GitHub with specific owner/repo, host defaults to github.com
@@ -25,7 +26,8 @@ public record IssueProvider(IssueProviderType type, IssuesProviderConfig config)
     }
 
     public static IssueProvider jira(String baseUrl, String apiToken, String projectKey) {
-        return new IssueProvider(IssueProviderType.JIRA, new IssuesProviderConfig.JiraConfig(baseUrl, apiToken, projectKey));
+        return new IssueProvider(
+                IssueProviderType.JIRA, new IssuesProviderConfig.JiraConfig(baseUrl, apiToken, projectKey));
     }
 
     // Returns an empty issue provider configuration

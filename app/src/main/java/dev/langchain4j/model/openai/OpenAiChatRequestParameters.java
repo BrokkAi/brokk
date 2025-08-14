@@ -6,18 +6,18 @@ import static dev.langchain4j.internal.Utils.quoted;
 import static dev.langchain4j.model.chat.request.ResponseFormatType.JSON;
 import static java.util.Arrays.asList;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 public class OpenAiChatRequestParameters {
 
-    public static final OpenAiChatRequestParameters EMPTY = OpenAiChatRequestParameters.builder().build();
+    public static final OpenAiChatRequestParameters EMPTY =
+            OpenAiChatRequestParameters.builder().build();
 
     private final String modelName;
     private final Double temperature;
@@ -191,33 +191,31 @@ public class OpenAiChatRequestParameters {
                 store,
                 metadata,
                 serviceTier,
-                reasoningEffort
-        );
+                reasoningEffort);
     }
 
     @Override
     public String toString() {
-        return "OpenAiChatRequestParameters{" +
-                "modelName=" + quoted(modelName) +
-                ", temperature=" + temperature() +
-                ", topP=" + topP() +
-                ", frequencyPenalty=" + frequencyPenalty() +
-                ", presencePenalty=" + presencePenalty() +
-                ", maxOutputTokens=" + maxOutputTokens() +
-                ", stopSequences=" + stopSequences() +
-                ", toolSpecifications=" + toolSpecifications() +
-                ", toolChoice=" + toolChoice() +
-                ", responseFormat=" + responseFormat() +
-                ", maxCompletionTokens=" + maxCompletionTokens +
-                ", logitBias=" + logitBias +
-                ", parallelToolCalls=" + parallelToolCalls +
-                ", seed=" + seed +
-                ", user=" + quoted(user) +
-                ", store=" + store +
-                ", metadata=" + metadata +
-                ", serviceTier=" + quoted(serviceTier) +
-                ", reasoningEffort=" + quoted(reasoningEffort) +
-                '}';
+        return "OpenAiChatRequestParameters{" + "modelName="
+                + quoted(modelName) + ", temperature="
+                + temperature() + ", topP="
+                + topP() + ", frequencyPenalty="
+                + frequencyPenalty() + ", presencePenalty="
+                + presencePenalty() + ", maxOutputTokens="
+                + maxOutputTokens() + ", stopSequences="
+                + stopSequences() + ", toolSpecifications="
+                + toolSpecifications() + ", toolChoice="
+                + toolChoice() + ", responseFormat="
+                + responseFormat() + ", maxCompletionTokens="
+                + maxCompletionTokens + ", logitBias="
+                + logitBias + ", parallelToolCalls="
+                + parallelToolCalls + ", seed="
+                + seed + ", user="
+                + quoted(user) + ", store="
+                + store + ", metadata="
+                + metadata + ", serviceTier="
+                + quoted(serviceTier) + ", reasoningEffort="
+                + quoted(reasoningEffort) + '}';
     }
 
     public static Builder builder() {
@@ -299,32 +297,24 @@ public class OpenAiChatRequestParameters {
             return this;
         }
 
-        /**
-         * @see #stopSequences(String...)
-         */
+        /** @see #stopSequences(String...) */
         public Builder stopSequences(List<String> stopSequences) {
             this.stopSequences = stopSequences;
             return this;
         }
 
-        /**
-         * @see #stopSequences(List)
-         */
+        /** @see #stopSequences(List) */
         public Builder stopSequences(String... stopSequences) {
             return stopSequences(asList(stopSequences));
         }
 
-        /**
-         * @see #toolSpecifications(ToolSpecification...)
-         */
+        /** @see #toolSpecifications(ToolSpecification...) */
         public Builder toolSpecifications(List<ToolSpecification> toolSpecifications) {
             this.toolSpecifications = toolSpecifications;
             return this;
         }
 
-        /**
-         * @see #toolSpecifications(List)
-         */
+        /** @see #toolSpecifications(List) */
         public Builder toolSpecifications(ToolSpecification... toolSpecifications) {
             return toolSpecifications(asList(toolSpecifications));
         }
@@ -334,17 +324,13 @@ public class OpenAiChatRequestParameters {
             return this;
         }
 
-        /**
-         * @see #responseFormat(JsonSchema)
-         */
+        /** @see #responseFormat(JsonSchema) */
         public Builder responseFormat(ResponseFormat responseFormat) {
             this.responseFormat = responseFormat;
             return this;
         }
 
-        /**
-         * @see #responseFormat(ResponseFormat)
-         */
+        /** @see #responseFormat(ResponseFormat) */
         public Builder responseFormat(JsonSchema jsonSchema) {
             if (jsonSchema != null) {
                 ResponseFormat responseFormat = ResponseFormat.builder()

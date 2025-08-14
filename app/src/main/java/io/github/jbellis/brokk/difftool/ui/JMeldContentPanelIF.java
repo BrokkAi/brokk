@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
 public interface JMeldContentPanelIF {
@@ -11,9 +10,7 @@ public interface JMeldContentPanelIF {
 
     void doRedo();
 
-
     void doUp();
 
     void doDown();
-
 }

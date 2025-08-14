@@ -1,12 +1,11 @@
 package io.github.jbellis.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.EditBlock.OutputBlock;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
-import org.junit.jupiter.api.Test;
-
 import java.util.Set;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class EditBlockParseAllBlocksTest {
     @Test
@@ -22,10 +21,11 @@ class EditBlockParseAllBlocksTest {
         assertEquals(1, result.size());
         assertEquals(OutputBlock.plain(input), result.getFirst());
     }
-    
+
     @Test
     void testParseSimpleEditBlock() {
-        String input = """
+        String input =
+                """
                 ```
                 build.gradle
                 <<<<<<< SEARCH
@@ -49,7 +49,8 @@ class EditBlockParseAllBlocksTest {
 
     @Test
     void testParseEditBlockInsideText() {
-        String input = """
+        String input =
+                """
         Some introductory text.
         ```
         build.gradle
@@ -68,7 +69,7 @@ class EditBlockParseAllBlocksTest {
         var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
 
         assertEquals(3, result.size());
-        assertTrue(result.get(0).text().contains("introductory")); 
+        assertTrue(result.get(0).text().contains("introductory"));
         assertEquals("build.gradle", result.get(1).block().filename());
         assertTrue(result.get(1).block().beforeText().contains("a:b:1.0"));
         assertTrue(result.get(1).block().afterText().contains("a:b:2.0"));
@@ -77,7 +78,8 @@ class EditBlockParseAllBlocksTest {
 
     @Test
     void testParseMultipleValidEditBlocks() {
-        String input = """
+        String input =
+                """
                 Text prologue
                 ```
                 file1.txt
@@ -87,7 +89,7 @@ class EditBlockParseAllBlocksTest {
                 def
                 >>>>>>> REPLACE
                 ```
-                
+
                 ```
                 file2.java
                 <<<<<<< SEARCH
@@ -104,11 +106,11 @@ class EditBlockParseAllBlocksTest {
         // TODO flesh out asserts
     }
 
-
     @Test
     void testParseMalformedEditBlockFallsBackToText() {
         // Missing ======= divider
-        String input = """
+        String input =
+                """
                 Some introductory text.
                 ```
                 build.gradle

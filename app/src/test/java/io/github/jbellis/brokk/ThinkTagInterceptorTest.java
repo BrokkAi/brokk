@@ -1,18 +1,17 @@
 package io.github.jbellis.brokk;
 
-import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
-import org.jetbrains.annotations.Nullable;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
-import java.util.ArrayList;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import java.util.ArrayList;
+import java.util.List;
+import org.jetbrains.annotations.Nullable;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class ThinkTagInterceptorTest {
 
@@ -28,10 +27,13 @@ public class ThinkTagInterceptorTest {
     private static class TestHandler implements StreamingChatResponseHandler {
         final StringBuilder partialResponses = new StringBuilder();
         final List<String> reasoningCalls = new ArrayList<>();
+
         @Nullable
         ChatResponse completedResponse;
+
         @Nullable
         Throwable error;
+
         boolean completed = false;
 
         @Override

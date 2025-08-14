@@ -12,13 +12,11 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
+import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-
-import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 
 @JsonDeserialize(builder = ChatCompletionRequest.Builder.class)
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
@@ -27,53 +25,77 @@ public final class ChatCompletionRequest {
 
     @JsonProperty
     private final String model;
+
     @JsonProperty
     private final List<Message> messages;
+
     @JsonProperty
     private final Double temperature;
+
     @JsonProperty
     private final Double topP;
+
     @JsonProperty
     private final Integer n;
+
     @JsonProperty
     private final Boolean stream;
+
     @JsonProperty
     private final StreamOptions streamOptions;
+
     @JsonProperty
     private final List<String> stop;
+
     @JsonProperty
     private final Integer maxTokens;
+
     @JsonProperty
     private final Integer maxCompletionTokens;
+
     @JsonProperty
     private final Double presencePenalty;
+
     @JsonProperty
     private final Double frequencyPenalty;
+
     @JsonProperty
     private final Map<String, Integer> logitBias;
+
     @JsonProperty
     private final String user;
+
     @JsonProperty
     private final ResponseFormat responseFormat;
+
     @JsonProperty
     private final Integer seed;
+
     @JsonProperty
     private final List<Tool> tools;
+
     @JsonProperty
     private final Object toolChoice;
+
     @JsonProperty
     private final Boolean parallelToolCalls;
+
     @JsonProperty
     private final Boolean store;
+
     @JsonProperty
     private final Map<String, String> metadata;
+
     @JsonProperty
     private final String reasoningEffort;
+
     @JsonProperty
     private final String serviceTier;
+
     @JsonProperty
     @Deprecated
     private final List<Function> functions;
+
     @JsonProperty
     @Deprecated
     private final FunctionCall functionCall;
@@ -211,8 +233,7 @@ public final class ChatCompletionRequest {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ChatCompletionRequest
-                && equalTo((ChatCompletionRequest) another);
+        return another instanceof ChatCompletionRequest && equalTo((ChatCompletionRequest) another);
     }
 
     private boolean equalTo(ChatCompletionRequest another) {
@@ -337,8 +358,10 @@ public final class ChatCompletionRequest {
         private Map<String, String> metadata;
         private String reasoningEffort;
         private String serviceTier;
+
         @Deprecated
         private List<Function> functions;
+
         @Deprecated
         private FunctionCall functionCall;
 
@@ -491,9 +514,8 @@ public final class ChatCompletionRequest {
 
         public Builder responseFormat(ResponseFormatType responseFormatType) {
             if (responseFormatType != null) {
-                responseFormat = ResponseFormat.builder()
-                        .type(responseFormatType)
-                        .build();
+                responseFormat =
+                        ResponseFormat.builder().type(responseFormatType).build();
             }
             return this;
         }
@@ -579,9 +601,7 @@ public final class ChatCompletionRequest {
         @Deprecated
         public Builder functionCall(String functionName) {
             if (functionName != null) {
-                this.functionCall = FunctionCall.builder()
-                        .name(functionName)
-                        .build();
+                this.functionCall = FunctionCall.builder().name(functionName).build();
             }
             return this;
         }

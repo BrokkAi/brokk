@@ -1,14 +1,14 @@
 package io.github.jbellis.brokk.gui.components;
 
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
+import javax.swing.*;
 
 /**
- * A reusable overlay panel that can be placed over other components to make them appear disabled
- * while optionally allowing interaction through click-to-activate behavior.
+ * A reusable overlay panel that can be placed over other components to make them appear disabled while optionally
+ * allowing interaction through click-to-activate behavior.
  */
 public class OverlayPanel extends JPanel {
     private static final Color TRANSPARENT = new Color(0, 0, 0, 0); // Fully transparent color
@@ -28,26 +28,22 @@ public class OverlayPanel extends JPanel {
         setupOverlay();
     }
 
-    /**
-     * Creates a transparent overlay panel with a click handler.
-     */
+    /** Creates a transparent overlay panel with a click handler. */
     public OverlayPanel(Consumer<OverlayPanel> onActivate, String tooltipText) {
         this(onActivate, tooltipText, TRANSPARENT, true);
     }
 
-    /**
-     * Creates a gray overlay panel with a click handler and specified transparency.
-     */
-    public static OverlayPanel createGrayOverlay(Consumer<OverlayPanel> onActivate, String tooltipText, int transparency) {
+    /** Creates a gray overlay panel with a click handler and specified transparency. */
+    public static OverlayPanel createGrayOverlay(
+            Consumer<OverlayPanel> onActivate, String tooltipText, int transparency) {
         // Clamp transparency to valid range
         int alpha = Math.max(0, Math.min(255, transparency));
         return new OverlayPanel(onActivate, tooltipText, new Color(128, 128, 128, alpha), true);
     }
 
-    /**
-     * Creates a non-blocking gray overlay panel that allows mouse events to pass through.
-     */
-    public static OverlayPanel createNonBlockingGrayOverlay(Consumer<OverlayPanel> onActivate, String tooltipText, int transparency) {
+    /** Creates a non-blocking gray overlay panel that allows mouse events to pass through. */
+    public static OverlayPanel createNonBlockingGrayOverlay(
+            Consumer<OverlayPanel> onActivate, String tooltipText, int transparency) {
         // Clamp transparency to valid range
         int alpha = Math.max(0, Math.min(255, transparency));
         return new OverlayPanel(onActivate, tooltipText, new Color(128, 128, 128, alpha), false);
@@ -84,9 +80,7 @@ public class OverlayPanel extends JPanel {
         super.paintComponent(g);
     }
 
-    /**
-     * Creates a layered pane with the given component and this overlay on top.
-     */
+    /** Creates a layered pane with the given component and this overlay on top. */
     public JLayeredPane createLayeredPane(JComponent component) {
         var layeredPane = new JLayeredPane();
         layeredPane.setLayout(new OverlayLayout(layeredPane));
@@ -116,5 +110,4 @@ public class OverlayPanel extends JPanel {
         // If non-blocking, don't claim to contain any points, allowing events to pass through
         return isBlocking && super.contains(x, y);
     }
-
 }

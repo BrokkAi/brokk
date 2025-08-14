@@ -1,19 +1,12 @@
 package dev.langchain4j.data.message;
 
-/**
- * The type of content, e.g. text or image.
- * Maps to implementations of {@link Content}.
- */
+/** The type of content, e.g. text or image. Maps to implementations of {@link Content}. */
 public enum ContentType {
 
-    /**
-     * Text content.
-     */
+    /** Text content. */
     TEXT(TextContent.class),
 
-    /**
-     * Image content.
-     */
+    /** Image content. */
     IMAGE(ImageContent.class);
 
     private final Class<? extends Content> contentClass;

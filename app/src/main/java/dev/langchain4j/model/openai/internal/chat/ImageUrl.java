@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = ImageUrl.Builder.class)
@@ -17,6 +16,7 @@ public class ImageUrl {
 
     @JsonProperty
     private final String url;
+
     @JsonProperty
     private final ImageDetail detail;
 
@@ -36,13 +36,11 @@ public class ImageUrl {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ImageUrl
-                && equalTo((ImageUrl) another);
+        return another instanceof ImageUrl && equalTo((ImageUrl) another);
     }
 
     private boolean equalTo(ImageUrl another) {
-        return Objects.equals(url, another.url)
-                && Objects.equals(detail, another.detail);
+        return Objects.equals(url, another.url) && Objects.equals(detail, another.detail);
     }
 
     @Override
@@ -55,10 +53,7 @@ public class ImageUrl {
 
     @Override
     public String toString() {
-        return "ImageUrl{" +
-                "url=" + url +
-                ", detail=" + detail +
-                "}";
+        return "ImageUrl{" + "url=" + url + ", detail=" + detail + "}";
     }
 
     public static Builder builder() {

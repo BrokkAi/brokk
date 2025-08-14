@@ -3,103 +3,77 @@ package io.github.jbellis.brokk;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
-
 import java.util.List;
 import java.util.Set;
 
 /**
- * Represents the outcome of a CodeAgent session, containing all necessary information
- * to update the context history.
+ * Represents the outcome of a CodeAgent session, containing all necessary information to update the context history.
  */
-public record TaskResult(String actionDescription,
-                         ContextFragment.TaskFragment output,
-                         Set<ProjectFile> changedFiles,
-                         StopDetails stopDetails)
-{
-    public TaskResult(IContextManager contextManager, String actionDescription,
-                      List<ChatMessage> uiMessages,
-                      Set<ProjectFile> changedFiles,
-                      StopDetails stopDetails)
-    {
-        this(actionDescription,
-             new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
-             changedFiles,
-             stopDetails);
+public record TaskResult(
+        String actionDescription,
+        ContextFragment.TaskFragment output,
+        Set<ProjectFile> changedFiles,
+        StopDetails stopDetails) {
+    public TaskResult(
+            IContextManager contextManager,
+            String actionDescription,
+            List<ChatMessage> uiMessages,
+            Set<ProjectFile> changedFiles,
+            StopDetails stopDetails) {
+        this(
+                actionDescription,
+                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                changedFiles,
+                stopDetails);
     }
 
-    public TaskResult(IContextManager contextManager, String actionDescription,
-                      List<ChatMessage> uiMessages,
-                      Set<ProjectFile> changedFiles,
-                      StopReason simpleReason)
-    {
-        this(actionDescription,
-             new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
-             changedFiles,
-             new StopDetails(simpleReason));
+    public TaskResult(
+            IContextManager contextManager,
+            String actionDescription,
+            List<ChatMessage> uiMessages,
+            Set<ProjectFile> changedFiles,
+            StopReason simpleReason) {
+        this(
+                actionDescription,
+                new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+                changedFiles,
+                new StopDetails(simpleReason));
     }
 
-    /**
-     * Creates a new TaskResult by replacing the messages in an existing one.
-     */
-    public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager)
-    {
-        this(base.actionDescription(),
-             new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
-             base.changedFiles(),
-             base.stopDetails());
+    /** Creates a new TaskResult by replacing the messages in an existing one. */
+    public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager) {
+        this(
+                base.actionDescription(),
+                new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
+                base.changedFiles(),
+                base.stopDetails());
     }
 
-    /**
-     * Enum representing the reason a CodeAgent session concluded.
-     */
+    /** Enum representing the reason a CodeAgent session concluded. */
     public enum StopReason {
-        /**
-         * The agent successfully completed the goal.
-         */
+        /** The agent successfully completed the goal. */
         SUCCESS,
-        /**
-         * The user interrupted the session.
-         */
+        /** The user interrupted the session. */
         INTERRUPTED,
-        /**
-         * The LLM returned an error after retries.
-         */
+        /** The LLM returned an error after retries. */
         LLM_ERROR,
-        /**
-         * The LLM returned an empty or blank response after retries.
-         */
+        /** The LLM returned an empty or blank response after retries. */
         EMPTY_RESPONSE,
-        /**
-         * The LLM response could not be parsed after retries.
-         */
+        /** The LLM response could not be parsed after retries. */
         PARSE_ERROR,
-        /**
-         * Applying edits failed after retries.
-         */
+        /** Applying edits failed after retries. */
         APPLY_ERROR,
-        /**
-         * Build errors occurred and were not improving after retries.
-         */
+        /** Build errors occurred and were not improving after retries. */
         BUILD_ERROR,
-        /**
-         * The LLM attempted to edit a read-only file.
-         */
+        /** The LLM attempted to edit a read-only file. */
         READ_ONLY_EDIT,
-        /**
-         * Unable to write new file contents
-         */
+        /** Unable to write new file contents */
         IO_ERROR,
-        /**
-         * the LLM called answer() but did not provide a result
-         */
+        /** the LLM called answer() but did not provide a result */
         SEARCH_INVALID_ANSWER,
-        /**
-         * the LLM determined that it was not possible to fulfil the request
-         */
+        /** the LLM determined that it was not possible to fulfil the request */
         LLM_ABORTED,
-        /**
-         * an error occurred while executing a tool
-         */
+        /** an error occurred while executing a tool */
         TOOL_ERROR
     }
 

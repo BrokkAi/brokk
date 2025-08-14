@@ -1,22 +1,22 @@
 package io.github.jbellis.brokk.gui;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import javax.swing.*;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.JTextComponent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class SwingUtil {
     private static final Logger logger = LogManager.getLogger(SwingUtil.class);
 
     /**
-     * Executes a Callable on the EDT and handles exceptions properly.  Use this instead of Swingutilities.invokeAndWait.
+     * Executes a Callable on the EDT and handles exceptions properly. Use this instead of Swingutilities.invokeAndWait.
+     *
      * @param task The task to execute
      * @param <T> The return type
      * @param defaultValue Value to return if execution fails
@@ -49,7 +49,9 @@ public class SwingUtil {
         }
     }
 
-    /** Executes a Runnable on the EDT and handles exceptions properly.  Use this instead of Swingutilities.invokeAndWait. */
+    /**
+     * Executes a Runnable on the EDT and handles exceptions properly. Use this instead of Swingutilities.invokeAndWait.
+     */
     public static boolean runOnEdt(Runnable task) {
         try {
             if (SwingUtilities.isEventDispatchThread()) {
@@ -89,8 +91,8 @@ public class SwingUtil {
     }
 
     /**
-     * Safely loads an icon from the UIManager theme with fallback support.
-     * Tries the primary icon key first, then falls back to a reliable default icon.
+     * Safely loads an icon from the UIManager theme with fallback support. Tries the primary icon key first, then falls
+     * back to a reliable default icon.
      *
      * @param iconKey The UIManager key for the desired icon (e.g., "FileView.directoryIcon")
      */
@@ -102,12 +104,12 @@ public class SwingUtil {
         }
 
         // Try common fallback icons in order of preference
-        var fallbackKeys = new String[]{
-            "OptionPane.informationIcon",   // Usually available and neutral
-            "FileView.fileIcon",           // Generic file icon
-            "Tree.leafIcon",               // Small document icon
-            "OptionPane.questionIcon",     // Question mark icon
-            "FileView.directoryIcon"       // Folder icon
+        var fallbackKeys = new String[] {
+            "OptionPane.informationIcon", // Usually available and neutral
+            "FileView.fileIcon", // Generic file icon
+            "Tree.leafIcon", // Small document icon
+            "OptionPane.questionIcon", // Question mark icon
+            "FileView.directoryIcon" // Folder icon
         };
 
         for (var fallbackKey : fallbackKeys) {
@@ -123,18 +125,13 @@ public class SwingUtil {
         return createSimpleFallbackIcon();
     }
 
-    /**
-     * Replacement for the deprecated {@code JTextComponent.modelToView(int)}.
-     */
+    /** Replacement for the deprecated {@code JTextComponent.modelToView(int)}. */
     @org.jetbrains.annotations.Nullable
     public static Rectangle modelToView(JTextComponent comp, int pos) throws BadLocationException {
         var r2d = comp.modelToView2D(pos);
         return r2d == null
-               ? null
-               : new Rectangle((int) r2d.getX(),
-                               (int) r2d.getY(),
-                               (int) r2d.getWidth(),
-                               (int) r2d.getHeight());
+                ? null
+                : new Rectangle((int) r2d.getX(), (int) r2d.getY(), (int) r2d.getWidth(), (int) r2d.getHeight());
     }
 
     private static Icon createSimpleFallbackIcon() {
@@ -148,10 +145,14 @@ public class SwingUtil {
             }
 
             @Override
-            public int getIconWidth() { return 16; }
+            public int getIconWidth() {
+                return 16;
+            }
 
             @Override
-            public int getIconHeight() { return 16; }
+            public int getIconHeight() {
+                return 16;
+            }
         };
     }
 }

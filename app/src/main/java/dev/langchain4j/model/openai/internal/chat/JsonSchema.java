@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Map;
 import java.util.Objects;
 
@@ -18,8 +17,10 @@ public class JsonSchema {
 
     @JsonProperty
     private final String name;
+
     @JsonProperty
     private final Boolean strict;
+
     @JsonProperty
     private final Map<String, Object> schema;
 
@@ -32,8 +33,7 @@ public class JsonSchema {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof JsonSchema
-                && equalTo((JsonSchema) another);
+        return another instanceof JsonSchema && equalTo((JsonSchema) another);
     }
 
     private boolean equalTo(JsonSchema another) {
@@ -53,11 +53,7 @@ public class JsonSchema {
 
     @Override
     public String toString() {
-        return "JsonSchema{" +
-                "name=" + name +
-                ", strict=" + strict +
-                ", schema=" + schema +
-                "}";
+        return "JsonSchema{" + "name=" + name + ", strict=" + strict + ", schema=" + schema + "}";
     }
 
     public static Builder builder() {

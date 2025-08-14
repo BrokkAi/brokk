@@ -2,25 +2,23 @@ package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.undo.AbstractUndoableEdit;
-import javax.swing.undo.CannotRedoException;
-import javax.swing.undo.CannotUndoException;
-import javax.swing.undo.UndoableEdit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import javax.swing.undo.AbstractUndoableEdit;
+import javax.swing.undo.CannotRedoException;
+import javax.swing.undo.CannotUndoException;
+import javax.swing.undo.UndoableEdit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Custom undoable edit that handles both document text changes and patch state changes
- * when applying chunks via runChange or runDelete operations.
+ * Custom undoable edit that handles both document text changes and patch state changes when applying chunks via
+ * runChange or runDelete operations.
  *
- * This ensures that undo/redo operations maintain consistency between document content
- * and the diff patch state.
+ * <p>This ensures that undo/redo operations maintain consistency between document content and the diff patch state.
  */
 public class ChunkApplicationEdit extends AbstractUndoableEdit {
     private static final Logger logger = LogManager.getLogger(ChunkApplicationEdit.class);
@@ -28,21 +26,23 @@ public class ChunkApplicationEdit extends AbstractUndoableEdit {
     private final BufferDiffPanel diffPanel;
     private final AbstractDelta<String> appliedDelta;
     private final List<UndoableEdit> documentEdits;
+
     @Nullable
     private final Integer originalDeltaIndex;
+
     @Nullable
     private final AbstractDelta<String> selectedDeltaSnapshot;
+
     private final String operationType;
 
-    /**
-     * Creates a new chunk application edit that can be undone/redone.
-     */
-    public ChunkApplicationEdit(BufferDiffPanel diffPanel,
-                               AbstractDelta<String> appliedDelta,
-                               List<UndoableEdit> documentEdits,
-                               @Nullable Integer originalDeltaIndex,
-                               @Nullable AbstractDelta<String> selectedDeltaSnapshot,
-                               String operationType) {
+    /** Creates a new chunk application edit that can be undone/redone. */
+    public ChunkApplicationEdit(
+            BufferDiffPanel diffPanel,
+            AbstractDelta<String> appliedDelta,
+            List<UndoableEdit> documentEdits,
+            @Nullable Integer originalDeltaIndex,
+            @Nullable AbstractDelta<String> selectedDeltaSnapshot,
+            String operationType) {
         this.diffPanel = diffPanel;
         this.appliedDelta = appliedDelta;
         this.documentEdits = new ArrayList<>(documentEdits);
@@ -69,7 +69,9 @@ public class ChunkApplicationEdit extends AbstractUndoableEdit {
             var currentPatch = diffPanel.getPatch();
             if (currentPatch != null && !currentPatch.getDeltas().contains(appliedDelta)) {
                 // Insert the delta back at its original position if we have it, otherwise find correct position
-                if (originalDeltaIndex != null && originalDeltaIndex >= 0 && originalDeltaIndex <= currentPatch.getDeltas().size()) {
+                if (originalDeltaIndex != null
+                        && originalDeltaIndex >= 0
+                        && originalDeltaIndex <= currentPatch.getDeltas().size()) {
                     currentPatch.getDeltas().add(originalDeltaIndex, appliedDelta);
                 } else {
                     // Fallback to position-based insertion
@@ -145,15 +147,15 @@ public class ChunkApplicationEdit extends AbstractUndoableEdit {
     }
 
     /**
-     * Insert the delta back into the patch at the correct position based on line numbers.
-     * This maintains the sorted order of deltas in the patch using binary search for O(log n) performance.
+     * Insert the delta back into the patch at the correct position based on line numbers. This maintains the sorted
+     * order of deltas in the patch using binary search for O(log n) performance.
      */
     private void insertDeltaInCorrectPosition(Patch<String> patch, AbstractDelta<String> delta) {
         var deltas = patch.getDeltas();
 
         // Use binary search to find the correct insertion position
-        int searchResult = Collections.binarySearch(deltas, delta,
-            Comparator.comparingInt(d -> d.getSource().getPosition()));
+        int searchResult = Collections.binarySearch(
+                deltas, delta, Comparator.comparingInt(d -> d.getSource().getPosition()));
 
         // If searchResult is negative, convert to insertion point
         int insertPosition = searchResult < 0 ? -(searchResult + 1) : searchResult;
@@ -162,8 +164,8 @@ public class ChunkApplicationEdit extends AbstractUndoableEdit {
     }
 
     /**
-     * Check all file panel documents to see if they have returned to their original saved state.
-     * If so, reset their changed flags accordingly.
+     * Check all file panel documents to see if they have returned to their original saved state. If so, reset their
+     * changed flags accordingly.
      */
     private void recheckDocumentStates() {
         // Check both left and right file panels

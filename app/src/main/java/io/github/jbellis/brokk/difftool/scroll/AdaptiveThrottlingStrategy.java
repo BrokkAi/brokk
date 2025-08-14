@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-
 /**
- * Adaptive throttling strategy that dynamically switches between immediate
- * and frame-based throttling modes based on file complexity and scroll performance.
+ * Adaptive throttling strategy that dynamically switches between immediate and frame-based throttling modes based on
+ * file complexity and scroll performance.
  *
- * This strategy optimizes the user experience by:
- * - Using immediate mode for simple files (best responsiveness)
- * - Switching to frame-based mode for complex files (prevents UI lag)
- * - Monitoring real-time performance to adapt dynamically
+ * <p>This strategy optimizes the user experience by: - Using immediate mode for simple files (best responsiveness) -
+ * Switching to frame-based mode for complex files (prevents UI lag) - Monitoring real-time performance to adapt
+ * dynamically
  */
 public class AdaptiveThrottlingStrategy {
     private static final Logger logger = LogManager.getLogger(AdaptiveThrottlingStrategy.class);
@@ -52,9 +50,7 @@ public class AdaptiveThrottlingStrategy {
     private static final int MODE_SWITCH_COOLDOWN_MS = 2000;
     private volatile long lastModeSwitchTime = 0;
 
-    /**
-     * Initialize the strategy with file complexity metrics.
-     */
+    /** Initialize the strategy with file complexity metrics. */
     public void initialize(int totalLines, int totalDeltas) {
         this.totalLines = totalLines;
         this.totalDeltas = totalDeltas;
@@ -66,9 +62,7 @@ public class AdaptiveThrottlingStrategy {
         }
     }
 
-    /**
-     * Determine the initial throttling mode based on file complexity.
-     */
+    /** Determine the initial throttling mode based on file complexity. */
     private ThrottlingMode determineInitialMode() {
         // Check static complexity thresholds
         if (totalLines > PerformanceConstants.ADAPTIVE_MODE_LINE_THRESHOLD) {
@@ -83,9 +77,7 @@ public class AdaptiveThrottlingStrategy {
         return ThrottlingMode.IMMEDIATE;
     }
 
-    /**
-     * Record a scroll event and adapt the throttling mode if needed.
-     */
+    /** Record a scroll event and adapt the throttling mode if needed. */
     public void recordScrollEvent(long mappingDurationMs) {
         lastMappingDuration.set(mappingDurationMs);
 
@@ -96,9 +88,7 @@ public class AdaptiveThrottlingStrategy {
         evaluateAndAdaptMode();
     }
 
-    /**
-     * Update tracking for rapid scroll detection.
-     */
+    /** Update tracking for rapid scroll detection. */
     private void updateRapidScrollWindow() {
         long currentTime = System.currentTimeMillis();
         long timeSinceLastEvent = currentTime - lastEventTime.get();
@@ -116,9 +106,7 @@ public class AdaptiveThrottlingStrategy {
         }
     }
 
-    /**
-     * Evaluate current performance and switch modes if necessary.
-     */
+    /** Evaluate current performance and switch modes if necessary. */
     private void evaluateAndAdaptMode() {
         // Don't switch modes too frequently
         if (System.currentTimeMillis() - lastModeSwitchTime < MODE_SWITCH_COOLDOWN_MS) {
@@ -136,17 +124,17 @@ public class AdaptiveThrottlingStrategy {
         // Check performance threshold
         if (currentMappingDuration > PerformanceConstants.ADAPTIVE_MODE_PERFORMANCE_THRESHOLD_MS) {
             shouldUseFrameMode = true;
-            reason = String.format("Slow mapping performance (%dms > %dms threshold)",
-                                 currentMappingDuration,
-                                 PerformanceConstants.ADAPTIVE_MODE_PERFORMANCE_THRESHOLD_MS);
+            reason = String.format(
+                    "Slow mapping performance (%dms > %dms threshold)",
+                    currentMappingDuration, PerformanceConstants.ADAPTIVE_MODE_PERFORMANCE_THRESHOLD_MS);
         }
 
         // Check rapid scrolling
         if (eventsPerSecond > PerformanceConstants.ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD) {
             shouldUseFrameMode = true;
-            reason = String.format("Rapid scrolling detected (%d events/sec > %d threshold)",
-                                 eventsPerSecond,
-                                 PerformanceConstants.ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD);
+            reason = String.format(
+                    "Rapid scrolling detected (%d events/sec > %d threshold)",
+                    eventsPerSecond, PerformanceConstants.ADAPTIVE_MODE_RAPID_SCROLL_THRESHOLD);
         }
 
         // Switch mode if needed
@@ -156,9 +144,7 @@ public class AdaptiveThrottlingStrategy {
         }
     }
 
-    /**
-     * Calculate the current scroll events per second rate.
-     */
+    /** Calculate the current scroll events per second rate. */
     private int calculateEventsPerSecond() {
         int currentEventCount = recentEventCount.get();
 
@@ -178,43 +164,36 @@ public class AdaptiveThrottlingStrategy {
         return 0;
     }
 
-    /**
-     * Switch to a new throttling mode.
-     * The caller is responsible for acting on the mode change.
-     */
+    /** Switch to a new throttling mode. The caller is responsible for acting on the mode change. */
     private void switchMode(ThrottlingMode newMode, String reason) {
         ThrottlingMode oldMode = currentMode;
         currentMode = newMode;
         lastModeSwitchTime = System.currentTimeMillis();
 
-        logger.debug("Adaptive throttling switched from {} to {}: {}",
-                   oldMode.getDescription(), newMode.getDescription(), reason);
+        logger.debug(
+                "Adaptive throttling switched from {} to {}: {}",
+                oldMode.getDescription(),
+                newMode.getDescription(),
+                reason);
     }
 
-    /**
-     * Get the current throttling mode.
-     */
+    /** Get the current throttling mode. */
     public ThrottlingMode getCurrentMode() {
         return currentMode;
     }
 
-    /**
-     * Get current performance metrics for monitoring.
-     */
+    /** Get current performance metrics for monitoring. */
     public AdaptiveMetrics getMetrics() {
         return new AdaptiveMetrics(
-            currentMode,
-            totalLines,
-            totalDeltas,
-            lastMappingDuration.get(),
-            calculateEventsPerSecond(),
-            System.currentTimeMillis() - lastModeSwitchTime
-        );
+                currentMode,
+                totalLines,
+                totalDeltas,
+                lastMappingDuration.get(),
+                calculateEventsPerSecond(),
+                System.currentTimeMillis() - lastModeSwitchTime);
     }
 
-    /**
-     * Reset the strategy (useful for testing).
-     */
+    /** Reset the strategy (useful for testing). */
     public void reset() {
         currentMode = ThrottlingMode.IMMEDIATE;
         totalLines = 0;
@@ -225,30 +204,25 @@ public class AdaptiveThrottlingStrategy {
         lastModeSwitchTime = 0;
     }
 
-    /**
-     * Force a specific mode (for testing or manual override).
-     */
+    /** Force a specific mode (for testing or manual override). */
     public void forceMode(ThrottlingMode mode, String reason) {
         if (mode != currentMode) {
             switchMode(mode, "Manual override: " + reason);
         }
     }
 
-    /**
-     * Record for adaptive throttling metrics.
-     */
+    /** Record for adaptive throttling metrics. */
     public record AdaptiveMetrics(
-        ThrottlingMode currentMode,
-        int totalLines,
-        int totalDeltas,
-        long lastMappingDurationMs,
-        int eventsPerSecond,
-        long timeSinceLastSwitch
-    ) {
+            ThrottlingMode currentMode,
+            int totalLines,
+            int totalDeltas,
+            long lastMappingDurationMs,
+            int eventsPerSecond,
+            long timeSinceLastSwitch) {
         public String getSummary() {
-            return String.format("Mode: %s | Lines: %d | Deltas: %d | Mapping: %dms | Rate: %d/s",
-                               currentMode.name(), totalLines, totalDeltas,
-                               lastMappingDurationMs, eventsPerSecond);
+            return String.format(
+                    "Mode: %s | Lines: %d | Deltas: %d | Mapping: %dms | Rate: %d/s",
+                    currentMode.name(), totalLines, totalDeltas, lastMappingDurationMs, eventsPerSecond);
         }
     }
 }

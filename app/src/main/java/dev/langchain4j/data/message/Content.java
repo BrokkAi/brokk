@@ -10,7 +10,7 @@ public interface Content {
     /**
      * Returns the type of content.
      *
-     * <p>Can be used to cast the content to the correct type.</p>
+     * <p>Can be used to cast the content to the correct type.
      *
      * @return The type of content.
      */

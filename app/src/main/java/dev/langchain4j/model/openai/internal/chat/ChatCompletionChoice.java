@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = ChatCompletionChoice.Builder.class)
@@ -17,10 +16,13 @@ public final class ChatCompletionChoice {
 
     @JsonProperty
     private final Integer index;
+
     @JsonProperty
     private final AssistantMessage message;
+
     @JsonProperty
     private final Delta delta;
+
     @JsonProperty
     private final String finishReason;
 
@@ -50,8 +52,7 @@ public final class ChatCompletionChoice {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ChatCompletionChoice
-                && equalTo((ChatCompletionChoice) another);
+        return another instanceof ChatCompletionChoice && equalTo((ChatCompletionChoice) another);
     }
 
     private boolean equalTo(ChatCompletionChoice another) {

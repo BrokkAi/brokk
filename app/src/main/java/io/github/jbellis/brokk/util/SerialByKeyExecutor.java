@@ -1,19 +1,18 @@
 package io.github.jbellis.brokk.util;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * A utility class that submits tasks to an ExecutorService, with the constraint that tasks
- * submitted with the same key are executed serially.
+ * A utility class that submits tasks to an ExecutorService, with the constraint that tasks submitted with the same key
+ * are executed serially.
  */
 public class SerialByKeyExecutor {
 
@@ -21,9 +20,7 @@ public class SerialByKeyExecutor {
 
     private final ExecutorService executor;
 
-    /**
-     * Maps task key to the last Future submitted with that key.
-     */
+    /** Maps task key to the last Future submitted with that key. */
     private final ConcurrentHashMap<String, CompletableFuture<?>> activeFutures = new ConcurrentHashMap<>();
 
     /**
@@ -60,22 +57,22 @@ public class SerialByKeyExecutor {
          * been cleaned up.
          */
         @SuppressWarnings("unchecked")
-        CompletableFuture<T> placeholder = (CompletableFuture<T>) activeFutures.compute(
-                key,
-                (String k, @Nullable CompletableFuture<?> previous) -> {
+        CompletableFuture<T> placeholder = (CompletableFuture<T>)
+                activeFutures.compute(key, (String k, @Nullable CompletableFuture<?> previous) -> {
                     var resultFuture = new CompletableFuture<T>();
 
-                    Runnable scheduleTask = () -> CompletableFuture
-                            .supplyAsync(supplier, executor)
-                            .whenCompleteAsync((T res, @Nullable Throwable err) -> {
-                                // guarantee cleanup precedes observable completion
-                                activeFutures.remove(k, resultFuture);
-                                if (err != null) {
-                                    resultFuture.completeExceptionally(err);
-                                } else {
-                                    resultFuture.complete(res);
-                                }
-                            }, executor);
+                    Runnable scheduleTask = () -> CompletableFuture.supplyAsync(supplier, executor)
+                            .whenCompleteAsync(
+                                    (T res, @Nullable Throwable err) -> {
+                                        // guarantee cleanup precedes observable completion
+                                        activeFutures.remove(k, resultFuture);
+                                        if (err != null) {
+                                            resultFuture.completeExceptionally(err);
+                                        } else {
+                                            resultFuture.complete(res);
+                                        }
+                                    },
+                                    executor);
 
                     if (previous == null) {
                         // no pending work: execute immediately
@@ -109,11 +106,7 @@ public class SerialByKeyExecutor {
         });
     }
 
-
-
-    /**
-     * Converts a Callable into a Supplier, wrapping any checked exceptions from the Callable in a RuntimeException.
-     */
+    /** Converts a Callable into a Supplier, wrapping any checked exceptions from the Callable in a RuntimeException. */
     private static <T> Supplier<T> toSupplier(Callable<T> callable) {
         return () -> {
             try {
@@ -127,9 +120,7 @@ public class SerialByKeyExecutor {
         };
     }
 
-    /**
-     * @return the number of keys with active tasks.
-     */
+    /** @return the number of keys with active tasks. */
     public int getActiveKeyCount() {
         return activeFutures.size();
     }

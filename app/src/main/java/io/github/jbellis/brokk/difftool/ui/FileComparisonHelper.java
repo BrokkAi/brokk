@@ -8,26 +8,22 @@ import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
+import javax.swing.*;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Helper utilities extracted from FileComparison to support both sync and async diff creation.
- * Centralizes common logic for creating diff nodes and handling resources.
+ * Helper utilities extracted from FileComparison to support both sync and async diff creation. Centralizes common logic
+ * for creating diff nodes and handling resources.
  */
 public class FileComparisonHelper {
 
-    /**
-     * Creates a JMDiffNode from two buffer sources.
-     * This is the core logic extracted from FileComparison for reuse.
-     */
-    public static JMDiffNode createDiffNode(BufferSource left, BufferSource right,
-                                          ContextManager contextManager, boolean isMultipleCommitsContext) {
+    /** Creates a JMDiffNode from two buffer sources. This is the core logic extracted from FileComparison for reuse. */
+    public static JMDiffNode createDiffNode(
+            BufferSource left, BufferSource right, ContextManager contextManager, boolean isMultipleCommitsContext) {
 
         String leftDocSyntaxHint = left.title();
         if (left instanceof BufferSource.StringSource stringSourceLeft && stringSourceLeft.filename() != null) {
@@ -68,8 +64,8 @@ public class FileComparisonHelper {
     }
 
     /**
-     * Gets display title for a buffer source, handling commit message resolution.
-     * Extracted from FileComparison for reuse.
+     * Gets display title for a buffer source, handling commit message resolution. Extracted from FileComparison for
+     * reuse.
      */
     private static String getDisplayTitleForSource(BufferSource source, ContextManager contextManager) {
         String originalTitle = source.title();
@@ -87,7 +83,9 @@ public class FileComparisonHelper {
         IGitRepo repo = contextManager.getProject().getRepo();
         if (repo instanceof GitRepo gitRepo) { // Ensure it's our GitRepo implementation
             try {
-                String commitIdToLookup = originalTitle.endsWith("^") ? originalTitle.substring(0, originalTitle.length() - 1) : originalTitle;
+                String commitIdToLookup = originalTitle.endsWith("^")
+                        ? originalTitle.substring(0, originalTitle.length() - 1)
+                        : originalTitle;
                 Optional<CommitInfo> commitInfoOpt = gitRepo.getLocalCommitInfo(commitIdToLookup);
                 if (commitInfoOpt.isPresent()) {
                     return commitInfoOpt.get().message(); // This is already the short/first line
@@ -100,8 +98,7 @@ public class FileComparisonHelper {
     }
 
     /**
-     * Gets the compare icon for tabs.
-     * Uses the standard resource loading pattern consistent with other UI components.
+     * Gets the compare icon for tabs. Uses the standard resource loading pattern consistent with other UI components.
      */
     @Nullable
     public static ImageIcon getCompareIcon() {
@@ -113,8 +110,8 @@ public class FileComparisonHelper {
     }
 
     /**
-     * Estimates the size of a BufferSource in bytes.
-     * Used for preload size checking to avoid loading files that are too large.
+     * Estimates the size of a BufferSource in bytes. Used for preload size checking to avoid loading files that are too
+     * large.
      */
     public static long estimateSourceSize(BufferSource source) {
         if (source instanceof BufferSource.FileSource fileSource) {
@@ -131,8 +128,8 @@ public class FileComparisonHelper {
     }
 
     /**
-     * Validates file sizes before loading to prevent UI issues with large files.
-     * Returns null if files are valid to load, otherwise returns an error message.
+     * Validates file sizes before loading to prevent UI issues with large files. Returns null if files are valid to
+     * load, otherwise returns an error message.
      */
     @Nullable
     public static String validateFileSizes(BufferSource leftSource, BufferSource rightSource) {
@@ -141,21 +138,23 @@ public class FileComparisonHelper {
         long maxSize = Math.max(leftSize, rightSize);
 
         if (maxSize > PerformanceConstants.MAX_FILE_SIZE_BYTES) {
-            return String.format("File too large to display: %,d bytes (maximum: %,d bytes)",
-                                maxSize, PerformanceConstants.MAX_FILE_SIZE_BYTES);
+            return String.format(
+                    "File too large to display: %,d bytes (maximum: %,d bytes)",
+                    maxSize, PerformanceConstants.MAX_FILE_SIZE_BYTES);
         }
 
         if (maxSize > PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES) {
-            return String.format("File too large for responsive UI: %,d bytes (recommended maximum: %,d bytes)",
-                                maxSize, PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES);
+            return String.format(
+                    "File too large for responsive UI: %,d bytes (recommended maximum: %,d bytes)",
+                    maxSize, PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES);
         }
 
         return null; // Valid to load
     }
 
     /**
-     * Checks if a file comparison should be loaded for preloading based on size constraints.
-     * Returns true if the file is suitable for preloading, false otherwise.
+     * Checks if a file comparison should be loaded for preloading based on size constraints. Returns true if the file
+     * is suitable for preloading, false otherwise.
      */
     public static boolean isValidForPreload(BufferSource leftSource, BufferSource rightSource) {
         long leftSize = estimateSourceSize(leftSource);
@@ -166,11 +165,14 @@ public class FileComparisonHelper {
     }
 
     /**
-     * Creates a file loading result that encapsulates either a successful diff node
-     * or an error message for files that are too large.
+     * Creates a file loading result that encapsulates either a successful diff node or an error message for files that
+     * are too large.
      */
-    public static FileLoadingResult createFileLoadingResult(BufferSource leftSource, BufferSource rightSource,
-                                                          ContextManager contextManager, boolean isMultipleCommitsContext) {
+    public static FileLoadingResult createFileLoadingResult(
+            BufferSource leftSource,
+            BufferSource rightSource,
+            ContextManager contextManager,
+            boolean isMultipleCommitsContext) {
         var sizeValidationError = validateFileSizes(leftSource, rightSource);
         if (sizeValidationError != null) {
             return new FileLoadingResult(null, sizeValidationError);
@@ -184,12 +186,11 @@ public class FileComparisonHelper {
         }
     }
 
-    /**
-     * Result of file loading operation - either contains a diff node or an error message.
-     */
+    /** Result of file loading operation - either contains a diff node or an error message. */
     public static class FileLoadingResult {
         @Nullable
         private final JMDiffNode diffNode;
+
         @Nullable
         private final String errorMessage;
 

@@ -1,41 +1,28 @@
 package io.github.jbellis.brokk.util;
 
-import org.jetbrains.annotations.Nullable;
+import static java.util.Objects.requireNonNull;
 
 import java.util.AbstractList;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import org.jetbrains.annotations.Nullable;
 
-import static java.util.Objects.requireNonNull;
-
-/**
- * A simple persistent (functional) singly-linked list.
- */
+/** A simple persistent (functional) singly-linked list. */
 public final class FList<E> extends AbstractList<E> {
-    /**
-     * Shared empty-list sentinel
-     */
+    /** Shared empty-list sentinel */
     private static final FList<?> EMPTY_LIST = new FList<>(null, null, 0);
 
-    /**
-     * First element (may itself be {@code null})
-     */
+    /** First element (may itself be {@code null}) */
     private final @Nullable E myHead;
 
-    /**
-     * Remaining elements; {@code null} only for the empty list
-     */
+    /** Remaining elements; {@code null} only for the empty list */
     private final @Nullable FList<E> myTail;
 
-    /**
-     * Cached size for O(1) access
-     */
+    /** Cached size for O(1) access */
     private final int mySize;
 
-    /**
-     * Internal constructor
-     */
+    /** Internal constructor */
     private FList(@Nullable E head, @Nullable FList<E> tail, int size) {
         myHead = head;
         myTail = tail;
@@ -56,24 +43,20 @@ public final class FList<E> extends AbstractList<E> {
         return current.myHead;
     }
 
-    /**
-     * Returns the first element (which may be {@code null}).
-     */
+    /** Returns the first element (which may be {@code null}). */
     @Nullable
     public E getHead() {
         return myHead;
     }
 
-    /**
-     * Returns a new list with {@code elem} added in front.
-     */
+    /** Returns a new list with {@code elem} added in front. */
     public FList<E> prepend(@Nullable E elem) {
         return new FList<>(elem, this, mySize + 1);
     }
 
     /**
-     * Returns a copy of this list with the first occurrence of {@code elem} removed.
-     * Comparison respects {@code null} elements.
+     * Returns a copy of this list with the first occurrence of {@code elem} removed. Comparison respects {@code null}
+     * elements.
      */
     public FList<E> without(@Nullable E elem) {
         FList<E> front = emptyList();
@@ -122,9 +105,7 @@ public final class FList<E> extends AbstractList<E> {
         };
     }
 
-    /**
-     * Returns the tail (which is {@code null} only for the empty list).
-     */
+    /** Returns the tail (which is {@code null} only for the empty list). */
     public @Nullable FList<E> getTail() {
         return myTail;
     }
@@ -142,8 +123,7 @@ public final class FList<E> extends AbstractList<E> {
             FList<?> list2 = (FList<?>) o;
             if (mySize != list2.mySize) return false;
 
-            while (list1 != null && !list1.isEmpty()
-                    && list2 != null && !list2.isEmpty()) {
+            while (list1 != null && !list1.isEmpty() && list2 != null && !list2.isEmpty()) {
                 if (!Objects.equals(list1.myHead, list2.myHead)) return false;
                 list1 = list1.myTail;
                 list2 = list2.myTail;
@@ -174,9 +154,7 @@ public final class FList<E> extends AbstractList<E> {
         return (FList<E>) EMPTY_LIST;
     }
 
-    /**
-     * Convenience factory for a single-element list.
-     */
+    /** Convenience factory for a single-element list. */
     public static <E> FList<E> singleton(E elem) {
         return FList.<E>emptyList().prepend(elem);
     }

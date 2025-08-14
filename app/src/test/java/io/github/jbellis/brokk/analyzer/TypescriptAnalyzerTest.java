@@ -1,10 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.testutil.TestProject;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,8 +12,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class TypescriptAnalyzerTest {
 
@@ -23,15 +22,16 @@ public class TypescriptAnalyzerTest {
     private static TypescriptAnalyzer analyzer;
 
     // Helper to normalize line endings and strip leading/trailing whitespace from each line
-    private static final Function<String, String> normalize =
-        (String s) -> s.lines().map(String::strip).filter(line -> !line.isEmpty()).collect(Collectors.joining("\n"));
+    private static final Function<String, String> normalize = (String s) ->
+            s.lines().map(String::strip).filter(line -> !line.isEmpty()).collect(Collectors.joining("\n"));
 
     @BeforeAll
     static void setUp(@TempDir Path tempDir) throws IOException {
         // Use a common TestProject setup method if available, or adapt TreeSitterAnalyzerTest.createTestProject
         Path testResourceRoot = Path.of("src/test/resources/testcode-ts");
-        assertTrue(Files.exists(testResourceRoot) && Files.isDirectory(testResourceRoot),
-                   "Test resource directory 'testcode-ts' must exist.");
+        assertTrue(
+                Files.exists(testResourceRoot) && Files.isDirectory(testResourceRoot),
+                "Test resource directory 'testcode-ts' must exist.");
 
         // For TypescriptAnalyzerTest, we'll point the TestProject root directly to testcode-ts
         project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
@@ -54,46 +54,61 @@ public class TypescriptAnalyzerTest {
         CodeUnit stringOrNumberAlias = CodeUnit.field(helloTsFile, "", "_module_.StringOrNumber");
         CodeUnit localDetailsAlias = CodeUnit.field(helloTsFile, "", "_module_.LocalDetails");
 
-
         assertTrue(skeletons.containsKey(greeterClass), "Greeter class skeleton missing.");
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export class Greeter {
               greeting: string
               constructor(message: string) { ... }
               greet(): string { ... }
-            }"""), normalize.apply(skeletons.get(greeterClass)));
+            }"""),
+                normalize.apply(skeletons.get(greeterClass)));
 
         assertTrue(skeletons.containsKey(globalFunc), "globalFunc skeleton missing.");
-        assertEquals(normalize.apply("export function globalFunc(num: number): number { ... }"), normalize.apply(skeletons.get(globalFunc)));
+        assertEquals(
+                normalize.apply("export function globalFunc(num: number): number { ... }"),
+                normalize.apply(skeletons.get(globalFunc)));
 
-        assertTrue(skeletons.containsKey(piConst), "PI const skeleton missing. Found: " + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
+        assertTrue(
+                skeletons.containsKey(piConst),
+                "PI const skeleton missing. Found: "
+                        + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
         assertEquals(normalize.apply("export const PI: number = 3.14159"), normalize.apply(skeletons.get(piConst)));
 
-
         assertTrue(skeletons.containsKey(pointInterface), "Point interface skeleton missing.");
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export interface Point {
               x: number
               y: number
               label?: string
               readonly originDistance?: number
               move(dx: number, dy: number): void
-            }"""), normalize.apply(skeletons.get(pointInterface)));
+            }"""),
+                normalize.apply(skeletons.get(pointInterface)));
 
         assertTrue(skeletons.containsKey(colorEnum), "Color enum skeleton missing.");
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export enum Color {
               Red,
               Green = 3,
               Blue
-            }"""), normalize.apply(skeletons.get(colorEnum)));
+            }"""),
+                normalize.apply(skeletons.get(colorEnum)));
 
         assertTrue(skeletons.containsKey(stringOrNumberAlias), "StringOrNumber type alias skeleton missing.");
-        assertEquals(normalize.apply("export type StringOrNumber = string | number"), normalize.apply(skeletons.get(stringOrNumberAlias)));
+        assertEquals(
+                normalize.apply("export type StringOrNumber = string | number"),
+                normalize.apply(skeletons.get(stringOrNumberAlias)));
 
         assertTrue(skeletons.containsKey(localDetailsAlias), "LocalDetails type alias skeleton missing.");
-        assertEquals(normalize.apply("type LocalDetails = { id: number, name: string }"), normalize.apply(skeletons.get(localDetailsAlias)));
-
+        assertEquals(
+                normalize.apply("type LocalDetails = { id: number, name: string }"),
+                normalize.apply(skeletons.get(localDetailsAlias)));
 
         // Check getDeclarationsInFile
         Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(helloTsFile);
@@ -113,11 +128,12 @@ public class TypescriptAnalyzerTest {
         assertTrue(declarations.contains(CodeUnit.fn(helloTsFile, "", "Point.move")));
         assertTrue(declarations.contains(CodeUnit.field(helloTsFile, "", "Color.Red")));
 
-
         // Test getSkeleton for individual items
         Optional<String> stringOrNumberSkeleton = analyzer.getSkeleton("_module_.StringOrNumber");
         assertTrue(stringOrNumberSkeleton.isPresent());
-        assertEquals(normalize.apply("export type StringOrNumber = string | number"), normalize.apply(stringOrNumberSkeleton.get()));
+        assertEquals(
+                normalize.apply("export type StringOrNumber = string | number"),
+                normalize.apply(stringOrNumberSkeleton.get()));
 
         Optional<String> greetMethodSkeleton = analyzer.getSkeleton("Greeter.greet");
         assertTrue(greetMethodSkeleton.isPresent());
@@ -128,9 +144,9 @@ public class TypescriptAnalyzerTest {
         // This means, if "Greeter.greet" itself is a CU in `signatures` (which it should be as a child),
         // then `reconstructFullSkeleton` called on `Greeter.greet` might only give its own signature.
         // Let's test `getSkeleton` on a top-level item:
-        assertEquals(normalize.apply("export function globalFunc(num: number): number { ... }"),
-                     normalize.apply(analyzer.getSkeleton("globalFunc").orElse("")));
-
+        assertEquals(
+                normalize.apply("export function globalFunc(num: number): number { ... }"),
+                normalize.apply(analyzer.getSkeleton("globalFunc").orElse("")));
     }
 
     @Test
@@ -141,20 +157,27 @@ public class TypescriptAnalyzerTest {
         CodeUnit maxUsers = CodeUnit.field(varsTsFile, "", "_module_.MAX_USERS");
         CodeUnit currentUser = CodeUnit.field(varsTsFile, "", "_module_.currentUser");
         CodeUnit config = CodeUnit.field(varsTsFile, "", "_module_.config");
-        CodeUnit anArrowFunc = CodeUnit.fn(varsTsFile, "", "anArrowFunc"); // Arrow func assigned to const is a function CU
+        CodeUnit anArrowFunc =
+                CodeUnit.fn(varsTsFile, "", "anArrowFunc"); // Arrow func assigned to const is a function CU
         CodeUnit legacyVar = CodeUnit.field(varsTsFile, "", "_module_.legacyVar");
 
         assertTrue(skeletons.containsKey(maxUsers));
         assertEquals(normalize.apply("export const MAX_USERS = 100"), normalize.apply(skeletons.get(maxUsers)));
 
         assertTrue(skeletons.containsKey(currentUser));
-        assertEquals(normalize.apply("let currentUser: string = \"Alice\""), normalize.apply(skeletons.get(currentUser)));
+        assertEquals(
+                normalize.apply("let currentUser: string = \"Alice\""), normalize.apply(skeletons.get(currentUser)));
 
         assertTrue(skeletons.containsKey(config));
-        assertEquals(normalize.apply("const config = {"), normalize.apply(skeletons.get(config).lines().findFirst().orElse(""))); // obj literal, just check header
+        assertEquals(
+                normalize.apply("const config = {"),
+                normalize.apply(
+                        skeletons.get(config).lines().findFirst().orElse(""))); // obj literal, just check header
 
         assertTrue(skeletons.containsKey(anArrowFunc));
-        assertEquals(normalize.apply("const anArrowFunc = (msg: string): void => { ... }"), normalize.apply(skeletons.get(anArrowFunc)));
+        assertEquals(
+                normalize.apply("const anArrowFunc = (msg: string): void => { ... }"),
+                normalize.apply(skeletons.get(anArrowFunc)));
 
         assertTrue(skeletons.containsKey(legacyVar));
         assertEquals(normalize.apply("export var legacyVar = \"legacy\""), normalize.apply(skeletons.get(legacyVar)));
@@ -162,7 +185,8 @@ public class TypescriptAnalyzerTest {
         // A function declared inside Vars.ts but not exported
         CodeUnit localHelper = CodeUnit.fn(varsTsFile, "", "localHelper");
         assertTrue(skeletons.containsKey(localHelper));
-        assertEquals(normalize.apply("function localHelper(): string { ... }"), normalize.apply(skeletons.get(localHelper)));
+        assertEquals(
+                normalize.apply("function localHelper(): string { ... }"), normalize.apply(skeletons.get(localHelper)));
     }
 
     @Test
@@ -173,7 +197,8 @@ public class TypescriptAnalyzerTest {
         CodeUnit myModule = CodeUnit.cls(moduleTsFile, "", "MyModule"); // Namespace is a class-like CU
         assertTrue(skeletons.containsKey(myModule), "MyModule namespace skeleton missing.");
 
-        String expectedMyModuleSkeleton = """
+        String expectedMyModuleSkeleton =
+                """
             namespace MyModule {
               export class InnerClass {
                 name: string = "Inner"
@@ -206,29 +231,40 @@ public class TypescriptAnalyzerTest {
         CodeUnit topLevelArrow = CodeUnit.fn(moduleTsFile, "", "topLevelArrow");
         assertTrue(skeletons.containsKey(topLevelArrow));
         // Arrow functions are now abbreviated with { ... }
-        assertEquals(normalize.apply("export const topLevelArrow = (input: any): any => { ... }"), normalize.apply(skeletons.get(topLevelArrow)));
+        assertEquals(
+                normalize.apply("export const topLevelArrow = (input: any): any => { ... }"),
+                normalize.apply(skeletons.get(topLevelArrow)));
 
         CodeUnit topLevelGenericAlias = CodeUnit.field(moduleTsFile, "", "_module_.TopLevelGenericAlias");
-        assertTrue(skeletons.containsKey(topLevelGenericAlias), "TopLevelGenericAlias skeleton missing. Skeletons: " + skeletons.keySet());
-        assertEquals(normalize.apply("export type TopLevelGenericAlias<K, V> = Map<K, V>"), normalize.apply(skeletons.get(topLevelGenericAlias)));
-
+        assertTrue(
+                skeletons.containsKey(topLevelGenericAlias),
+                "TopLevelGenericAlias skeleton missing. Skeletons: " + skeletons.keySet());
+        assertEquals(
+                normalize.apply("export type TopLevelGenericAlias<K, V> = Map<K, V>"),
+                normalize.apply(skeletons.get(topLevelGenericAlias)));
 
         // Check a nested item via getSkeleton
         Optional<String> innerClassSkel = analyzer.getSkeleton("MyModule$InnerClass");
         assertTrue(innerClassSkel.isPresent());
         // When getting skeleton for a nested CU, it should be part of the parent's reconstruction.
         // The current `getSkeleton` will reconstruct from the top-level parent of that CU.
-        // So `getSkeleton("MyModule$InnerClass")` should effectively return the skeleton of `MyModule` because `InnerClass` is a child of `MyModule`.
+        // So `getSkeleton("MyModule$InnerClass")` should effectively return the skeleton of `MyModule` because
+        // `InnerClass` is a child of `MyModule`.
         // This might be unintuitive if one expects only the InnerClass part.
         // Let's test this behavior:
-        assertEquals(normalize.apply(expectedMyModuleSkeleton), normalize.apply(innerClassSkel.get()),
-                     "getSkeleton for nested class should return the reconstructed parent skeleton.");
+        assertEquals(
+                normalize.apply(expectedMyModuleSkeleton),
+                normalize.apply(innerClassSkel.get()),
+                "getSkeleton for nested class should return the reconstructed parent skeleton.");
 
         Optional<String> innerTypeAliasSkelViaParent = analyzer.getSkeleton("MyModule.InnerTypeAlias");
-        assertTrue(innerTypeAliasSkelViaParent.isPresent(), "Skeleton for MyModule.InnerTypeAlias should be part of MyModule's skeleton");
-        assertEquals(normalize.apply(expectedMyModuleSkeleton), normalize.apply(innerTypeAliasSkelViaParent.get()),
-                     "getSkeleton for nested type alias should return reconstructed parent skeleton.");
-
+        assertTrue(
+                innerTypeAliasSkelViaParent.isPresent(),
+                "Skeleton for MyModule.InnerTypeAlias should be part of MyModule's skeleton");
+        assertEquals(
+                normalize.apply(expectedMyModuleSkeleton),
+                normalize.apply(innerTypeAliasSkelViaParent.get()),
+                "getSkeleton for nested type alias should return reconstructed parent skeleton.");
 
         Set<CodeUnit> declarations = analyzer.getDeclarationsInFile(moduleTsFile);
         // TODO: capture nested modules
@@ -236,9 +272,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule.InnerTypeAlias")));
         assertTrue(declarations.contains(CodeUnit.field(moduleTsFile, "", "MyModule$NestedNamespace.DeepType")));
         assertTrue(declarations.contains(topLevelGenericAlias));
-
     }
-
 
     @Test
     void testAdvancedTsSkeletonsAndFeatures() {
@@ -249,7 +283,9 @@ public class TypescriptAnalyzerTest {
         assertTrue(skeletons.containsKey(decoratedClass));
 
         // With unified query, class-level decorators and method type parameters are not captured
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export class DecoratedClass<T> {
               @MyPropertyDecorator
               decoratedProperty: string = "initial"
@@ -259,37 +295,50 @@ public class TypescriptAnalyzerTest {
               genericMethod<U extends Point>(value: T, other: U): [T, U] { ... }
               get value(): T { ... }
               set value(val: T) { ... }
-            }"""), normalize.apply(skeletons.get(decoratedClass)));
+            }"""),
+                normalize.apply(skeletons.get(decoratedClass)));
 
         CodeUnit genericInterface = CodeUnit.cls(advancedTsFile, "", "GenericInterface");
         assertTrue(skeletons.containsKey(genericInterface));
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export interface GenericInterface<T, U extends Point> {
               item: T
               point: U
               process(input: T): U
               new (param: T): GenericInterface<T,U>
-            }"""), normalize.apply(skeletons.get(genericInterface)));
+            }"""),
+                normalize.apply(skeletons.get(genericInterface)));
 
         CodeUnit abstractBase = CodeUnit.cls(advancedTsFile, "", "AbstractBase");
         assertTrue(skeletons.containsKey(abstractBase));
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export abstract class AbstractBase {
               abstract performAction(name: string): void
               concreteMethod(): string { ... }
-            }"""), normalize.apply(skeletons.get(abstractBase)));
+            }"""),
+                normalize.apply(skeletons.get(abstractBase)));
 
         CodeUnit asyncArrow = CodeUnit.fn(advancedTsFile, "", "asyncArrowFunc");
         assertTrue(skeletons.containsKey(asyncArrow));
-        assertEquals(normalize.apply("export const asyncArrowFunc = async (p: Promise<string>): Promise<number> => { ... }"), normalize.apply(skeletons.get(asyncArrow)));
+        assertEquals(
+                normalize.apply("export const asyncArrowFunc = async (p: Promise<string>): Promise<number> => { ... }"),
+                normalize.apply(skeletons.get(asyncArrow)));
 
         CodeUnit asyncNamed = CodeUnit.fn(advancedTsFile, "", "asyncNamedFunc");
         assertTrue(skeletons.containsKey(asyncNamed));
-        assertEquals(normalize.apply("export async function asyncNamedFunc(param: number): Promise<void> { ... }"), normalize.apply(skeletons.get(asyncNamed)));
+        assertEquals(
+                normalize.apply("export async function asyncNamedFunc(param: number): Promise<void> { ... }"),
+                normalize.apply(skeletons.get(asyncNamed)));
 
         CodeUnit fieldTest = CodeUnit.cls(advancedTsFile, "", "FieldTest");
         assertTrue(skeletons.containsKey(fieldTest));
-         assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export class FieldTest {
               public name: string
               private id: number = 0
@@ -302,28 +351,36 @@ public class TypescriptAnalyzerTest {
               private privateMethod() { ... }
               protected protectedMethod() { ... }
               static staticMethod() { ... }
-            }"""), normalize.apply(skeletons.get(fieldTest)));
+            }"""),
+                normalize.apply(skeletons.get(fieldTest)));
 
         CodeUnit pointyAlias = CodeUnit.field(advancedTsFile, "", "_module_.Pointy");
-        assertTrue(skeletons.containsKey(pointyAlias), "Pointy type alias skeleton missing. Found: " + skeletons.keySet());
-        assertEquals(normalize.apply("export type Pointy<T> = { x: T, y: T }"), normalize.apply(skeletons.get(pointyAlias)));
+        assertTrue(
+                skeletons.containsKey(pointyAlias), "Pointy type alias skeleton missing. Found: " + skeletons.keySet());
+        assertEquals(
+                normalize.apply("export type Pointy<T> = { x: T, y: T }"), normalize.apply(skeletons.get(pointyAlias)));
 
         CodeUnit overloadedFunc = CodeUnit.fn(advancedTsFile, "", "processInput");
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export function processInput(input: string): string[]
             export function processInput(input: number): number[]
             export function processInput(input: boolean): boolean[]
             export function processInput(input: any): any[] { ... }"""),
-                     normalize.apply(skeletons.get(overloadedFunc)));
-
+                normalize.apply(skeletons.get(overloadedFunc)));
 
         // Test interface Point that follows a comment (regression test for interface appearing as free fields)
         CodeUnit pointInterface = CodeUnit.cls(advancedTsFile, "", "Point");
-        assertTrue(skeletons.containsKey(pointInterface), "Point interface skeleton missing. This interface follows a comment and should be captured correctly.");
+        assertTrue(
+                skeletons.containsKey(pointInterface),
+                "Point interface skeleton missing. This interface follows a comment and should be captured correctly.");
         String actualPointSkeleton = skeletons.get(pointInterface);
 
         // Verify Point appears as proper interface structure (not as free x, y fields)
-        assertTrue(actualPointSkeleton.contains("interface Point {"), "Point should appear as a proper interface structure");
+        assertTrue(
+                actualPointSkeleton.contains("interface Point {"),
+                "Point should appear as a proper interface structure");
         assertTrue(actualPointSkeleton.contains("x: number"), "Point interface should contain x property");
         assertTrue(actualPointSkeleton.contains("y: number"), "Point interface should contain y property");
 
@@ -337,37 +394,54 @@ public class TypescriptAnalyzerTest {
 
         // Verify no top-level fields with names x or y exist (the original bug would create these)
         boolean hasTopLevelXField = declarations.stream()
-            .anyMatch(cu -> cu.kind() == CodeUnitType.FIELD && cu.identifier().equals("x") && !cu.shortName().contains("."));
+                .anyMatch(cu -> cu.kind() == CodeUnitType.FIELD
+                        && cu.identifier().equals("x")
+                        && !cu.shortName().contains("."));
         boolean hasTopLevelYField = declarations.stream()
-            .anyMatch(cu -> cu.kind() == CodeUnitType.FIELD && cu.identifier().equals("y") && !cu.shortName().contains("."));
-        assertFalse(hasTopLevelXField, "x should not appear as a top-level field - original bug created free fields instead of interface properties");
-        assertFalse(hasTopLevelYField, "y should not appear as a top-level field - original bug created free fields instead of interface properties");
+                .anyMatch(cu -> cu.kind() == CodeUnitType.FIELD
+                        && cu.identifier().equals("y")
+                        && !cu.shortName().contains("."));
+        assertFalse(
+                hasTopLevelXField,
+                "x should not appear as a top-level field - original bug created free fields instead of interface properties");
+        assertFalse(
+                hasTopLevelYField,
+                "y should not appear as a top-level field - original bug created free fields instead of interface properties");
 
         // Test for ambient declarations (declare statements) - regression test for missing declare var $
         CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "_module_.$");
-        assertTrue(skeletons.containsKey(dollarVar), "declare var $ skeleton missing. This was the original reported issue.");
+        assertTrue(
+                skeletons.containsKey(dollarVar),
+                "declare var $ skeleton missing. This was the original reported issue.");
         assertEquals(normalize.apply("declare var $: any"), normalize.apply(skeletons.get(dollarVar)));
 
         CodeUnit fetchFunc = CodeUnit.fn(advancedTsFile, "", "fetch");
         assertTrue(skeletons.containsKey(fetchFunc), "declare function fetch skeleton missing.");
-        assertEquals(normalize.apply("declare function fetch(url:string): Promise<any>;"), normalize.apply(skeletons.get(fetchFunc)));
+        assertEquals(
+                normalize.apply("declare function fetch(url:string): Promise<any>;"),
+                normalize.apply(skeletons.get(fetchFunc)));
 
         CodeUnit thirdPartyNamespace = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib");
         assertTrue(skeletons.containsKey(thirdPartyNamespace), "declare namespace ThirdPartyLib skeleton missing.");
         String actualNamespace = skeletons.get(thirdPartyNamespace);
-        assertTrue(actualNamespace.contains("declare namespace ThirdPartyLib {"), "Should contain declare namespace declaration");
+        assertTrue(
+                actualNamespace.contains("declare namespace ThirdPartyLib {"),
+                "Should contain declare namespace declaration");
         assertTrue(actualNamespace.contains("doWork(): void;"), "Should contain doWork function signature");
         assertTrue(actualNamespace.contains("interface LibOptions {"), "Should contain LibOptions interface");
 
         // Verify the complete ambient namespace skeleton structure
-        String expectedThirdPartyNamespace = """
+        String expectedThirdPartyNamespace =
+                """
             declare namespace ThirdPartyLib {
               doWork(): void;
               interface LibOptions {
               }
             }""";
-        assertEquals(normalize.apply(expectedThirdPartyNamespace), normalize.apply(skeletons.get(thirdPartyNamespace)),
-                     "Ambient namespace should have complete structure with contents");
+        assertEquals(
+                normalize.apply(expectedThirdPartyNamespace),
+                normalize.apply(skeletons.get(thirdPartyNamespace)),
+                "Ambient namespace should have complete structure with contents");
 
         // Verify ambient namespace function member
         CodeUnit doWorkFunc = CodeUnit.fn(advancedTsFile, "", "ThirdPartyLib.doWork");
@@ -375,17 +449,18 @@ public class TypescriptAnalyzerTest {
 
         // Verify ambient namespace interface member
         CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib$LibOptions");
-        assertTrue(declarations.contains(libOptionsInterface), "ThirdPartyLib$LibOptions should be captured as an interface member");
+        assertTrue(
+                declarations.contains(libOptionsInterface),
+                "ThirdPartyLib$LibOptions should be captured as an interface member");
 
         // Verify no duplicate captures for ambient declarations
-        long dollarVarCount = declarations.stream()
-            .filter(cu -> cu.identifier().equals("$"))
-            .count();
+        long dollarVarCount =
+                declarations.stream().filter(cu -> cu.identifier().equals("$")).count();
         assertEquals(1, dollarVarCount, "$ variable should only be captured once");
 
         long fetchFuncCount = declarations.stream()
-            .filter(cu -> cu.identifier().equals("fetch") && cu.kind() == CodeUnitType.FUNCTION)
-            .count();
+                .filter(cu -> cu.identifier().equals("fetch") && cu.kind() == CodeUnitType.FUNCTION)
+                .count();
         assertEquals(1, fetchFuncCount, "fetch function should only be captured once");
 
         // Test getSkeleton for individual ambient declarations
@@ -395,7 +470,9 @@ public class TypescriptAnalyzerTest {
 
         Optional<String> fetchSkeleton = analyzer.getSkeleton("fetch");
         assertTrue(fetchSkeleton.isPresent(), "Should be able to get skeleton for ambient function fetch");
-        assertEquals(normalize.apply("declare function fetch(url:string): Promise<any>;"), normalize.apply(fetchSkeleton.get()));
+        assertEquals(
+                normalize.apply("declare function fetch(url:string): Promise<any>;"),
+                normalize.apply(fetchSkeleton.get()));
 
         Optional<String> thirdPartySkeleton = analyzer.getSkeleton("ThirdPartyLib");
         assertTrue(thirdPartySkeleton.isPresent(), "Should be able to get skeleton for ambient namespace");
@@ -417,36 +494,50 @@ public class TypescriptAnalyzerTest {
         // For `export default class { ... }` (anonymous default), name node would be absent.
         // TS query `@class.name` is `(identifier)`. `export default class MyDefaultClass` has `name: (identifier)`
         CodeUnit defaultClass = CodeUnit.cls(defaultExportFile, "", "MyDefaultClass");
-        assertTrue(skeletons.containsKey(defaultClass), "MyDefaultClass (default export) skeleton missing. Found: " + skeletons.keySet());
-        assertEquals(normalize.apply("""
+        assertTrue(
+                skeletons.containsKey(defaultClass),
+                "MyDefaultClass (default export) skeleton missing. Found: " + skeletons.keySet());
+        assertEquals(
+                normalize.apply(
+                        """
             export default class MyDefaultClass {
               constructor() { ... }
               doSomething(): void { ... }
               get value(): string { ... }
-            }"""), normalize.apply(skeletons.get(defaultClass)));
+            }"""),
+                normalize.apply(skeletons.get(defaultClass)));
 
         // Default exported function
         CodeUnit defaultFunction = CodeUnit.fn(defaultExportFile, "", "myDefaultFunction");
         assertTrue(skeletons.containsKey(defaultFunction), "myDefaultFunction (default export) skeleton missing.");
-        assertEquals(normalize.apply("export default function myDefaultFunction(param: string): string { ... }"),
-                     normalize.apply(skeletons.get(defaultFunction)));
+        assertEquals(
+                normalize.apply("export default function myDefaultFunction(param: string): string { ... }"),
+                normalize.apply(skeletons.get(defaultFunction)));
 
         // Named export in the same file
         CodeUnit anotherNamedClass = CodeUnit.cls(defaultExportFile, "", "AnotherNamedClass");
         assertTrue(skeletons.containsKey(anotherNamedClass));
-        assertEquals(normalize.apply("""
+        assertEquals(
+                normalize.apply(
+                        """
             export class AnotherNamedClass {
               name: string = "Named"
-            }"""), normalize.apply(skeletons.get(anotherNamedClass)));
+            }"""),
+                normalize.apply(skeletons.get(anotherNamedClass)));
 
         CodeUnit utilityRateConst = CodeUnit.field(defaultExportFile, "", "_module_.utilityRate");
         assertTrue(skeletons.containsKey(utilityRateConst));
-        assertEquals(normalize.apply("export const utilityRate: number = 0.15"), normalize.apply(skeletons.get(utilityRateConst)));
+        assertEquals(
+                normalize.apply("export const utilityRate: number = 0.15"),
+                normalize.apply(skeletons.get(utilityRateConst)));
 
         CodeUnit defaultAlias = CodeUnit.field(defaultExportFile, "", "_module_.DefaultAlias");
-        assertTrue(skeletons.containsKey(defaultAlias), "DefaultAlias (default export type) skeleton missing. Skeletons: " + skeletons.keySet());
-        assertEquals(normalize.apply("export default type DefaultAlias = boolean"), normalize.apply(skeletons.get(defaultAlias)));
-
+        assertTrue(
+                skeletons.containsKey(defaultAlias),
+                "DefaultAlias (default export type) skeleton missing. Skeletons: " + skeletons.keySet());
+        assertEquals(
+                normalize.apply("export default type DefaultAlias = boolean"),
+                normalize.apply(skeletons.get(defaultAlias)));
     }
 
     @Test
@@ -454,21 +545,30 @@ public class TypescriptAnalyzerTest {
         // From Hello.ts
         Optional<String> greetSource = analyzer.getMethodSource("Greeter.greet");
         assertTrue(greetSource.isPresent());
-        assertEquals(normalize.apply("greet(): string {\n    return \"Hello, \" + this.greeting;\n}"), normalize.apply(greetSource.get()));
+        assertEquals(
+                normalize.apply("greet(): string {\n    return \"Hello, \" + this.greeting;\n}"),
+                normalize.apply(greetSource.get()));
 
         Optional<String> constructorSource = analyzer.getMethodSource("Greeter.constructor");
         assertTrue(constructorSource.isPresent());
-        assertEquals(normalize.apply("constructor(message: string) {\n    this.greeting = message;\n}"), normalize.apply(constructorSource.get()));
+        assertEquals(
+                normalize.apply("constructor(message: string) {\n    this.greeting = message;\n}"),
+                normalize.apply(constructorSource.get()));
 
         // From Vars.ts (arrow function)
         Optional<String> arrowSource = analyzer.getMethodSource("anArrowFunc");
         assertTrue(arrowSource.isPresent());
-        assertEquals(normalize.apply("const anArrowFunc = (msg: string): void => {\n    console.log(msg);\n}"), normalize.apply(arrowSource.get()));
+        assertEquals(
+                normalize.apply("const anArrowFunc = (msg: string): void => {\n    console.log(msg);\n}"),
+                normalize.apply(arrowSource.get()));
 
         // From Advanced.ts (async named function)
         Optional<String> asyncNamedSource = analyzer.getMethodSource("asyncNamedFunc");
         assertTrue(asyncNamedSource.isPresent());
-        assertEquals(normalize.apply("export async function asyncNamedFunc(param: number): Promise<void> {\n    await Promise.resolve();\n    console.log(param);\n}"), normalize.apply(asyncNamedSource.get()));
+        assertEquals(
+                normalize.apply(
+                        "export async function asyncNamedFunc(param: number): Promise<void> {\n    await Promise.resolve();\n    console.log(param);\n}"),
+                normalize.apply(asyncNamedSource.get()));
 
         // Test getMethodSource for overloaded function (processInput from Advanced.ts)
         // It should return all signatures and the implementation concatenated.
@@ -480,17 +580,17 @@ public class TypescriptAnalyzerTest {
         String[] actualLines = actualNormalized.split("\n");
 
         // Build expected based on actual separator used (without semicolons for overload signatures)
-        String expectedOverloadedSource = String.join("\n",
-            "export function processInput(input: string): string[]",
-            "export function processInput(input: number): number[]",
-            "export function processInput(input: boolean): boolean[]",
-            "export function processInput(input: any): any[] {",
-            "if (typeof input === \"string\") return [`s-${input}`];",
-            "if (typeof input === \"number\") return [`n-${input}`];",
-            "if (typeof input === \"boolean\") return [`b-${input}`];",
-            "return [input];",
-            "}"
-        );
+        String expectedOverloadedSource = String.join(
+                "\n",
+                "export function processInput(input: string): string[]",
+                "export function processInput(input: number): number[]",
+                "export function processInput(input: boolean): boolean[]",
+                "export function processInput(input: any): any[] {",
+                "if (typeof input === \"string\") return [`s-${input}`];",
+                "if (typeof input === \"number\") return [`n-${input}`];",
+                "if (typeof input === \"boolean\") return [`b-${input}`];",
+                "return [input];",
+                "}");
 
         assertEquals(expectedOverloadedSource, actualNormalized, "processInput overloaded source mismatch.");
     }
@@ -505,7 +605,6 @@ public class TypescriptAnalyzerTest {
         piConst = CodeUnit.field(helloTsFile, "", "_module_.PI");
         CodeUnit anArrowFunc = CodeUnit.fn(varsTsFile, "", "anArrowFunc");
 
-
         Set<CodeUnit> sources = Set.of(greeterClass, piConst, anArrowFunc);
         Set<String> symbols = analyzer.getSymbols(sources);
 
@@ -514,11 +613,14 @@ public class TypescriptAnalyzerTest {
         // From PI: "PI"
         // From anArrowFunc: "anArrowFunc"
         Set<String> expectedSymbols = Set.of(
-                "Greeter", "greeting", "constructor", "greet",
+                "Greeter",
+                "greeting",
+                "constructor",
+                "greet",
                 "PI",
                 "anArrowFunc",
                 "StringOrNumber" // From Hello.ts, via _module_.StringOrNumber in allCodeUnits()
-        );
+                );
         // Add StringOrNumber to sources to test its symbol directly
         CodeUnit stringOrNumberAlias = CodeUnit.field(helloTsFile, "", "_module_.StringOrNumber");
         sources = Set.of(greeterClass, piConst, anArrowFunc, stringOrNumberAlias);
@@ -552,52 +654,61 @@ public class TypescriptAnalyzerTest {
         // Test 1: Ambient variable declaration
         CodeUnit dollarVar = CodeUnit.field(advancedTsFile, "", "_module_.$");
         assertTrue(skeletons.containsKey(dollarVar), "Ambient var $ should be captured");
-        assertEquals(normalize.apply("declare var $: any"), normalize.apply(skeletons.get(dollarVar)),
-                     "Ambient var should have correct skeleton with 'declare var' keywords");
+        assertEquals(
+                normalize.apply("declare var $: any"),
+                normalize.apply(skeletons.get(dollarVar)),
+                "Ambient var should have correct skeleton with 'declare var' keywords");
 
         // Test 2: Ambient function declaration with proper 'function' keyword
         CodeUnit fetchFunc = CodeUnit.fn(advancedTsFile, "", "fetch");
         assertTrue(skeletons.containsKey(fetchFunc), "Ambient function fetch should be captured");
-        assertEquals(normalize.apply("declare function fetch(url:string): Promise<any>;"),
-                     normalize.apply(skeletons.get(fetchFunc)),
-                     "Ambient function should include 'function' keyword in skeleton");
+        assertEquals(
+                normalize.apply("declare function fetch(url:string): Promise<any>;"),
+                normalize.apply(skeletons.get(fetchFunc)),
+                "Ambient function should include 'function' keyword in skeleton");
 
         // Test 3: Ambient namespace with contents
         CodeUnit thirdPartyNamespace = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib");
         assertTrue(skeletons.containsKey(thirdPartyNamespace), "Ambient namespace should be captured");
 
-        String expectedNamespace = """
+        String expectedNamespace =
+                """
             declare namespace ThirdPartyLib {
               doWork(): void;
               interface LibOptions {
               }
             }""";
-        assertEquals(normalize.apply(expectedNamespace), normalize.apply(skeletons.get(thirdPartyNamespace)),
-                     "Ambient namespace should contain all its member declarations");
+        assertEquals(
+                normalize.apply(expectedNamespace),
+                normalize.apply(skeletons.get(thirdPartyNamespace)),
+                "Ambient namespace should contain all its member declarations");
 
         // Test 4: Ambient namespace members are captured as separate CodeUnits
         CodeUnit doWorkFunc = CodeUnit.fn(advancedTsFile, "", "ThirdPartyLib.doWork");
-        assertTrue(declarations.contains(doWorkFunc),
-                   "Function inside ambient namespace should be captured as separate CodeUnit");
+        assertTrue(
+                declarations.contains(doWorkFunc),
+                "Function inside ambient namespace should be captured as separate CodeUnit");
 
         CodeUnit libOptionsInterface = CodeUnit.cls(advancedTsFile, "", "ThirdPartyLib$LibOptions");
-        assertTrue(declarations.contains(libOptionsInterface),
-                   "Interface inside ambient namespace should be captured as separate CodeUnit");
+        assertTrue(
+                declarations.contains(libOptionsInterface),
+                "Interface inside ambient namespace should be captured as separate CodeUnit");
 
         // Test 5: No duplicate captures
         long ambientVarCount = declarations.stream()
-            .filter(cu -> cu.kind() == CodeUnitType.FIELD && cu.identifier().equals("$"))
-            .count();
+                .filter(cu -> cu.kind() == CodeUnitType.FIELD && cu.identifier().equals("$"))
+                .count();
         assertEquals(1, ambientVarCount, "Ambient variable should only be captured once");
 
         long ambientFuncCount = declarations.stream()
-            .filter(cu -> cu.kind() == CodeUnitType.FUNCTION && cu.identifier().equals("fetch"))
-            .count();
+                .filter(cu ->
+                        cu.kind() == CodeUnitType.FUNCTION && cu.identifier().equals("fetch"))
+                .count();
         assertEquals(1, ambientFuncCount, "Ambient function should only be captured once");
 
         long ambientNamespaceCount = declarations.stream()
-            .filter(cu -> cu.kind() == CodeUnitType.CLASS && cu.identifier().equals("ThirdPartyLib"))
-            .count();
+                .filter(cu -> cu.kind() == CodeUnitType.CLASS && cu.identifier().equals("ThirdPartyLib"))
+                .count();
         assertEquals(1, ambientNamespaceCount, "Ambient namespace should only be captured once");
 
         // Test 6: Different types of ambient declarations
@@ -620,8 +731,9 @@ public class TypescriptAnalyzerTest {
         // Test with Point interface - could be from Hello.ts or Advanced.ts
         String pointSource = normalize.apply(analyzer.getClassSource("Point"));
         assertNotNull(pointSource);
-        assertTrue(pointSource.contains("x: number") && pointSource.contains("y: number"),
-                   "Point should have x and y properties");
+        assertTrue(
+                pointSource.contains("x: number") && pointSource.contains("y: number"),
+                "Point should have x and y properties");
         assertTrue(pointSource.endsWith("}"));
 
         // Handle both possible Point interfaces
@@ -637,7 +749,6 @@ public class TypescriptAnalyzerTest {
         }
     }
 
-
     @Test
     void testCodeUnitEqualityFixed() throws IOException {
         // Test that verifies the CodeUnit equality fix prevents byte range corruption
@@ -646,37 +757,43 @@ public class TypescriptAnalyzerTest {
 
         // Find both Point interfaces from different files
         List<CodeUnit> allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
-            .flatMap(List::stream)
-            .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
-            .toList();
+                .flatMap(List::stream)
+                .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
+                .toList();
 
         // Should find Point interfaces from both Hello.ts and Advanced.ts
         assertEquals(2, allPointInterfaces.size(), "Should find Point interfaces in both Hello.ts and Advanced.ts");
 
         CodeUnit helloPoint = allPointInterfaces.stream()
-            .filter(cu -> cu.source().toString().equals("Hello.ts"))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("Should find Point in Hello.ts"));
+                .filter(cu -> cu.source().toString().equals("Hello.ts"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Should find Point in Hello.ts"));
 
         CodeUnit advancedPoint = allPointInterfaces.stream()
-            .filter(cu -> cu.source().toString().equals("Advanced.ts"))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("Should find Point in Advanced.ts"));
+                .filter(cu -> cu.source().toString().equals("Advanced.ts"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Should find Point in Advanced.ts"));
 
         // The CodeUnits should be from different files
-        assertNotEquals(helloPoint.source().toString(), advancedPoint.source().toString(),
-                       "Point interfaces should be from different files");
+        assertNotEquals(
+                helloPoint.source().toString(),
+                advancedPoint.source().toString(),
+                "Point interfaces should be from different files");
 
         // After the fix: CodeUnits with same FQN but different source files should be distinct
-        assertFalse(helloPoint.equals(advancedPoint), "CodeUnits with same FQN from different files should be distinct");
-        assertNotEquals(helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
+        assertFalse(
+                helloPoint.equals(advancedPoint), "CodeUnits with same FQN from different files should be distinct");
+        assertNotEquals(
+                helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
 
         // With distinct CodeUnits, getClassSource should work correctly without corruption
         String pointSource = analyzer.getClassSource("Point");
 
         // The source should be a valid Point interface, not corrupted
         assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
-        assertTrue(pointSource.trim().startsWith("interface Point") || pointSource.trim().startsWith("export interface Point"),
+        assertTrue(
+                pointSource.trim().startsWith("interface Point")
+                        || pointSource.trim().startsWith("export interface Point"),
                 "Should start with interface declaration");
     }
 
@@ -720,23 +837,29 @@ public class TypescriptAnalyzerTest {
 
             // Now test that TypeScript analyzer only processes .ts/.tsx files from dependencies
             // Check which file extensions TypeScript language recognizes
-            assertTrue(Language.TYPESCRIPT.getExtensions().contains("ts"),
-                    "TypeScript should recognize .ts files");
-            assertTrue(Language.TYPESCRIPT.getExtensions().contains("tsx"),
-                    "TypeScript should recognize .tsx files");
-            assertFalse(Language.TYPESCRIPT.getExtensions().contains("js"),
-                    "TypeScript should NOT recognize .js files");
-            assertFalse(Language.TYPESCRIPT.getExtensions().contains("jsx"),
-                    "TypeScript should NOT recognize .jsx files");
+            assertTrue(Language.TYPESCRIPT.getExtensions().contains("ts"), "TypeScript should recognize .ts files");
+            assertTrue(Language.TYPESCRIPT.getExtensions().contains("tsx"), "TypeScript should recognize .tsx files");
+            assertFalse(
+                    Language.TYPESCRIPT.getExtensions().contains("js"), "TypeScript should NOT recognize .js files");
+            assertFalse(
+                    Language.TYPESCRIPT.getExtensions().contains("jsx"), "TypeScript should NOT recognize .jsx files");
 
             // Verify that Language.fromExtension correctly routes files
-            assertEquals(Language.TYPESCRIPT, Language.fromExtension("ts"),
+            assertEquals(
+                    Language.TYPESCRIPT,
+                    Language.fromExtension("ts"),
                     ".ts files should be handled by TypeScript analyzer");
-            assertEquals(Language.TYPESCRIPT, Language.fromExtension("tsx"),
+            assertEquals(
+                    Language.TYPESCRIPT,
+                    Language.fromExtension("tsx"),
                     ".tsx files should be handled by TypeScript analyzer");
-            assertEquals(Language.JAVASCRIPT, Language.fromExtension("js"),
+            assertEquals(
+                    Language.JAVASCRIPT,
+                    Language.fromExtension("js"),
                     ".js files should be handled by JavaScript analyzer");
-            assertEquals(Language.JAVASCRIPT, Language.fromExtension("jsx"),
+            assertEquals(
+                    Language.JAVASCRIPT,
+                    Language.fromExtension("jsx"),
                     ".jsx files should be handled by JavaScript analyzer");
 
         } finally {
@@ -783,20 +906,25 @@ public class TypescriptAnalyzerTest {
             // Test isAnalyzed method
 
             // Project source files should be analyzed
-            assertTrue(Language.TYPESCRIPT.isAnalyzed(tsProject, sourceFile),
+            assertTrue(
+                    Language.TYPESCRIPT.isAnalyzed(tsProject, sourceFile),
                     "Project source files should be considered analyzed");
-            assertTrue(Language.TYPESCRIPT.isAnalyzed(tsProject, srcDir),
+            assertTrue(
+                    Language.TYPESCRIPT.isAnalyzed(tsProject, srcDir),
                     "Project source directories should be considered analyzed");
 
             // node_modules should NOT be analyzed (as they are dependencies)
-            assertFalse(Language.TYPESCRIPT.isAnalyzed(tsProject, nodeModules),
+            assertFalse(
+                    Language.TYPESCRIPT.isAnalyzed(tsProject, nodeModules),
                     "node_modules directory should not be considered analyzed");
-            assertFalse(Language.TYPESCRIPT.isAnalyzed(tsProject, reactDir),
+            assertFalse(
+                    Language.TYPESCRIPT.isAnalyzed(tsProject, reactDir),
                     "Individual dependency directories should not be considered analyzed");
 
             // Files outside project should not be analyzed
             Path outsideFile = Path.of("/tmp/outside.ts").toAbsolutePath();
-            assertFalse(Language.TYPESCRIPT.isAnalyzed(tsProject, outsideFile),
+            assertFalse(
+                    Language.TYPESCRIPT.isAnalyzed(tsProject, outsideFile),
                     "Files outside project should not be considered analyzed");
 
         } finally {
@@ -812,24 +940,32 @@ public class TypescriptAnalyzerTest {
             var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
 
             // Create both TypeScript and JavaScript files in project root
-            Files.writeString(tempDir.resolve("component.ts"), """
+            Files.writeString(
+                    tempDir.resolve("component.ts"),
+                    """
                     export class TypeScriptClass {
                         method(): string { return "typescript"; }
                     }
                     """);
 
-            Files.writeString(tempDir.resolve("component.tsx"), """
+            Files.writeString(
+                    tempDir.resolve("component.tsx"),
+                    """
                     export const TsxComponent = () => <div>TSX</div>;
                     """);
 
             // Create JavaScript files that should be ignored
-            Files.writeString(tempDir.resolve("script.js"), """
+            Files.writeString(
+                    tempDir.resolve("script.js"),
+                    """
                     export class JavaScriptClass {
                         method() { return "javascript"; }
                     }
                     """);
 
-            Files.writeString(tempDir.resolve("component.jsx"), """
+            Files.writeString(
+                    tempDir.resolve("component.jsx"),
+                    """
                     export const JsxComponent = () => <div>JSX</div>;
                     """);
 
@@ -841,24 +977,23 @@ public class TypescriptAnalyzerTest {
 
             // Get all top-level declarations
             var declarations = analyzer.getTopLevelDeclarations();
-            var allDeclarations = declarations.values().stream()
-                    .flatMap(List::stream)
-                    .toList();
+            var allDeclarations =
+                    declarations.values().stream().flatMap(List::stream).toList();
 
             // Should find TypeScript symbols
-            assertTrue(allDeclarations.stream()
-                    .anyMatch(cu -> cu.fqName().contains("TypeScriptClass")),
+            assertTrue(
+                    allDeclarations.stream().anyMatch(cu -> cu.fqName().contains("TypeScriptClass")),
                     "Should find TypeScript class");
-            assertTrue(allDeclarations.stream()
-                    .anyMatch(cu -> cu.fqName().contains("TsxComponent")),
+            assertTrue(
+                    allDeclarations.stream().anyMatch(cu -> cu.fqName().contains("TsxComponent")),
                     "Should find TSX component");
 
             // Should NOT find JavaScript symbols
-            assertFalse(allDeclarations.stream()
-                    .anyMatch(cu -> cu.fqName().contains("JavaScriptClass")),
+            assertFalse(
+                    allDeclarations.stream().anyMatch(cu -> cu.fqName().contains("JavaScriptClass")),
                     "Should NOT find JavaScript class");
-            assertFalse(allDeclarations.stream()
-                    .anyMatch(cu -> cu.fqName().contains("JsxComponent")),
+            assertFalse(
+                    allDeclarations.stream().anyMatch(cu -> cu.fqName().contains("JsxComponent")),
                     "Should NOT find JSX component");
 
             // Test file-specific declarations
@@ -868,15 +1003,15 @@ public class TypescriptAnalyzerTest {
             var jsxFile = new ProjectFile(tempDir, "component.jsx");
 
             // TypeScript files should have declarations
-            assertFalse(analyzer.getDeclarationsInFile(tsFile).isEmpty(),
-                    "TypeScript file should have declarations");
-            assertFalse(analyzer.getDeclarationsInFile(tsxFile).isEmpty(),
-                    "TSX file should have declarations");
+            assertFalse(analyzer.getDeclarationsInFile(tsFile).isEmpty(), "TypeScript file should have declarations");
+            assertFalse(analyzer.getDeclarationsInFile(tsxFile).isEmpty(), "TSX file should have declarations");
 
             // JavaScript files should have no declarations (empty because they're ignored)
-            assertTrue(analyzer.getDeclarationsInFile(jsFile).isEmpty(),
+            assertTrue(
+                    analyzer.getDeclarationsInFile(jsFile).isEmpty(),
                     "JavaScript file should have no declarations in TypeScript analyzer");
-            assertTrue(analyzer.getDeclarationsInFile(jsxFile).isEmpty(),
+            assertTrue(
+                    analyzer.getDeclarationsInFile(jsxFile).isEmpty(),
                     "JSX file should have no declarations in TypeScript analyzer");
 
         } finally {
@@ -888,13 +1023,13 @@ public class TypescriptAnalyzerTest {
         if (Files.exists(dir)) {
             try (var stream = Files.walk(dir)) {
                 stream.sorted((a, b) -> b.compareTo(a)) // Delete children before parents
-                      .forEach(path -> {
-                          try {
-                              Files.delete(path);
-                          } catch (IOException e) {
-                              // Ignore cleanup errors
-                          }
-                      });
+                        .forEach(path -> {
+                            try {
+                                Files.delete(path);
+                            } catch (IOException e) {
+                                // Ignore cleanup errors
+                            }
+                        });
             }
         }
     }
@@ -907,68 +1042,75 @@ public class TypescriptAnalyzerTest {
         var greeterLowerNames = greeterLower.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         var greeterUpperNames = greeterUpper.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertEquals(greeterLowerNames, greeterUpperNames,
-                    "TypeScript search should be case-insensitive: 'greeter' and 'GREETER' should return identical results");
+        assertEquals(
+                greeterLowerNames,
+                greeterUpperNames,
+                "TypeScript search should be case-insensitive: 'greeter' and 'GREETER' should return identical results");
 
         // Test regex patterns with metacharacters
         var dotAnyPattern = analyzer.searchDefinitions(".*Greeter.*"); // Regex pattern to match Greeter
         var greeterNames = dotAnyPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(greeterNames.stream().anyMatch(name -> name.contains("Greeter")),
-                  "Regex pattern should match Greeter and its members");
+        assertTrue(
+                greeterNames.stream().anyMatch(name -> name.contains("Greeter")),
+                "Regex pattern should match Greeter and its members");
 
         // Test class/interface name patterns
         var classPattern = analyzer.searchDefinitions(".*Class.*");
         var classNames = classPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(classNames.stream().anyMatch(name -> name.contains("DecoratedClass")),
-                  "Class pattern should match DecoratedClass");
+        assertTrue(
+                classNames.stream().anyMatch(name -> name.contains("DecoratedClass")),
+                "Class pattern should match DecoratedClass");
 
         // Test enum patterns
         var colorEnum = analyzer.searchDefinitions("Color");
         var colorNames = colorEnum.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(colorNames.stream().anyMatch(name -> name.contains("Color")),
-                  "Should find Color enum");
+        assertTrue(colorNames.stream().anyMatch(name -> name.contains("Color")), "Should find Color enum");
 
         // Test function patterns
         var funcPattern = analyzer.searchDefinitions(".*Func.*");
         var funcNames = funcPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(funcNames.stream().anyMatch(name -> name.contains("globalFunc")),
-                  "Function pattern should match globalFunc");
+        assertTrue(
+                funcNames.stream().anyMatch(name -> name.contains("globalFunc")),
+                "Function pattern should match globalFunc");
 
         // Test TypeScript-specific patterns: generic types
         var genericPattern = analyzer.searchDefinitions(".*Generic.*");
         var genericNames = genericPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(genericNames.stream().anyMatch(name -> name.contains("GenericInterface")),
-                  "Generic pattern should match GenericInterface");
+        assertTrue(
+                genericNames.stream().anyMatch(name -> name.contains("GenericInterface")),
+                "Generic pattern should match GenericInterface");
 
         // Test async/await patterns
         var asyncPattern = analyzer.searchDefinitions("async.*");
         var asyncNames = asyncPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(asyncNames.stream().anyMatch(name -> name.contains("asyncArrowFunc") || name.contains("asyncNamedFunc")),
-                  "Async pattern should match async functions");
+        assertTrue(
+                asyncNames.stream()
+                        .anyMatch(name -> name.contains("asyncArrowFunc") || name.contains("asyncNamedFunc")),
+                "Async pattern should match async functions");
 
         // Test type alias patterns
         var typePattern = analyzer.searchDefinitions("Pointy");
         var typeNames = typePattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(typeNames.stream().anyMatch(name -> name.contains("Pointy")),
-                  "Should find Pointy generic type alias");
+        assertTrue(
+                typeNames.stream().anyMatch(name -> name.contains("Pointy")), "Should find Pointy generic type alias");
 
         // Test ambient declaration patterns
         var ambientPattern = analyzer.searchDefinitions("$");
         var ambientNames = ambientPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(ambientNames.stream().anyMatch(name -> name.contains("$")),
-                  "Should find ambient $ variable");
+        assertTrue(ambientNames.stream().anyMatch(name -> name.contains("$")), "Should find ambient $ variable");
 
         // Test method/property patterns with dot notation
         var methodPattern = analyzer.searchDefinitions(".*\\.greet");
         var methodNames = methodPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(methodNames.stream().anyMatch(name -> name.contains("Greeter.greet")),
-                  "Dot notation pattern should match method names");
+        assertTrue(
+                methodNames.stream().anyMatch(name -> name.contains("Greeter.greet")),
+                "Dot notation pattern should match method names");
 
         // Test namespace patterns
         var namespacePattern = analyzer.searchDefinitions(".*ThirdParty.*");
         var namespaceNames = namespacePattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(namespaceNames.stream().anyMatch(name -> name.contains("ThirdPartyLib")),
-                  "Namespace pattern should match ThirdPartyLib");
+        assertTrue(
+                namespaceNames.stream().anyMatch(name -> name.contains("ThirdPartyLib")),
+                "Namespace pattern should match ThirdPartyLib");
     }
-
 }

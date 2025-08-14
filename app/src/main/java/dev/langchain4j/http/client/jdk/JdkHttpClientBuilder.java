@@ -1,8 +1,7 @@
 package dev.langchain4j.http.client.jdk;
 
-import java.time.Duration;
-
 import dev.langchain4j.http.client.HttpClientBuilder;
+import java.time.Duration;
 
 public class JdkHttpClientBuilder implements HttpClientBuilder {
 

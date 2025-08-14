@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk;
 
+import static java.lang.Math.min;
+import static org.junit.jupiter.api.Assertions.*;
+
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolSpecifications;
@@ -8,20 +11,15 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.util.Messages;
-import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-
-import static java.lang.Math.min;
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.io.TempDir;
 
 public class LlmTest {
     private static Llm llm;
@@ -68,12 +66,13 @@ public class LlmTest {
     }
 
     // uncomment when you need it, this makes live API calls
-//    @Test
+    //    @Test
     void testModels() {
         // Get Models instance from ContextManager
         var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
-        Assumptions.assumeFalse(availableModels.isEmpty(), "No models available via LiteLLM, skipping testModels test.");
+        Assumptions.assumeFalse(
+                availableModels.isEmpty(), "No models available via LiteLLM, skipping testModels test.");
 
         var messages = List.<ChatMessage>of(new UserMessage("hello world"));
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
@@ -100,11 +99,16 @@ public class LlmTest {
                 var chatResponse = result.chatResponse();
                 assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
                 assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
-                assertNotNull(result.originalMessage().text(), "AI message text should not be null for model: " + modelName);
-                assertFalse(result.originalMessage().text().isBlank(), "AI message text should not be blank for model: " + modelName);
+                assertNotNull(
+                        result.originalMessage().text(), "AI message text should not be null for model: " + modelName);
+                assertFalse(
+                        result.originalMessage().text().isBlank(),
+                        "AI message text should not be blank for model: " + modelName);
 
-                var firstLine = result.originalMessage().text().lines().findFirst().orElse("");
-                System.out.println("Response from " + modelName + ": " + firstLine.substring(0, min(firstLine.length(), 50)) + "...");
+                var firstLine =
+                        result.originalMessage().text().lines().findFirst().orElse("");
+                System.out.println("Response from " + modelName + ": "
+                        + firstLine.substring(0, min(firstLine.length(), 50)) + "...");
             } catch (Throwable t) {
                 // Catch assertion errors or any other exceptions during the test for this model
                 failures.put(modelName, t);
@@ -115,19 +119,23 @@ public class LlmTest {
 
         if (!failures.isEmpty()) {
             String failureSummary = failures.entrySet().stream()
-                    .map(entry -> "Model '" + entry.getKey() + "' failed: " + entry.getValue().getMessage() +
-                            (entry.getValue().getCause() != null ? " (Cause: " + entry.getValue().getCause().getMessage() + ")" : ""))
+                    .map(entry -> "Model '" + entry.getKey() + "' failed: "
+                            + entry.getValue().getMessage()
+                            + (entry.getValue().getCause() != null
+                                    ? " (Cause: " + entry.getValue().getCause().getMessage() + ")"
+                                    : ""))
                     .collect(Collectors.joining("\n"));
             fail("One or more models failed the basic connectivity test:\n" + failureSummary);
         }
     }
 
     // uncomment when you need it, this makes live API calls
-//    @Test
+    //    @Test
     void testToolCalling() {
         var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
-        Assumptions.assumeFalse(availableModels.isEmpty(), "No models available via LiteLLM, skipping testToolCalling test.");
+        Assumptions.assumeFalse(
+                availableModels.isEmpty(), "No models available via LiteLLM, skipping testToolCalling test.");
 
         var weatherTool = new WeatherTool();
         var toolSpecifications = ToolSpecifications.toolSpecificationsFrom(weatherTool);
@@ -150,46 +158,60 @@ public class LlmTest {
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);
                         if (result.error() != null) {
-                            throw new AssertionError("Request resulted in an error for model: " + modelName, result.error());
+                            throw new AssertionError(
+                                    "Request resulted in an error for model: " + modelName, result.error());
                         }
 
                         var chatResponse = result.chatResponse();
                         assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
-                        assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
+                        assertNotNull(
+                                result.originalMessage(), "AI message should not be null for model: " + modelName);
 
                         // ASSERTION 1: Check if a tool execution was requested
-                        assertTrue(result.originalMessage().hasToolExecutionRequests(),
-                                   "Model " + modelName + " did not request tool execution. Response: " + chatResponse.text());
+                        assertTrue(
+                                result.originalMessage().hasToolExecutionRequests(),
+                                "Model " + modelName + " did not request tool execution. Response: "
+                                        + chatResponse.text());
                         System.out.println("Tool call requested successfully by " + modelName);
 
                         // check that we can send the result back
-                        var tr = result.originalMessage().toolExecutionRequests().getFirst();
+                        var tr =
+                                result.originalMessage().toolExecutionRequests().getFirst();
                         // NB: this is a quick hack that does not actually pass arguments from the tool call
                         messages.add(result.originalMessage());
-                        var term = new ToolExecutionResultMessage(tr.id(), tr.name(), new WeatherTool().getWeather("London"));
+                        var term = new ToolExecutionResultMessage(
+                                tr.id(), tr.name(), new WeatherTool().getWeather("London"));
                         messages.add(term);
                         messages.add(new UserMessage("Given what you know about London, is this unusual?"));
                         result = coder.sendRequest(messages);
                         assertNotNull(result, "Result should not be null for model: " + modelName);
                         assertFalse(false, "Request should not be cancelled for model: " + modelName);
                         if (result.error() != null) {
-                            throw new AssertionError("Followup request resulted in an error for model: " + modelName, result.error());
+                            throw new AssertionError(
+                                    "Followup request resulted in an error for model: " + modelName, result.error());
                         }
                         System.out.println("Tool response processed successfully by " + modelName);
                     } catch (Throwable t) {
                         // Catch assertion errors or any other exceptions during the test for this model
                         failures.put(modelName, t);
                         // Log the error immediately for easier debugging during parallel execution
-                        System.err.printf("Failure testing tool calling for model %s: %s%n",
-                                          modelName, t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
+                        System.err.printf(
+                                "Failure testing tool calling for model %s: %s%n",
+                                modelName,
+                                t.getMessage() != null
+                                        ? t.getMessage()
+                                        : t.getClass().getSimpleName());
                         t.printStackTrace();
                     }
                 });
 
         if (!failures.isEmpty()) {
             String failureSummary = failures.entrySet().stream()
-                    .map(entry -> "Model '" + entry.getKey() + "' failed tool calling: " + entry.getValue().getMessage() +
-                            (entry.getValue().getCause() != null ? " (Cause: " + entry.getValue().getCause().getMessage() + ")" : ""))
+                    .map(entry -> "Model '" + entry.getKey() + "' failed tool calling: "
+                            + entry.getValue().getMessage()
+                            + (entry.getValue().getCause() != null
+                                    ? " (Cause: " + entry.getValue().getCause().getMessage() + ")"
+                                    : ""))
                     .collect(Collectors.joining("\n"));
             fail("One or more models failed the tool calling test:\n" + failureSummary);
         }
@@ -211,7 +233,9 @@ public class LlmTest {
         assertEquals(2, result1.size());
         assertEquals(user1, result1.get(0));
         assertTrue(result1.get(1) instanceof UserMessage);
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results", Messages.getText(result1.get(1)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
+                Messages.getText(result1.get(1)).stripIndent());
         assertEquals(user2.name(), ((UserMessage) result1.get(1)).name()); // Name preserved
 
         // Case 2: Multiple TERMs followed by UserMessage
@@ -220,7 +244,9 @@ public class LlmTest {
         assertEquals(2, result2.size());
         assertEquals(user1, result2.get(0));
         assertTrue(result2.get(1) instanceof UserMessage);
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n\nFollow-up based on results", Messages.getText(result2.get(1)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n\nFollow-up based on results",
+                Messages.getText(result2.get(1)).stripIndent());
 
         // Case 3: TERM followed by non-UserMessage (AiMessage)
         var messages3 = List.of(user1, term1, ai1, user2);
@@ -228,7 +254,9 @@ public class LlmTest {
         assertEquals(4, result3.size());
         assertEquals(user1, result3.get(0));
         assertTrue(result3.get(1) instanceof UserMessage);
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n", Messages.getText(result3.get(1)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n",
+                Messages.getText(result3.get(1)).stripIndent());
         assertEquals(ai1, result3.get(2));
         assertEquals(user2, result3.get(3));
 
@@ -237,37 +265,46 @@ public class LlmTest {
         var result4 = llm.emulateToolExecutionResults(messages4);
         assertEquals(3, result4.size());
         assertEquals(user1, result4.get(0));
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results", Messages.getText(result4.get(1)).stripIndent());
-        assertEquals("<toolcall id=\"t4\" name=\"toolD\">\nResult D\n</toolcall>\n", Messages.getText(result4.get(2)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
+                Messages.getText(result4.get(1)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t4\" name=\"toolD\">\nResult D\n</toolcall>\n",
+                Messages.getText(result4.get(2)).stripIndent());
 
         // Case 5: Multiple combinations and other messages, including combining multiple terms
         var messages5 = List.of(user1, term1, term2, user2, ai1, term3, term4, user3);
         var result5 = llm.emulateToolExecutionResults(messages5);
-        // Expected: user1, combined(message from term1,term2 and user2), ai1, combined(message from term3,term4 and user3)
+        // Expected: user1, combined(message from term1,term2 and user2), ai1, combined(message from term3,term4 and
+        // user3)
         assertEquals(4, result5.size());
         assertEquals(user1, result5.get(0));
-        var expectedText5_1 = """
+        var expectedText5_1 =
+                """
                 <toolcall id="t1" name="toolA">
                 Result A
                 </toolcall>
-                
+
                 <toolcall id="t2" name="toolB">
                 Result B
                 </toolcall>
-                
-                Follow-up based on results""".stripIndent();
+
+                Follow-up based on results"""
+                        .stripIndent();
         assertEquals(expectedText5_1, Messages.getText(result5.get(1)));
         assertEquals(ai1, result5.get(2));
-        var expectedText5_3 = """
+        var expectedText5_3 =
+                """
                 <toolcall id="t3" name="toolC">
                 Result C
                 </toolcall>
-                
+
                 <toolcall id="t4" name="toolD">
                 Result D
                 </toolcall>
-                
-                Another follow-up""".stripIndent();
+
+                Another follow-up"""
+                        .stripIndent();
         assertEquals(expectedText5_3, Messages.getText(result5.get(3)));
 
         // Case 6: No TERMs
@@ -281,13 +318,17 @@ public class LlmTest {
         var result7 = llm.emulateToolExecutionResults(messages7);
         assertEquals(1, result7.size());
         assertTrue(result7.get(0) instanceof UserMessage);
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n", Messages.getText(result7.get(0)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n",
+                Messages.getText(result7.get(0)).stripIndent());
 
         // Case 8: TERM at the beginning followed by UserMessage
         var messages8 = List.of(term1, user1);
         var result8 = llm.emulateToolExecutionResults(messages8);
         assertEquals(1, result8.size());
         assertTrue(result8.get(0) instanceof UserMessage);
-        assertEquals("<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nInitial request", Messages.getText(result8.get(0)).stripIndent());
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nInitial request",
+                Messages.getText(result8.get(0)).stripIndent());
     }
 }

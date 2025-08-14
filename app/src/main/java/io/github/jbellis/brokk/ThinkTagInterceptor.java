@@ -1,30 +1,29 @@
 package io.github.jbellis.brokk;
 
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * An adapter for StreamingChatResponseHandler that intercepts and processes
- * inline <think>...</think> reasoning tags from the model's response stream.
- * <p>
- * This interceptor uses a state machine to parse tokens as they arrive.
- * Text outside of think-tags is forwarded to the delegate's `onPartialResponse`.
- * Text inside think-tags is buffered and sent to the delegate's `onReasoningResponse`
- * once a complete, closing `</think>` tag is found.
- * <p>
- * This class is not designed to handle nested <think> tags. If an unclosed tag
- * is present when the stream completes or errors out, the buffered content is
-
- * flushed as regular text to avoid data loss.
+ * An adapter for StreamingChatResponseHandler that intercepts and processes inline <think>...</think> reasoning tags
+ * from the model's response stream.
+ *
+ * <p>This interceptor uses a state machine to parse tokens as they arrive. Text outside of think-tags is forwarded to
+ * the delegate's `onPartialResponse`. Text inside think-tags is buffered and sent to the delegate's
+ * `onReasoningResponse` once a complete, closing `</think>` tag is found.
+ *
+ * <p>This class is not designed to handle nested <think> tags. If an unclosed tag is present when the stream completes
+ * or errors out, the buffered content is
+ *
+ * <p>flushed as regular text to avoid data loss.
  */
 public final class ThinkTagInterceptor implements StreamingChatResponseHandler {
 
     private enum State {
-        DEFAULT,      // Outside any tag
-        OPENING_TAG,  // Matched '<', checking for "<think>"
-        INSIDE_TAG,   // Inside <think>...</think>
-        CLOSING_TAG   // Inside <think>... and matched '<', checking for "</think>"
+        DEFAULT, // Outside any tag
+        OPENING_TAG, // Matched '<', checking for "<think>"
+        INSIDE_TAG, // Inside <think>...</think>
+        CLOSING_TAG // Inside <think>... and matched '<', checking for "</think>"
     }
 
     private static final String OPEN_TAG = "<think>";
@@ -122,8 +121,8 @@ public final class ThinkTagInterceptor implements StreamingChatResponseHandler {
     }
 
     /**
-     * If the stream ends while a tag is unclosed, flush all buffered content
-     * as literal text to avoid losing information.
+     * If the stream ends while a tag is unclosed, flush all buffered content as literal text to avoid losing
+     * information.
      */
     private void flushUnclosedAsLiteral() {
         if (state == State.DEFAULT) {

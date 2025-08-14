@@ -1,13 +1,12 @@
 package io.github.jbellis.brokk.issues;
 
-import io.github.jbellis.brokk.IProject;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.IProject;
 import java.nio.file.Path;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class JiraIssueServiceTest {
 
@@ -43,7 +42,8 @@ public class JiraIssueServiceTest {
                 return Path.of("mock-project-root");
             }
 
-            // Other methods will use default implementations from IProject (often throwing UnsupportedOperationException)
+            // Other methods will use default implementations from IProject (often throwing
+            // UnsupportedOperationException)
         };
     }
 
@@ -66,11 +66,14 @@ public class JiraIssueServiceTest {
         assertNotNull(issues, "The returned list of issues should not be null.");
         // This assertion will fail if authentication is not successful, as an empty list will be returned.
         // This is an expected failure mode when running without proper credentials.
-        assertFalse(issues.isEmpty(), "Expected to find issues for the CASSANDRA project. This will fail if unauthenticated or if the project has no issues.");
+        assertFalse(
+                issues.isEmpty(),
+                "Expected to find issues for the CASSANDRA project. This will fail if unauthenticated or if the project has no issues.");
 
         for (IssueHeader issue : issues) {
             assertNotNull(issue.id(), "Issue ID should not be null.");
-            assertTrue(issue.id().startsWith("CASSANDRA-"),
+            assertTrue(
+                    issue.id().startsWith("CASSANDRA-"),
                     "Issue ID '" + issue.id() + "' should start with 'CASSANDRA-'.");
             assertNotNull(issue.title(), "Issue title should not be null for ID: " + issue.id());
             assertNotNull(issue.status(), "Issue status should not be null for ID: " + issue.id());
@@ -120,7 +123,6 @@ public class JiraIssueServiceTest {
             assertNotNull(firstComment.created(), "First comment's creation date should not be null.");
         }
 
-
         // Verify attachmentUrls
         assertNotNull(details.attachmentUrls(), "Attachment URLs list should not be null (can be empty).");
         // CASSANDRA-1 might not have image attachments directly in description/comments that are parsed as such.
@@ -128,9 +130,13 @@ public class JiraIssueServiceTest {
 
         System.out.println("Successfully loaded details for issue " + issueIdToLoad + " from CASSANDRA project.");
         System.out.println("Title: " + header.title());
-        System.out.println("Body (first 100 chars): " + (details.markdownBody().length() > 100 ? details.markdownBody().substring(0, 100) + "..." : details.markdownBody()));
+        System.out.println("Body (first 100 chars): "
+                + (details.markdownBody().length() > 100
+                        ? details.markdownBody().substring(0, 100) + "..."
+                        : details.markdownBody()));
         System.out.println("Number of comments: " + details.comments().size());
-        System.out.println("Number of attachment URLs: " + details.attachmentUrls().size());
+        System.out.println(
+                "Number of attachment URLs: " + details.attachmentUrls().size());
     }
 
     @Test
@@ -148,21 +154,27 @@ public class JiraIssueServiceTest {
 
         assertNotNull(issues, "The returned list of issues should not be null.");
         // This assertion can fail if no issues match the status, or due to authentication/project changes.
-        assertFalse(issues.isEmpty(), "Expected to find issues for the CASSANDRA project with status '" + targetStatus +
-                                      "'. This might fail if no such issues exist or due to authentication.");
+        assertFalse(
+                issues.isEmpty(),
+                "Expected to find issues for the CASSANDRA project with status '" + targetStatus
+                        + "'. This might fail if no such issues exist or due to authentication.");
 
         for (IssueHeader issue : issues) {
             assertNotNull(issue.status(), "Issue status should not be null for ID: " + issue.id());
-            assertTrue(targetStatus.equalsIgnoreCase(issue.status()),
-                    "Issue " + issue.id() + " has status '" + issue.status() + "' but expected '" + targetStatus + "'.");
+            assertTrue(
+                    targetStatus.equalsIgnoreCase(issue.status()),
+                    "Issue " + issue.id() + " has status '" + issue.status() + "' but expected '" + targetStatus
+                            + "'.");
             // Also verify core fields for each issue found
             assertNotNull(issue.id(), "Issue ID should not be null.");
-            assertTrue(issue.id().startsWith("CASSANDRA-"),
+            assertTrue(
+                    issue.id().startsWith("CASSANDRA-"),
                     "Issue ID '" + issue.id() + "' should start with 'CASSANDRA-'.");
             assertNotNull(issue.title(), "Issue title should not be null for ID: " + issue.id());
             assertNotNull(issue.htmlUrl(), "Issue HTML URL should not be null for ID: " + issue.id());
         }
 
-        System.out.println("Successfully fetched " + issues.size() + " issues with status '" + targetStatus + "' for CASSANDRA project.");
+        System.out.println("Successfully fetched " + issues.size() + " issues with status '" + targetStatus
+                + "' for CASSANDRA project.");
     }
 }

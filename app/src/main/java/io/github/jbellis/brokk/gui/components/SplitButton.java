@@ -1,15 +1,14 @@
 package io.github.jbellis.brokk.gui.components;
 
-import com.formdev.flatlaf.ui.FlatButtonUI;
+import static io.github.jbellis.brokk.gui.components.SplitButton.SplitButtonUI.ARROW_WIDTH;
 
-import javax.swing.*;
-import javax.swing.plaf.basic.BasicButtonListener;
+import com.formdev.flatlaf.ui.FlatButtonUI;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.function.Supplier;
-
+import javax.swing.*;
+import javax.swing.plaf.basic.BasicButtonListener;
 import org.jetbrains.annotations.Nullable;
-import static io.github.jbellis.brokk.gui.components.SplitButton.SplitButtonUI.ARROW_WIDTH;
 
 public class SplitButton extends JButton {
     private @Nullable Supplier<JPopupMenu> menuSupplier;
@@ -59,14 +58,15 @@ public class SplitButton extends JButton {
     public Insets getMargin() {
         Insets originalMargin = super.getMargin();
         if (inSuperPaint) {
-            Insets m = (Insets) (super.getMargin() == null
-                                 ? new Insets(0, 0, 0, 0)
-                                 : super.getMargin().clone());
+            Insets m = (Insets)
+                    (super.getMargin() == null
+                            ? new Insets(0, 0, 0, 0)
+                            : super.getMargin().clone());
 
             // FIXME o3 and I weren't able to figure out how to center
             // the text correctly, this is the best we came up with
             // (combined with the extra space in the " Ask" label)
-            m.left  += 2;
+            m.left += 2;
             m.right += ARROW_WIDTH;
             return m;
         }
@@ -89,25 +89,25 @@ public class SplitButton extends JButton {
     }
 
     public static class SplitButtonUI extends FlatButtonUI {
-    
+
         public static final int ARROW_WIDTH = 18; // Width of the arrow area
         private static final int ARROW_ICON_SIZE = 8; // Size of the triangle
-    
+
         public SplitButtonUI() {
             super(false); // Pass false for the 'shared' parameter
         }
-    
+
         @Override
         public void installUI(JComponent c) {
             super.installUI(c);
             // Potentially set defaults here if needed, e.g., c.setOpaque(false) or specific margins.
         }
-    
+
         @Override
         public void uninstallUI(JComponent c) {
             super.uninstallUI(c);
         }
-    
+
         @Override
         protected BasicButtonListener createButtonListener(AbstractButton b) {
             return new BasicButtonListener(b) {
@@ -117,7 +117,7 @@ public class SplitButton extends JButton {
                     if (!button.isEnabled()) {
                         return;
                     }
-    
+
                     if (isClickOnArrowArea(button, e.getX())) {
                         if (button instanceof SplitButton sb) {
                             sb.showPopupMenuInternal();
@@ -130,7 +130,7 @@ public class SplitButton extends JButton {
                         super.mousePressed(e);
                     }
                 }
-    
+
                 @Override
                 public void mouseReleased(MouseEvent e) {
                     var button = (AbstractButton) e.getComponent();
@@ -149,34 +149,34 @@ public class SplitButton extends JButton {
                         e.consume();
                     }
                 }
-    
+
                 private boolean isClickOnArrowArea(AbstractButton button, int x) {
                     return x >= button.getWidth() - ARROW_WIDTH;
                 }
             };
         }
-    
+
         @Override
         public void paint(Graphics g, JComponent c) {
             var sb = (SplitButton) c;
-    
+
             sb.setInSuperPaint(true);
             super.paint(g, c); // Paint the main button part using FlatButtonUI, which will use adjusted margins
             sb.setInSuperPaint(false);
-    
+
             // The isBorderPainted() check was problematic with FlatLaf as it might be false
             // even if a border is painted by the L&F.
             // Only check if the button is enabled for painting the arrow.
             if (!sb.isEnabled()) {
                 return;
             }
-    
+
             var g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-    
+
             int width = c.getWidth();
             int height = c.getHeight();
-    
+
             // Draw separator line
             var separatorColor = UIManager.getColor("SplitPane.dividerFocusColor");
             if (separatorColor == null) {
@@ -187,7 +187,7 @@ public class SplitButton extends JButton {
             }
             g2.setColor(separatorColor);
             g2.drawLine(width - ARROW_WIDTH, 2, width - ARROW_WIDTH, height - 3); // Small margin
-    
+
             // Draw arrow triangle
             var arrowColor = UIManager.getColor("Button.foreground");
             if (arrowColor == null) {
@@ -198,21 +198,15 @@ public class SplitButton extends JButton {
             }
             g2.setColor(arrowColor);
             int triangleMargin = (ARROW_WIDTH - ARROW_ICON_SIZE) / 2;
-            int[] xPoints = {
-                    width - ARROW_WIDTH + triangleMargin,
-                    width - triangleMargin,
-                    width - ARROW_WIDTH / 2
-            };
+            int[] xPoints = {width - ARROW_WIDTH + triangleMargin, width - triangleMargin, width - ARROW_WIDTH / 2};
             int[] yPoints = {
-                    height / 2 - ARROW_ICON_SIZE / 3,
-                    height / 2 - ARROW_ICON_SIZE / 3,
-                    height / 2 + ARROW_ICON_SIZE * 2 / 3
+                height / 2 - ARROW_ICON_SIZE / 3, height / 2 - ARROW_ICON_SIZE / 3, height / 2 + ARROW_ICON_SIZE * 2 / 3
             };
             g2.fillPolygon(xPoints, yPoints, 3);
-    
+
             g2.dispose();
         }
-    
+
         @Override
         public Dimension getPreferredSize(JComponent c) {
             Dimension d = super.getPreferredSize(c);
@@ -235,4 +229,3 @@ public class SplitButton extends JButton {
         }
     }
 }
-

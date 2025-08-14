@@ -8,10 +8,9 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.util.Map;
+import org.jetbrains.annotations.Nullable;
 
 public final class StubService extends Service {
 
@@ -20,25 +19,36 @@ public final class StubService extends Service {
     }
 
     @Override
-    protected void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
-			      Map<String, String> locationsTarget,
-			      Map<String, Map<String, Object>> infoTarget) throws IOException
-    { }
+    protected void fetchAvailableModels(
+            MainProject.DataRetentionPolicy policy,
+            Map<String, String> locationsTarget,
+            Map<String, Map<String, Object>> infoTarget)
+            throws IOException {}
 
     @Override
-    public String nameOf(@Nullable StreamingChatModel model) { return "stub-model"; }
+    public String nameOf(@Nullable StreamingChatModel model) {
+        return "stub-model";
+    }
 
     @Override
-    public boolean isLazy(@Nullable StreamingChatModel model) { return false; }
+    public boolean isLazy(@Nullable StreamingChatModel model) {
+        return false;
+    }
 
     @Override
-    public boolean isReasoning(@Nullable StreamingChatModel model) { return false; }
+    public boolean isReasoning(@Nullable StreamingChatModel model) {
+        return false;
+    }
 
     @Override
-    public boolean requiresEmulatedTools(@Nullable StreamingChatModel model) { return false; }
+    public boolean requiresEmulatedTools(@Nullable StreamingChatModel model) {
+        return false;
+    }
 
     @Override
-    public boolean supportsJsonSchema(@Nullable StreamingChatModel model) { return true; }
+    public boolean supportsJsonSchema(@Nullable StreamingChatModel model) {
+        return true;
+    }
 
     @Override
     public StreamingChatModel getModel(String modelName, Service.ReasoningLevel reasoningLevel) {
@@ -46,8 +56,8 @@ public final class StubService extends Service {
             @Override
             public void doChat(ChatRequest request, StreamingChatResponseHandler handler) {
                 handler.onCompleteResponse(ChatResponse.builder()
-                                                       .aiMessage(new AiMessage("```\nnew content\n```"))
-                                                       .build());
+                        .aiMessage(new AiMessage("```\nnew content\n```"))
+                        .build());
             }
         };
     }

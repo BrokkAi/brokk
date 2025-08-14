@@ -11,12 +11,6 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GitCommitBrowserPanel;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
@@ -30,7 +24,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 public class CreatePullRequestDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CreatePullRequestDialog.class);
@@ -50,19 +48,24 @@ public class CreatePullRequestDialog extends JDialog {
     private LoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
+
     @Nullable
     private String mergeBaseCommit = null;
+
     private boolean sourceBranchNeedsPush = false;
 
     /**
-     * Optional branch name that should be pre-selected as the source branch
-     * when the dialog opens.  May be {@code null}.
+     * Optional branch name that should be pre-selected as the source branch when the dialog opens. May be {@code null}.
      */
     @Nullable
     private final String preselectedSourceBranch;
 
     @SuppressWarnings("NullAway.Init")
-    public CreatePullRequestDialog(@Nullable Frame owner, Chrome chrome, ContextManager contextManager, @Nullable String preselectedSourceBranch) {
+    public CreatePullRequestDialog(
+            @Nullable Frame owner,
+            Chrome chrome,
+            ContextManager contextManager,
+            @Nullable String preselectedSourceBranch) {
         super(owner, "Create a Pull Request", false);
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -79,16 +82,18 @@ public class CreatePullRequestDialog extends JDialog {
     @Nullable
     private ScheduledFuture<?> pendingDebounceTask;
 
-    private final ScheduledExecutorService debounceExec = Executors.newSingleThreadScheduledExecutor(new java.util.concurrent.ThreadFactory() {
-        private final AtomicInteger threadNumber = new AtomicInteger(1);
-        @Override
-        public Thread newThread(Runnable r) {
-            Thread t = Executors.defaultThreadFactory().newThread(r);
-            t.setDaemon(true);
-            t.setName("pr-description-debouncer-" + threadNumber.getAndIncrement());
-            return t;
-        }
-    });
+    private final ScheduledExecutorService debounceExec =
+            Executors.newSingleThreadScheduledExecutor(new java.util.concurrent.ThreadFactory() {
+                private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = Executors.defaultThreadFactory().newThread(r);
+                    t.setDaemon(true);
+                    t.setName("pr-description-debouncer-" + threadNumber.getAndIncrement());
+                    return t;
+                }
+            });
     // private ScheduledFuture<?> pendingDebounceTask; // Removed duplicate
     private static final long DEBOUNCE_MS = 400;
 
@@ -129,7 +134,13 @@ public class CreatePullRequestDialog extends JDialog {
 
         // --- middle: commit browser and file list ---------------------------------------------
         var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false, false);
-        commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> { /* no-op */ }, commitBrowserOptions);
+        commitBrowserPanel = new GitCommitBrowserPanel(
+                chrome,
+                contextManager,
+                () -> {
+                    /* no-op */
+                },
+                commitBrowserOptions);
         // The duplicate initializations that were here have been removed.
         // commitBrowserPanel and fileStatusTable are now initialized once above.
         fileStatusTable = new FileStatusTable();
@@ -165,7 +176,8 @@ public class CreatePullRequestDialog extends JDialog {
                     if (viewRow >= 0) {
                         tbl.setRowSelectionInterval(viewRow, viewRow);
                         int modelRow = tbl.convertRowIndexToModel(viewRow);
-                        ProjectFile clickedFile = (ProjectFile) tbl.getModel().getValueAt(modelRow, PROJECT_FILE_MODEL_COLUMN_INDEX);
+                        ProjectFile clickedFile =
+                                (ProjectFile) tbl.getModel().getValueAt(modelRow, PROJECT_FILE_MODEL_COLUMN_INDEX);
                         openPrDiffViewer(clickedFile);
                     }
                 }
@@ -216,8 +228,11 @@ public class CreatePullRequestDialog extends JDialog {
         panel.add(scrollPane, gbc);
 
         // Hint label for description generation source
-        descriptionHintLabel = new JLabel("<html>Description generated from commit messages as the diff was too large.</html>");
-        descriptionHintLabel.setFont(descriptionHintLabel.getFont().deriveFont(Font.ITALIC, descriptionHintLabel.getFont().getSize() * 0.9f));
+        descriptionHintLabel =
+                new JLabel("<html>Description generated from commit messages as the diff was too large.</html>");
+        descriptionHintLabel.setFont(descriptionHintLabel
+                .getFont()
+                .deriveFont(Font.ITALIC, descriptionHintLabel.getFont().getSize() * 0.9f));
         descriptionHintLabel.setVisible(false); // Initially hidden
         gbc.gridx = 1;
         gbc.gridy = 2; // Position below the description area
@@ -225,7 +240,7 @@ public class CreatePullRequestDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.anchor = GridBagConstraints.NORTHWEST; // Align to top-left of its cell
         panel.add(descriptionHintLabel, gbc);
-        
+
         return panel;
     }
 
@@ -236,7 +251,7 @@ public class CreatePullRequestDialog extends JDialog {
         // Create combo boxes first
         targetBranchComboBox = new JComboBox<>();
         sourceBranchComboBox = new JComboBox<>();
-        
+
         // Then add them to the panel
         row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox, row);
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
@@ -252,30 +267,28 @@ public class CreatePullRequestDialog extends JDialog {
     private int addBranchSelectorToPanel(JPanel parent, String labelText, JComboBox<String> comboBox, int row) {
         var gbc = createGbc(0, row);
         parent.add(new JLabel(labelText), gbc);
-        
+
         gbc = createGbc(1, row);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
         parent.add(comboBox, gbc);
-        
+
         return row + 1;
     }
-    
+
     private JLabel createBranchFlowIndicator(JPanel parent, int row) {
         var branchFlowLabel = new JLabel("", SwingConstants.CENTER);
         branchFlowLabel.setFont(branchFlowLabel.getFont().deriveFont(Font.BOLD));
-        
+
         var gbc = createGbc(0, row);
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         parent.add(branchFlowLabel, gbc);
-        
+
         return branchFlowLabel;
     }
 
-    /**
-     * Simple immutable holder for commits and changed files between two branches.
-     */
+    /** Simple immutable holder for commits and changed files between two branches. */
     // Fix the UnnecessaryLambda warning by implementing updateBranchFlow as a method
     private void updateBranchFlow() {
         var target = (String) targetBranchComboBox.getSelectedItem();
@@ -313,7 +326,8 @@ public class CreatePullRequestDialog extends JDialog {
         sourceBranchComboBox.addActionListener(branchChangedListener);
     }
 
-    private void updateCommitRelatedUI(List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
+    private void updateCommitRelatedUI(
+            List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
         Collections.reverse(newCommits);
         this.currentCommits = newCommits;
         commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
@@ -345,16 +359,19 @@ public class CreatePullRequestDialog extends JDialog {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
                     String nonGitMessage = "Project is not a Git repository.";
-                    SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(),
-                                                                           Collections.emptyList(),
-                                                                           nonGitMessage));
+                    SwingUtilities.invokeLater(() ->
+                            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), nonGitMessage));
                     return Collections.emptyList();
                 }
 
                 // Use GitWorkflowService to get branch diff information
                 var branchDiff = workflowService.diffBetweenBranches(sourceBranch, targetBranch);
                 this.mergeBaseCommit = branchDiff.mergeBase(); // Store merge base from service
-                logger.debug("Calculated merge base between {} and {}: {}", sourceBranch, targetBranch, this.mergeBaseCommit);
+                logger.debug(
+                        "Calculated merge base between {} and {}: {}",
+                        sourceBranch,
+                        targetBranch,
+                        this.mergeBaseCommit);
 
                 // Check if source branch needs push (for UI indicator)
                 this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
@@ -367,9 +384,8 @@ public class CreatePullRequestDialog extends JDialog {
                     debounceSuggestPrDetails(sourceBranch, targetBranch);
                 }
 
-                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(branchDiff.commits(),
-                                                                       branchDiff.files(),
-                                                                       contextName));
+                SwingUtilities.invokeLater(
+                        () -> updateCommitRelatedUI(branchDiff.commits(), branchDiff.files(), contextName));
                 return branchDiff.commits();
             } catch (Exception e) {
                 logger.error("Error fetching branch diff or suggesting PR details for " + contextName, e);
@@ -411,7 +427,8 @@ public class CreatePullRequestDialog extends JDialog {
         if (titleField.getText() == null || titleField.getText().trim().isEmpty()) {
             blockers.add("Title cannot be empty.");
         }
-        if (descriptionArea.getText() == null || descriptionArea.getText().trim().isEmpty()) {
+        if (descriptionArea.getText() == null
+                || descriptionArea.getText().trim().isEmpty()) {
             blockers.add("Description cannot be empty.");
         }
         if (sourceBranchNeedsPush) {
@@ -432,23 +449,23 @@ public class CreatePullRequestDialog extends JDialog {
         return sb.toString();
     }
 
-    /**
-     * Checks whether the dialog has sufficient information to enable PR creation.
-     */
+    /** Checks whether the dialog has sufficient information to enable PR creation. */
     private boolean isCreatePrReady() {
         return getCreatePrBlockers().isEmpty();
     }
-    
+
     private void setupInputListeners() {
         javax.swing.event.DocumentListener inputChangedListener = new javax.swing.event.DocumentListener() {
             @Override
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
                 updateCreatePrButtonState();
             }
+
             @Override
             public void removeUpdate(javax.swing.event.DocumentEvent e) {
                 updateCreatePrButtonState();
             }
+
             @Override
             public void changedUpdate(javax.swing.event.DocumentEvent e) {
                 updateCreatePrButtonState();
@@ -468,10 +485,10 @@ public class CreatePullRequestDialog extends JDialog {
         var cancelButton = new JButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
         buttonPanel.add(cancelButton);
-        
+
         return buttonPanel;
     }
-    
+
     private GridBagConstraints createGbc(int x, int y) {
         var gbc = new GridBagConstraints();
         gbc.gridx = x;
@@ -491,17 +508,16 @@ public class CreatePullRequestDialog extends JDialog {
         try {
             var localBranches = gitRepo.listLocalBranches();
             var remoteBranches = gitRepo.listRemoteBranches();
-            
+
             var targetBranches = getTargetBranches(remoteBranches);
             var sourceBranches = getSourceBranches(localBranches, remoteBranches);
-            
+
             populateBranchDropdowns(targetBranches, sourceBranches);
             setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
 
             // If caller asked for a specific source branch, honour it *after*
             // defaults have been applied (so this wins).
-            if (preselectedSourceBranch != null &&
-                sourceBranches.contains(preselectedSourceBranch)) {
+            if (preselectedSourceBranch != null && sourceBranches.contains(preselectedSourceBranch)) {
                 sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
             }
 
@@ -509,12 +525,14 @@ public class CreatePullRequestDialog extends JDialog {
             setupBranchListeners();
 
             this.flowUpdater.run(); // Update label based on defaults
-            refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater and update button state
+            refreshCommitList(); // Load commits based on defaults, which will also call flowUpdater and update button
+            // state
             // updateCreatePrButtonState(); // No longer needed here, refreshCommitList handles it
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
             // Ensure UI is updated consistently on error, using the new helper method
-            SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches"));
+            SwingUtilities.invokeLater(() ->
+                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches"));
         }
     }
 
@@ -524,21 +542,22 @@ public class CreatePullRequestDialog extends JDialog {
                 .filter(branch -> !branch.equals("origin/HEAD"))
                 .toList();
     }
-    
+
     private List<String> getSourceBranches(List<String> localBranches, List<String> remoteBranches) {
         return java.util.stream.Stream.concat(localBranches.stream(), remoteBranches.stream())
                 .distinct()
                 .sorted()
                 .toList();
     }
-    
+
     private void populateBranchDropdowns(List<String> targetBranches, List<String> sourceBranches) {
         targetBranchComboBox.setModel(new DefaultComboBoxModel<>(targetBranches.toArray(new String[0])));
         sourceBranchComboBox.setModel(new DefaultComboBoxModel<>(sourceBranches.toArray(new String[0])));
     }
-    
-    private void setDefaultBranchSelections(GitRepo gitRepo, List<String> targetBranches,
-                                           List<String> sourceBranches, List<String> localBranches) throws GitAPIException {
+
+    private void setDefaultBranchSelections(
+            GitRepo gitRepo, List<String> targetBranches, List<String> sourceBranches, List<String> localBranches)
+            throws GitAPIException {
         var defaultTarget = findDefaultTargetBranch(targetBranches);
         if (defaultTarget != null) {
             targetBranchComboBox.setSelectedItem(defaultTarget);
@@ -546,7 +565,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         selectDefaultSourceBranch(gitRepo, sourceBranches, localBranches);
     }
-    
+
     @Nullable
     private String findDefaultTargetBranch(List<String> targetBranches) {
         if (targetBranches.contains("origin/main")) {
@@ -557,8 +576,9 @@ public class CreatePullRequestDialog extends JDialog {
         }
         return targetBranches.isEmpty() ? null : targetBranches.getFirst();
     }
-    
-    private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches) throws GitAPIException {
+
+    private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches)
+            throws GitAPIException {
         var currentBranch = gitRepo.getCurrentBranch();
         if (sourceBranches.contains(currentBranch)) {
             sourceBranchComboBox.setSelectedItem(currentBranch);
@@ -574,15 +594,10 @@ public class CreatePullRequestDialog extends JDialog {
         dialog.setVisible(true);
     }
 
-    /**
-     * Convenience helper to open the dialog with a pre-selected source branch.
-     */
-    public static void show(@Nullable Frame owner,
-                            Chrome chrome,
-                            ContextManager contextManager,
-                            @Nullable String sourceBranch) {
-        CreatePullRequestDialog dialog =
-                new CreatePullRequestDialog(owner, chrome, contextManager, sourceBranch);
+    /** Convenience helper to open the dialog with a pre-selected source branch. */
+    public static void show(
+            @Nullable Frame owner, Chrome chrome, ContextManager contextManager, @Nullable String sourceBranch) {
+        CreatePullRequestDialog dialog = new CreatePullRequestDialog(owner, chrome, contextManager, sourceBranch);
         dialog.setVisible(true);
     }
 
@@ -595,8 +610,8 @@ public class CreatePullRequestDialog extends JDialog {
         return files;
     }
 
-    private BufferSource.StringSource createBufferSource(GitRepo repo, String commitSHA,
-                                                         ProjectFile f) throws GitAPIException {
+    private BufferSource.StringSource createBufferSource(GitRepo repo, String commitSHA, ProjectFile f)
+            throws GitAPIException {
         var content = repo.getFileContent(commitSHA, f);
         return new BufferSource.StringSource(content, commitSHA, f.getFileName());
     }
@@ -623,9 +638,9 @@ public class CreatePullRequestDialog extends JDialog {
 
     private record FileComparisonSources(BufferSource left, BufferSource right) {}
 
-    private FileComparisonSources createFileComparisonSources(GitRepo gitRepo, String mergeBaseSha,
-                                                              String sourceCommitIsh, ProjectFile file,
-                                                              String status) throws GitAPIException {
+    private FileComparisonSources createFileComparisonSources(
+            GitRepo gitRepo, String mergeBaseSha, String sourceCommitIsh, ProjectFile file, String status)
+            throws GitAPIException {
         BufferSource leftSrc;
         BufferSource rightSrc;
 
@@ -641,7 +656,8 @@ public class CreatePullRequestDialog extends JDialog {
         return new FileComparisonSources(leftSrc, rightSrc);
     }
 
-    private void buildAndShowDiffPanel(List<ProjectFile> orderedFiles, String mergeBaseCommitSha, String sourceBranchName) {
+    private void buildAndShowDiffPanel(
+            List<ProjectFile> orderedFiles, String mergeBaseCommitSha, String sourceBranchName) {
         try {
             var repo = contextManager.getProject().getRepo();
             if (!(repo instanceof GitRepo gitRepo)) {
@@ -669,13 +685,16 @@ public class CreatePullRequestDialog extends JDialog {
         final String currentMergeBase = this.mergeBaseCommit;
         final String currentSourceBranch = (String) sourceBranchComboBox.getSelectedItem();
 
-        if (currentSourceBranch == null) { 
+        if (currentSourceBranch == null) {
             chrome.toolError("Source branch is not selected.", "Diff Error");
             return;
         }
         if (currentMergeBase == null) {
             chrome.toolError("Merge base could not be determined. Cannot show diff.", "Diff Error");
-            logger.warn("Merge base is null when trying to open PR diff viewer. Source: {}, Target: {}", currentSourceBranch, targetBranchComboBox.getSelectedItem());
+            logger.warn(
+                    "Merge base is null when trying to open PR diff viewer. Source: {}, Target: {}",
+                    currentSourceBranch,
+                    targetBranchComboBox.getSelectedItem());
             return;
         }
 
@@ -685,9 +704,7 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    /**
-     * SwingWorker to suggest PR title and description using GitWorkflowService.
-     */
+    /** SwingWorker to suggest PR title and description using GitWorkflowService. */
     private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflowService.PrSuggestion, Void> {
         private final String sourceBranch;
         private final String targetBranch;
@@ -709,7 +726,8 @@ public class CreatePullRequestDialog extends JDialog {
         @Override
         protected void done() {
             try {
-                GitWorkflowService.PrSuggestion suggestion = get(); // This will throw specific exceptions if cancelled/interrupted.
+                GitWorkflowService.PrSuggestion suggestion =
+                        get(); // This will throw specific exceptions if cancelled/interrupted.
                 SwingUtilities.invokeLater(() -> {
                     setTextAndResetCaret(titleField, suggestion.title());
                     setTextAndResetCaret(descriptionArea, suggestion.description());
@@ -734,16 +752,26 @@ public class CreatePullRequestDialog extends JDialog {
                 Throwable cause = e.getCause();
                 if (cause instanceof InterruptedException interruptedException) {
                     Thread.currentThread().interrupt(); // Preserve interrupt status
-                    logger.warn("SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}", sourceBranch, targetBranch, interruptedException);
+                    logger.warn(
+                            "SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}",
+                            sourceBranch,
+                            targetBranch,
+                            interruptedException);
                     SwingUtilities.invokeLater(() -> {
                         setTextAndResetCaret(titleField, "(suggestion interrupted)");
                         setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
                         showDescriptionHint(false);
                     });
                 } else {
-                    logger.warn("SuggestPrDetailsWorker failed with ExecutionException for {} -> {}: {}", sourceBranch, targetBranch, (cause != null ? cause.getMessage() : e.getMessage()), cause);
+                    logger.warn(
+                            "SuggestPrDetailsWorker failed with ExecutionException for {} -> {}: {}",
+                            sourceBranch,
+                            targetBranch,
+                            (cause != null ? cause.getMessage() : e.getMessage()),
+                            cause);
                     SwingUtilities.invokeLater(() -> {
-                        String errorMessage = (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
+                        String errorMessage =
+                                (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
                         errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;
                         setTextAndResetCaret(titleField, "(suggestion failed)");
                         setTextAndResetCaret(descriptionArea, "(suggestion failed: " + errorMessage + ")");
@@ -763,7 +791,9 @@ public class CreatePullRequestDialog extends JDialog {
         if (!isCreatePrReady()) {
             // This should ideally not happen if button state is managed correctly,
             // but as a safeguard:
-            chrome.toolError("Cannot create Pull Request. Please check details and ensure branch is pushed.", "PR Creation Error");
+            chrome.toolError(
+                    "Cannot create Pull Request. Please check details and ensure branch is pushed.",
+                    "PR Creation Error");
             return;
         }
 
@@ -790,7 +820,8 @@ public class CreatePullRequestDialog extends JDialog {
                     Desktop.getDesktop().browse(prUrl);
                 } else {
                     logger.warn("Desktop browse action not supported, cannot open PR URL automatically: {}", prUrl);
-                    SwingUtilities.invokeLater(() -> chrome.systemNotify("PR created: " + prUrl, "Pull Request Created", JOptionPane.INFORMATION_MESSAGE));
+                    SwingUtilities.invokeLater(() -> chrome.systemNotify(
+                            "PR created: " + prUrl, "Pull Request Created", JOptionPane.INFORMATION_MESSAGE));
                 }
                 SwingUtilities.invokeLater(this::dispose);
 
@@ -835,24 +866,24 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     /**
-     * Debounces the call to generate PR suggestions.
-     * The actual decision of using diff vs commit messages is now inside the service.
+     * Debounces the call to generate PR suggestions. The actual decision of using diff vs commit messages is now inside
+     * the service.
      */
     private void debounceSuggestPrDetails(String sourceBranch, String targetBranch) {
-        SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
-            setTextAndResetCaret(descriptionArea, "Generating PR details...");
-            setTextAndResetCaret(titleField, "Generating PR details...");
-            // The hint will be set by the worker's done() method based on service response.
-            // For now, ensure it's hidden during generation.
-            showDescriptionHint(false);
-        });
+        SwingUtilities.invokeLater(
+                () -> { // Ensure UI updates are on EDT
+                    setTextAndResetCaret(descriptionArea, "Generating PR details...");
+                    setTextAndResetCaret(titleField, "Generating PR details...");
+                    // The hint will be set by the worker's done() method based on service response.
+                    // For now, ensure it's hidden during generation.
+                    showDescriptionHint(false);
+                });
 
         if (pendingDebounceTask != null) {
             pendingDebounceTask.cancel(false);
         }
         pendingDebounceTask = debounceExec.schedule(
-                () -> spawnSuggestPrDetailsWorker(sourceBranch, targetBranch),
-                DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+                () -> spawnSuggestPrDetailsWorker(sourceBranch, targetBranch), DEBOUNCE_MS, TimeUnit.MILLISECONDS);
     }
 
     private void spawnSuggestPrDetailsWorker(String sourceBranch, String targetBranch) {

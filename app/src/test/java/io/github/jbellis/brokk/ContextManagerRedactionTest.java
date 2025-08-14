@@ -1,14 +1,13 @@
 package io.github.jbellis.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
-import org.junit.jupiter.api.Test;
-
 import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
 
 class ContextManagerRedactionTest {
 
@@ -26,7 +25,8 @@ class ContextManagerRedactionTest {
                %s
                >>>>>>> REPLACE
                ```
-               """.formatted(filename, search, replace);
+               """
+                .formatted(filename, search, replace);
     }
 
     @Test
@@ -37,7 +37,8 @@ class ContextManagerRedactionTest {
         Optional<AiMessage> redactedMessage = CodePrompts.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedMessage.isPresent(), "Message with only S/R block should NOT be removed.");
-        assertEquals(ELIDED_BLOCK_PLACEHOLDER, redactedMessage.get().text(), "Message content should be the placeholder.");
+        assertEquals(
+                ELIDED_BLOCK_PLACEHOLDER, redactedMessage.get().text(), "Message content should be the placeholder.");
     }
 
     @Test
@@ -66,7 +67,7 @@ class ContextManagerRedactionTest {
         assertTrue(redactedResult.isPresent(), "Plain message should be present.");
         assertEquals(originalMessage.text(), redactedResult.get().text(), "Plain message text should be unchanged.");
     }
-    
+
     @Test
     void handlesEmptyMessage() {
         String aiText = "";
@@ -113,8 +114,10 @@ class ContextManagerRedactionTest {
         AiMessage originalMessage = new AiMessage(aiText);
 
         Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
-        
-        assertTrue(redactedResult.isPresent(), "Message composed of only S/R blocks but resulting in non-blank placeholder text should be present.");
+
+        assertTrue(
+                redactedResult.isPresent(),
+                "Message composed of only S/R blocks but resulting in non-blank placeholder text should be present.");
         String expectedText = ELIDED_BLOCK_PLACEHOLDER + "\n" + ELIDED_BLOCK_PLACEHOLDER;
         assertEquals(expectedText, redactedResult.get().text());
     }
@@ -125,13 +128,13 @@ class ContextManagerRedactionTest {
         String block = createSingleBlockMessage("file.end", "end_s", "end_r");
         String aiText = text + block;
         AiMessage originalMessage = new AiMessage(aiText);
-        
+
         Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
-        
+
         assertTrue(redactedResult.isPresent());
         assertEquals(text + ELIDED_BLOCK_PLACEHOLDER, redactedResult.get().text());
     }
-    
+
     @Test
     void handlesMessageStartingWithBlock() {
         String block = createSingleBlockMessage("file.start", "start_s", "start_r");

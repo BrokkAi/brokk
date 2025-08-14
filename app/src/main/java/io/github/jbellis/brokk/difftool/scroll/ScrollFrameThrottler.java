@@ -1,26 +1,24 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
+import java.awt.event.ActionEvent;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
-import java.awt.event.ActionEvent;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-
 /**
- * Frame-based throttling utility for scroll operations that provides immediate
- * response for single events while limiting execution frequency during rapid scrolling.
+ * Frame-based throttling utility for scroll operations that provides immediate response for single events while
+ * limiting execution frequency during rapid scrolling.
  *
- * Unlike traditional debouncing which delays all events, frame-based throttling:
- * - Executes the first event immediately (0ms delay)
- * - During rapid scrolling, executes at most once per frame interval
- * - Only executes the latest action when the frame completes
+ * <p>Unlike traditional debouncing which delays all events, frame-based throttling: - Executes the first event
+ * immediately (0ms delay) - During rapid scrolling, executes at most once per frame interval - Only executes the latest
+ * action when the frame completes
  *
- * This approach provides excellent user experience with immediate feedback for
- * single scroll events while maintaining performance during rapid scrolling.
+ * <p>This approach provides excellent user experience with immediate feedback for single scroll events while
+ * maintaining performance during rapid scrolling.
  */
 public final class ScrollFrameThrottler {
     private static final Logger logger = LogManager.getLogger(ScrollFrameThrottler.class);
@@ -79,44 +77,37 @@ public final class ScrollFrameThrottler {
         int oldInterval = frameIntervalMs.getAndSet(clampedInterval);
 
         if (oldInterval != clampedInterval) {
-            logger.debug("Frame rate changed from {}ms to {}ms ({} FPS)",
-                       oldInterval, clampedInterval, 1000.0 / clampedInterval);
+            logger.debug(
+                    "Frame rate changed from {}ms to {}ms ({} FPS)",
+                    oldInterval,
+                    clampedInterval,
+                    1000.0 / clampedInterval);
         }
     }
 
-    /**
-     * Gets the current frame rate interval in milliseconds.
-     */
+    /** Gets the current frame rate interval in milliseconds. */
     public int getFrameRate() {
         return frameIntervalMs.get();
     }
 
-    /**
-     * Checks if a frame is currently active (waiting for frame boundary).
-     */
+    /** Checks if a frame is currently active (waiting for frame boundary). */
     public boolean isFrameActive() {
         synchronized (lock) {
             return frameActive;
         }
     }
 
-    /**
-     * Gets the total number of events submitted.
-     */
+    /** Gets the total number of events submitted. */
     public long getTotalEvents() {
         return totalEvents.get();
     }
 
-    /**
-     * Gets the total number of actions executed.
-     */
+    /** Gets the total number of actions executed. */
     public long getTotalExecutions() {
         return totalExecutions.get();
     }
 
-    /**
-     * Gets the time of the last execution in milliseconds since epoch.
-     */
+    /** Gets the time of the last execution in milliseconds since epoch. */
     public long getLastExecutionTime() {
         return lastExecutionTime.get();
     }
@@ -137,9 +128,7 @@ public final class ScrollFrameThrottler {
         return (double) (events - executions) / events * 100.0;
     }
 
-    /**
-     * Resets all performance metrics.
-     */
+    /** Resets all performance metrics. */
     public void resetMetrics() {
         totalEvents.set(0);
         totalExecutions.set(0);
@@ -147,9 +136,7 @@ public final class ScrollFrameThrottler {
         logger.debug("Performance metrics reset");
     }
 
-    /**
-     * Cancels any pending frame timer and queued actions.
-     */
+    /** Cancels any pending frame timer and queued actions. */
     public void cancel() {
         synchronized (lock) {
             cancelled = true;
@@ -176,9 +163,7 @@ public final class ScrollFrameThrottler {
         }
     }
 
-    /**
-     * Stops the throttler and cleans up resources.
-     */
+    /** Stops the throttler and cleans up resources. */
     public void dispose() {
         synchronized (lock) {
             disposed = true;

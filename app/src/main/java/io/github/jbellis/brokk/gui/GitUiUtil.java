@@ -1,36 +1,33 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.context.ContextFragment;
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.ICommitInfo;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import io.github.jbellis.brokk.util.SyntaxDetector;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import com.google.common.base.Splitter;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Static utilities for showing diffs, capturing diffs, or editing files
- * in the Git UI, removing duplicated code across multiple panels.
+ * Static utilities for showing diffs, capturing diffs, or editing files in the Git UI, removing duplicated code across
+ * multiple panels.
  */
 public final class GitUiUtil {
     private static final Logger logger = LogManager.getLogger(GitUiUtil.class);
 
-    private GitUiUtil() {
-    }
+    private GitUiUtil() {}
 
     /**
      * Shortens a commit ID to 7 characters for display purposes.
@@ -42,11 +39,9 @@ public final class GitUiUtil {
         return commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
     }
 
-    /**
-     * Capture uncommitted diffs for the specified files, adding the result to the context.
-     */
-    public static void captureUncommittedDiff(ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles)
-    {
+    /** Capture uncommitted diffs for the specified files, adding the result to the context. */
+    public static void captureUncommittedDiff(
+            ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
         if (selectedFiles.isEmpty()) {
             chrome.systemOutput("No files selected to capture diff");
             return;
@@ -61,7 +56,9 @@ public final class GitUiUtil {
                     return;
                 }
                 var description = "Diff of %s".formatted(formatFileList(selectedFiles));
-                var syntaxStyle = selectedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
+                var syntaxStyle = selectedFiles.isEmpty()
+                        ? SyntaxConstants.SYNTAX_STYLE_NONE
+                        : SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added uncommitted diff for " + selectedFiles.size() + " file(s) to context");
@@ -71,9 +68,7 @@ public final class GitUiUtil {
         });
     }
 
-    /**
-     * Open a file in the project’s editor.
-     */
+    /** Open a file in the project’s editor. */
     public static void editFile(ContextManager contextManager, String filePath) {
         contextManager.submitContextTask("Adding file to context", () -> {
             var file = contextManager.toFile(filePath);
@@ -81,11 +76,9 @@ public final class GitUiUtil {
         });
     }
 
-    /**
-     * Capture a single file’s historical changes into the context (HEAD vs commitId).
-     */
-    public static void addFileChangeToContext(ContextManager contextManager, Chrome chrome, String commitId, ProjectFile file)
-    {
+    /** Capture a single file’s historical changes into the context (HEAD vs commitId). */
+    public static void addFileChangeToContext(
+            ContextManager contextManager, Chrome chrome, String commitId, ProjectFile file) {
         var repo = contextManager.getProject().getRepo();
 
         contextManager.submitContextTask("Adding file change to context", () -> {
@@ -107,12 +100,12 @@ public final class GitUiUtil {
         });
     }
 
-    /**
-     * Show the diff for a single file at a specific commit.
-     */
-    public static void showFileHistoryDiff(ContextManager cm, Chrome chrome, // Pass Chrome for theme access
-                                           String commitId, ProjectFile file)
-    {
+    /** Show the diff for a single file at a specific commit. */
+    public static void showFileHistoryDiff(
+            ContextManager cm,
+            Chrome chrome, // Pass Chrome for theme access
+            String commitId,
+            ProjectFile file) {
         var repo = cm.getProject().getRepo();
 
         var shortCommitId = shortenCommitId(commitId);
@@ -125,7 +118,10 @@ public final class GitUiUtil {
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm).leftSource(new BufferSource.StringSource(parentContent, parentCommitId, file.toString())).rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString())).build();
+                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
+                            .leftSource(new BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
+                            .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString()))
+                            .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
             } catch (Exception ex) {
@@ -135,11 +131,8 @@ public final class GitUiUtil {
         });
     }
 
-    /**
-     * View the file content at a specific commit (opens it in a preview window).
-     */
-    public static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath)
-    {
+    /** View the file content at a specific commit (opens it in a preview window). */
+    public static void viewFileAtRevision(ContextManager cm, Chrome chrome, String commitId, String filePath) {
         var repo = cm.getProject().getRepo();
 
         cm.submitUserTask("Viewing file at revision", () -> {
@@ -158,25 +151,23 @@ public final class GitUiUtil {
     }
 
     /**
-     * Captures the diff for a range of commits, defined by the chronologically newest and oldest
-     * ICommitInfo objects in the selection, and adds it to the context.
-     * The diff is calculated from the parent of the oldest commit in the range up to the newest commit.
+     * Captures the diff for a range of commits, defined by the chronologically newest and oldest ICommitInfo objects in
+     * the selection, and adds it to the context. The diff is calculated from the parent of the oldest commit in the
+     * range up to the newest commit.
      *
-     * @param contextManager      The ContextManager instance.
-     * @param chrome              The Chrome instance for UI feedback.
+     * @param contextManager The ContextManager instance.
+     * @param chrome The Chrome instance for UI feedback.
      * @param newestCommitInSelection The ICommitInfo for the newest commit in the selected range.
      * @param oldestCommitInSelection The ICommitInfo for the oldest commit in the selected range.
      */
-    public static void addCommitRangeToContext
-    (
+    public static void addCommitRangeToContext(
             ContextManager contextManager,
             Chrome chrome,
             ICommitInfo newestCommitInSelection,
-            ICommitInfo oldestCommitInSelection
-    ) {
-        String taskDescription = String.format("Capturing diff from %s to %s",
-                                               shortenCommitId(oldestCommitInSelection.id()),
-                                               shortenCommitId(newestCommitInSelection.id()));
+            ICommitInfo oldestCommitInSelection) {
+        String taskDescription = String.format(
+                "Capturing diff from %s to %s",
+                shortenCommitId(oldestCommitInSelection.id()), shortenCommitId(newestCommitInSelection.id()));
         contextManager.submitContextTask(taskDescription, () -> {
             try {
                 var repo = contextManager.getProject().getRepo();
@@ -202,14 +193,13 @@ public final class GitUiUtil {
 
                 var newestShort = shortenCommitId(newestCommitId);
                 var oldestShort = shortenCommitId(oldestCommitId);
-                var hashTxt = newestCommitId.equals(oldestCommitId)
-                              ? newestShort
-                              : oldestShort + ".." + newestShort;
+                var hashTxt = newestCommitId.equals(oldestCommitId) ? newestShort : oldestShort + ".." + newestShort;
 
                 var description = "Diff of %s [%s]".formatted(fileNamesSummary, hashTxt);
 
-                var syntaxStyle = changedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
-                                  SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
+                var syntaxStyle = changedFiles.isEmpty()
+                        ? SyntaxConstants.SYNTAX_STYLE_NONE
+                        : SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for commit range to context");
@@ -221,6 +211,7 @@ public final class GitUiUtil {
 
     /**
      * Groups contiguous integers from a sorted array into sub-lists.
+     *
      * @param sortedRows A sorted array of integers.
      * @return A list of lists, where each inner list contains a sequence of contiguous integers.
      */
@@ -244,11 +235,13 @@ public final class GitUiUtil {
         return groups;
     }
 
-    /**
-     * Add file changes (a subset of the commits range) to the context.
-     */
-    public static void addFilesChangeToContext(ContextManager contextManager, Chrome chrome, String firstCommitId, String lastCommitId, List<ProjectFile> files)
-    {
+    /** Add file changes (a subset of the commits range) to the context. */
+    public static void addFilesChangeToContext(
+            ContextManager contextManager,
+            Chrome chrome,
+            String firstCommitId,
+            String lastCommitId,
+            List<ProjectFile> files) {
         contextManager.submitContextTask("Adding file changes from range to context", () -> {
             try {
                 if (files.isEmpty()) {
@@ -257,26 +250,32 @@ public final class GitUiUtil {
                 }
                 var repo = contextManager.getProject().getRepo();
 
-                var diffs = files.stream().map(file -> {
-                    try {
-                        return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
-                    } catch (GitAPIException e) {
-                        logger.warn(e);
-                        return "";
-                    }
-                }).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n\n"));
+                var diffs = files.stream()
+                        .map(file -> {
+                            try {
+                                return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
+                            } catch (GitAPIException e) {
+                                logger.warn(e);
+                                return "";
+                            }
+                        })
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.joining("\n\n"));
                 if (diffs.isEmpty()) {
                     chrome.systemOutput("No changes found for the selected files in the commit range");
                     return;
                 }
                 var firstShort = shortenCommitId(firstCommitId);
                 var lastShort = shortenCommitId(lastCommitId);
-                var shortHash = firstCommitId.equals(lastCommitId) ? firstShort : "%s..%s".formatted(firstShort, lastShort);
+                var shortHash =
+                        firstCommitId.equals(lastCommitId) ? firstShort : "%s..%s".formatted(firstShort, lastShort);
 
                 var filesTxt = files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
                 var description = "Diff of %s [%s]".formatted(filesTxt, shortHash);
 
-                var syntaxStyle = files.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : SyntaxDetector.fromExtension(files.getFirst().extension());
+                var syntaxStyle = files.isEmpty()
+                        ? SyntaxConstants.SYNTAX_STYLE_NONE
+                        : SyntaxDetector.fromExtension(files.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diffs, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for selected files in commit range to context");
@@ -287,12 +286,15 @@ public final class GitUiUtil {
     }
 
     /**
-     * Compare a single file from a specific commit to the local (working directory) version.
-     * If useParent=true, compares the file's parent commit to local.
+     * Compare a single file from a specific commit to the local (working directory) version. If useParent=true,
+     * compares the file's parent commit to local.
      */
-    public static void showDiffVsLocal(ContextManager cm, Chrome chrome, // Pass Chrome for theme access
-                                       String commitId, String filePath, boolean useParent)
-    {
+    public static void showDiffVsLocal(
+            ContextManager cm,
+            Chrome chrome, // Pass Chrome for theme access
+            String commitId,
+            String filePath,
+            boolean useParent) {
         var repo = cm.getProject().getRepo();
         var file = new ProjectFile(cm.getRoot(), filePath);
 
@@ -318,7 +320,12 @@ public final class GitUiUtil {
                 String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
 
                 SwingUtilities.invokeLater(() -> {
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm).leftSource(new BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString())).rightSource(new BufferSource.FileSource(file.absPath().toFile(), file.toString())).build();
+                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
+                            .leftSource(new BufferSource.StringSource(
+                                    finalOldContent, finalBaseCommitTitle, file.toString()))
+                            .rightSource(
+                                    new BufferSource.FileSource(file.absPath().toFile(), file.toString()))
+                            .build();
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });
             } catch (Exception ex) {
@@ -328,9 +335,7 @@ public final class GitUiUtil {
         });
     }
 
-    /**
-     * Format commit date to show e.g. "HH:MM:SS today" if it is today's date.
-     */
+    /** Format commit date to show e.g. "HH:MM:SS today" if it is today's date. */
     public static String formatRelativeDate(java.time.Instant commitInstant, java.time.LocalDate today) {
         try {
             var now = java.time.Instant.now();
@@ -350,7 +355,8 @@ public final class GitUiUtil {
 
             // 2) hours ago (same calendar day)
             long hours = duration.toHours();
-            var commitDate = commitInstant.atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+            var commitDate =
+                    commitInstant.atZone(java.time.ZoneId.systemDefault()).toLocalDate();
             if (hours < 24 && commitDate.equals(today)) {
                 long n = Math.max(1, hours);
                 return n + " hour" + (n == 1 ? "" : "s") + " ago";
@@ -375,20 +381,13 @@ public final class GitUiUtil {
         }
     }
 
-    /**
-     * Holds a parsed "owner" and "repo" from a Git remote URL.
-     */
-    public record OwnerRepo(String owner, String repo) {
-    }
+    /** Holds a parsed "owner" and "repo" from a Git remote URL. */
+    public record OwnerRepo(String owner, String repo) {}
 
     /**
-     * Parse a Git remote URL of form:
-     * - https://github.com/OWNER/REPO.git
-     * - git@github.com:OWNER/REPO.git
-     * - ssh://github.com/OWNER/REPO
-     * - or any variant that ends with OWNER/REPO(.git)
-     * This attempts to extract the last two path segments
-     * as "owner" and "repo". Returns null if it cannot.
+     * Parse a Git remote URL of form: - https://github.com/OWNER/REPO.git - git@github.com:OWNER/REPO.git -
+     * ssh://github.com/OWNER/REPO - or any variant that ends with OWNER/REPO(.git) This attempts to extract the last
+     * two path segments as "owner" and "repo". Returns null if it cannot.
      */
     public static @Nullable OwnerRepo parseOwnerRepoFromUrl(String remoteUrl) {
         if (remoteUrl.isBlank()) {
@@ -414,7 +413,8 @@ public final class GitUiUtil {
         }
 
         // Split by '/' or ':' treating multiple delimiters as one
-        var segments = Splitter.on(Pattern.compile("[/:]+")).omitEmptyStrings() // Important to handle cases like "host:/path" or "host//path"
+        var segments = Splitter.on(Pattern.compile("[/:]+"))
+                .omitEmptyStrings() // Important to handle cases like "host:/path" or "host//path"
                 .splitToList(cleaned);
 
         if (segments.size() < 2) {
@@ -428,7 +428,8 @@ public final class GitUiUtil {
         String owner = segments.get(segments.size() - 2);
 
         if (owner.isBlank() || repo.isBlank()) {
-            logger.warn("Parsed blank owner or repo from remote URL: {} (owner: '{}', repo: '{}')", remoteUrl, owner, repo);
+            logger.warn(
+                    "Parsed blank owner or repo from remote URL: {} (owner: '{}', repo: '{}')", remoteUrl, owner, repo);
             return null;
         }
         logger.debug("Parsed owner '{}' and repo '{}' from URL '{}'", owner, repo, remoteUrl);
@@ -436,19 +437,16 @@ public final class GitUiUtil {
     }
 
     /**
-     * Capture the diff between two branches (e.g., HEAD vs. a selected feature branch)
-     * and add it to the context.
+     * Capture the diff between two branches (e.g., HEAD vs. a selected feature branch) and add it to the context.
      *
-     * @param cm               The ContextManager instance.
-     * @param chrome           The Chrome instance for UI feedback.
-     * @param baseBranchName   The name of the base branch for comparison (e.g., "HEAD", or a specific branch name).
+     * @param cm The ContextManager instance.
+     * @param chrome The Chrome instance for UI feedback.
+     * @param baseBranchName The name of the base branch for comparison (e.g., "HEAD", or a specific branch name).
      * @param compareBranchName The name of the branch to compare against the base.
      */
-    /**
-     * Open a BrokkDiffPanel showing all file changes in the specified commit.
-     */
-    public static void openCommitDiffPanel(ContextManager cm, Chrome chrome, io.github.jbellis.brokk.git.ICommitInfo commitInfo)
-    {
+    /** Open a BrokkDiffPanel showing all file changes in the specified commit. */
+    public static void openCommitDiffPanel(
+            ContextManager cm, Chrome chrome, io.github.jbellis.brokk.git.ICommitInfo commitInfo) {
         var repo = cm.getProject().getRepo();
 
         cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
@@ -466,10 +464,14 @@ public final class GitUiUtil {
                     var oldContent = getFileContentOrEmpty(repo, parentId, file);
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
-                    builder.addComparison(new BufferSource.StringSource(oldContent, parentId, file.getFileName()), new BufferSource.StringSource(newContent, commitInfo.id(), file.getFileName()));
+                    builder.addComparison(
+                            new BufferSource.StringSource(oldContent, parentId, file.getFileName()),
+                            new BufferSource.StringSource(newContent, commitInfo.id(), file.getFileName()));
                 }
 
-                var title = "Commit Diff: %s (%s)".formatted(commitInfo.message().lines().findFirst().orElse(""), shortenCommitId(commitInfo.id()));
+                var title = "Commit Diff: %s (%s)"
+                        .formatted(
+                                commitInfo.message().lines().findFirst().orElse(""), shortenCommitId(commitInfo.id()));
                 SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -477,7 +479,8 @@ public final class GitUiUtil {
         });
     }
 
-    private static String getFileContentOrEmpty(io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
+    private static String getFileContentOrEmpty(
+            io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
         try {
             return repo.getFileContent(commitId, file);
         } catch (Exception e) {
@@ -515,34 +518,44 @@ public final class GitUiUtil {
         });
     }
 
-    public static void captureDiffBetweenBranches(ContextManager cm, Chrome chrome, String baseBranchName, String compareBranchName)
-    {
+    public static void captureDiffBetweenBranches(
+            ContextManager cm, Chrome chrome, String baseBranchName, String compareBranchName) {
         var repo = cm.getProject().getRepo();
 
         cm.submitContextTask("Capturing diff between " + compareBranchName + " and " + baseBranchName, () -> {
             try {
                 var diff = repo.showDiff(compareBranchName, baseBranchName);
                 if (diff.isEmpty()) {
-                    chrome.systemOutput(String.format("No differences found between %s and %s", compareBranchName, baseBranchName));
+                    chrome.systemOutput(
+                            String.format("No differences found between %s and %s", compareBranchName, baseBranchName));
                     return;
                 }
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
-                var fragment = new ContextFragment.StringFragment(cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
+                var fragment =
+                        new ContextFragment.StringFragment(cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
                 cm.addVirtualFragment(fragment);
-                chrome.systemOutput(String.format("Added diff of %s vs %s to context", compareBranchName, baseBranchName));
+                chrome.systemOutput(
+                        String.format("Added diff of %s vs %s to context", compareBranchName, baseBranchName));
             } catch (Exception ex) {
-                logger.warn("Error capturing diff between branches {} and {}: {}", compareBranchName, baseBranchName, ex.getMessage(), ex);
-                chrome.toolError(String.format("Error capturing diff between %s and %s: %s", compareBranchName, baseBranchName, ex.getMessage()));
+                logger.warn(
+                        "Error capturing diff between branches {} and {}: {}",
+                        compareBranchName,
+                        baseBranchName,
+                        ex.getMessage(),
+                        ex);
+                chrome.toolError(String.format(
+                        "Error capturing diff between %s and %s: %s",
+                        compareBranchName, baseBranchName, ex.getMessage()));
             }
         });
     }
 
     /**
-     * Rollback selected files to their state at a specific commit.
-     * This will overwrite the current working directory versions of these files.
+     * Rollback selected files to their state at a specific commit. This will overwrite the current working directory
+     * versions of these files.
      */
-    public static void rollbackFilesToCommit(ContextManager contextManager, Chrome chrome, String commitId, List<ProjectFile> files)
-    {
+    public static void rollbackFilesToCommit(
+            ContextManager contextManager, Chrome chrome, String commitId, List<ProjectFile> files) {
         if (files.isEmpty()) {
             chrome.systemOutput("No files selected for rollback");
             return;
@@ -550,13 +563,15 @@ public final class GitUiUtil {
 
         var shortCommitId = shortenCommitId(commitId);
 
-        var repo = (io.github.jbellis.brokk.git.GitRepo) contextManager.getProject().getRepo();
+        var repo = (io.github.jbellis.brokk.git.GitRepo)
+                contextManager.getProject().getRepo();
 
         contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
             try {
                 repo.checkoutFilesFromCommit(commitId, files);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.systemOutput(String.format("Successfully rolled back %d file(s) to commit %s", files.size(), shortCommitId));
+                    chrome.systemOutput(String.format(
+                            "Successfully rolled back %d file(s) to commit %s", files.size(), shortCommitId));
                     // Refresh Git panels to show the changed files
                     var gitPanel = chrome.getGitPanel();
                     if (gitPanel != null) {
@@ -571,8 +586,8 @@ public final class GitUiUtil {
     }
 
     /**
-     * Formats a list of files for display in UI messages.
-     * Shows individual filenames for 3 or fewer files, otherwise shows a count.
+     * Formats a list of files for display in UI messages. Shows individual filenames for 3 or fewer files, otherwise
+     * shows a count.
      *
      * @param files List of ProjectFile objects
      * @return A formatted string like "file1.java, file2.java" or "5 files"
@@ -582,44 +597,65 @@ public final class GitUiUtil {
             return "no files";
         }
 
-        return files.size() <= 3 ? files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", ")) : files.size() + " files";
+        return files.size() <= 3
+                ? files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
+                : files.size() + " files";
     }
 
     /**
      * Captures the diff of a pull request (between its head and its effective base) and adds it to the context.
      *
-     * @param cm        The ContextManager instance.
-     * @param chrome    The Chrome instance for UI feedback.
-     * @param prTitle   The title of the pull request.
-     * @param prNumber  The number of the pull request.
+     * @param cm The ContextManager instance.
+     * @param chrome The Chrome instance for UI feedback.
+     * @param prTitle The title of the pull request.
+     * @param prNumber The number of the pull request.
      * @param prHeadSha The SHA of the head commit of the pull request.
      * @param prBaseSha The SHA of the base commit of the pull request (as recorded by GitHub).
-     * @param repo      The GitRepo instance.
+     * @param repo The GitRepo instance.
      */
-    public static void capturePrDiffToContext(ContextManager cm, Chrome chrome, String prTitle, int prNumber, String prHeadSha, String prBaseSha, io.github.jbellis.brokk.git.GitRepo repo)
-    {
+    public static void capturePrDiffToContext(
+            ContextManager cm,
+            Chrome chrome,
+            String prTitle,
+            int prNumber,
+            String prHeadSha,
+            String prBaseSha,
+            io.github.jbellis.brokk.git.GitRepo repo) {
         cm.submitContextTask("Capturing diff for PR #" + prNumber, () -> {
             try {
                 String effectiveBaseSha = repo.getMergeBase(prHeadSha, prBaseSha);
                 if (effectiveBaseSha == null) {
-                    logger.warn("Could not determine merge base for PR #{} (head: {}, base: {}). Falling back to PR base SHA for diff.", prNumber, shortenCommitId(prHeadSha), shortenCommitId(prBaseSha));
+                    logger.warn(
+                            "Could not determine merge base for PR #{} (head: {}, base: {}). Falling back to PR base SHA for diff.",
+                            prNumber,
+                            shortenCommitId(prHeadSha),
+                            shortenCommitId(prBaseSha));
                     effectiveBaseSha = prBaseSha;
                 }
 
                 String diff = repo.showDiff(prHeadSha, effectiveBaseSha);
                 if (diff.isEmpty()) {
-                    chrome.systemOutput(String.format("No differences found for PR #%d (head: %s, effective base: %s)", prNumber, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha)));
+                    chrome.systemOutput(String.format(
+                            "No differences found for PR #%d (head: %s, effective base: %s)",
+                            prNumber, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha)));
                     return;
                 }
 
                 List<ProjectFile> changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha);
                 String fileNamesSummary = formatFileList(changedFiles);
 
-                String description = String.format("Diff of PR #%d (%s): %s [HEAD: %s vs Base: %s]", prNumber, prTitle, fileNamesSummary, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha));
+                String description = String.format(
+                        "Diff of PR #%d (%s): %s [HEAD: %s vs Base: %s]",
+                        prNumber,
+                        prTitle,
+                        fileNamesSummary,
+                        shortenCommitId(prHeadSha),
+                        shortenCommitId(effectiveBaseSha));
 
                 String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
                 if (!changedFiles.isEmpty()) {
-                    syntaxStyle = SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
+                    syntaxStyle =
+                            SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 }
 
                 var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
@@ -633,4 +669,3 @@ public final class GitUiUtil {
         });
     }
 }
-

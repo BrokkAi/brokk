@@ -1,19 +1,16 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.util.Environment;
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.lib.RepositoryCache;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.RepositoryCache;
 
-/**
- * Utility class for cleaning up Git resources in tests, with special handling for Windows file handle issues.
- */
+/** Utility class for cleaning up Git resources in tests, with special handling for Windows file handle issues. */
 public class GitTestCleanupUtil {
 
     static {
@@ -68,8 +65,8 @@ public class GitTestCleanupUtil {
                 if (git != null) {
                     var repo = git.getRepository();
                     Path dir = repo.isBare()
-                             ? repo.getDirectory().toPath()
-                             : repo.getWorkTree().toPath();
+                            ? repo.getDirectory().toPath()
+                            : repo.getWorkTree().toPath();
                     dirsToDelete.add(dir);
                 }
             }
@@ -130,14 +127,13 @@ public class GitTestCleanupUtil {
 
     private static void deleteDirectoryRecursively(Path directory) throws IOException {
         try (var stream = Files.walk(directory)) {
-            stream.sorted(Comparator.reverseOrder())
-                  .forEach(path -> {
-                      try {
-                          Files.delete(path);
-                      } catch (IOException e) {
-                          throw new RuntimeException("Failed to delete: " + path, e);
-                      }
-                  });
+            stream.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.delete(path);
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to delete: " + path, e);
+                }
+            });
         } catch (RuntimeException e) {
             if (e.getCause() instanceof IOException) {
                 throw (IOException) e.getCause();

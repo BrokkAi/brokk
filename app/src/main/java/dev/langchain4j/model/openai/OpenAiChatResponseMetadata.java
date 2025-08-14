@@ -1,8 +1,7 @@
 package dev.langchain4j.model.openai;
 
-import java.util.Objects;
-
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
+import java.util.Objects;
 
 public class OpenAiChatResponseMetadata extends ChatResponseMetadata {
 
@@ -55,25 +54,19 @@ public class OpenAiChatResponseMetadata extends ChatResponseMetadata {
 
     @Override
     public int hashCode() {
-        return Objects.hash(
-                super.hashCode(),
-                created,
-                serviceTier,
-                systemFingerprint
-        );
+        return Objects.hash(super.hashCode(), created, serviceTier, systemFingerprint);
     }
 
     @Override
     public String toString() {
-        return "OpenAiChatResponseMetadata{" +
-                "id='" + id() + '\'' +
-                ", modelName='" + modelName() + '\'' +
-                ", tokenUsage=" + tokenUsage() +
-                ", finishReason=" + finishReason() +
-                ", created=" + created +
-                ", serviceTier='" + serviceTier + '\'' +
-                ", systemFingerprint='" + systemFingerprint + '\'' +
-                '}';
+        return "OpenAiChatResponseMetadata{" + "id='"
+                + id() + '\'' + ", modelName='"
+                + modelName() + '\'' + ", tokenUsage="
+                + tokenUsage() + ", finishReason="
+                + finishReason() + ", created="
+                + created + ", serviceTier='"
+                + serviceTier + '\'' + ", systemFingerprint='"
+                + systemFingerprint + '\'' + '}';
     }
 
     public static Builder builder() {

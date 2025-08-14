@@ -7,8 +7,8 @@ import java.util.concurrent.ConcurrentMap;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Static registry to track which session is active in each worktree within the current JVM.
- * This prevents the same session from being opened in multiple worktrees simultaneously.
+ * Static registry to track which session is active in each worktree within the current JVM. This prevents the same
+ * session from being opened in multiple worktrees simultaneously.
  */
 public final class SessionRegistry {
     // key = worktree root path, value = currently-active session UUID
@@ -20,7 +20,7 @@ public final class SessionRegistry {
 
     /**
      * Attempts to claim a session for the given worktree.
-     * 
+     *
      * @param worktree The worktree root path
      * @param sessionId The session UUID to claim
      * @return true if the session was successfully claimed, false if this worktree already has an active session
@@ -31,7 +31,7 @@ public final class SessionRegistry {
 
     /**
      * Releases the active session for the given worktree.
-     * 
+     *
      * @param worktree The worktree root path
      */
     public static void release(Path worktree) {
@@ -40,19 +40,20 @@ public final class SessionRegistry {
 
     /**
      * Checks if the given session is active in any worktree other than the current one.
-     * 
+     *
      * @param currentWorktree The current worktree root path (to exclude from the check)
      * @param sessionId The session UUID to check
      * @return true if the session is active elsewhere, false otherwise
      */
     public static boolean isSessionActiveElsewhere(Path currentWorktree, UUID sessionId) {
         return activeSessions.entrySet().stream()
-                .anyMatch(e -> !e.getKey().equals(currentWorktree) && e.getValue().equals(sessionId));
+                .anyMatch(
+                        e -> !e.getKey().equals(currentWorktree) && e.getValue().equals(sessionId));
     }
 
     /**
      * Updates the session for a given worktree. This is used when switching sessions.
-     * 
+     *
      * @param worktree The worktree root path
      * @param sessionId The new session UUID, or null to clear
      */

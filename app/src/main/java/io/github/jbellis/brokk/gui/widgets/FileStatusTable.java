@@ -3,18 +3,16 @@ package io.github.jbellis.brokk.gui.widgets;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.DefaultTableModel;
 import java.util.*;
 import java.util.List;
 import java.util.Locale;
+import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
 
 /**
- * Scroll-pane component that displays a list of files plus their git status.
- * The underlying JTable is exposed via {@link #getTable()} for callers that
- * need to add listeners or context menus.
+ * Scroll-pane component that displays a list of files plus their git status. The underlying JTable is exposed via
+ * {@link #getTable()} for callers that need to add listeners or context menus.
  */
 public final class FileStatusTable extends JScrollPane {
 
@@ -24,7 +22,7 @@ public final class FileStatusTable extends JScrollPane {
     public FileStatusTable() {
         super(null, VERTICAL_SCROLLBAR_AS_NEEDED, HORIZONTAL_SCROLLBAR_AS_NEEDED);
 
-        var model = new DefaultTableModel(new Object[]{"Filename", "Path", "ProjectFile"}, 0) {
+        var model = new DefaultTableModel(new Object[] {"Filename", "Path", "ProjectFile"}, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return columnIndex == 2 ? ProjectFile.class : String.class;
@@ -43,16 +41,16 @@ public final class FileStatusTable extends JScrollPane {
         table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
             public java.awt.Component getTableCellRendererComponent(
-                    javax.swing.JTable tbl, Object value,
-                    boolean isSelected, boolean hasFocus,
-                    int row, int column)
-            {
+                    javax.swing.JTable tbl, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 var cell = (DefaultTableCellRenderer)
                         super.getTableCellRendererComponent(tbl, value, isSelected, hasFocus, row, column);
 
                 var pf = (ProjectFile) tbl.getModel().getValueAt(row, 2);
                 String st = statusMap.getOrDefault(pf, "");
-                boolean dk = UIManager.getLookAndFeel().getName().toLowerCase(Locale.ROOT).contains("dark");
+                boolean dk = UIManager.getLookAndFeel()
+                        .getName()
+                        .toLowerCase(Locale.ROOT)
+                        .contains("dark");
 
                 var newC = ThemeColors.getColor(dk, "git_status_new");
                 var modC = ThemeColors.getColor(dk, "git_status_modified");
@@ -92,7 +90,8 @@ public final class FileStatusTable extends JScrollPane {
 
         modifiedFiles.forEach(mf -> {
             statusMap.put(mf.file(), mf.status());
-            model.addRow(new Object[]{mf.file().getFileName(), mf.file().getParent().toString(), mf.file()});
+            model.addRow(
+                    new Object[] {mf.file().getFileName(), mf.file().getParent().toString(), mf.file()});
         });
     }
 
@@ -103,7 +102,7 @@ public final class FileStatusTable extends JScrollPane {
 
         files.forEach(pf -> {
             statusMap.put(pf, "modified");
-            model.addRow(new Object[]{pf.getFileName(), pf.getParent().toString(), pf});
+            model.addRow(new Object[] {pf.getFileName(), pf.getParent().toString(), pf});
         });
     }
 

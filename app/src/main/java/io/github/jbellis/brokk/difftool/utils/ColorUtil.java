@@ -1,19 +1,13 @@
 package io.github.jbellis.brokk.difftool.utils;
 
 import com.github.difflib.patch.AbstractDelta;
-
 import java.awt.*;
 
 public class ColorUtil {
 
-    /**
-     * Converts a Color to a hex string suitable for use in HTML/CSS.
-     */
+    /** Converts a Color to a hex string suitable for use in HTML/CSS. */
     public static String toHex(Color color) {
-        return String.format("#%02x%02x%02x", 
-                           color.getRed(), 
-                           color.getGreen(), 
-                           color.getBlue());
+        return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
     }
 
     public static Color brighter(Color color) {
@@ -24,9 +18,7 @@ public class ColorUtil {
         return brighter(color, -0.05f);
     }
 
-    /** Create a brighter color by changing the b component of a
-     *    hsb-color (b=brightness, h=hue, s=saturation)
-     */
+    /** Create a brighter color by changing the b component of a hsb-color (b=brightness, h=hue, s=saturation) */
     public static Color brighter(Color color, float factor) {
         float[] hsbvals;
 

@@ -7,7 +7,15 @@ import java.util.stream.Collectors;
 public class BuildToolConventions {
 
     public enum BuildSystem {
-        MAVEN, GRADLE, SBT, NPM, CARGO, BAZEL, CMAKE, PYTHON, UNKNOWN
+        MAVEN,
+        GRADLE,
+        SBT,
+        NPM,
+        CARGO,
+        BAZEL,
+        CMAKE,
+        PYTHON,
+        UNKNOWN
     }
 
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
@@ -30,7 +38,8 @@ public class BuildToolConventions {
         }
         if (names.contains("build") || names.contains("workspace")) { // Bazel uses WORKSPACE or BUILD files
             // This is a weak indicator for Bazel, might need refinement if WORKSPACE is common
-            // For now, checking for specific Bazel files like WORKSPACE.bazel or MODULE.bazel might be better if available
+            // For now, checking for specific Bazel files like WORKSPACE.bazel or MODULE.bazel might be better if
+            // available
             // Or rely on user to specify for Bazel if ambiguous
         }
         if (names.contains("cmakelists.txt")) {
@@ -50,7 +59,6 @@ public class BuildToolConventions {
         // A generic 'BUILD' file is very ambiguous, so we'll be conservative.
         // if (names.contains("build")) { return BuildSystem.BAZEL; }
 
-
         return BuildSystem.UNKNOWN;
     }
 
@@ -63,15 +71,8 @@ public class BuildToolConventions {
             case CARGO -> List.of("target/"); // Rust target directory
             case BAZEL -> List.of("bazel-out/");
             case CMAKE -> List.of("build/", "out/"); // Common for CMake and general Make
-            case PYTHON -> List.of(
-                    "__pycache__/",
-                    ".pytest_cache/",
-                    ".mypy_cache/",
-                    ".tox/",
-                    "*.egg-info/",
-                    "build/",
-                    "dist/"
-            );
+            case PYTHON ->
+                List.of("__pycache__/", ".pytest_cache/", ".mypy_cache/", ".tox/", "*.egg-info/", "build/", "dist/");
             default -> List.of(); // UNKNOWN or any other unhandled system
         };
     }

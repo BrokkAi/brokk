@@ -1,21 +1,18 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.testutil.TestProject;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.List;
-import java.util.Set;
 import java.util.stream.Collectors;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 /**
- * Test to verify that TreeSitterAnalyzer and JoernAnalyzer have consistent search behavior
- * for case-insensitive and regex-based searches.
+ * Test to verify that TreeSitterAnalyzer and JoernAnalyzer have consistent search behavior for case-insensitive and
+ * regex-based searches.
  */
 public final class SearchBehaviorComparisonTest {
     private static TestProject javaTestProject;
@@ -52,8 +49,10 @@ public final class SearchBehaviorComparisonTest {
         var javaLowerNames = javaLowerE.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         var javaUpperNames = javaUpperE.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertEquals(javaLowerNames, javaUpperNames,
-                    "Java analyzer case-insensitive: 'e' and 'E' should return identical symbol sets");
+        assertEquals(
+                javaLowerNames,
+                javaUpperNames,
+                "Java analyzer case-insensitive: 'e' and 'E' should return identical symbol sets");
         assertFalse(javaLowerNames.isEmpty(), "Case-insensitive search should find symbols containing 'e'/'E'");
 
         // JavaScript (TreeSitter-based) case-insensitive testing: 'hello' vs 'HELLO'
@@ -63,8 +62,10 @@ public final class SearchBehaviorComparisonTest {
         var jsLowerNames = jsLowerHello.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         var jsUpperNames = jsUpperHello.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertEquals(jsLowerNames, jsUpperNames,
-                    "JavaScript analyzer case-insensitive: 'hello' and 'HELLO' should return identical symbol sets");
+        assertEquals(
+                jsLowerNames,
+                jsUpperNames,
+                "JavaScript analyzer case-insensitive: 'hello' and 'HELLO' should return identical symbol sets");
         assertFalse(jsLowerNames.isEmpty(), "Case-insensitive search should find symbols containing 'hello'/'HELLO'");
 
         // Test mixed case patterns for additional case-insensitive verification
@@ -77,13 +78,13 @@ public final class SearchBehaviorComparisonTest {
         // Verify that the pattern is case-insensitive: "use" should find same results as "UsE"
         var javaLowerUse = javaAnalyzer.searchDefinitions("use");
         var javaLowerUseNames = javaLowerUse.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertEquals(javaMixedNames, javaLowerUseNames,
-                    "Case-insensitive: 'UsE' and 'use' should return identical results");
+        assertEquals(
+                javaMixedNames, javaLowerUseNames, "Case-insensitive: 'UsE' and 'use' should return identical results");
 
         var jsMixedCase = jsAnalyzer.searchDefinitions("HeLLo");
         var jsMixedNames = jsMixedCase.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertEquals(jsLowerNames, jsMixedNames,
-                    "Mixed case 'HeLLo' should return same results as 'hello' and 'HELLO'");
+        assertEquals(
+                jsLowerNames, jsMixedNames, "Mixed case 'HeLLo' should return same results as 'hello' and 'HELLO'");
     }
 
     @Test
@@ -99,8 +100,9 @@ public final class SearchBehaviorComparisonTest {
         assertFalse(jsRegexPattern.isEmpty(), "JavaScript analyzer should find symbols matching '.*Arrow.*'");
 
         var jsRegexNames = jsRegexPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(jsRegexNames.stream().anyMatch(name -> name.contains("Arrow")),
-                  "Should find symbols containing 'Arrow' with regex pattern");
+        assertTrue(
+                jsRegexNames.stream().anyMatch(name -> name.contains("Arrow")),
+                "Should find symbols containing 'Arrow' with regex pattern");
     }
 
     @Test
@@ -110,15 +112,17 @@ public final class SearchBehaviorComparisonTest {
         var javaSpecialResults = javaAnalyzer.searchDefinitions(specialPattern);
         var javaSpecialNames = javaSpecialResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertTrue(javaSpecialNames.stream().anyMatch(name -> name.contains("method1")),
-                  "Should find symbols containing 'method1'. Found: " + javaSpecialNames);
+        assertTrue(
+                javaSpecialNames.stream().anyMatch(name -> name.contains("method1")),
+                "Should find symbols containing 'method1'. Found: " + javaSpecialNames);
 
         var jsSpecialPattern = "greet";
         var jsSpecialResults = jsAnalyzer.searchDefinitions(jsSpecialPattern);
         var jsSpecialNames = jsSpecialResults.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertTrue(jsSpecialNames.stream().anyMatch(name -> name.contains("greet")),
-                  "Should find symbols containing 'greet'. Found: " + jsSpecialNames);
+        assertTrue(
+                jsSpecialNames.stream().anyMatch(name -> name.contains("greet")),
+                "Should find symbols containing 'greet'. Found: " + jsSpecialNames);
     }
 
     @Test
@@ -145,8 +149,8 @@ public final class SearchBehaviorComparisonTest {
         var simpleNames = javaSimple.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         var explicitNames = javaExplicit.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertEquals(simpleNames, explicitNames,
-                    "Auto-wrapped and explicit wildcard patterns should produce same results");
+        assertEquals(
+                simpleNames, explicitNames, "Auto-wrapped and explicit wildcard patterns should produce same results");
 
         var jsSimple = jsAnalyzer.searchDefinitions("greet");
         var jsExplicit = jsAnalyzer.searchDefinitions(".*greet.*");
@@ -154,8 +158,10 @@ public final class SearchBehaviorComparisonTest {
         var jsSimpleNames = jsSimple.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         var jsExplicitNames = jsExplicit.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        assertEquals(jsSimpleNames, jsExplicitNames,
-                    "JavaScript analyzer auto-wrapped and explicit patterns should produce same results");
+        assertEquals(
+                jsSimpleNames,
+                jsExplicitNames,
+                "JavaScript analyzer auto-wrapped and explicit patterns should produce same results");
     }
 
     @Test
@@ -165,8 +171,8 @@ public final class SearchBehaviorComparisonTest {
 
         // Java (CPG-based): Uses <init> for constructors
         var javaInitSymbols = javaAnalyzer.searchDefinitions("init");
-        System.out.println("Java 'init' constructor symbols: " +
-            javaInitSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+        System.out.println("Java 'init' constructor symbols: "
+                + javaInitSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
         // Note: Results may vary based on test data, but search should not fail
 
         // JavaScript (TreeSitter): Uses 'constructor' keyword or class names as constructors
@@ -176,7 +182,8 @@ public final class SearchBehaviorComparisonTest {
         // Test that both analyzers handle constructor searches without errors
         // This verifies consistent behavior regardless of whether constructors are found
         assertNotNull(javaInitSymbols, "Java analyzer should return non-null result for 'init' search");
-        assertNotNull(jsConstructorSymbols, "JavaScript analyzer should return non-null result for 'constructor' search");
+        assertNotNull(
+                jsConstructorSymbols, "JavaScript analyzer should return non-null result for 'constructor' search");
     }
 
     @Test

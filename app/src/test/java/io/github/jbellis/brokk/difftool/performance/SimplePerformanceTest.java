@@ -1,21 +1,18 @@
 package io.github.jbellis.brokk.difftool.performance;
 
-import com.github.difflib.DiffUtils;
-import com.github.difflib.patch.AbstractDelta;
-import com.github.difflib.patch.Chunk;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
+import static io.github.jbellis.brokk.difftool.performance.SimplePerformanceTest.TestConstants.*;
+import static org.junit.jupiter.api.Assertions.*;
 
+import com.github.difflib.DiffUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static io.github.jbellis.brokk.difftool.performance.SimplePerformanceTest.TestConstants.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
- * Simple performance tests to verify optimizations work correctly.
- * These tests don't require external dependencies and verify core performance improvements.
+ * Simple performance tests to verify optimizations work correctly. These tests don't require external dependencies and
+ * verify core performance improvements.
  */
 class SimplePerformanceTest {
 
@@ -36,15 +33,20 @@ class SimplePerformanceTest {
 
         // Test viewport filtering
         long startTime = System.nanoTime();
-        List<TestDelta> visibleDeltas = helper.filterDeltasForViewport(allDeltas, TEST_VIEWPORT_START_LINE, TEST_VIEWPORT_END_LINE);
+        List<TestDelta> visibleDeltas =
+                helper.filterDeltasForViewport(allDeltas, TEST_VIEWPORT_START_LINE, TEST_VIEWPORT_END_LINE);
         long duration = System.nanoTime() - startTime;
 
         // Should be very fast (sub-millisecond)
         long durationMs = TimeUnit.NANOSECONDS.toMillis(duration);
-        assertTrue(durationMs < FAST_OPERATION_THRESHOLD_MS, "Viewport filtering should be very fast: " + durationMs + "ms");
+        assertTrue(
+                durationMs < FAST_OPERATION_THRESHOLD_MS,
+                "Viewport filtering should be very fast: " + durationMs + "ms");
 
         // Should dramatically reduce number of deltas
-        assertTrue(visibleDeltas.size() < TEST_MAX_VISIBLE_DELTAS, "Should filter to small number of deltas: " + visibleDeltas.size());
+        assertTrue(
+                visibleDeltas.size() < TEST_MAX_VISIBLE_DELTAS,
+                "Should filter to small number of deltas: " + visibleDeltas.size());
         assertTrue(!visibleDeltas.isEmpty(), "Should find some deltas in viewport");
 
         // Verify correct deltas are included
@@ -56,11 +58,11 @@ class SimplePerformanceTest {
     @Test
     void testViewportFiltering_Accuracy() {
         List<TestDelta> allDeltas = List.of(
-            new TestDelta(10, 5),   // Lines 10-14
-            new TestDelta(50, 3),   // Lines 50-52
-            new TestDelta(100, 2),  // Lines 100-101
-            new TestDelta(200, 1)   // Line 200
-        );
+                new TestDelta(10, 5), // Lines 10-14
+                new TestDelta(50, 3), // Lines 50-52
+                new TestDelta(100, 2), // Lines 100-101
+                new TestDelta(200, 1) // Line 200
+                );
 
         // Viewport covering lines 45-55 should only include delta at line 50
         List<TestDelta> visibleDeltas = helper.filterDeltasForViewport(allDeltas, 45, 55);
@@ -68,7 +70,6 @@ class SimplePerformanceTest {
         assertEquals(1, visibleDeltas.size(), "Should find exactly one delta in viewport");
         assertEquals(50, visibleDeltas.getFirst().startLine, "Should find the delta at line 50");
     }
-
 
     @Test
     void testViewportCaching() {
@@ -99,10 +100,11 @@ class SimplePerformanceTest {
         assertEquals(range1.endLine, range2.endLine);
 
         // Cached access should be much faster
-        assertTrue(duration2 < duration1 / TEST_EXPECTED_CACHE_SPEED_FACTOR,
-                  "Cached access should be much faster: " +
-                  TimeUnit.NANOSECONDS.toMillis(duration1) + "ms vs " +
-                  TimeUnit.NANOSECONDS.toMillis(duration2) + "ms");
+        assertTrue(
+                duration2 < duration1 / TEST_EXPECTED_CACHE_SPEED_FACTOR,
+                "Cached access should be much faster: " + TimeUnit.NANOSECONDS.toMillis(duration1)
+                        + "ms vs " + TimeUnit.NANOSECONDS.toMillis(duration2)
+                        + "ms");
     }
 
     @Test
@@ -129,7 +131,9 @@ class SimplePerformanceTest {
         long durationMs = TimeUnit.NANOSECONDS.toMillis(duration);
 
         // Should complete in reasonable time
-        assertTrue(durationMs < LARGE_DIFF_OPERATION_TIMEOUT_MS, "Large diff should complete in <1s: " + durationMs + "ms");
+        assertTrue(
+                durationMs < LARGE_DIFF_OPERATION_TIMEOUT_MS,
+                "Large diff should complete in <1s: " + durationMs + "ms");
 
         // Should detect the correct number of changes
         assertEquals(TEST_EXPECTED_CHANGES_COUNT, patch.getDeltas().size(), "Should detect expected number of changes");
@@ -137,32 +141,34 @@ class SimplePerformanceTest {
         // Test viewport filtering on the result
         long filterStart = System.nanoTime();
         var visibleDeltas = patch.getDeltas().stream()
-            .filter(delta -> {
-                var chunk = delta.getSource();
-                int deltaStart = chunk.getPosition();
-                int deltaEnd = deltaStart + Math.max(1, chunk.size()) - 1;
-                return !(deltaEnd < 1000 || deltaStart > 1100); // Viewport 1000-1100
-            })
-            .toList();
+                .filter(delta -> {
+                    var chunk = delta.getSource();
+                    int deltaStart = chunk.getPosition();
+                    int deltaEnd = deltaStart + Math.max(1, chunk.size()) - 1;
+                    return !(deltaEnd < 1000 || deltaStart > 1100); // Viewport 1000-1100
+                })
+                .toList();
         long filterDuration = System.nanoTime() - filterStart;
 
         // Filtering should be very fast
-        assertTrue(TimeUnit.NANOSECONDS.toMillis(filterDuration) < VIEWPORT_FILTER_OPERATION_THRESHOLD_MS,
-                  "Viewport filtering should be very fast");
+        assertTrue(
+                TimeUnit.NANOSECONDS.toMillis(filterDuration) < VIEWPORT_FILTER_OPERATION_THRESHOLD_MS,
+                "Viewport filtering should be very fast");
 
         // Should dramatically reduce deltas
-        assertTrue(visibleDeltas.size() < 10,
-                  "Viewport should reduce deltas: " + visibleDeltas.size() + " vs " + patch.getDeltas().size());
+        assertTrue(
+                visibleDeltas.size() < 10,
+                "Viewport should reduce deltas: " + visibleDeltas.size() + " vs "
+                        + patch.getDeltas().size());
     }
-
 
     // Helper classes and records
     private static class PerformanceTestHelper {
 
         List<TestDelta> filterDeltasForViewport(List<TestDelta> deltas, int startLine, int endLine) {
             return deltas.stream()
-                .filter(delta -> delta.intersectsRange(startLine, endLine))
-                .toList();
+                    .filter(delta -> delta.intersectsRange(startLine, endLine))
+                    .toList();
         }
 
         int calculateTimerDelay(long fileSize) {

@@ -1,5 +1,6 @@
-
 package io.github.jbellis.brokk.gui;
+
+import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
@@ -9,10 +10,19 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-
+import java.awt.*;
+import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
@@ -20,22 +30,10 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
-import java.awt.*;
-import java.awt.event.ActionListener;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.*;
-import java.util.List;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
- import java.time.ZoneId;
- import java.time.ZonedDateTime;
- import java.time.format.DateTimeFormatter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-
-import static java.util.Objects.requireNonNull;
 
 public class GitCommitBrowserPanel extends JPanel {
 
@@ -96,9 +94,9 @@ public class GitCommitBrowserPanel extends JPanel {
     // Timer to refresh relative commit date strings once a minute
     private javax.swing.Timer relativeTimeRefreshTimer;
 
-
     @SuppressWarnings("NullAway.Init") // Initialization is handled by buildCommitBrowserUI and its helpers
-    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader, @Nullable Options options) {
+    public GitCommitBrowserPanel(
+            Chrome chrome, ContextManager contextManager, CommitContextReloader reloader, @Nullable Options options) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -215,7 +213,6 @@ public class GitCommitBrowserPanel extends JPanel {
             }
         });
 
-
         if (this.options.showPushPullButtons() || this.options.showCreatePrButton()) {
             JPanel buttonBar = new JPanel(new BorderLayout(5, 0)); // Main bar for buttons
 
@@ -255,7 +252,7 @@ public class GitCommitBrowserPanel extends JPanel {
         revisionIdTextArea.setBackground(UIManager.getColor("Label.background"));
         revisionIdTextArea.setForeground(UIManager.getColor("Label.foreground"));
         revisionIdTextArea.setFont(UIManager.getFont("Label.font"));
-        revisionIdTextArea.setBorder(BorderFactory.createEmptyBorder(2,2,2,2));
+        revisionIdTextArea.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         revisionDisplayPanel.add(revisionTextLabel, BorderLayout.WEST);
         revisionDisplayPanel.add(revisionIdTextArea, BorderLayout.CENTER);
@@ -268,48 +265,55 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void setupCommitsTable() {
-        commitsTableModel = new DefaultTableModel(
-                new Object[]{"Message", "Author", "Date", "ID", "Unpushed", "CommitObject"}, 0
-        ) {
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                return switch (columnIndex) {
-                    case 2 -> java.time.Instant.class;
-                    case 4 -> Boolean.class;
-                    case 5 -> ICommitInfo.class;
-                    default -> String.class;
+        commitsTableModel =
+                new DefaultTableModel(new Object[] {"Message", "Author", "Date", "ID", "Unpushed", "CommitObject"}, 0) {
+                    @Override
+                    public Class<?> getColumnClass(int columnIndex) {
+                        return switch (columnIndex) {
+                            case 2 -> java.time.Instant.class;
+                            case 4 -> Boolean.class;
+                            case 5 -> ICommitInfo.class;
+                            default -> String.class;
+                        };
+                    }
+
+                    @Override
+                    public boolean isCellEditable(int row, int column) {
+                        return false;
+                    }
                 };
-            }
-            @Override
-            public boolean isCellEditable(int row, int column) { return false; }
-        };
 
         commitsTable = new JTable(commitsTableModel) {
-             @Override
-             public String getToolTipText(MouseEvent e) {
-                 int row = rowAtPoint(e.getPoint());
-                 if (row < 0) {
-                     return super.getToolTipText(e);
-                 }
-                 var commitObj = (ICommitInfo) getModel().getValueAt(row, COL_COMMIT_OBJ);
-                 if (commitObj == null) {
-                     return super.getToolTipText(e);
-                 }
-                 return GitCommitBrowserPanel.this.buildTooltip(commitObj);
-             }
-         };
+            @Override
+            public String getToolTipText(MouseEvent e) {
+                int row = rowAtPoint(e.getPoint());
+                if (row < 0) {
+                    return super.getToolTipText(e);
+                }
+                var commitObj = (ICommitInfo) getModel().getValueAt(row, COL_COMMIT_OBJ);
+                if (commitObj == null) {
+                    return super.getToolTipText(e);
+                }
+                return GitCommitBrowserPanel.this.buildTooltip(commitObj);
+            }
+        };
         commitsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
         // Hide ID, Unpushed, CommitObject columns
         var idColumn = commitsTable.getColumnModel().getColumn(COL_ID);
-        idColumn.setMinWidth(0); idColumn.setMaxWidth(0); idColumn.setWidth(0);
+        idColumn.setMinWidth(0);
+        idColumn.setMaxWidth(0);
+        idColumn.setWidth(0);
 
         var unpushedColumn = commitsTable.getColumnModel().getColumn(COL_UNPUSHED);
-        unpushedColumn.setMinWidth(0); unpushedColumn.setMaxWidth(0); unpushedColumn.setWidth(0);
+        unpushedColumn.setMinWidth(0);
+        unpushedColumn.setMaxWidth(0);
+        unpushedColumn.setWidth(0);
 
         var commitObjectColumn = commitsTable.getColumnModel().getColumn(COL_COMMIT_OBJ);
-        commitObjectColumn.setMinWidth(0); commitObjectColumn.setMaxWidth(0); commitObjectColumn.setWidth(0);
-
+        commitObjectColumn.setMinWidth(0);
+        commitObjectColumn.setMaxWidth(0);
+        commitObjectColumn.setWidth(0);
 
         commitsTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
@@ -377,13 +381,22 @@ public class GitCommitBrowserPanel extends JPanel {
             return changedFilesList.stream();
         } catch (GitAPIException ex) {
             String commitIdStr = "unknown";
-            try { commitIdStr = c.id(); } catch (Exception idEx) { logger.warn("Could not get ID for commit during GitAPIException logging", idEx); }
+            try {
+                commitIdStr = c.id();
+            } catch (Exception idEx) {
+                logger.warn("Could not get ID for commit during GitAPIException logging", idEx);
+            }
             logger.error("GitAPIException fetching changed files for commit {}: {}", commitIdStr, ex.getMessage());
             return Stream.empty();
         } catch (Exception ex) {
             String commitIdStr = "unknown";
-            try { commitIdStr = c.id(); } catch (Exception idEx) { logger.warn("Could not get ID for commit during general exception logging", idEx); }
-            logger.error("Unexpected exception fetching changed files for commit {}: {}", commitIdStr, ex.getMessage(), ex);
+            try {
+                commitIdStr = c.id();
+            } catch (Exception idEx) {
+                logger.warn("Could not get ID for commit during general exception logging", idEx);
+            }
+            logger.error(
+                    "Unexpected exception fetching changed files for commit {}: {}", commitIdStr, ex.getMessage(), ex);
             return Stream.empty();
         }
     }
@@ -413,12 +426,14 @@ public class GitCommitBrowserPanel extends JPanel {
                 } else {
                     var contiguousRowIndexGroups = GitUiUtil.groupContiguous(selectedRows);
                     for (var rowIndexGroup : contiguousRowIndexGroups) {
-                        var firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), COL_COMMIT_OBJ);
+                        var firstCommitInGroup =
+                                (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), COL_COMMIT_OBJ);
                         var firstShortId = getShortId(firstCommitInGroup.id());
                         if (rowIndexGroup.size() == 1) {
                             labelParts.add(firstShortId);
                         } else {
-                            var lastCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), COL_COMMIT_OBJ);
+                            var lastCommitInGroup =
+                                    (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), COL_COMMIT_OBJ);
                             labelParts.add(String.format("%s..%s", firstShortId, getShortId(lastCommitInGroup.id())));
                         }
                     }
@@ -471,8 +486,16 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private void setupCommitContextMenuListener(JPopupMenu commitsContextMenu) {
         commitsTable.addMouseListener(new MouseAdapter() {
-            @Override public void mousePressed(MouseEvent e) { maybeShowPopup(e); }
-            @Override public void mouseReleased(MouseEvent e) { maybeShowPopup(e); }
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
             private void maybeShowPopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     int row = commitsTable.rowAtPoint(e.getPoint());
@@ -480,12 +503,16 @@ public class GitCommitBrowserPanel extends JPanel {
                         if (!commitsTable.isRowSelected(row)) {
                             commitsTable.setRowSelectionInterval(row, row);
                         } else {
-                            boolean clickedRowInSelection = Arrays.stream(commitsTable.getSelectedRows()).anyMatch(sr -> sr == row); // boolean preferred by style guide
+                            boolean clickedRowInSelection = Arrays.stream(commitsTable.getSelectedRows())
+                                    .anyMatch(sr -> sr == row); // boolean preferred by style guide
                             if (!clickedRowInSelection) commitsTable.setRowSelectionInterval(row, row);
                         }
                     }
                     updateCommitContextMenuState();
-                    SwingUtil.runOnEdt(() -> { if (commitsTable.rowAtPoint(e.getPoint()) >=0) commitsContextMenu.show(commitsTable, e.getX(), e.getY()); });
+                    SwingUtil.runOnEdt(() -> {
+                        if (commitsTable.rowAtPoint(e.getPoint()) >= 0)
+                            commitsContextMenu.show(commitsTable, e.getX(), e.getY());
+                    });
                 }
             }
         });
@@ -507,7 +534,8 @@ public class GitCommitBrowserPanel extends JPanel {
         softResetItem.setVisible(!isStash);
         softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
         revertCommitItem.setVisible(!isStash);
-        revertCommitItem.setEnabled(!isStash); // Git revert doesn't directly do ranges. Enable if any non-stash selected.
+        revertCommitItem.setEnabled(
+                !isStash); // Git revert doesn't directly do ranges. Enable if any non-stash selected.
 
         createBranchFromCommitItem.setVisible(!isStash);
         createBranchFromCommitItem.setEnabled(selectedRows.length == 1 && !isStash);
@@ -559,73 +587,79 @@ public class GitCommitBrowserPanel extends JPanel {
 
             for (var group : contiguousRowGroups) {
                 if (group.isEmpty()) continue;
-                ICommitInfo newestCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(group.getFirst(), COL_COMMIT_OBJ);
-                ICommitInfo oldestCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(group.getLast(), COL_COMMIT_OBJ);
+                ICommitInfo newestCommitInGroup =
+                        (ICommitInfo) commitsTableModel.getValueAt(group.getFirst(), COL_COMMIT_OBJ);
+                ICommitInfo oldestCommitInGroup =
+                        (ICommitInfo) commitsTableModel.getValueAt(group.getLast(), COL_COMMIT_OBJ);
                 GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
             }
         });
 
-    softResetItem.addActionListener(e -> {
-        int row = commitsTable.getSelectedRow(); // int preferred by style guide
-        if (row != -1) {
-            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
-            var firstLine = ci.message().split("\n", 2)[0];
-            softResetToCommitInternal(ci.id(), firstLine);
-        }
-    });
+        softResetItem.addActionListener(e -> {
+            int row = commitsTable.getSelectedRow(); // int preferred by style guide
+            if (row != -1) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+                var firstLine = ci.message().split("\n", 2)[0];
+                softResetToCommitInternal(ci.id(), firstLine);
+            }
+        });
 
-    viewChangesItem.addActionListener(e -> {
-        if (commitsTable.getSelectedRowCount() == 1) {
-            var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
-            GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
-        }
-    });
+        viewChangesItem.addActionListener(e -> {
+            if (commitsTable.getSelectedRowCount() == 1) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
+                GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+            }
+        });
 
-    revertCommitItem.addActionListener(e -> {
-        int row = commitsTable.getSelectedRow(); // int preferred by style guide // Assuming single selection for revert, or first of multiple
-        if (row != -1) {
-            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
-            revertCommitInternal(ci.id());
-        }
-    });
+        revertCommitItem.addActionListener(e -> {
+            int row =
+                    commitsTable
+                            .getSelectedRow(); // int preferred by style guide // Assuming single selection for revert,
+            // or first
+            // of multiple
+            if (row != -1) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+                revertCommitInternal(ci.id());
+            }
+        });
 
-    popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
-    applyStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::applyStashInternal));
-    dropStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::dropStashInternal));
+        popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
+        applyStashCommitItem.addActionListener(
+                e -> handleStashAction(ICommitInfo::stashIndex, this::applyStashInternal));
+        dropStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::dropStashInternal));
 
-    compareAllToLocalItem.addActionListener(e -> {
-        if (commitsTable.getSelectedRowCount() == 1) {
-            var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
-            GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
-        }
-    });
+        compareAllToLocalItem.addActionListener(e -> {
+            if (commitsTable.getSelectedRowCount() == 1) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
+                GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
+            }
+        });
 
-    createBranchFromCommitItem.addActionListener(e -> {
-        int[] selectedRows = commitsTable.getSelectedRows();
-        if (selectedRows.length == 1) {
-            ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
-            // Show dialog to create branch
-            io.github.jbellis.brokk.gui.dialogs.CreateBranchDialog.showDialog(
-                    (Frame) SwingUtilities.getWindowAncestor(this),
-                    contextManager,
-                    chrome,
-                    commitInfo.id(),
-                    getShortId(commitInfo.id())
-            );
-        }
-    });
+        createBranchFromCommitItem.addActionListener(e -> {
+            int[] selectedRows = commitsTable.getSelectedRows();
+            if (selectedRows.length == 1) {
+                ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
+                // Show dialog to create branch
+                io.github.jbellis.brokk.gui.dialogs.CreateBranchDialog.showDialog(
+                        (Frame) SwingUtilities.getWindowAncestor(this),
+                        contextManager,
+                        chrome,
+                        commitInfo.id(),
+                        getShortId(commitInfo.id()));
+            }
+        });
     }
 
-    private void handleStashAction(java.util.function.Function<ICommitInfo, Optional<Integer>> stashIndexExtractor,
-                                   java.util.function.IntConsumer stashOperation) {
+    private void handleStashAction(
+            java.util.function.Function<ICommitInfo, Optional<Integer>> stashIndexExtractor,
+            java.util.function.IntConsumer stashOperation) {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
         if (row != -1) {
             var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
             var stashIdxOpt = stashIndexExtractor.apply(commitInfo);
             stashIdxOpt.ifPresentOrElse(
-                stashOperation::accept,
-                () -> logger.warn("Stash action triggered on a non-stash commit: {}", commitInfo.id())
-            );
+                    stashOperation::accept,
+                    () -> logger.warn("Stash action triggered on a non-stash commit: {}", commitInfo.id()));
         }
     }
 
@@ -654,20 +688,37 @@ public class GitCommitBrowserPanel extends JPanel {
         changesContextMenu.add(compareFileWithLocalItem);
         changesContextMenu.add(comparePrevWithLocalItem);
 
-        setupChangesTreeContextMenuListener(addFileToContextItem, compareFileWithLocalItem,
-                                            viewFileAtRevisionItem, viewDiffItem, viewHistoryItem,
-                                            editFileItem, comparePrevWithLocalItem, rollbackFilesItem, changesContextMenu);
-        setupChangesTreeContextMenuActions(addFileToContextItem, compareFileWithLocalItem,
-                                         viewFileAtRevisionItem, viewDiffItem, viewHistoryItem,
-                                         editFileItem, comparePrevWithLocalItem, rollbackFilesItem);
+        setupChangesTreeContextMenuListener(
+                addFileToContextItem,
+                compareFileWithLocalItem,
+                viewFileAtRevisionItem,
+                viewDiffItem,
+                viewHistoryItem,
+                editFileItem,
+                comparePrevWithLocalItem,
+                rollbackFilesItem,
+                changesContextMenu);
+        setupChangesTreeContextMenuActions(
+                addFileToContextItem,
+                compareFileWithLocalItem,
+                viewFileAtRevisionItem,
+                viewDiffItem,
+                viewHistoryItem,
+                editFileItem,
+                comparePrevWithLocalItem,
+                rollbackFilesItem);
     }
 
-    private void setupChangesTreeContextMenuListener(JMenuItem addFileToContextItem, JMenuItem compareFileWithLocalItem,
-                                                     JMenuItem viewFileAtRevisionItem, JMenuItem viewDiffItem,
-                                                     JMenuItem viewHistoryItem, JMenuItem editFileItem,
-                                                     JMenuItem comparePrevWithLocalItem, JMenuItem rollbackFilesItem,
-                                                     JPopupMenu changesContextMenu)
-    {
+    private void setupChangesTreeContextMenuListener(
+            JMenuItem addFileToContextItem,
+            JMenuItem compareFileWithLocalItem,
+            JMenuItem viewFileAtRevisionItem,
+            JMenuItem viewDiffItem,
+            JMenuItem viewHistoryItem,
+            JMenuItem editFileItem,
+            JMenuItem comparePrevWithLocalItem,
+            JMenuItem rollbackFilesItem,
+            JPopupMenu changesContextMenu) {
         changesTree.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -685,9 +736,14 @@ public class GitCommitBrowserPanel extends JPanel {
                     if (row >= 0 && !changesTree.isRowSelected(row)) changesTree.setSelectionRow(row);
 
                     var paths = changesTree.getSelectionPaths();
-                    boolean hasFileSelection = (paths != null && paths.length > 0 && hasFileNodesSelected(paths)); // boolean preferred by style guide
-                    boolean isSingleCommit = (commitsTable.getSelectedRowCount() == 1); // boolean preferred by style guide
-                    boolean singleFileSelected = (paths != null && paths.length == 1 && hasFileSelection); // boolean preferred by style guide
+                    boolean hasFileSelection = (paths != null
+                            && paths.length > 0
+                            && hasFileNodesSelected(paths)); // boolean preferred by style guide
+                    boolean isSingleCommit =
+                            (commitsTable.getSelectedRowCount() == 1); // boolean preferred by style guide
+                    boolean singleFileSelected = (paths != null
+                            && paths.length == 1
+                            && hasFileSelection); // boolean preferred by style guide
 
                     viewHistoryItem.setEnabled(singleFileSelected);
                     addFileToContextItem.setEnabled(hasFileSelection);
@@ -697,7 +753,8 @@ public class GitCommitBrowserPanel extends JPanel {
                     viewDiffItem.setEnabled(singleFileSelected && isSingleCommit);
                     compareFileWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
                     comparePrevWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
-                    if (changesTree.getRowForLocation(e.getX(), e.getY()) >= 0) { // Ensure a node is actually under the cursor
+                    if (changesTree.getRowForLocation(e.getX(), e.getY())
+                            >= 0) { // Ensure a node is actually under the cursor
                         changesContextMenu.show(changesTree, e.getX(), e.getY());
                     }
                 }
@@ -705,31 +762,47 @@ public class GitCommitBrowserPanel extends JPanel {
         });
     }
 
-    private void setupChangesTreeContextMenuActions(JMenuItem addFileToContextItem, JMenuItem compareFileWithLocalItem,
-                                                   JMenuItem viewFileAtRevisionItem, JMenuItem viewDiffItem,
-                                                   JMenuItem viewHistoryItem, JMenuItem editFileItem,
-                                                   JMenuItem comparePrevWithLocalItem, JMenuItem rollbackFilesItem) {
+    private void setupChangesTreeContextMenuActions(
+            JMenuItem addFileToContextItem,
+            JMenuItem compareFileWithLocalItem,
+            JMenuItem viewFileAtRevisionItem,
+            JMenuItem viewDiffItem,
+            JMenuItem viewHistoryItem,
+            JMenuItem editFileItem,
+            JMenuItem comparePrevWithLocalItem,
+            JMenuItem rollbackFilesItem) {
         addFileToContextItem.addActionListener(e -> {
             var files = getSelectedFilePathsFromTree();
             if (!files.isEmpty() && commitsTable.getSelectedRowCount() >= 1) {
                 int[] selRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
                 selRows = Arrays.stream(selRows).sorted().toArray();
-                var firstCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ)).id();
-                var lastCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[selRows.length-1], COL_COMMIT_OBJ)).id();
-                GitUiUtil.addFilesChangeToContext(contextManager, chrome, firstCid, lastCid, files.stream().map(contextManager::toFile).toList());
+                var firstCid = ((ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ)).id();
+                var lastCid =
+                        ((ICommitInfo) commitsTableModel.getValueAt(selRows[selRows.length - 1], COL_COMMIT_OBJ)).id();
+                GitUiUtil.addFilesChangeToContext(
+                        contextManager,
+                        chrome,
+                        firstCid,
+                        lastCid,
+                        files.stream().map(contextManager::toFile).toList());
             }
         });
 
-        compareFileWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, false)));
-        comparePrevWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
-        viewFileAtRevisionItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
-        viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
+        compareFileWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction(
+                (cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, false)));
+        comparePrevWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction(
+                (cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
+        viewFileAtRevisionItem.addActionListener(e -> handleSingleFileSingleCommitAction(
+                (cid, fp) -> GitUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
+        viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction(
+                (cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
 
         viewHistoryItem.addActionListener(e -> {
             var gitPanel = requireNonNull(chrome.getGitPanel());
             getSelectedFilePathsFromTree().forEach(fp -> gitPanel.addFileHistoryTab(contextManager.toFile(fp)));
         });
-        editFileItem.addActionListener(e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
+        editFileItem.addActionListener(
+                e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
         rollbackFilesItem.addActionListener(e -> {
             TreePath[] paths = changesTree.getSelectionPaths();
             int[] selRows = commitsTable.getSelectedRows();
@@ -754,7 +827,10 @@ public class GitCommitBrowserPanel extends JPanel {
     private void handleSingleFileSingleCommitAction(java.util.function.BiConsumer<String, String> action) {
         var paths = changesTree.getSelectionPaths();
         int[] selRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
-        if (paths != null && paths.length == 1 && selRows.length == 1 && TreeNodeInfo.fromPath(paths[0], changesRootNode).isFile()) {
+        if (paths != null
+                && paths.length == 1
+                && selRows.length == 1
+                && TreeNodeInfo.fromPath(paths[0], changesRootNode).isFile()) {
             var filePath = TreeNodeInfo.fromPath(paths[0], changesRootNode).filePath();
             var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
             action.accept(commitInfo.id(), filePath);
@@ -766,7 +842,8 @@ public class GitCommitBrowserPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp)));
+                    handleSingleFileSingleCommitAction((cid, fp) ->
+                            GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp)));
                 }
             }
         });
@@ -786,7 +863,9 @@ public class GitCommitBrowserPanel extends JPanel {
             var newRootNode = new DefaultMutableTreeNode("Changes");
             var filesByDir = new HashMap<Path, List<String>>();
             for (var file : allChangedFiles) {
-                filesByDir.computeIfAbsent(file.getParent(), k -> new ArrayList<>()).add(file.getFileName());
+                filesByDir
+                        .computeIfAbsent(file.getParent(), k -> new ArrayList<>())
+                        .add(file.getFileName());
             }
             var sortedDirs = new ArrayList<>(filesByDir.keySet());
             sortedDirs.sort(Comparator.comparing(Path::toString));
@@ -815,7 +894,8 @@ public class GitCommitBrowserPanel extends JPanel {
             try {
                 getRepo().softReset(commitId);
                 SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput("Soft reset from " + getShortId(oldHeadId) + " to " + getShortId(commitId) + ": " + commitMessage);
+                    chrome.systemOutput("Soft reset from " + getShortId(oldHeadId) + " to " + getShortId(commitId)
+                            + ": " + commitMessage);
                     refreshCurrentViewAfterGitOp(); // Assumes this method exists or is adapted
                 });
             } catch (GitAPIException e) {
@@ -840,7 +920,8 @@ public class GitCommitBrowserPanel extends JPanel {
         });
     }
 
-    private void performStashOp(int idx, String description, StashActionPerformer repoCall, String successMsg, boolean refreshView) {
+    private void performStashOp(
+            int idx, String description, StashActionPerformer repoCall, String successMsg, boolean refreshView) {
         contextManager.submitUserTask(description + " @" + idx, () -> {
             try {
                 repoCall.perform(idx);
@@ -866,7 +947,12 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void dropStashInternal(int stashIndex) {
-        int result = JOptionPane.showConfirmDialog(this, "Delete stash@{" + stashIndex + "}?", "Confirm Drop", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE); // int preferred by style guide
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                "Delete stash@{" + stashIndex + "}?",
+                "Confirm Drop",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE); // int preferred by style guide
         if (result != JOptionPane.YES_OPTION) return;
         performStashOp(stashIndex, "Dropping stash", getRepo()::dropStash, "Stash dropped successfully.", true);
     }
@@ -895,7 +981,8 @@ public class GitCommitBrowserPanel extends JPanel {
                 logger.error("Error fetching stashes for panel", e);
                 SwingUtil.runOnEdt(() -> {
                     commitsTableModel.setRowCount(0);
-                    commitsTableModel.addRow(new Object[]{"Error loading stashes: " + e.getMessage(), "", "", "", false, null});
+                    commitsTableModel.addRow(
+                            new Object[] {"Error loading stashes: " + e.getMessage(), "", "", "", false, null});
                 });
             }
             return null;
@@ -912,17 +999,24 @@ public class GitCommitBrowserPanel extends JPanel {
                 var pps = gitWorkflowService.evaluatePushPull(branchName);
                 setCommits(commits, pps.unpushedCommitIds(), pps.canPush(), pps.canPull(), branchName);
             } catch (GitAPIException e) {
-                logger.error("Error fetching commits or push/pull state for panel (branch: {}): {}", branchName, e.getMessage(), e);
+                logger.error(
+                        "Error fetching commits or push/pull state for panel (branch: {}): {}",
+                        branchName,
+                        e.getMessage(),
+                        e);
                 SwingUtil.runOnEdt(() -> {
                     commitsTableModel.setRowCount(0);
-                    commitsTableModel.addRow(new Object[]{"Error loading commits: " + e.getMessage(), "", "", "", false, null});
+                    commitsTableModel.addRow(
+                            new Object[] {"Error loading commits: " + e.getMessage(), "", "", "", false, null});
                     chrome.toolError("Error loading commits for " + branchName + ": " + e.getMessage());
                 });
             } catch (Exception e) { // Catch other potential runtime exceptions
-                logger.error("Unexpected error fetching commits for panel (branch: {}): {}", branchName, e.getMessage(), e);
+                logger.error(
+                        "Unexpected error fetching commits for panel (branch: {}): {}", branchName, e.getMessage(), e);
                 SwingUtil.runOnEdt(() -> {
                     commitsTableModel.setRowCount(0);
-                    commitsTableModel.addRow(new Object[]{"Unexpected error: " + e.getMessage(), "", "", "", false, null});
+                    commitsTableModel.addRow(
+                            new Object[] {"Unexpected error: " + e.getMessage(), "", "", "", false, null});
                     chrome.toolError("Unexpected error loading commits for " + branchName + ": " + e.getMessage());
                 });
             }
@@ -938,14 +1032,15 @@ public class GitCommitBrowserPanel extends JPanel {
                 // so we pass empty/false for them.
                 setCommits(searchResults, Collections.emptySet(), false, false, "Search: " + query);
                 SwingUtil.runOnEdt(() -> {
-                     if (searchResults.isEmpty()) chrome.systemOutput("No commits found matching: " + query);
-                     else chrome.systemOutput("Found " + searchResults.size() + " commits matching: " + query);
+                    if (searchResults.isEmpty()) chrome.systemOutput("No commits found matching: " + query);
+                    else chrome.systemOutput("Found " + searchResults.size() + " commits matching: " + query);
                 });
             } catch (Exception e) {
                 logger.error("Error searching commits for panel: {}", query, e);
                 SwingUtil.runOnEdt(() -> {
                     commitsTableModel.setRowCount(0);
-                    commitsTableModel.addRow(new Object[]{"Error searching: " + e.getMessage(), "", "", "", false, null});
+                    commitsTableModel.addRow(
+                            new Object[] {"Error searching: " + e.getMessage(), "", "", "", false, null});
                     chrome.toolError("Error searching commits: " + e.getMessage());
                 });
             }
@@ -985,27 +1080,27 @@ public class GitCommitBrowserPanel extends JPanel {
         }
     }
 
-    public void setCommits(List<? extends ICommitInfo> commits,
-                           Set<String> unpushedCommitIds,
-                           boolean canPush,
-                           boolean canPull,
-                           String activeBranchOrContextName)
-    {
+    public void setCommits(
+            List<? extends ICommitInfo> commits,
+            Set<String> unpushedCommitIds,
+            boolean canPush,
+            boolean canPull,
+            String activeBranchOrContextName) {
         this.currentBranchOrContextName = activeBranchOrContextName;
 
         var viewKind = ViewKind.determine(activeBranchOrContextName, getRepo());
         var commitRows = buildCommitRows(commits, unpushedCommitIds);
-        var buttonStates = determineButtonStates(viewKind,
-                                                canPush,
-                                                canPull,
-                                                unpushedCommitIds,
-                                                activeBranchOrContextName);
+        var buttonStates =
+                determineButtonStates(viewKind, canPush, canPull, unpushedCommitIds, activeBranchOrContextName);
 
         SwingUtil.runOnEdt(() -> applyStateToUiComponents(commitRows, buttonStates, viewKind));
     }
 
     private enum ViewKind {
-        STASH, SEARCH, REMOTE, LOCAL;
+        STASH,
+        SEARCH,
+        REMOTE,
+        LOCAL;
 
         static ViewKind determine(@Nullable String activeBranchOrContextName, GitRepo repo) {
             if (activeBranchOrContextName == null) {
@@ -1031,9 +1126,9 @@ public class GitCommitBrowserPanel extends JPanel {
         var commitRows = new ArrayList<Object[]>(commits.size());
         for (ICommitInfo commit : commits) {
             var commitDate = commit.date();
-            commitRows.add(new Object[]{
-                    commit.message(), commit.author(), commitDate,
-                    commit.id(), unpushedCommitIds.contains(commit.id()), commit
+            commitRows.add(new Object[] {
+                commit.message(), commit.author(), commitDate,
+                commit.id(), unpushedCommitIds.contains(commit.id()), commit
             });
         }
         return commitRows;
@@ -1043,12 +1138,12 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private record CommitPanelButtonStates(ButtonConfig pull, ButtonConfig push, ButtonConfig createPr) {}
 
-    private CommitPanelButtonStates determineButtonStates(ViewKind viewKind,
-                                                        boolean serviceCanPush,
-                                                        boolean serviceCanPull,
-                                                        Set<String> unpushedCommitIds,
-                                                        String activeBranchOrContextName)
-    {
+    private CommitPanelButtonStates determineButtonStates(
+            ViewKind viewKind,
+            boolean serviceCanPush,
+            boolean serviceCanPull,
+            Set<String> unpushedCommitIds,
+            String activeBranchOrContextName) {
         var pullConfig = buildPullConfig(viewKind, serviceCanPull, activeBranchOrContextName);
         var pushConfig = buildPushConfig(viewKind, serviceCanPush, unpushedCommitIds, activeBranchOrContextName);
         var createPrConfig = buildCreatePrConfig(viewKind, activeBranchOrContextName);
@@ -1065,15 +1160,15 @@ public class GitCommitBrowserPanel extends JPanel {
         }
 
         boolean enabled = allowPullPush(viewKind) && canPullFromService;
-        String tooltip = enabled
-                         ? "Pull changes for " + branch
-                         : "Cannot pull " + branch;
+        String tooltip = enabled ? "Pull changes for " + branch : "Cannot pull " + branch;
         ActionListener listener = enabled ? e -> handlePullAction(branch) : null;
         return new ButtonConfig(enabled, tooltip, listener);
     }
 
     private boolean isNewLocalBranchWithCommits(String branch, Set<String> unpushedIds) {
-        if (!unpushedIds.isEmpty()) { // If there are unpushed commit IDs, it means an upstream exists or it's not "new" in that sense
+        if (!unpushedIds
+                .isEmpty()) { // If there are unpushed commit IDs, it means an upstream exists or it's not "new" in that
+            // sense
             return false;
         }
 
@@ -1095,7 +1190,8 @@ public class GitCommitBrowserPanel extends JPanel {
         return "Push " + unpushedIds.size() + " commit(s) for " + branch;
     }
 
-    private ButtonConfig buildPushConfig(ViewKind viewKind, boolean canPushFromService, Set<String> unpushedIds, String branch) {
+    private ButtonConfig buildPushConfig(
+            ViewKind viewKind, boolean canPushFromService, Set<String> unpushedIds, String branch) {
         if (!options.showPushPullButtons()) {
             return new ButtonConfig(false, "", null);
         }
@@ -1117,23 +1213,32 @@ public class GitCommitBrowserPanel extends JPanel {
         }
 
         if (viewKind != ViewKind.LOCAL) {
-            return new ButtonConfig(false, "Cannot create PR for " + viewKind.name().toLowerCase(Locale.ROOT) + " views", null);
+            return new ButtonConfig(
+                    false, "Cannot create PR for " + viewKind.name().toLowerCase(Locale.ROOT) + " views", null);
         }
 
         // Token check first, as it's cheap and local.
         if (!GitHubAuth.tokenPresent(contextManager.getProject())) {
-            return new ButtonConfig(false, "A GitHub token is required to create pull requests. Please configure it in settings.", null);
+            return new ButtonConfig(
+                    false,
+                    "A GitHub token is required to create pull requests. Please configure it in settings.",
+                    null);
         }
 
         // Now the expensive check which requires network.
         try {
             if (!GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasWriteAccess()) {
-                return new ButtonConfig(false, "Your GitHub token does not have write permissions for this repository.", null);
+                return new ButtonConfig(
+                        false, "Your GitHub token does not have write permissions for this repository.", null);
             }
         } catch (IOException e) {
-            logger.warn("Could not check GitHub repository permissions (e.g. invalid token or network issue). Disabling Create PR button.", e);
-            // Fail safe: if we can't check permissions, assume we don't have them. This also handles cases where token is invalid.
-            return new ButtonConfig(false, "Your GitHub token does not have write permissions for this repository.", null);
+            logger.warn(
+                    "Could not check GitHub repository permissions (e.g. invalid token or network issue). Disabling Create PR button.",
+                    e);
+            // Fail safe: if we can't check permissions, assume we don't have them. This also handles cases where token
+            // is invalid.
+            return new ButtonConfig(
+                    false, "Your GitHub token does not have write permissions for this repository.", null);
         }
 
         // If all checks pass
@@ -1170,8 +1275,10 @@ public class GitCommitBrowserPanel extends JPanel {
                     refreshCurrentViewAfterGitOp();
                 });
             } catch (GitRepo.GitPushRejectedException ex) {
-                 logger.warn("Push rejected for {}: {}", branchName, ex.getMessage());
-                 SwingUtil.runOnEdt(() -> chrome.toolError("Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: " + ex.getMessage(), "Push Rejected"));
+                logger.warn("Push rejected for {}: {}", branchName, ex.getMessage());
+                SwingUtil.runOnEdt(() -> chrome.toolError(
+                        "Push rejected for " + branchName + ". Tip: Pull changes first.\nDetails: " + ex.getMessage(),
+                        "Push Rejected"));
             } catch (GitAPIException ex) {
                 logger.error("Error pushing {}: {}", branchName, ex.getMessage());
                 SwingUtil.runOnEdt(() -> chrome.toolError("Push error for " + branchName + ": " + ex.getMessage()));
@@ -1179,28 +1286,38 @@ public class GitCommitBrowserPanel extends JPanel {
         });
     }
 
-    private void applyStateToUiComponents(List<Object[]> commitRows,
-                                          CommitPanelButtonStates buttonStates,
-                                          ViewKind viewKind)
-    {
+    private void applyStateToUiComponents(
+            List<Object[]> commitRows, CommitPanelButtonStates buttonStates, ViewKind viewKind) {
         commitsTableModel.setRowCount(0);
         changesRootNode.removeAllChildren();
         changesTreeModel.reload();
 
         if (options.showPushPullButtons()) {
-            configureButton(pullButton, buttonStates.pull().enabled(), buttonStates.pull().tooltip(), buttonStates.pull().listener());
-            configureButton(pushButton, buttonStates.push().enabled(), buttonStates.push().tooltip(), buttonStates.push().listener());
+            configureButton(
+                    pullButton,
+                    buttonStates.pull().enabled(),
+                    buttonStates.pull().tooltip(),
+                    buttonStates.pull().listener());
+            configureButton(
+                    pushButton,
+                    buttonStates.push().enabled(),
+                    buttonStates.push().tooltip(),
+                    buttonStates.push().listener());
         }
 
         if (options.showCreatePrButton()) {
-            configureButton(createPrButton, buttonStates.createPr().enabled(), buttonStates.createPr().tooltip(), buttonStates.createPr().listener());
+            configureButton(
+                    createPrButton,
+                    buttonStates.createPr().enabled(),
+                    buttonStates.createPr().tooltip(),
+                    buttonStates.createPr().listener());
         }
 
         if (commitRows.isEmpty()) {
             revisionTextLabel.setText("Revision:");
             revisionIdTextArea.setText("N/A");
             if (viewKind != ViewKind.SEARCH) { // Don't show "no commits" for empty search
-                 commitsTableModel.addRow(new Object[]{"No commits found.", "", "", "", false, null});
+                commitsTableModel.addRow(new Object[] {"No commits found.", "", "", "", false, null});
             }
             viewDiffButton.setEnabled(false);
             return;
@@ -1234,8 +1351,11 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private String getOldHeadId() {
-        try { return getRepo().getCurrentCommitId(); }
-        catch (GitAPIException e) { return "unknown"; }
+        try {
+            return getRepo().getCurrentCommitId();
+        } catch (GitAPIException e) {
+            return "unknown";
+        }
     }
 
     private void expandAllNodes(JTree tree, int startingIndex, int rowCount) {
@@ -1245,8 +1365,8 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private boolean hasFileNodesSelected(TreePath[] paths) {
         return Arrays.stream(paths)
-              .map(p -> TreeNodeInfo.fromPath(p, changesRootNode))
-              .anyMatch(TreeNodeInfo::isFile);
+                .map(p -> TreeNodeInfo.fromPath(p, changesRootNode))
+                .anyMatch(TreeNodeInfo::isFile);
     }
 
     private List<String> getSelectedFilePathsFromTree() {
@@ -1261,7 +1381,11 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     // Helper record for TreePath analysis
-    private record TreeNodeInfo(@Nullable DefaultMutableTreeNode node, DefaultMutableTreeNode rootNode, boolean isFile, @Nullable String filePath) {
+    private record TreeNodeInfo(
+            @Nullable DefaultMutableTreeNode node,
+            DefaultMutableTreeNode rootNode,
+            boolean isFile,
+            @Nullable String filePath) {
         public static TreeNodeInfo fromPath(@Nullable TreePath path, DefaultMutableTreeNode rootNode) {
             if (path == null) {
                 return new TreeNodeInfo(null, rootNode, false, null);
@@ -1275,14 +1399,14 @@ public class GitCommitBrowserPanel extends JPanel {
             var components = new ArrayList<String>();
             for (var o : path.getPath()) {
                 var n = (DefaultMutableTreeNode) o;
-                if (n == rootNode) continue;  // skip synthetic root
+                if (n == rootNode) continue; // skip synthetic root
                 components.add(n.getUserObject().toString());
             }
             String calculatedFilePath = String.join("/", components);
 
             return new TreeNodeInfo(node, rootNode, isFileResult, calculatedFilePath);
         }
-    }   // <-- close TreeNodeInfo record
+    } // <-- close TreeNodeInfo record
 
     public void selectCommitById(String commitId) {
         SwingUtil.runOnEdt(() -> {
@@ -1307,40 +1431,35 @@ public class GitCommitBrowserPanel extends JPanel {
         return Arrays.stream(selectedRows)
                 .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ))
                 .toList();
-     }
- 
-     /**
-      * Builds a git-style tooltip string for a commit.
-      */
-     private String buildTooltip(ICommitInfo commit) {
-         // Author
-         String author = commit.author();
- 
-         // Date (git log default format)
-         String dateStr = "";
-         if (commit.date() != null) {
-             dateStr = DateTimeFormatter
-                     .ofPattern("EEE MMM d HH:mm:ss yyyy Z", java.util.Locale.US)
-                     .format(ZonedDateTime.ofInstant(commit.date(), ZoneId.systemDefault()));
-         }
- 
-         // Full commit message (fallback to short message if full unavailable)
-         String fullMessage;
-         try {
-             fullMessage = getRepo().getCommitFullMessage(commit.id());
-         } catch (Exception e) {
-             fullMessage = commit.message();
-         }
+    }
 
-         // Indent every message line by four spaces
-         String indentedMsg = java.util.Arrays.stream(fullMessage.split("\\R"))
-                 .map(line -> "    " + line)
-                 .collect(java.util.stream.Collectors.joining("\n"));
- 
-         return "Author: " + author + "\n"
-                + "Date:   " + dateStr + "\n\n"
-                + indentedMsg;
-     }
+    /** Builds a git-style tooltip string for a commit. */
+    private String buildTooltip(ICommitInfo commit) {
+        // Author
+        String author = commit.author();
+
+        // Date (git log default format)
+        String dateStr = "";
+        if (commit.date() != null) {
+            dateStr = DateTimeFormatter.ofPattern("EEE MMM d HH:mm:ss yyyy Z", java.util.Locale.US)
+                    .format(ZonedDateTime.ofInstant(commit.date(), ZoneId.systemDefault()));
+        }
+
+        // Full commit message (fallback to short message if full unavailable)
+        String fullMessage;
+        try {
+            fullMessage = getRepo().getCommitFullMessage(commit.id());
+        } catch (Exception e) {
+            fullMessage = commit.message();
+        }
+
+        // Indent every message line by four spaces
+        String indentedMsg = java.util.Arrays.stream(fullMessage.split("\\R"))
+                .map(line -> "    " + line)
+                .collect(java.util.stream.Collectors.joining("\n"));
+
+        return "Author: " + author + "\n" + "Date:   " + dateStr + "\n\n" + indentedMsg;
+    }
 
     private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
         button.setEnabled(enabled);

@@ -3,15 +3,15 @@ package io.github.jbellis.brokk.gui.search;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Base implementation of SearchableComponent with common functionality.
- */
+/** Base implementation of SearchableComponent with common functionality. */
 public abstract class BaseSearchableComponent implements SearchableComponent {
 
     protected String currentSearchTerm = "";
     protected boolean currentCaseSensitive = false;
+
     @Nullable
     protected SearchCompleteCallback searchCompleteCallback = null;
+
     @Nullable
     protected SearchNavigationCallback searchNavigationCallback = null;
 
@@ -30,7 +30,6 @@ public abstract class BaseSearchableComponent implements SearchableComponent {
     public void setSearchNavigationCallback(@Nullable SearchNavigationCallback callback) {
         this.searchNavigationCallback = callback;
     }
-
 
     /**
      * Notifies the callback that search is complete.
@@ -53,9 +52,7 @@ public abstract class BaseSearchableComponent implements SearchableComponent {
         }
     }
 
-    /**
-     * Notifies the callback that an error occurred.
-     */
+    /** Notifies the callback that an error occurred. */
     protected void notifySearchError(String error) {
         if (searchCompleteCallback != null) {
             // If already on EDT, call directly; otherwise use invokeLater

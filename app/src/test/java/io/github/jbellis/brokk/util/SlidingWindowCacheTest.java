@@ -1,28 +1,23 @@
 package io.github.jbellis.brokk.util;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Timeout;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class SlidingWindowCacheTest {
 
     private SlidingWindowCache<String, TestDisposable> cache;
 
-    /**
-     * Test implementation of Disposable that tracks disposal calls.
-     */
+    /** Test implementation of Disposable that tracks disposal calls. */
     private static class TestDisposable implements SlidingWindowCache.Disposable {
         private final String id;
         private final AtomicBoolean disposed = new AtomicBoolean(false);
@@ -135,7 +130,7 @@ class SlidingWindowCacheTest {
         cache.put("key4", value4);
 
         assertFalse(value1.isDisposed()); // Should not be evicted due to recent access
-        assertTrue(value2.isDisposed());   // Should be evicted
+        assertTrue(value2.isDisposed()); // Should be evicted
         assertFalse(value3.isDisposed());
         assertFalse(value4.isDisposed());
 
@@ -366,12 +361,14 @@ class SlidingWindowCacheTest {
         assertTrue(currentValues.size() <= 3); // Cache max size
 
         // Count disposed items
-        long disposedCount = allValues.stream().mapToLong(v -> v.isDisposed() ? 1 : 0).sum();
+        long disposedCount =
+                allValues.stream().mapToLong(v -> v.isDisposed() ? 1 : 0).sum();
 
         // Most items should have been evicted and disposed
-        assertTrue(disposedCount > itemsPerThread * numThreads - 10,
-            "Expected most items to be disposed, but only " + disposedCount + " out of " +
-            (itemsPerThread * numThreads) + " were disposed");
+        assertTrue(
+                disposedCount > itemsPerThread * numThreads - 10,
+                "Expected most items to be disposed, but only " + disposedCount + " out of "
+                        + (itemsPerThread * numThreads) + " were disposed");
     }
 
     @Test
@@ -577,8 +574,10 @@ class SlidingWindowCacheTest {
             // Verify only expected indices are valid
             for (int i = 0; i < totalFiles; i++) {
                 boolean shouldBeInWindow = expectedIndices.contains(i);
-                assertEquals(shouldBeInWindow, cache.isInWindow(i),
-                            String.format("Window size %d, center %d, index %d", windowSize, center, i));
+                assertEquals(
+                        shouldBeInWindow,
+                        cache.isInWindow(i),
+                        String.format("Window size %d, center %d, index %d", windowSize, center, i));
             }
         }
     }
@@ -686,6 +685,7 @@ class SlidingWindowCacheTest {
         assertFalse(cache.isInWindow(2));
         assertFalse(cache.isInWindow(8));
     }
+
     @ParameterizedTest
     @ValueSource(ints = {1, 2})
     void testEditedFilesRetainedOutsideWindowParameterized(int editedFilesCount) {

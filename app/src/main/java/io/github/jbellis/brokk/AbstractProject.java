@@ -7,19 +7,18 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
 import io.github.jbellis.brokk.util.AtomicWrites;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
-public sealed abstract class AbstractProject implements IProject permits MainProject, WorktreeProject {
+public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
     public static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -39,7 +38,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
 
         // Determine masterRootPathForConfig based on this.root and this.repo
         if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
-            this.masterRootPathForConfig = gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+            this.masterRootPathForConfig =
+                    gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
         } else {
             this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
         }
@@ -74,16 +74,12 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         return repo instanceof GitRepo;
     }
 
-    /**
-     * Saves workspace-specific properties (window positions, etc.)
-     */
+    /** Saves workspace-specific properties (window positions, etc.) */
     public final void saveWorkspaceProperties() {
         saveProperties(workspacePropertiesFile, workspaceProps, "Brokk workspace configuration");
     }
 
-    /**
-     * Generic method to save properties to a file
-     */
+    /** Generic method to save properties to a file */
     private void saveProperties(Path file, Properties properties, String comment) {
         try {
             if (Files.exists(file)) {
@@ -105,9 +101,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
 
     public final void saveTextHistory(List<String> historyItems, int maxItems) {
         try {
-            var limitedItems = historyItems.stream()
-                    .limit(maxItems)
-                    .collect(Collectors.toList());
+            var limitedItems = historyItems.stream().limit(maxItems).collect(Collectors.toList());
             String json = objectMapper.writeValueAsString(limitedItems);
             workspaceProps.setProperty("textHistory", json);
             saveWorkspaceProperties();
@@ -137,9 +131,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         try {
             String json = workspaceProps.getProperty(BLITZ_HISTORY_KEY);
             if (json != null && !json.isEmpty()) {
-                var tf   = objectMapper.getTypeFactory();
-                var type = tf.constructCollectionType(List.class,
-                        tf.constructCollectionType(List.class, String.class));
+                var tf = objectMapper.getTypeFactory();
+                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
                 return objectMapper.readValue(json, type);
             }
         } catch (Exception e) {
@@ -154,9 +147,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
             return loadBlitzHistory();
         }
         var history = new ArrayList<>(loadBlitzHistory());
-        history.removeIf(p -> p.size() >= 2 &&
-                              p.get(0).equals(parallel) &&
-                              p.get(1).equals(post));
+        history.removeIf(
+                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
         history.add(0, List.of(parallel, post));
         if (history.size() > maxItems) {
             history = new ArrayList<>(history.subList(0, maxItems));
@@ -174,8 +166,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         try {
             String json = workspaceProps.getProperty("textHistory");
             if (json != null && !json.isEmpty()) {
-                List<String> result = objectMapper.readValue(json,
-                        objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                List<String> result = objectMapper.readValue(
+                        json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
                 logger.trace("Loaded {} history items", result.size());
                 return result;
             }
@@ -399,7 +391,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
 
         var allFiles = new HashSet<>(trackedFiles);
-        for (var live: getLiveDependencies()) {
+        for (var live : getLiveDependencies()) {
             try (var pathStream = Files.walk(live.absPath())) {
                 pathStream
                         .filter(Files::isRegularFile)
@@ -440,9 +432,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
             return exclusions;
         }
 
-        var liveDependencyPaths = getLiveDependencies().stream()
-                                                       .map(ProjectFile::absPath)
-                                                       .collect(Collectors.toSet());
+        var liveDependencyPaths =
+                getLiveDependencies().stream().map(ProjectFile::absPath).collect(Collectors.toSet());
 
         try (var pathStream = Files.list(dependenciesDir)) {
             pathStream

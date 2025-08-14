@@ -6,13 +6,12 @@ import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class SettingsDialog extends JDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
@@ -29,7 +28,6 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private final JButton applyButton;
 
     private boolean proxySettingsChanged = false; // Track if proxy needs restart
-
 
     public SettingsDialog(Frame owner, Chrome chrome) {
         super(owner, "Settings", true);
@@ -82,7 +80,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         });
 
-        getRootPane().getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
+        getRootPane()
+                .getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW)
                 .put(KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_ESCAPE, 0), "cancel");
         getRootPane().getActionMap().put("cancel", new AbstractAction() {
             @Override
@@ -95,7 +94,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         getContentPane().add(tabbedPane, BorderLayout.CENTER);
         getContentPane().add(buttonPanel, BorderLayout.SOUTH);
     }
-    
+
     public Chrome getChrome() {
         return chrome;
     }
@@ -110,7 +109,6 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         globalSettingsPanel.updateModelsPanelEnablement();
     }
 
-
     private boolean applySettings() {
         MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
 
@@ -123,16 +121,18 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         }
 
         MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
-        if (oldProxySetting != newProxySetting && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
+        if (oldProxySetting != newProxySetting
+                && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
             proxySettingsChanged = true;
         }
 
         return true;
     }
-    
+
     private void handleProxyRestartIfNeeded() {
         if (proxySettingsChanged) {
-            JOptionPane.showMessageDialog(this,
+            JOptionPane.showMessageDialog(
+                    this,
                     "LLM Proxy settings have changed. Please restart Brokk to apply them.",
                     "Restart Required",
                     JOptionPane.INFORMATION_MESSAGE);
@@ -147,14 +147,13 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         // in the global panel might need to be updated as well.
         globalSettingsPanel.loadSettings(); // Reload to reflect new policy and available models
     }
-    
+
     // Called by SettingsProjectPanel's DataRetentionPanel when policy is applied
     // to refresh the Models tab in the Global panel.
     public void refreshGlobalModelsPanelPostPolicyChange() {
         globalSettingsPanel.loadSettings(); // This will re-evaluate model availability.
         globalSettingsPanel.updateModelsPanelEnablement(); // Ensure combos are correctly enabled.
     }
-
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
@@ -170,7 +169,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         boolean tabSelected = false;
         // Top-level tabs: "Global", "Project"
-        // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models", "GitHub"
+        // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models",
+        // "GitHub"
         // Project sub-tabs: "General", "Build", "Data Retention"
 
         // Try to select top-level tab first
@@ -183,7 +183,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         if (targetTabName.equals("Global") && globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
             dialog.tabbedPane.setSelectedIndex(globalTabIndex);
             tabSelected = true;
-        } else if (targetTabName.equals("Project") && projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
+        } else if (targetTabName.equals("Project")
+                && projectTabIndex != -1
+                && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
             dialog.tabbedPane.setSelectedIndex(projectTabIndex);
             tabSelected = true;
         } else {
@@ -193,7 +195,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                 if (targetTabName.equals(globalSubTabs.getTitleAt(i))) {
                     if (globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
                         dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
-                        if (globalSubTabs.isEnabledAt(i) || targetTabName.equals(SettingsGlobalPanel.MODELS_TAB_TITLE)) { // Models tab content itself handles enablement
+                        if (globalSubTabs.isEnabledAt(i)
+                                || targetTabName.equals(
+                                        SettingsGlobalPanel
+                                                .MODELS_TAB_TITLE)) { // Models tab content itself handles enablement
                             globalSubTabs.setSelectedIndex(i);
                             tabSelected = true;
                         }
@@ -225,7 +230,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     }
 
     public static boolean showStandaloneDataRetentionDialog(IProject project, Frame owner) {
-        assert project.isDataShareAllowed() : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
+        assert project.isDataShareAllowed()
+                : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 
         var dialog = new JDialog(owner, "Data Retention Policy Required", true);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
@@ -234,13 +240,16 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // Create a temporary SettingsProjectPanel just for its DataRetentionPanel inner class logic
         // This is a bit of a workaround to reuse the panel logic.
-        var tempProjectPanelForRetention = new SettingsProjectPanel.DataRetentionPanel(project, null); // Pass null for parentProjectPanel
+        var tempProjectPanelForRetention =
+                new SettingsProjectPanel.DataRetentionPanel(project, null); // Pass null for parentProjectPanel
 
         var contentPanel = new JPanel(new BorderLayout(10, 10));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        var noteLabel = new JLabel("<html>(You can change this setting later under Project -> Data Retention in the main Settings dialog.)</html>");
-        noteLabel.setFont(noteLabel.getFont().deriveFont(Font.PLAIN, noteLabel.getFont().getSize() * 0.9f));
+        var noteLabel = new JLabel(
+                "<html>(You can change this setting later under Project -> Data Retention in the main Settings dialog.)</html>");
+        noteLabel.setFont(
+                noteLabel.getFont().deriveFont(Font.PLAIN, noteLabel.getFont().getSize() * 0.9f));
         contentPanel.add(noteLabel, BorderLayout.NORTH);
 
         contentPanel.add(tempProjectPanelForRetention, BorderLayout.CENTER);
@@ -257,12 +266,17 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         okButtonDialog.addActionListener(e -> {
             var selectedPolicy = tempProjectPanelForRetention.getSelectedPolicy();
             if (selectedPolicy == DataRetentionPolicy.UNSET) {
-                JOptionPane.showMessageDialog(dialog, "Please select a data retention policy to continue.", "Selection Required", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(
+                        dialog,
+                        "Please select a data retention policy to continue.",
+                        "Selection Required",
+                        JOptionPane.WARNING_MESSAGE);
             } else {
                 tempProjectPanelForRetention.applyPolicy(); // This saves the policy
                 // No need to call parentProjectPanel.parentDialog.getChrome().getContextManager().reloadModelsAsync();
                 // or parentProjectPanel.parentDialog.refreshGlobalModelsPanelPostPolicyChange();
-                // because this is a standalone dialog, Chrome isn't fully set up perhaps, and there's no SettingsDialog instance.
+                // because this is a standalone dialog, Chrome isn't fully set up perhaps, and there's no SettingsDialog
+                // instance.
                 // The main app should handle model refresh after this dialog returns true.
                 dialogResult[0] = true;
                 dialog.dispose();

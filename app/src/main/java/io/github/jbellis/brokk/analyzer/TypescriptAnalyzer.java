@@ -1,12 +1,9 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
+
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
-import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TreeSitterTypescript;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -15,6 +12,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
+import org.treesitter.TSLanguage;
+import org.treesitter.TSNode;
+import org.treesitter.TreeSitterTypescript;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
@@ -25,31 +26,47 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final Pattern TYPE_ALIAS_LINE = Pattern.compile("(type |export type ).*=.*");
 
     // Fast lookups for type checks
-    private static final Set<String> FUNCTION_NODE_TYPES = Set.of(
-        "function_declaration", "generator_function_declaration", "function_signature"
-    );
+    private static final Set<String> FUNCTION_NODE_TYPES =
+            Set.of(FUNCTION_DECLARATION, GENERATOR_FUNCTION_DECLARATION, FUNCTION_SIGNATURE);
 
     // Class keyword mapping for fast lookup
     private static final Map<String, String> CLASS_KEYWORDS = Map.of(
-        "interface_declaration", "interface",
-        "enum_declaration", "enum",
-        "module", "namespace",
-        "internal_module", "namespace",
-        "ambient_declaration", "namespace",
-        "abstract_class_declaration", "abstract class"
-    );
-
+            INTERFACE_DECLARATION, INTERFACE,
+            ENUM_DECLARATION, ENUM,
+            MODULE, NAMESPACE,
+            INTERNAL_MODULE, NAMESPACE,
+            AMBIENT_DECLARATION, NAMESPACE,
+            ABSTRACT_CLASS_DECLARATION, ABSTRACT_CLASS);
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
-            Set.of("class_declaration", "interface_declaration", "enum_declaration", "abstract_class_declaration", "module", "internal_module"),
+            Set.of(
+                    CLASS_DECLARATION,
+                    INTERFACE_DECLARATION,
+                    ENUM_DECLARATION,
+                    ABSTRACT_CLASS_DECLARATION,
+                    MODULE,
+                    INTERNAL_MODULE),
             // functionLikeNodeTypes
-            Set.of("function_declaration", "method_definition", "arrow_function", "generator_function_declaration",
-                   "function_signature", "method_signature", "abstract_method_signature"), // function_signature for overloads, method_signature for interfaces, abstract_method_signature for abstract classes
+            Set.of(
+                    FUNCTION_DECLARATION,
+                    METHOD_DEFINITION,
+                    ARROW_FUNCTION,
+                    GENERATOR_FUNCTION_DECLARATION,
+                    FUNCTION_SIGNATURE,
+                    METHOD_SIGNATURE,
+                    ABSTRACT_METHOD_SIGNATURE), // function_signature for overloads, method_signature for interfaces,
+            // abstract_method_signature for abstract classes
             // fieldLikeNodeTypes
-            Set.of("variable_declarator", "public_field_definition", "property_signature", "enum_member", "lexical_declaration", "variable_declaration"), // type_alias_declaration will be ALIAS_LIKE
+            Set.of(
+                    VARIABLE_DECLARATOR,
+                    PUBLIC_FIELD_DEFINITION,
+                    PROPERTY_SIGNATURE,
+                    ENUM_MEMBER,
+                    LEXICAL_DECLARATION,
+                    VARIABLE_DECLARATION), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
-            Set.of("decorator"),
+            Set.of(DECORATOR),
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -62,27 +79,34 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             "type_parameters", // Standard field name for type parameters in TS
             // captureConfiguration - using unified naming convention
             Map.of(
-                "type.definition", SkeletonType.CLASS_LIKE,      // Classes, interfaces, enums, namespaces
-                "function.definition", SkeletonType.FUNCTION_LIKE, // Functions, methods
-                "value.definition", SkeletonType.FIELD_LIKE,     // Variables, fields, constants
-                "typealias.definition", SkeletonType.ALIAS_LIKE,  // Type aliases
-                "decorator.definition", SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
-                "keyword.modifier", SkeletonType.UNSUPPORTED
-            ),
+                    "type.definition", SkeletonType.CLASS_LIKE, // Classes, interfaces, enums, namespaces
+                    "function.definition", SkeletonType.FUNCTION_LIKE, // Functions, methods
+                    "value.definition", SkeletonType.FIELD_LIKE, // Variables, fields, constants
+                    "typealias.definition", SkeletonType.ALIAS_LIKE, // Type aliases
+                    "decorator.definition", SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
+                    "keyword.modifier", SkeletonType.UNSUPPORTED),
             // asyncKeywordNodeType
             "async", // TS uses 'async' keyword
             // modifierNodeTypes: Contains node types of keywords/constructs that act as modifiers.
             // Used in TreeSitterAnalyzer.buildSignatureString to gather modifiers by inspecting children.
             Set.of(
-                "export", "default", "declare", "abstract", "static", "readonly",
-                "accessibility_modifier", // for public, private, protected
-                "async", "const", "let", "var", "override" // "override" might be via override_modifier
-                // Note: "public", "private", "protected" themselves are not node types here,
-                // but "accessibility_modifier" is the node type whose text content is one of these.
-                // "const", "let" are token types for the `kind` of a lexical_declaration, often its first child.
-                // "var" is a token type, often first child of variable_declaration.
-            )
-    );
+                    "export",
+                    "default",
+                    "declare",
+                    "abstract",
+                    "static",
+                    "readonly",
+                    "accessibility_modifier", // for public, private, protected
+                    "async",
+                    "const",
+                    "let",
+                    "var",
+                    "override" // "override" might be via override_modifier
+                    // Note: "public", "private", "protected" themselves are not node types here,
+                    // but "accessibility_modifier" is the node type whose text content is one of these.
+                    // "const", "let" are token types for the `kind` of a lexical_declaration, often its first child.
+                    // "var" is a token type, often first child of variable_declaration.
+                    ));
 
     public TypescriptAnalyzer(IProject project, Set<String> excludedFiles) {
         super(project, Language.TYPESCRIPT, excludedFiles);
@@ -112,12 +136,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain)
-    {
+    protected CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         // Adjust FQN based on capture type and context
         String finalShortName;
         SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
@@ -129,8 +149,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
             case FUNCTION_LIKE -> {
                 if (simpleName.equals("anonymous_arrow_function") || simpleName.isEmpty()) {
-                    log.warn("Anonymous or unnamed function found for capture {} in file {}. ClassChain: {}. Will use placeholder or rely on extracted name.", captureName, file, classChain);
-                    // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name found
+                    log.warn(
+                            "Anonymous or unnamed function found for capture {} in file {}. ClassChain: {}. Will use placeholder or rely on extracted name.",
+                            captureName,
+                            file,
+                            classChain);
+                    // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name
+                    // found
                 }
                 finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 return CodeUnit.fn(file, packageName, finalShortName);
@@ -145,8 +170,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 return CodeUnit.field(file, packageName, finalShortName);
             }
             default -> {
-                log.debug("Ignoring capture in TypescriptAnalyzer: {} (mapped to type {}) with name: {} and classChain: {}",
-                          captureName, skeletonType, simpleName, classChain);
+                log.debug(
+                        "Ignoring capture in TypescriptAnalyzer: {} (mapped to type {}) with name: {} and classChain: {}",
+                        captureName,
+                        skeletonType,
+                        simpleName,
+                        classChain);
                 throw new UnsupportedOperationException("Unsupported skeleton type: " + skeletonType);
             }
         }
@@ -183,34 +212,38 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src,
-                                               String exportAndModifierPrefix, String ignoredAsyncPrefix,
-                                               String functionName, String typeParamsText, String paramsText, String returnTypeText,
-                                               String indent)
-    {
+    protected String renderFunctionDeclaration(
+            TSNode funcNode,
+            String src,
+            String exportAndModifierPrefix,
+            String ignoredAsyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
         // Use text slicing approach for simpler rendering
-        TSNode bodyNode = funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        TSNode bodyNode =
+                funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
         // For arrow functions, handle specially
-        if ("arrow_function".equals(funcNode.getType())) {
+        if (ARROW_FUNCTION.equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
             String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
 
-            String signature = String.format("%s %s%s = %s%s%s =>",
-                                              prefix,
-                                              functionName,
-                                              typeParamsText,
-                                              asyncPart,
-                                              paramsText,
-                                              returnTypeSuffix).stripLeading();
+            String signature = String.format(
+                            "%s %s%s = %s%s%s =>",
+                            prefix, functionName, typeParamsText, asyncPart, paramsText, returnTypeSuffix)
+                    .stripLeading();
             return indent + signature + " " + bodyPlaceholder();
         }
 
         // For regular functions, use text slicing when possible
         if (hasBody) {
-            String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src).strip();
+            String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src)
+                    .strip();
 
             // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
@@ -252,8 +285,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // For construct signatures, we need a space before params
-        boolean needsSpaceBeforeParams = "construct_signature".equals(funcNode.getType());
-        
+        boolean needsSpaceBeforeParams = CONSTRUCT_SIGNATURE.equals(funcNode.getType());
+
         String signature = String.join(" ", parts);
         if (!paramsText.isEmpty()) {
             signature += (needsSpaceBeforeParams && !signature.isEmpty() ? " " : "") + paramsText;
@@ -265,8 +298,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // - ambient function declarations (those with "declare")
         // But NOT for export function overloads
         if ("function_signature".equals(funcNode.getType())) {
-            if (prefix.contains("declare") || // ambient declarations need semicolons
-                (isInNamespaceContext(funcNode) && !prefix.contains("declare"))) { // namespace functions need semicolons
+            if (prefix.contains("declare")
+                    || // ambient declarations need semicolons
+                    (isInNamespaceContext(funcNode)
+                            && !prefix.contains("declare"))) { // namespace functions need semicolons
                 signature += ";";
             }
             // Export function overloads don't need semicolons
@@ -289,7 +324,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            String src,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent,
+            ProjectFile file) {
         String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
 
         // Remove trailing semicolons
@@ -297,9 +338,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
         // Special handling for enum members - add comma instead of semicolon
         String suffix = "";
-        if (!fieldNode.isNull() && fieldNode.getParent() != null && !fieldNode.getParent().isNull() &&
-            "enum_body".equals(fieldNode.getParent().getType()) &&
-            ("property_identifier".equals(fieldNode.getType()) || "enum_assignment".equals(fieldNode.getType()))) {
+        if (!fieldNode.isNull()
+                && fieldNode.getParent() != null
+                && !fieldNode.getParent().isNull()
+                && "enum_body".equals(fieldNode.getParent().getType())
+                && ("property_identifier".equals(fieldNode.getType())
+                        || "enum_assignment".equals(fieldNode.getType()))) {
             // Enum members get commas, not semicolons
             suffix = ",";
         }
@@ -308,15 +352,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, String src,
-                                       String exportAndModifierPrefix,
-                                       String signatureText,
-                                       String baseIndent)
-    {
+    protected String renderClassHeader(
+            TSNode classNode, String src, String exportAndModifierPrefix, String signatureText, String baseIndent) {
         // Use text slicing approach but include export prefix
-        TSNode bodyNode = classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        TSNode bodyNode =
+                classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode != null && !bodyNode.isNull()) {
-            String signature = textSlice(classNode.getStartByte(), bodyNode.getStartByte(), src).strip();
+            String signature = textSlice(classNode.getStartByte(), bodyNode.getStartByte(), src)
+                    .strip();
 
             // Prepend export and other modifiers if not already present
             String prefix = exportAndModifierPrefix.stripTrailing();
@@ -363,8 +406,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         TSNode parent = node.getParent();
 
         // For variable declarators, check the parent declaration
-        if ("variable_declarator".equals(node.getType()) && parent != null &&
-            ("lexical_declaration".equals(parent.getType()) || "variable_declaration".equals(parent.getType()))) {
+        if ("variable_declarator".equals(node.getType())
+                && parent != null
+                && ("lexical_declaration".equals(parent.getType())
+                        || "variable_declaration".equals(parent.getType()))) {
             nodeToCheck = parent;
         }
 
@@ -388,7 +433,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             if (child != null && !child.isNull()) {
                 String childText = cachedTextSliceStripped(child, src);
                 // Check for common TypeScript modifiers
-                if (Set.of("declare", "abstract", "static", "readonly", "async", "const", "let", "var").contains(childText)) {
+                if (Set.of("declare", "abstract", "static", "readonly", "async", "const", "let", "var")
+                        .contains(childText)) {
                     modifiers.append(childText).append(" ");
                 } else if ("accessibility_modifier".equals(child.getType())) {
                     modifiers.append(childText).append(" ");
@@ -416,21 +462,22 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getIgnoredCaptures() {
         // e.g., @parameters, @return_type_node if they are only for context and not main definitions
-        return Set.of("parameters", "return_type_node", "predefined_type_node", "type_identifier_node", "export.keyword");
+        return Set.of(
+                "parameters", "return_type_node", "predefined_type_node", "type_identifier_node", "export.keyword");
     }
 
     /**
-     * Checks if a function node is inside an ambient declaration context (declare namespace/module).
-     * In ambient contexts, function signatures should not include the "function" keyword.
+     * Checks if a function node is inside an ambient declaration context (declare namespace/module). In ambient
+     * contexts, function signatures should not include the "function" keyword.
      */
     public boolean isInAmbientContext(TSNode node) {
         return checkAmbientContextDirect(node);
     }
 
     /**
-     * Checks if a function node is inside a namespace/module context where function signatures
-     * should not include the "function" keyword. This includes both regular namespaces and
-     * functions inside ambient namespaces, but excludes top-level ambient function declarations.
+     * Checks if a function node is inside a namespace/module context where function signatures should not include the
+     * "function" keyword. This includes both regular namespaces and functions inside ambient namespaces, but excludes
+     * top-level ambient function declarations.
      */
     public boolean isInNamespaceContext(TSNode node) {
         TSNode parent = node.getParent();
@@ -489,8 +536,10 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     if (trimmed.startsWith("export interface ") && trimmed.endsWith(" {")) {
                         foundExportInterface = true;
                         filteredLines.add(line);
-                    } else if (foundExportInterface && trimmed.startsWith("interface ") && trimmed.endsWith(" {") &&
-                               !trimmed.startsWith("export interface ")) {
+                    } else if (foundExportInterface
+                            && trimmed.startsWith("interface ")
+                            && trimmed.endsWith(" {")
+                            && !trimmed.startsWith("export interface ")) {
                         // Skip this duplicate interface header
                     } else {
                         filteredLines.add(line);
@@ -577,14 +626,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return false;
     }
 
-
-
-
-
-
-
-
-
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
         // Handle constructor signatures which don't have a name field
@@ -595,18 +636,25 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected void buildFunctionSkeleton(TSNode funcNode, Optional<String> providedNameOpt, String src, String indent, List<String> lines, String exportPrefix) {
+    protected void buildFunctionSkeleton(
+            TSNode funcNode,
+            Optional<String> providedNameOpt,
+            String src,
+            String indent,
+            List<String> lines,
+            String exportPrefix) {
         // Handle variable_declarator containing arrow function
         if ("variable_declarator".equals(funcNode.getType())) {
             TSNode valueNode = funcNode.getChildByFieldName("value");
             if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
                 String fullDeclaration = textSlice(funcNode, src).strip();
-                
+
                 // Replace function body with placeholder
                 TSNode bodyNode = valueNode.getChildByFieldName("body");
                 if (bodyNode != null && !bodyNode.isNull()) {
-                    String beforeBody = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src).strip();
+                    String beforeBody = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src)
+                            .strip();
                     String signature = exportPrefix.stripTrailing() + " " + beforeBody + " " + bodyPlaceholder();
                     lines.add(indent + signature.stripLeading());
                 } else {
@@ -615,13 +663,14 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 return;
             }
         }
-        
+
         // Handle constructor signatures specially
         if ("construct_signature".equals(funcNode.getType())) {
             TSNode typeNode = funcNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
                 String typeText = textSlice(typeNode, src);
-                String returnTypeText = typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
+                String returnTypeText =
+                        typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
 
                 var profile = getLanguageSyntaxProfile();
                 String functionName = extractSimpleName(funcNode, src).orElse("new");
@@ -634,7 +683,16 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     typeParamsText = textSlice(typeParamsNode, src);
                 }
 
-                String signature = renderFunctionDeclaration(funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
+                String signature = renderFunctionDeclaration(
+                        funcNode,
+                        src,
+                        exportPrefix,
+                        "",
+                        functionName,
+                        typeParamsText,
+                        paramsText,
+                        returnTypeText,
+                        indent);
                 if (!signature.isBlank()) {
                     lines.add(signature);
                 }
@@ -712,10 +770,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
-    /**
-     * Find the top-level parent CodeUnit for a given CodeUnit.
-     * If the CodeUnit has no parent, it returns itself.
-     */
+    /** Find the top-level parent CodeUnit for a given CodeUnit. If the CodeUnit has no parent, it returns itself. */
     private CodeUnit findTopLevelParent(CodeUnit cu) {
         // Build parent chain without caching
         CodeUnit current = cu;
@@ -727,9 +782,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return current;
     }
 
-    /**
-     * Find direct parent of a CodeUnit by looking in childrenByParent map
-     */
+    /** Find direct parent of a CodeUnit by looking in childrenByParent map */
     private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
         for (var entry : childrenByParent.entrySet()) {
             CodeUnit parent = entry.getKey();
@@ -740,5 +793,4 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
         return null;
     }
-
 }
