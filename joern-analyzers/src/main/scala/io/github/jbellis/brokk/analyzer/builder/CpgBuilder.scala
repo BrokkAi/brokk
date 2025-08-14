@@ -107,12 +107,15 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   }
 
   protected def runPasses(cpg: Cpg, config: R)(using pool: ForkJoinPool): Cpg = {
-    Using.resource(createAst(cpg, config).getOrElse {
-      throw new IOException(s"Failed to create $language CPG")
-    }) { cpg =>
-      applyPasses(cpg).getOrElse {
-        throw new IOException(s"Failed to apply post-processing on $language CPG")
-      }
+    val astResult = createAst(cpg, config)
+    Using.resource(astResult.recover { ex =>
+      logger.error(s"Failed to create $language CPG", ex)
+      throw new IOException(s"Failed to create $language CPG: ${ex.getMessage}", ex)
+    }.get) { cpg =>
+      applyPasses(cpg).recover { ex =>
+        logger.error(s"Failed to apply post-processing on $language CPG", ex)
+        throw new IOException(s"Failed to apply post-processing on $language CPG: ${ex.getMessage}", ex)
+      }.get
     }
   }
 
