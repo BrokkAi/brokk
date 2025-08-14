@@ -33,10 +33,46 @@ object CBuilder {
         .createAndApply()
       new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report)
         .createAndApply()
-      TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg).createAndApply()
-      new TypeDeclNodePass(cpg, config).createAndApply()
-      new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config).createAndApply()
-      new FullNameUniquenessPass(cpg).createAndApply()
+      // BINARY COMPATIBILITY FIX: Use manual execution for potential Joern library passes
+      val typeNodePass = TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg)
+      val typeNodeDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      typeNodePass.init()
+      val typeNodeParts = typeNodePass.generateParts()
+      for (part <- typeNodeParts) {
+        typeNodePass.runOnPart(typeNodeDiffBuilder, part)
+      }
+      typeNodePass.finish()
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, typeNodeDiffBuilder)
+
+      val typeDeclNodePass = new TypeDeclNodePass(cpg, config)
+      val typeDeclDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      typeDeclNodePass.init()
+      val typeDeclParts = typeDeclNodePass.generateParts()
+      for (part <- typeDeclParts) {
+        typeDeclNodePass.runOnPart(typeDeclDiffBuilder, part)
+      }
+      typeDeclNodePass.finish()
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, typeDeclDiffBuilder)
+
+      val functionDeclNodePass = new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config)
+      val functionDeclDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      functionDeclNodePass.init()
+      val functionDeclParts = functionDeclNodePass.generateParts()
+      for (part <- functionDeclParts) {
+        functionDeclNodePass.runOnPart(functionDeclDiffBuilder, part)
+      }
+      functionDeclNodePass.finish()
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, functionDeclDiffBuilder)
+
+      val fullNameUniquenessPass = new FullNameUniquenessPass(cpg)
+      val fullNameDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      fullNameUniquenessPass.init()
+      val fullNameParts = fullNameUniquenessPass.generateParts()
+      for (part <- fullNameParts) {
+        fullNameUniquenessPass.runOnPart(fullNameDiffBuilder, part)
+      }
+      fullNameUniquenessPass.finish()
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, fullNameDiffBuilder)
       report.print()
       cpg
     }

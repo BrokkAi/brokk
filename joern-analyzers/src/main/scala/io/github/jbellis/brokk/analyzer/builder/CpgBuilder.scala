@@ -165,8 +165,39 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     // These are separated as we may want to insert our own custom, framework-specific passes
     // in between these at some point in the future. For now, these resemble the default Joern
     // pass ordering and strategy minus CFG.
+
+    // BINARY COMPATIBILITY FIX: Handle mixed Joern library and local passes
+    // Joern library passes expect createAndApply(ForkJoinPool) but our local CpgPassBase
+    // interface defines createAndApply() with implicit ForkJoinPool parameter
     (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg) ++ postProcessingPasses(cpg))
-      .foreach(_.createAndApply())
+      .foreach { pass =>
+        // Check if this is a local pass (in our package) vs Joern library pass
+        val packageName = pass.getClass.getPackageName
+        if (packageName.startsWith("io.github.jbellis.brokk")) {
+          // Local pass - use createAndApply() with implicit ForkJoinPool
+          pass.createAndApply()
+        } else {
+          // Joern library pass - check if it supports manual execution
+          pass match {
+            case parallelPass: io.shiftleft.passes.ForkJoinParallelCpgPass[_] =>
+              // Use manual execution for ForkJoinParallelCpgPass to avoid binary compatibility issues
+              val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+
+              parallelPass.init()
+              val parts = parallelPass.generateParts()
+              for (part <- parts) {
+                parallelPass.asInstanceOf[io.shiftleft.passes.ForkJoinParallelCpgPass[AnyRef]]
+                  .runOnPart(diffBuilder, part.asInstanceOf[AnyRef])
+              }
+              parallelPass.finish()
+
+              flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
+            case _ =>
+              // For other pass types, try createAndApply() and let it fail if incompatible
+              pass.createAndApply()
+          }
+        }
+      }
     cpg
   }
 
