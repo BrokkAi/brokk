@@ -79,11 +79,12 @@ public class PullRequestHeaderCellRenderer extends JPanel implements TableCellRe
         return this;
     }
 
+    @SuppressWarnings({"unused", "UnusedVariable"})
     private void addAvatarOrName(String name) {
-        if (name.isBlank()) return;
-        Icon userIcon = SwingUtil.uiIcon("Brokk.person");
-        JLabel lbl = new JLabel(name, userIcon, SwingConstants.LEFT);
-        lbl.setFont(lbl.getFont().deriveFont(Font.PLAIN, lbl.getFont().getSize() - 1));
-        avatarPanel.add(lbl);
+        // Intentionally do not show the author avatar/name on the first (title) row.
+        // The author text is still displayed in the secondary (second) line of the cell
+        // and the author column/data remains available in the table model for filtering.
+        // The 'name' parameter is intentionally unused to preserve the method signature
+        // for callers that pass the author (used elsewhere for filtering).
     }
 }
