@@ -107,6 +107,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     private final GitPanel gitPanel; // Null when no git repo is present
 
+    @Nullable
+    private GitPullRequestsTab pullRequestsPanel;
+
+    @Nullable
+    private GitIssuesTab issuesPanel;
+
     // Reference to Tools ▸ BlitzForge… menu item so we can enable/disable it
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
     private JMenuItem blitzForgeMenuItem;
@@ -232,6 +238,49 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitPanel.updateRepo();
         } else {
             gitPanel = null;
+        }
+
+        // --- New top-level Pull-Requests panel ---------------------------------
+        if (getProject().isGitHubRepo() && gitPanel != null) {
+            pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitPanel);
+            var prIcon = requireNonNull(SwingUtil.uiIcon("Brokk.pull_request"));
+            leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
+            var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+            var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
+            leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
+            prLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(prIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(prIdx);
+                }
+            });
+        }
+
+        // --- New top-level Issues panel ----------------------------------------
+        if (getProject().getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE
+                && gitPanel != null) {
+            issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
+            var issIcon = requireNonNull(SwingUtil.uiIcon("Brokk.adjust"));
+            leftTabbedPanel.addTab(null, issIcon, issuesPanel);
+            var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
+            var issLabel = createSquareTabLabel(issIcon, "Issues");
+            leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
+            issLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(issIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(issIdx);
+                }
+            });
         }
 
         /*
@@ -597,6 +646,35 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (gitPanel != null) {
             gitPanel.updateRepo();
         }
+    }
+
+    /** Recreate the top-level Issues panel (e.g. after provider change). */
+    public void recreateIssuesPanel() {
+        SwingUtilities.invokeLater(() -> {
+            if (issuesPanel != null) {
+                var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                if (idx != -1) leftTabbedPanel.remove(idx);
+            }
+            if (gitPanel == null) return; // safety
+            issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
+            var icon = requireNonNull(SwingUtil.uiIcon("Brokk.assignment"));
+            leftTabbedPanel.addTab(null, icon, issuesPanel);
+            var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
+            var label = createSquareTabLabel(icon, "Issues");
+            leftTabbedPanel.setTabComponentAt(tabIdx, label);
+            label.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(tabIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(tabIdx);
+                }
+            });
+            leftTabbedPanel.setSelectedIndex(tabIdx);
+        });
     }
 
     private void registerGlobalKeyboardShortcuts() {
