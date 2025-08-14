@@ -129,7 +129,15 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     *   the given CPG.
     */
   protected def createOrUpdateMetaData(cpg: Cpg, language: String, inputPath: String)(using pool: ForkJoinPool): Cpg = {
-    if cpg.metaData.isEmpty then new MetaDataPass(cpg, language, inputPath).createAndApply()
+    if cpg.metaData.isEmpty then {
+      // BINARY COMPATIBILITY FIX: Use direct run() call instead of createAndApply()
+      // because Joern's MetaDataPass expects createAndApply(ForkJoinPool) but our local
+      // CpgPassBase interface defines createAndApply() with no parameters
+      val metaDataPass = new MetaDataPass(cpg, language, inputPath, None)
+      val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      metaDataPass.run(diffBuilder)
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
+    }
     cpg
   }
 
