@@ -4,13 +4,11 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.context.ContextFragment.StringFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -31,7 +29,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.transport.RefSpec;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
@@ -1647,7 +1644,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         });
         trackCancellableFuture(future);
     }
-
 
     /**
      * Checkout the currently selected PR branch. This delegates to helper methods based on whether a local branch for
