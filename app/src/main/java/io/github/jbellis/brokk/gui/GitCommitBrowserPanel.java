@@ -128,12 +128,18 @@ public class GitCommitBrowserPanel extends JPanel {
         commitsPanel.setPreferredSize(nominalPreferredSize);
         changesPanel.setPreferredSize(nominalPreferredSize);
 
+        // Commits panel – occupies upper portion
         constraints.gridx = 0;
-        constraints.weightx = 0.65;
+        constraints.gridy = 0;
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.60; // about 60 % of height
         add(commitsPanel, constraints);
 
-        constraints.gridx = 1;
-        constraints.weightx = 0.35;
+        // Changes panel – occupies remaining lower portion
+        constraints.gridx = 0;
+        constraints.gridy = 1;
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.40; // about 40 % of height
         add(changesPanel, constraints);
     }
 

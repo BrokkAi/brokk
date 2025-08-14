@@ -225,12 +225,18 @@ public class GitLogTab extends JPanel {
         branchesPanel.setPreferredSize(nominalPreferredSize);
         gitCommitBrowserPanel.setPreferredSize(nominalPreferredSize);
 
-        constraints.gridx = 0; // branches
-        constraints.weightx = 0.20; // Adjusted weight for branches
+        // Add Branches panel at the top (vertical stacking)
+        constraints.gridx = 0;
+        constraints.gridy = 0; // branches (top)
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.25; // roughly upper quarter
         logPanel.add(branchesPanel, constraints);
 
-        constraints.gridx = 1; // commit browser (commits + changes)
-        constraints.weightx = 0.80; // Adjusted weight for commit browser
+        // Add Commit Browser panel below branches
+        constraints.gridx = 0;
+        constraints.gridy = 1; // commit browser (commits + changes)
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.75; // remaining space
         logPanel.add(gitCommitBrowserPanel, constraints);
 
         // Listeners for branch table
