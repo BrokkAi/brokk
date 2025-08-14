@@ -54,6 +54,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
     private JTextPane issueBodyTextPane;
+    /** Panel that shows the selected issue’s description; hidden until needed. */
+    private final JPanel issueDetailPanel;
+
     private JButton copyIssueDescriptionButton;
     private JButton openInBrowserButton;
     private JButton captureButton;
@@ -142,9 +145,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         });
         trackCancellableFuture(future);
 
-        // Split panel with Issues on left (larger) and issue description on right (smaller)
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setResizeWeight(0.6); // 60% for Issue list, 40% for details
+        // Issue Description panel will be added below the issues table; no split pane is needed
 
         // --- Left side - Issues table and filters ---
         JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
@@ -167,6 +168,20 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 .asTextField()
                 .setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
+
+        // ── Refresh button ──────────────────────────────────────────────────────
+        // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
+        JButton refreshButton = new JButton(); // Unicode clockwise arrow
+        final Icon refreshIcon = SwingUtil.uiIcon("Brokk.refresh");
+        refreshButton.setIcon(refreshIcon);
+        refreshButton.setText("");
+        refreshButton.setMargin(new Insets(2, 2, 2, 2)); // small padding
+        // Slightly enlarge the glyph so it is more legible than default-size text
+        refreshButton.setFont(
+                refreshButton.getFont().deriveFont(refreshButton.getFont().getSize() * 1.25f));
+        refreshButton.setToolTipText("Refresh");
+        refreshButton.addActionListener(e -> updateIssueList());
+        searchPanel.add(refreshButton, BorderLayout.EAST);
 
         // topContentPanel no longer contains searchPanel
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
@@ -371,34 +386,54 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
         captureAction.setEnabled(false);
 
-        // Button panel for Issues
-        JPanel issueButtonPanel = new JPanel();
-        issueButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
-        issueButtonPanel.setLayout(new BoxLayout(issueButtonPanel, BoxLayout.X_AXIS));
+        // No separate bottom-button panel needed after redesign
 
         copyIssueDescriptionButton = new JButton(copyDescriptionAction);
-        issueButtonPanel.add(copyIssueDescriptionButton);
-        issueButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
         openInBrowserButton = new JButton(openInBrowserAction);
-        issueButtonPanel.add(openInBrowserButton);
-        issueButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
         captureButton = new JButton(captureAction);
-        issueButtonPanel.add(captureButton);
 
-        issueButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
+        // ── compact icon-style buttons ───────────────────────────────────────
+        final Icon copyIcon = SwingUtil.uiIcon("Brokk.content_copy");
+        copyIssueDescriptionButton.setIcon(copyIcon);
+        copyIssueDescriptionButton.setText("");
+        copyIssueDescriptionButton.setMargin(new Insets(2, 2, 2, 2));
 
-        JButton refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(e -> updateIssueList());
-        issueButtonPanel.add(refreshButton);
+        final Icon browserIcon = SwingUtil.uiIcon("Brokk.open_in_browser");
+        openInBrowserButton.setIcon(browserIcon);
+        openInBrowserButton.setText("");
+        openInBrowserButton.setMargin(new Insets(2, 2, 2, 2));
 
-        issueTableAndButtonsPanel.add(issueButtonPanel, BorderLayout.SOUTH);
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
 
-        // Right side - Details of the selected issue
-        JPanel issueDetailPanel = new JPanel(new BorderLayout());
+        // Issue Description panel (initially hidden – shown when a row is selected)
+        this.issueDetailPanel = new JPanel(new BorderLayout()) {
+            @Override
+            public Dimension getPreferredSize() {
+                Dimension pref = super.getPreferredSize();
+                Container parent = getParent();
+                if (parent != null) {
+                    int maxHeight = parent.getHeight() / 3; // ≈ 33 % of parent
+                    if (maxHeight > 0) {
+                        return new Dimension(pref.width, Math.min(pref.height, maxHeight));
+                    }
+                }
+                return pref;
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension max = super.getMaximumSize();
+                Container parent = getParent();
+                if (parent != null) {
+                    int maxHeight = parent.getHeight() / 3;
+                    if (maxHeight > 0) {
+                        return new Dimension(max.width, maxHeight);
+                    }
+                }
+                return max;
+            }
+        };
         issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
 
         issueBodyTextPane = new JTextPane();
@@ -412,11 +447,31 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueBodyScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         issueDetailPanel.add(issueBodyScrollPane, BorderLayout.CENTER);
 
-        // Add the panels to the split pane
-        splitPane.setLeftComponent(mainIssueAreaPanel);
-        splitPane.setRightComponent(issueDetailPanel);
+        // ── Action buttons bar inside the description panel ────────────────────
+        JPanel issueActionPanel = new JPanel();
+        issueActionPanel.setLayout(new BoxLayout(issueActionPanel, BoxLayout.X_AXIS));
+        issueActionPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        // Capture on the left, Copy/Open on the right
+        issueActionPanel.add(captureButton);
+        issueActionPanel.add(Box.createHorizontalGlue());
+        issueActionPanel.add(copyIssueDescriptionButton);
+        issueActionPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
+        issueActionPanel.add(openInBrowserButton);
 
-        add(splitPane, BorderLayout.CENTER);
+        JScrollPane actionScrollPane = new JScrollPane(
+                issueActionPanel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        actionScrollPane.setBorder(BorderFactory.createEmptyBorder());
+
+        // place the bar at the bottom of the description area
+        issueDetailPanel.add(actionScrollPane, BorderLayout.SOUTH);
+
+        // Add the Issue-Description panel under the table and hide it until a row is chosen
+        filtersAndTablePanel.add(issueDetailPanel, BorderLayout.SOUTH);
+        issueDetailPanel.setVisible(false);
+
+        add(mainIssueAreaPanel, BorderLayout.CENTER);
 
         // Initialize context menu and items
         issueContextMenu = new JPopupMenu();
@@ -477,6 +532,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     copyDescriptionAction.setEnabled(true);
                     openInBrowserAction.setEnabled(true);
                     captureAction.setEnabled(true);
+                    issueDetailPanel.setVisible(true);
 
                     // Debounce loading of the issue body
                     pendingHeaderForDescription = selectedHeader;
@@ -634,6 +690,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         captureAction.setEnabled(false);
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
+        issueDetailPanel.setVisible(false);
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
