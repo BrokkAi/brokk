@@ -749,7 +749,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     boolean isDocumentChanged() {
-        return bufferDocument != null && bufferDocument.isChanged();
+        return bufferDocument != null && bufferDocument.isChanged() && !bufferDocument.isReadonly();
     }
 
     /**
