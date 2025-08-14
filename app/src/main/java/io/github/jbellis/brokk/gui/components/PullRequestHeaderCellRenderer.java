@@ -38,7 +38,7 @@ public class PullRequestHeaderCellRenderer extends JPanel implements TableCellRe
                 .getFont()
                 .deriveFont(Font.PLAIN, secondaryLabel.getFont().getSize() - 1));
         secondaryLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        add(secondaryLabel, BorderLayout.SOUTH);
+        add(secondaryLabel, BorderLayout.CENTER);
 
         setOpaque(true);
     }

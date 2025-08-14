@@ -300,7 +300,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTable = new JTable(prTableModel);
         prTable.setTableHeader(null); // hide column headers
         prTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        prTable.setRowHeight(48); // give cells more height for secondary label
+        prTable.setRowHeight(48); // increased cell height to give extra breathing room
+        prTable.setIntercellSpacing(new Dimension(0, Constants.V_GAP)); // add vertical gap between rows
         // visible column
         prTable.getColumnModel().getColumn(PR_COL_TITLE).setPreferredWidth(600); // wide cell
 
