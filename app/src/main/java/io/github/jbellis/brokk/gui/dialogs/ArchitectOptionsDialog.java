@@ -187,7 +187,8 @@ public class ArchitectOptionsDialog {
             worktreeLabel.setToolTipText(worktreeCb.getToolTipText());
 
             // Keep label tooltip synced with checkbox tooltip
-            worktreeCb.addPropertyChangeListener("toolTipText", evt -> worktreeLabel.setToolTipText((String) evt.getNewValue()));
+            worktreeCb.addPropertyChangeListener(
+                    "toolTipText", evt -> worktreeLabel.setToolTipText((String) evt.getNewValue()));
 
             // Clicking the label toggles the checkbox
             worktreeLabel.addMouseListener(new MouseAdapter() {

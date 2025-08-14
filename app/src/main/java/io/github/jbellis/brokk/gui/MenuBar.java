@@ -314,6 +314,57 @@ public class MenuBar {
             @Override
             public void menuSelected(MenuEvent e) {
                 windowMenu.removeAll();
+
+                // Add sidebar panel switching shortcuts
+                var projectFilesItem = new JMenuItem("Project Files");
+                projectFilesItem.setAccelerator(KeyStroke.getKeyStroke(
+                        KeyEvent.VK_F,
+                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                projectFilesItem.addActionListener(actionEvent -> {
+                    chrome.getLeftTabbedPanel().setSelectedIndex(0);
+                });
+                windowMenu.add(projectFilesItem);
+
+                if (chrome.getProject().hasGit()) {
+                    var gitItem = new JMenuItem("Git");
+                    gitItem.setAccelerator(KeyStroke.getKeyStroke(
+                            KeyEvent.VK_G,
+                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                    gitItem.addActionListener(actionEvent -> {
+                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitPanel());
+                        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                    });
+                    windowMenu.add(gitItem);
+                }
+
+                if (chrome.getProject().isGitHubRepo() && chrome.getGitPanel() != null) {
+                    var pullRequestsItem = new JMenuItem("Pull Requests");
+                    pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(
+                            KeyEvent.VK_P,
+                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                    pullRequestsItem.addActionListener(actionEvent -> {
+                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
+                        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                    });
+                    windowMenu.add(pullRequestsItem);
+                }
+
+                if (chrome.getProject().getIssuesProvider().type()
+                                != io.github.jbellis.brokk.issues.IssueProviderType.NONE
+                        && chrome.getGitPanel() != null) {
+                    var issuesItem = new JMenuItem("Issues");
+                    issuesItem.setAccelerator(KeyStroke.getKeyStroke(
+                            KeyEvent.VK_I,
+                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                    issuesItem.addActionListener(actionEvent -> {
+                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
+                        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                    });
+                    windowMenu.add(issuesItem);
+                }
+
+                windowMenu.addSeparator();
+
                 Window currentChromeWindow = chrome.getFrame();
                 List<JMenuItem> menuItemsList = new ArrayList<>();
 

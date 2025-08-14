@@ -714,6 +714,60 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
+
+        // Register mnemonic shortcuts for switching sidebar panels
+        // Cmd/Ctrl+Shift+F for Project Files
+        var switchToProjectFiles = KeyStroke.getKeyStroke(
+                KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToProjectFiles, "switchToProjectFiles");
+        rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                leftTabbedPanel.setSelectedIndex(0); // Project Files is always at index 0
+            }
+        });
+
+        // Cmd/Ctrl+Shift+G for Git panel (if available)
+        if (gitPanel != null) {
+            var switchToGit = KeyStroke.getKeyStroke(
+                    KeyEvent.VK_G, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToGit, "switchToGit");
+            rootPane.getActionMap().put("switchToGit", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(gitPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Cmd/Ctrl+Shift+P for Pull Requests panel (if available)
+        if (pullRequestsPanel != null) {
+            var switchToPR = KeyStroke.getKeyStroke(
+                    KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToPR, "switchToPullRequests");
+            rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Cmd/Ctrl+Shift+I for Issues panel (if available)
+        if (issuesPanel != null) {
+            var switchToIssues = KeyStroke.getKeyStroke(
+                    KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToIssues, "switchToIssues");
+            rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
     }
 
     @Override
@@ -1375,6 +1429,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     public GitPanel getGitPanel() { // Made public for WorkspacePanel access
         return gitPanel;
+    }
+
+    public JTabbedPane getLeftTabbedPanel() {
+        return leftTabbedPanel;
+    }
+
+    @Nullable
+    public GitPullRequestsTab getPullRequestsPanel() {
+        return pullRequestsPanel;
+    }
+
+    @Nullable
+    public GitIssuesTab getIssuesPanel() {
+        return issuesPanel;
     }
 
     /** Called by MenuBar after constructing the BlitzForge menu item. */
