@@ -10,10 +10,6 @@ import static dev.langchain4j.model.openai.internal.OpenAiUtils.fromOpenAiRespon
 import static dev.langchain4j.model.openai.internal.OpenAiUtils.toOpenAiChatRequest;
 import static java.time.Duration.ofSeconds;
 
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
-
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.ModelProvider;
@@ -28,11 +24,14 @@ import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
 import dev.langchain4j.model.openai.internal.chat.Delta;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 
 /**
- * Represents an OpenAI language model with a chat completion interface, such as gpt-4o-mini and o3.
- * The model's response is streamed token by token and should be handled with {@link StreamingResponseHandler}.
- * You can find description of parameters <a href="https://platform.openai.com/docs/api-reference/chat/create">here</a>.
+ * Represents an OpenAI language model with a chat completion interface, such as gpt-4o-mini and o3. The model's
+ * response is streamed token by token and should be handled with {@link StreamingResponseHandler}. You can find
+ * description of parameters <a href="https://platform.openai.com/docs/api-reference/chat/create">here</a>.
  */
 public class OpenAiStreamingChatModel implements StreamingChatModel {
 
@@ -72,7 +71,8 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .stopSequences(getOrDefault(builder.stop, defaultParameters.stopSequences()))
                 .toolSpecifications(defaultParameters.toolSpecifications())
                 .toolChoice(defaultParameters.toolChoice())
-                .responseFormat(getOrDefault(fromOpenAiResponseFormat(builder.responseFormat), defaultParameters.responseFormat()))
+                .responseFormat(getOrDefault(
+                        fromOpenAiResponseFormat(builder.responseFormat), defaultParameters.responseFormat()))
                 // OpenAI-specific parameters
                 .maxCompletionTokens(getOrDefault(builder.maxCompletionTokens, defaultParameters.maxCompletionTokens()))
                 .logitBias(getOrDefault(builder.logitBias, defaultParameters.logitBias()))
@@ -99,11 +99,9 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         OpenAiChatRequestParameters parameters = (OpenAiChatRequestParameters) chatRequest.parameters();
 
         ChatCompletionRequest openAiRequest =
-                toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema)
-                        .stream(true)
-                        .streamOptions(StreamOptions.builder()
-                                .includeUsage(true)
-                                .build())
+                toOpenAiChatRequest(chatRequest, parameters, strictTools, strictJsonSchema).stream(true)
+                        .streamOptions(
+                                StreamOptions.builder().includeUsage(true).build())
                         .build();
 
         OpenAiStreamingResponseBuilder openAiResponseBuilder = new OpenAiStreamingResponseBuilder();
@@ -128,8 +126,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .execute();
     }
 
-    private static void handle(ChatCompletionResponse partialResponse,
-                               StreamingChatResponseHandler handler) {
+    private static void handle(ChatCompletionResponse partialResponse, StreamingChatResponseHandler handler) {
         if (partialResponse == null) {
             return;
         }
@@ -219,10 +216,10 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         }
 
         /**
-         * Sets default common {@link OpenAiChatRequestParameters} or OpenAI-specific {@link OpenAiChatRequestParameters}.
-         * <br>
-         * When a parameter is set via an individual builder method (e.g., {@link #modelName(String)}),
-         * its value takes precedence over the same parameter set via {@link OpenAiChatRequestParameters}.
+         * Sets default common {@link OpenAiChatRequestParameters} or OpenAI-specific
+         * {@link OpenAiChatRequestParameters}. <br>
+         * When a parameter is set via an individual builder method (e.g., {@link #modelName(String)}), its value takes
+         * precedence over the same parameter set via {@link OpenAiChatRequestParameters}.
          */
         public OpenAiStreamingChatModelBuilder defaultRequestParameters(OpenAiChatRequestParameters parameters) {
             this.defaultRequestParameters = parameters;

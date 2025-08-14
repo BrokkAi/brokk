@@ -3,16 +3,15 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.util.List;
 import java.util.Locale;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class CreateBranchDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CreateBranchDialog.class);
@@ -27,7 +26,8 @@ public class CreateBranchDialog extends JDialog {
     private JLabel feedbackLabel;
     private JButton okButton;
 
-    public CreateBranchDialog(Frame owner, ContextManager contextManager, Chrome chrome, String commitId, String shortCommitId) {
+    public CreateBranchDialog(
+            Frame owner, ContextManager contextManager, Chrome chrome, String commitId, String shortCommitId) {
         super(owner, "Create Branch from Commit " + shortCommitId, true);
         this.contextManager = contextManager;
         this.chrome = chrome;
@@ -50,9 +50,20 @@ public class CreateBranchDialog extends JDialog {
         JButton cancelButton = new JButton("Cancel");
 
         branchNameField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e) { validateInput(); }
-            @Override public void removeUpdate(DocumentEvent e) { validateInput(); }
-            @Override public void changedUpdate(DocumentEvent e) { validateInput(); }
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                validateInput();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                validateInput();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                validateInput();
+            }
         });
 
         okButton.addActionListener(e -> createBranch());
@@ -68,21 +79,33 @@ public class CreateBranchDialog extends JDialog {
         gbc.insets = new Insets(5, 5, 5, 5);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        gbc.gridx = 0; gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
         formPanel.add(new JLabel("Branch name:"), gbc);
 
-        gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0;
         formPanel.add(branchNameField, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2; gbc.weightx = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0;
         formPanel.add(feedbackLabel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.gridwidth = 2;
         formPanel.add(checkoutCheckBox, gbc);
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(okButton);
-        buttonPanel.add(new JButton("Cancel") {{ addActionListener(e -> dispose()); }});
+        buttonPanel.add(new JButton("Cancel") {
+            {
+                addActionListener(e -> dispose());
+            }
+        });
 
         add(formPanel, BorderLayout.CENTER);
         add(buttonPanel, BorderLayout.SOUTH);
@@ -115,7 +138,8 @@ public class CreateBranchDialog extends JDialog {
             if (localBranches.contains(sanitizedText)) {
                 // Use GitRepo.sanitizeBranchName to predict the *actual* name if it needs further suffixing
                 String finalNameSuggestion = getRepo().sanitizeBranchName(currentText); // This might add -1, -2 etc.
-                feedbackLabel.setText("'" + sanitizedText + "' exists. Actual name may be: '" + finalNameSuggestion + "'.");
+                feedbackLabel.setText(
+                        "'" + sanitizedText + "' exists. Actual name may be: '" + finalNameSuggestion + "'.");
                 feedbackLabel.setForeground(UIManager.getColor("Label.foreground"));
                 okButton.setEnabled(true);
             } else {
@@ -137,9 +161,11 @@ public class CreateBranchDialog extends JDialog {
 
         contextManager.submitUserTask("Creating branch", () -> {
             try {
-                String finalBranchName = getRepo().sanitizeBranchName(userInputBranchName); // Ensures uniqueness and validity
+                String finalBranchName =
+                        getRepo().sanitizeBranchName(userInputBranchName); // Ensures uniqueness and validity
                 getRepo().createBranchFromCommit(finalBranchName, commitId);
-                chrome.systemOutput("Successfully created branch '" + finalBranchName + "' from commit " + shortCommitId);
+                chrome.systemOutput(
+                        "Successfully created branch '" + finalBranchName + "' from commit " + shortCommitId);
 
                 if (checkoutAfter) {
                     getRepo().checkout(finalBranchName);
@@ -157,7 +183,8 @@ public class CreateBranchDialog extends JDialog {
         return (GitRepo) contextManager.getProject().getRepo();
     }
 
-    public static void showDialog(Frame owner, ContextManager contextManager, Chrome chrome, String commitId, String shortCommitId) {
+    public static void showDialog(
+            Frame owner, ContextManager contextManager, Chrome chrome, String commitId, String shortCommitId) {
         CreateBranchDialog dialog = new CreateBranchDialog(owner, contextManager, chrome, commitId, shortCommitId);
         dialog.setVisible(true);
     }

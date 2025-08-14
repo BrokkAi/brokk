@@ -6,10 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.agents.SearchAgent;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -18,10 +14,12 @@ import java.lang.reflect.Parameter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * Discovers, registers, provides specifications for, and executes tools.
- * Tools are methods annotated with @Tool on registered object instances.
+ * Discovers, registers, provides specifications for, and executes tools. Tools are methods annotated with @Tool on
+ * registered object instances.
  */
 public class ToolRegistry {
     private static final Logger logger = LogManager.getLogger(ToolRegistry.class);
@@ -30,9 +28,7 @@ public class ToolRegistry {
     // Maps tool name to its invocation target (method + instance)
     private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
 
-    /**
-     * Gets human-readable parameter information from a tool call
-     */
+    /** Gets human-readable parameter information from a tool call */
     public static String formatListParameter(Map<String, Object> arguments, String paramName) {
         @SuppressWarnings("unchecked")
         List<String> items = (List<String>) arguments.get(paramName);
@@ -48,9 +44,7 @@ public class ToolRegistry {
         return "";
     }
 
-    /**
-     * Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting.
-     */
+    /** Generates a user-friendly explanation for a tool request as a Markdown code fence with YAML formatting. */
     public static String getExplanationForToolRequest(ToolExecutionRequest request) {
         try {
             // Get tool display metadata
@@ -63,8 +57,7 @@ public class ToolRegistry {
 
             // Parse the arguments
             var mapper = new ObjectMapper();
-            Map<String, Object> args = mapper.readValue(request.arguments(), new TypeReference<>() {
-            });
+            Map<String, Object> args = mapper.readValue(request.arguments(), new TypeReference<>() {});
 
             // Convert to YAML format
             StringBuilder yamlBuilder = new StringBuilder();
@@ -83,7 +76,8 @@ public class ToolRegistry {
                 } else if (value instanceof String str && str.contains("\n")) {
                     // Use YAML block scalar for multi-line strings
                     yamlBuilder.append(key).append(": |\n");
-                    for (String line : com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
+                    for (String line :
+                            com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
                         yamlBuilder.append("  ").append(line).append("\n");
                     }
                 } else {
@@ -95,35 +89,33 @@ public class ToolRegistry {
             return """
                    ```%s %s
                    %s```
-                   """.formatted(displayMeta.getIcon(), displayMeta.getHeadline(), yamlBuilder);
+                   """
+                    .formatted(displayMeta.getIcon(), displayMeta.getHeadline(), yamlBuilder);
         } catch (Exception e) {
             logger.error("Error formatting tool request explanation", e);
             String paramInfo = getToolParameterInfoFromRequest(request);
             var displayMeta = ToolDisplayMeta.fromToolName(request.name());
-            return paramInfo.isBlank() ? displayMeta.getHeadline() :
-                   displayMeta.getHeadline() + " (" + paramInfo + ")";
+            return paramInfo.isBlank() ? displayMeta.getHeadline() : displayMeta.getHeadline() + " (" + paramInfo + ")";
         }
     }
 
-    /**
-     * Gets parameter info directly from a request for explanation purposes.
-     */
+    /** Gets parameter info directly from a request for explanation purposes. */
     private static String getToolParameterInfoFromRequest(ToolExecutionRequest request) {
         try {
             var mapper = new ObjectMapper();
-            var arguments = mapper.readValue(request.arguments(), new TypeReference<Map<String, Object>>() {
-            });
+            var arguments = mapper.readValue(request.arguments(), new TypeReference<Map<String, Object>>() {});
 
             return switch (request.name()) {
                 case "searchSymbols", "searchSubstrings", "searchFilenames" ->
-                        formatListParameter(arguments, "patterns");
+                    formatListParameter(arguments, "patterns");
                 case "getFileContents" -> formatListParameter(arguments, "filenames");
                 case "getFileSummaries" -> formatListParameter(arguments, "filePaths");
                 case "getUsages" -> formatListParameter(arguments, "symbols");
                 case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
-                        formatListParameter(arguments, "classNames");
+                    formatListParameter(arguments, "classNames");
                 case "getMethodSources" -> formatListParameter(arguments, "methodNames");
-                case "getCallGraphTo", "getCallGraphFrom" -> arguments.getOrDefault("methodName", "").toString();
+                case "getCallGraphTo", "getCallGraphFrom" ->
+                    arguments.getOrDefault("methodName", "").toString();
                 case "answerSearch", "abortSearch" -> "";
                 default -> "";
             };
@@ -133,9 +125,7 @@ public class ToolRegistry {
         }
     }
 
-    /**
-     * Enum that defines display metadata for each tool
-     */
+    /** Enum that defines display metadata for each tool */
     private enum ToolDisplayMeta {
         SEARCH_SYMBOLS("🔍", "Searching for symbols"),
         SEARCH_SUBSTRINGS("🔍", "Searching for substrings"),
@@ -197,19 +187,19 @@ public class ToolRegistry {
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
 
-    /**
-     * Creates a new ToolRegistry and self-registers internal tools.
-     */
+    /** Creates a new ToolRegistry and self-registers internal tools. */
     public ToolRegistry(ContextManager contextManagerIgnored) {
         // this.contextManager = contextManager; // contextManager field removed
         register(this);
     }
 
     /**
-     * A tool for thinking through complex problems step by step.
-     * This allows the model to break down its reasoning process explicitly.
+     * A tool for thinking through complex problems step by step. This allows the model to break down its reasoning
+     * process explicitly.
      */
-    @Tool(value = """
+    @Tool(
+            value =
+                    """
     Think carefully step by step about a complex problem. Use this tool to reason through difficult questions
     or break problems into smaller pieces. Call it concurrently with other tools.
     """)
@@ -220,6 +210,7 @@ public class ToolRegistry {
 
     /**
      * Registers all methods annotated with @Tool from the given object instance.
+     *
      * @param toolProviderInstance An instance of a class containing methods annotated with @Tool.
      */
     public void register(Object toolProviderInstance) {
@@ -228,11 +219,13 @@ public class ToolRegistry {
 
         for (Method method : clazz.getMethods()) {
             if (method.isAnnotationPresent(dev.langchain4j.agent.tool.Tool.class)) {
-                dev.langchain4j.agent.tool.Tool toolAnnotation = method.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
+                dev.langchain4j.agent.tool.Tool toolAnnotation =
+                        method.getAnnotation(dev.langchain4j.agent.tool.Tool.class);
                 String toolName = toolAnnotation.name().isEmpty() ? method.getName() : toolAnnotation.name();
 
                 if (toolMap.containsKey(toolName)) {
-                    throw new IllegalArgumentException("Duplicate tool name registration attempted: '%s'".formatted(toolName));
+                    throw new IllegalArgumentException(
+                            "Duplicate tool name registration attempted: '%s'".formatted(toolName));
                 } else {
                     logger.debug("Registering tool: '{}' from class {}", toolName, clazz.getName());
                     toolMap.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
@@ -243,13 +236,13 @@ public class ToolRegistry {
 
     /**
      * Generates ToolSpecifications for the given list of tool names.
+     *
      * @param toolNames A list of tool names to get specifications for.
      * @return A list of ToolSpecification objects. Returns an empty list if a name is not found.
      */
     public List<ToolSpecification> getRegisteredTools(List<String> toolNames) {
-        var missingTools = toolNames.stream()
-                .filter(tool -> !toolMap.containsKey(tool))
-                .toList();
+        var missingTools =
+                toolNames.stream().filter(tool -> !toolMap.containsKey(tool)).toList();
         if (!missingTools.isEmpty()) {
             logger.error("Missing tools: '{}'", missingTools); // let it throw NPE below
         }
@@ -260,11 +253,13 @@ public class ToolRegistry {
     }
 
     /**
-     * Generates ToolSpecifications for tool methods defined as instance methods within a given object.
-     * This is useful for agent-specific tools (like answer/abort) defined within an agent instance.
+     * Generates ToolSpecifications for tool methods defined as instance methods within a given object. This is useful
+     * for agent-specific tools (like answer/abort) defined within an agent instance.
+     *
      * @param instance The object containing the @Tool annotated instance methods.
      * @param toolNames The names of the tools to get specifications for.
-     * @return A list of ToolSpecification objects. Returns an empty list if a name is not found or the method doesn't match.
+     * @return A list of ToolSpecification objects. Returns an empty list if a name is not found or the method doesn't
+     *     match.
      */
     public List<ToolSpecification> getTools(Object instance, Collection<String> toolNames) {
         Objects.requireNonNull(instance, "toolInstance cannot be null");
@@ -285,14 +280,15 @@ public class ToolRegistry {
                             return name.equals(toolName);
                         })
                         .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException("No tool method found for %s in %s".formatted(toolName, instance)))
-                )
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "No tool method found for %s in %s".formatted(toolName, instance))))
                 .map(ToolSpecifications::toolSpecificationFrom)
                 .collect(Collectors.toList());
     }
 
     /**
      * Executes a tool defined as an instance method on the provided object.
+     *
      * @param instance The object instance containing the @Tool annotated method.
      * @param request The ToolExecutionRequest from the LLM.
      * @return A ToolExecutionResult indicating success or failure.
@@ -329,20 +325,22 @@ public class ToolRegistry {
     }
 
     /**
-     * Private helper to execute a tool given a request and a resolved target.
-     * Handles argument parsing and method invocation.
+     * Private helper to execute a tool given a request and a resolved target. Handles argument parsing and method
+     * invocation.
+     *
      * @param request The execution request.
      * @param target The resolved method and instance.
      * @return The execution result.
      */
-    private static ToolExecutionResult executeTool(ToolExecutionRequest request, ToolInvocationTarget target) throws InterruptedException {
+    private static ToolExecutionResult executeTool(ToolExecutionRequest request, ToolInvocationTarget target)
+            throws InterruptedException {
         Method method = target.method();
         Object instance = target.instance();
 
         try {
             // 1. Parse JSON arguments from the request
-            Map<String, Object> argumentsMap = OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<HashMap<String, Object>>() {
-            });
+            Map<String, Object> argumentsMap =
+                    OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<HashMap<String, Object>>() {});
 
             // 2. Prepare the arguments array for Method.invoke
             Parameter[] parameters = method.getParameters();
@@ -351,7 +349,10 @@ public class ToolRegistry {
             for (int i = 0; i < parameters.length; i++) {
                 Parameter param = parameters[i];
                 if (!argumentsMap.containsKey(param.getName())) {
-                    return ToolExecutionResult.failure(request, "Missing required parameter: '%s' in arguments: %s".formatted(param.getName(), request.arguments()));
+                    return ToolExecutionResult.failure(
+                            request,
+                            "Missing required parameter: '%s' in arguments: %s"
+                                    .formatted(param.getName(), request.arguments()));
                 }
 
                 Object argValue = argumentsMap.get(param.getName());
@@ -384,12 +385,12 @@ public class ToolRegistry {
     }
 
     /**
-     * Removes duplicate ToolExecutionRequests from an AiMessage.
-     * Duplicates are identified by having the same tool name and arguments.
-     * The order of the remaining requests is preserved from the first occurrence.
+     * Removes duplicate ToolExecutionRequests from an AiMessage. Duplicates are identified by having the same tool name
+     * and arguments. The order of the remaining requests is preserved from the first occurrence.
      *
      * @param message The input AiMessage.
-     * @return A new AiMessage with duplicate tool requests removed, or the original message if no requests were present or no duplicates found.
+     * @return A new AiMessage with duplicate tool requests removed, or the original message if no requests were present
+     *     or no duplicates found.
      */
     public static AiMessage removeDuplicateToolRequests(AiMessage message) {
         if (!message.hasToolExecutionRequests()) {

@@ -1,40 +1,36 @@
 package io.github.jbellis.brokk.difftool.scroll;
 
+import static java.util.Objects.requireNonNull;
+
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.difftool.utils.Colors;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import io.github.jbellis.brokk.gui.SwingUtil;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.GeneralPath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-
-import static java.util.Objects.requireNonNull;
+import javax.swing.*;
+import javax.swing.event.ChangeEvent;
+import javax.swing.event.ChangeListener;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.JTextComponent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * DiffScrollComponent is responsible for painting the \"curved lines\" or \"connectors\"
- * between the left (original) and right (revised) texts. It also hooks mouse
- * and wheel events to navigate diffs or apply merges.
+ * DiffScrollComponent is responsible for painting the \"curved lines\" or \"connectors\" between the left (original)
+ * and right (revised) texts. It also hooks mouse and wheel events to navigate diffs or apply merges.
  *
- * This version now uses AbstractDelta<String> from java-diff-utils
- * instead of the old JMDelta references.
+ * <p>This version now uses AbstractDelta<String> from java-diff-utils instead of the old JMDelta references.
  */
-public class DiffScrollComponent extends JComponent implements ChangeListener
-{
+public class DiffScrollComponent extends JComponent implements ChangeListener {
     private static final Logger logger = LogManager.getLogger(DiffScrollComponent.class);
     private final BufferDiffPanel diffPanel;
     private final int fromPanelIndex;
@@ -44,7 +40,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
     private List<Command> commands = new ArrayList<>();
 
     // We keep track of antialias settings for painting
-    @Nullable private Object antiAlias = RenderingHints.VALUE_ANTIALIAS_DEFAULT;
+    @Nullable
+    private Object antiAlias = RenderingHints.VALUE_ANTIALIAS_DEFAULT;
 
     // For controlling how the curves are drawn
     private int curveType;
@@ -55,20 +52,21 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
     private boolean shift;
 
     // Tracks which delta the mouse is currently over
-    @Nullable private AbstractDelta<?> currentlyHoveredDelta = null;
+    @Nullable
+    private AbstractDelta<?> currentlyHoveredDelta = null;
 
     /**
-     * Constructs the DiffScrollComponent that draws connections between
-     * diffPanel.getFilePanel(fromPanelIndex) and diffPanel.getFilePanel(toPanelIndex).
+     * Constructs the DiffScrollComponent that draws connections between diffPanel.getFilePanel(fromPanelIndex) and
+     * diffPanel.getFilePanel(toPanelIndex).
      */
-    public DiffScrollComponent(BufferDiffPanel diffPanel, int fromPanelIndex, int toPanelIndex)
-    {
+    public DiffScrollComponent(BufferDiffPanel diffPanel, int fromPanelIndex, int toPanelIndex) {
         this.diffPanel = diffPanel;
         this.fromPanelIndex = fromPanelIndex;
         this.toPanelIndex = toPanelIndex;
 
         // Listen to viewport changes so we can repaint if user scrolls
-        FilePanel fromP = requireNonNull(getFromPanel(), "FromPanel must be available in DiffScrollComponent constructor");
+        FilePanel fromP =
+                requireNonNull(getFromPanel(), "FromPanel must be available in DiffScrollComponent constructor");
         FilePanel toP = requireNonNull(getToPanel(), "ToPanel must be available in DiffScrollComponent constructor");
         fromP.getScrollPane().getViewport().addChangeListener(this);
         toP.getScrollPane().getViewport().addChangeListener(this);
@@ -81,71 +79,57 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         initSettings();
     }
 
-    /**
-     * Allow user to pick which \"style\" of curve or line is drawn.
-     */
-    public void setCurveType(int curveType)
-    {
+    /** Allow user to pick which \"style\" of curve or line is drawn. */
+    public void setCurveType(int curveType) {
         this.curveType = curveType;
     }
 
-    public int getCurveType()
-    {
+    public int getCurveType() {
         return curveType;
     }
 
-    public boolean isDrawCurves()
-    {
+    public boolean isDrawCurves() {
         return drawCurves;
     }
 
-    public void setDrawCurves(boolean drawCurves)
-    {
+    public void setDrawCurves(boolean drawCurves) {
         this.drawCurves = drawCurves;
     }
 
     /**
      * Gets the current shift state for copy operations.
+     *
      * @return true if shift mode is active, false otherwise
      */
-    public boolean isShift()
-    {
+    public boolean isShift() {
         return shift;
     }
 
     /**
      * Sets the shift state for copy operations.
+     *
      * @param shift true to enable shift mode, false to disable
      */
-    public void setShift(boolean shift)
-    {
+    public void setShift(boolean shift) {
         this.shift = shift;
     }
 
-    private void initSettings()
-    {
+    private void initSettings() {
         setDrawCurves(true);
         setCurveType(1); // Default to cubic curves
     }
 
-    /**
-     * Called when either viewport changes (vertical or horizontal scroll).
-     */
+    /** Called when either viewport changes (vertical or horizontal scroll). */
     @Override
-    public void stateChanged(ChangeEvent event)
-    {
+    public void stateChanged(ChangeEvent event) {
         repaint();
     }
 
-    /**
-     * MouseListener for click events. We let the user click on shapes to do merges, etc.
-     */
-    private MouseListener getMouseListener()
-    {
+    /** MouseListener for click events. We let the user click on shapes to do merges, etc. */
+    private MouseListener getMouseListener() {
         return new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent me)
-            {
+            public void mouseClicked(MouseEvent me) {
                 // Check for shift key press and update shift state
                 setShift((me.getModifiersEx() & InputEvent.SHIFT_DOWN_MASK) != 0);
                 requestFocus();
@@ -155,11 +139,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         };
     }
 
-    /**
-     * If user clicks somewhere, see if it hits any \"command\" shape and run it.
-     */
-    public void executeCommand(double x, double y)
-    {
+    /** If user clicks somewhere, see if it hits any \"command\" shape and run it. */
+    public void executeCommand(double x, double y) {
         // Iterate in reverse order so topmost shapes are checked first
         for (int i = commands.size() - 1; i >= 0; i--) {
             var command = commands.get(i);
@@ -171,8 +152,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
     }
 
     @Override
-    public void paintComponent(Graphics g)
-    {
+    public void paintComponent(Graphics g) {
         super.paintComponent(g);
         Graphics2D g2 = (Graphics2D) g;
         Rectangle clipBounds = g2.getClipBounds(); // Use the actual clip bounds
@@ -192,11 +172,10 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
     }
 
     /**
-     * The main method that draws the connecting curves/shapes for each delta from left to right.
-     * Adapts the old logic to work with AbstractDelta<String>.
+     * The main method that draws the connecting curves/shapes for each delta from left to right. Adapts the old logic
+     * to work with AbstractDelta<String>.
      */
-    private void paintDiffs(Graphics2D g2)
-    {
+    private void paintDiffs(Graphics2D g2) {
         var bounds = getBounds(); // Use component bounds for drawing calculations
         g2.setClip(null); // Work with full component area, clipping handled internally
 
@@ -252,8 +231,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                     continue;
                 }
                 // Stop if delta is entirely *below* the visible area of *both* panes
-                if (original.getPosition() > lastLineFrom
-                        && revised.getPosition() > lastLineTo) {
+                if (original.getPosition() > lastLineFrom && revised.getPosition() > lastLineTo) {
                     break;
                 }
 
@@ -261,12 +239,13 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                 var hovered = Objects.equals(delta, currentlyHoveredDelta); // Check against the component's state
 
                 // --- Determine Color ---
-                Color color = switch (delta.getType()) {
-                    case INSERT -> Colors.getAdded(diffPanel.isDarkTheme());
-                    case DELETE -> Colors.getDeleted(diffPanel.isDarkTheme());
-                    case CHANGE -> Colors.getChanged(diffPanel.isDarkTheme());
-                    case EQUAL -> throw new IllegalStateException("Equal delta should not be painted here");
-                };
+                Color color =
+                        switch (delta.getType()) {
+                            case INSERT -> Colors.getAdded(diffPanel.isDarkTheme());
+                            case DELETE -> Colors.getDeleted(diffPanel.isDarkTheme());
+                            case CHANGE -> Colors.getChanged(diffPanel.isDarkTheme());
+                            case EQUAL -> throw new IllegalStateException("Equal delta should not be painted here");
+                        };
                 Color darkerColor = color.darker(); // Use a darker shade for borders
 
                 // --- Calculate Screen Coordinates for Chunks ---
@@ -299,12 +278,12 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                 if (isDrawCurves()) {
                     // Define points for curve drawing
                     int curveX1 = xLeftEdge; // Left edge end
-                    int curveY1 = yLeft;     // Left top y
+                    int curveY1 = yLeft; // Left top y
                     int curveX4 = xLeftEdge; // Left edge end
                     int curveY4 = yLeft + hLeft; // Left bottom y
 
                     int curveX2 = xRightEdge; // Right edge start
-                    int curveY2 = yRight;     // Right top y
+                    int curveY2 = yRight; // Right top y
                     int curveX3 = xRightEdge; // Right edge start
                     int curveY3 = yRight + hRight; // Right bottom y
 
@@ -356,7 +335,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                     simpleShape.addPoint(xLeftEdge, midYLeft - 2); // Top left
                     simpleShape.addPoint(xRightEdge, midYRight - 2); // Top right
                     simpleShape.addPoint(xRightEdge, midYRight + 2); // Bottom right
-                    simpleShape.addPoint(xLeftEdge, midYLeft + 2);  // Bottom left
+                    simpleShape.addPoint(xLeftEdge, midYLeft + 2); // Bottom left
 
                     // Draw the line connecting the two sidebar rects
                     setAntiAlias(g2); // Make lines look nicer
@@ -379,12 +358,12 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                     }
                     // Optionally draw a border around the selection highlight
                     g2.setColor(Color.yellow.darker());
-                     if (hLeft > 0) {
+                    if (hLeft > 0) {
                         g2.drawRect(0, yLeft, selectionWidth, hLeft);
                     }
-                     if (hRight > 0) {
-                         g2.drawRect(bounds.width - selectionWidth, yRight, selectionWidth, hRight);
-                     }
+                    if (hRight > 0) {
+                        g2.drawRect(bounds.width - selectionWidth, yRight, selectionWidth, hRight);
+                    }
                 }
 
                 // Merging is possible if the target document is not read-only.
@@ -398,7 +377,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                         int triangleX = xRightEdge;
                         int triangleY = yRight + hRight / 2; // Center vertically
                         int scale = hovered ? 2 : 1; // Scale up on hover
-                        Polygon mergeRightTriangle = createTriangle(triangleX, triangleY, scale, true); // Pointing right
+                        Polygon mergeRightTriangle =
+                                createTriangle(triangleX, triangleY, scale, true); // Pointing right
 
                         setAntiAlias(g2);
                         g2.setColor(hovered ? Color.gray.brighter() : color);
@@ -413,8 +393,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                 }
 
                 // Draw merge left command (triangle pointing left on right edge of left bar) - Symmetric logic
-                 if (canMergeLeft) {
-                     if (original.size() > 0 || revised.size() > 0) {
+                if (canMergeLeft) {
+                    if (original.size() > 0 || revised.size() > 0) {
                         int triangleX = xLeftEdge;
                         int triangleY = yLeft + hLeft / 2;
                         int scale = hovered ? 2 : 1;
@@ -430,7 +410,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                         // Add command for merging right-to-left (apply change to left panel)
                         commands.add(new DiffChangeCommand(mergeLeftTriangle, delta, toPanelIndex, fromPanelIndex));
                     }
-                 }
+                }
             }
         } catch (BadLocationException ex) {
             logger.error("Error calculating view coordinates: {}", ex.getMessage());
@@ -448,14 +428,12 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
     private record RectInfo(int y, int height) {}
 
     /**
-     * Compute the bounding rectangle info (Y coordinate and height) of the lines
-     * in 'chunk' for the given editor and document, relative to the viewport's origin.
-     * Uses 0-based line numbers internally.
+     * Compute the bounding rectangle info (Y coordinate and height) of the lines in 'chunk' for the given editor and
+     * document, relative to the viewport's origin. Uses 0-based line numbers internally.
      */
-    private RectInfo computeRectInfo(JTextComponent editor, BufferDocumentIF bd,
-                                     Rectangle visibleRect, Chunk<String> chunk)
-            throws BadLocationException
-    {
+    private RectInfo computeRectInfo(
+            JTextComponent editor, BufferDocumentIF bd, Rectangle visibleRect, Chunk<String> chunk)
+            throws BadLocationException {
         int startLine = chunk.getPosition(); // 0-based start line index
         int endLine = startLine + chunk.size(); // 0-based line *after* the chunk
 
@@ -489,17 +467,16 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
             if (startViewRect == null) startViewRect = new Rectangle(visibleRect.x, visibleRect.y, 1, 1);
         }
         if (endViewRect == null) {
-             // If end is invalid, use start position + estimate or bottom of viewport
-             if (startViewRect != null) {
-                 // Estimate based on number of lines and start rect height
-                 int estimatedHeight = chunk.size() * startViewRect.height;
-                 endViewRect = new Rectangle(startViewRect.x, startViewRect.y + estimatedHeight, 1, 1);
-             } else {
-                 // Fallback if start was also null
+            // If end is invalid, use start position + estimate or bottom of viewport
+            if (startViewRect != null) {
+                // Estimate based on number of lines and start rect height
+                int estimatedHeight = chunk.size() * startViewRect.height;
+                endViewRect = new Rectangle(startViewRect.x, startViewRect.y + estimatedHeight, 1, 1);
+            } else {
+                // Fallback if start was also null
                 endViewRect = new Rectangle(visibleRect.x, visibleRect.y + visibleRect.height, 1, 1);
-             }
+            }
         }
-
 
         // Calculate Y relative to the component's top (not viewport's)
         int y = startViewRect.y - visibleRect.y;
@@ -515,7 +492,7 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         // Adjust Y and Height if the chunk starts above the viewport
         if (y < viewTop) {
             height -= (viewTop - y); // Reduce height by the amount clipped above
-            y = viewTop;            // Start drawing at the top edge
+            y = viewTop; // Start drawing at the top edge
         }
 
         // Adjust Height if the chunk ends below the viewport
@@ -528,7 +505,6 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
 
         return new RectInfo(y, height);
     }
-
 
     /**
      * Creates a triangle shape for merge indicators.
@@ -546,29 +522,24 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
 
         if (pointRight) {
             // Pointing Right -> Anchor X is the left base center
-            shape.addPoint(x, y - halfHeight);        // Top-left corner of base
-            shape.addPoint(x + width, y);             // Tip pointing right
-            shape.addPoint(x, y + halfHeight);        // Bottom-left corner of base
+            shape.addPoint(x, y - halfHeight); // Top-left corner of base
+            shape.addPoint(x + width, y); // Tip pointing right
+            shape.addPoint(x, y + halfHeight); // Bottom-left corner of base
         } else {
             // Pointing Left -> Anchor X is the right base center
-            shape.addPoint(x, y - halfHeight);        // Top-right corner of base
-            shape.addPoint(x - width, y);             // Tip pointing left
-            shape.addPoint(x, y + halfHeight);        // Bottom-right corner of base
+            shape.addPoint(x, y - halfHeight); // Top-right corner of base
+            shape.addPoint(x - width, y); // Tip pointing left
+            shape.addPoint(x, y + halfHeight); // Bottom-right corner of base
         }
 
         return shape;
     }
 
-
-    /**
-     * Provide mouse-based selection or hover.
-     */
-    private MouseMotionListener getMouseMotionListener()
-    {
+    /** Provide mouse-based selection or hover. */
+    private MouseMotionListener getMouseMotionListener() {
         return new MouseMotionAdapter() {
             @Override
-            public void mouseMoved(MouseEvent e)
-            {
+            public void mouseMoved(MouseEvent e) {
                 AbstractDelta<?> deltaUnderMouse = null;
                 // Check commands to find which delta shape is under the mouse
                 for (int i = commands.size() - 1; i >= 0; i--) { // Check topmost first
@@ -588,11 +559,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         };
     }
 
-    /**
-     * Support mouse wheel to go to next or previous delta.
-     */
-    private MouseWheelListener getMouseWheelListener()
-    {
+    /** Support mouse wheel to go to next or previous delta. */
+    private MouseWheelListener getMouseWheelListener() {
         return me -> {
             // If wheel moves down, next delta; if up, previous delta
             diffPanel.toNextDelta(me.getWheelRotation() > 0);
@@ -602,24 +570,19 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
 
     // --- Command Classes ---
 
-    /**
-     * Base class for clickable shapes. Holds the shape and the associated delta.
-     */
-    abstract static class Command
-    {
+    /** Base class for clickable shapes. Holds the shape and the associated delta. */
+    abstract static class Command {
         final Shape shape;
         final Rectangle bounds;
         final AbstractDelta<String> delta; // Link command to its delta
 
-        Command(Shape shape, AbstractDelta<String> delta)
-        {
+        Command(Shape shape, AbstractDelta<String> delta) {
             this.shape = shape;
             this.bounds = shape.getBounds();
             this.delta = delta;
         }
 
-        boolean contains(double x, double y)
-        {
+        boolean contains(double x, double y) {
             // Use shape.contains for accurate hit testing, especially for non-rectangular shapes
             return shape.contains(x, y);
         }
@@ -627,12 +590,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         public abstract void execute();
     }
 
-
-    /**
-     * A click command that merges changes between panels.
-     */
-    class DiffChangeCommand extends Command
-    {
+    /** A click command that merges changes between panels. */
+    class DiffChangeCommand extends Command {
         private final int sourcePanelIndex;
         private final int targetPanelIndex;
 
@@ -642,27 +601,22 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
          * @param sourcePanelIndex Index of the panel to copy *from*
          * @param targetPanelIndex Index of the panel to copy *to*
          */
-        DiffChangeCommand(Shape shape, AbstractDelta<String> delta, int sourcePanelIndex, int targetPanelIndex)
-        {
+        DiffChangeCommand(Shape shape, AbstractDelta<String> delta, int sourcePanelIndex, int targetPanelIndex) {
             super(shape, delta);
             this.sourcePanelIndex = sourcePanelIndex;
             this.targetPanelIndex = targetPanelIndex;
         }
 
         @Override
-        public void execute()
-        {
+        public void execute() {
             diffPanel.setSelectedDelta(delta);
             // Use the source and target indexes provided during construction
             diffPanel.runChange(sourcePanelIndex, targetPanelIndex, isShift());
         }
     }
 
-    /**
-     * A click command that deletes a chunk from one panel.
-     */
-    class DiffDeleteCommand extends Command
-    {
+    /** A click command that deletes a chunk from one panel. */
+    class DiffDeleteCommand extends Command {
         private final int panelIndexToDeleteFrom;
 
         /**
@@ -670,15 +624,13 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
          * @param delta Associated delta
          * @param panelIndexToDeleteFrom Index of the panel where deletion should occur
          */
-        DiffDeleteCommand(Shape shape, AbstractDelta<String> delta, int panelIndexToDeleteFrom)
-        {
+        DiffDeleteCommand(Shape shape, AbstractDelta<String> delta, int panelIndexToDeleteFrom) {
             super(shape, delta);
             this.panelIndexToDeleteFrom = panelIndexToDeleteFrom;
         }
 
         @Override
-        public void execute()
-        {
+        public void execute() {
             diffPanel.setSelectedDelta(delta);
             // Determine the 'other' panel index (assuming only two panels 0 and 1)
             int otherPanelIndex = (panelIndexToDeleteFrom == 0) ? 1 : 0;
@@ -689,28 +641,24 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
 
     // --- Graphics Utilities ---
 
-    private void setAntiAlias(Graphics2D g2)
-    {
+    private void setAntiAlias(Graphics2D g2) {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     }
 
-    private void resetAntiAlias(Graphics2D g2)
-    {
+    private void resetAntiAlias(Graphics2D g2) {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, antiAlias); // Restore previous state
     }
 
     // --- Panel Accessors ---
 
     @Nullable
-    private FilePanel getFromPanel()
-    {
+    private FilePanel getFromPanel() {
         // diffPanel.getFilePanel can return null if index is bad or panels not fully set up
         return diffPanel.getFilePanel(fromPanelIndex);
     }
 
     @Nullable
-    private FilePanel getToPanel()
-    {
+    private FilePanel getToPanel() {
         return diffPanel.getFilePanel(toPanelIndex);
     }
 }

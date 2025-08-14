@@ -3,13 +3,10 @@ package io.github.jbellis.brokk;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import java.util.*;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
@@ -19,15 +16,9 @@ public class AnalyzerUtil {
         Set<CodeUnit> sources = new HashSet<>();
 
         // method uses
-        var methodUses = uses.stream()
-                .filter(CodeUnit::isFunction)
-                .sorted()
-                .toList();
+        var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
         // type uses
-        var typeUses = uses.stream()
-                .filter(CodeUnit::isClass)
-                .sorted()
-                .toList();
+        var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
 
         if (!methodUses.isEmpty()) {
             Map<String, List<String>> groupedMethods = new LinkedHashMap<>();
@@ -35,7 +26,9 @@ public class AnalyzerUtil {
                 var source = analyzer.getMethodSource(cu.fqName());
                 if (source.isPresent()) {
                     String classname = ContextFragment.toClassname(cu.fqName());
-                    groupedMethods.computeIfAbsent(classname, k -> new ArrayList<>()).add(source.get());
+                    groupedMethods
+                            .computeIfAbsent(classname, k -> new ArrayList<>())
+                            .add(source.get());
                     sources.add(cu);
                 }
             }
@@ -45,12 +38,16 @@ public class AnalyzerUtil {
                     var methods = entry.getValue();
                     if (!methods.isEmpty()) {
                         var fqcn = entry.getKey();
-                        var file = analyzer.getFileFor(fqcn).map(ProjectFile::toString).orElse("?");
-                        code.append("""
+                        var file = analyzer.getFileFor(fqcn)
+                                .map(ProjectFile::toString)
+                                .orElse("?");
+                        code.append(
+                                """
                                 <methods class="%s" file="%s">
                                 %s
                                 </methods>
-                                """.formatted(fqcn, file, String.join("\n\n", methods)));
+                                """
+                                        .formatted(fqcn, file, String.join("\n\n", methods)));
                     }
                 }
             }
@@ -94,8 +91,7 @@ public class AnalyzerUtil {
         return result;
     }
 
-    public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes)
-    {
+    public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes) {
         return classes.stream()
                 .filter(cu -> {
                     var name = cu.fqName();
@@ -115,16 +111,11 @@ public class AnalyzerUtil {
         return AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
     }
 
-    private record StackEntry(String method, int depth) {
-    }
+    private record StackEntry(String method, int depth) {}
 
-    /**
-     * Helper method to recursively format the call graph (both callers and callees)
-     */
-    public static String formatCallGraph(Map<String, List<CallSite>> callgraph,
-                                         String rootMethodName,
-                                         boolean isCallerGraph)
-    {
+    /** Helper method to recursively format the call graph (both callers and callees) */
+    public static String formatCallGraph(
+            Map<String, List<CallSite>> callgraph, String rootMethodName, boolean isCallerGraph) {
         var result = new StringBuilder();
         String arrow = isCallerGraph ? "<-" : "->";
 
@@ -140,13 +131,16 @@ public class AnalyzerUtil {
                 continue;
             }
             sites.stream().sorted().forEach(site -> {
-                result.append("""
+                result.append(
+                        """
                                        %s %s
                                        ```
                                        %s
                                        ```
-                                      """.stripIndent().indent(2 * entry.depth)
-                                      .formatted(arrow, site.target().fqName(), site.sourceLine()));
+                                      """
+                                .stripIndent()
+                                .indent(2 * entry.depth)
+                                .formatted(arrow, site.target().fqName(), site.sourceLine()));
 
                 // Process this method's callers/callees (if not already processed)
                 if (visited.add(site.target().fqName())) {
@@ -160,6 +154,7 @@ public class AnalyzerUtil {
 
     /**
      * Retrieves skeleton data for the given class names.
+     *
      * @param analyzer The Analyzer instance.
      * @param classNames Fully qualified class names.
      * @return A map of CodeUnit to its skeleton string. Returns an empty map if no skeletons are found.
@@ -173,11 +168,13 @@ public class AnalyzerUtil {
         return classNames.stream()
                 .distinct()
                 .map(analyzer::getDefinition) // Get the CodeUnit definition directly
-                .flatMap(Optional::stream)    // Convert Optional<CodeUnit> to Stream<CodeUnit>
-                .filter(CodeUnit::isClass)    // Ensure it's a class CodeUnit
+                .flatMap(Optional::stream) // Convert Optional<CodeUnit> to Stream<CodeUnit>
+                .filter(CodeUnit::isClass) // Ensure it's a class CodeUnit
                 .map(cu -> {
                     Optional<String> skeletonOpt = analyzer.getSkeleton(cu.fqName()); // Use fqName from CodeUnit
-                    return skeletonOpt.isPresent() ? Map.entry(cu, skeletonOpt.get()) : null; // Create entry if skeleton exists
+                    return skeletonOpt.isPresent()
+                            ? Map.entry(cu, skeletonOpt.get())
+                            : null; // Create entry if skeleton exists
                 })
                 .filter(Objects::nonNull) // Filter out null entries (where skeleton wasn't found)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
@@ -185,6 +182,7 @@ public class AnalyzerUtil {
 
     /**
      * Retrieves method source code for the given method names.
+     *
      * @param analyzer The Analyzer instance.
      * @param methodNames Fully qualified method names.
      * @return A map of method name to its source code string. Returns an empty map if no sources are found.
@@ -216,9 +214,11 @@ public class AnalyzerUtil {
 
     /**
      * Retrieves class source code for the given class names, including filename headers.
+     *
      * @param analyzer The Analyzer instance.
      * @param classNames Fully qualified class names.
-     * @return A map of class name to its formatted source code string (with header). Returns an empty map if no sources are found.
+     * @return A map of class name to its formatted source code string (with header). Returns an empty map if no sources
+     *     are found.
      */
     public static Map<String, String> getClassSourcesData(IAnalyzer analyzer, List<String> classNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available for getClassSourcesData.";
@@ -235,8 +235,11 @@ public class AnalyzerUtil {
                 var classSource = analyzer.getClassSource(className);
                 if (classSource != null && !classSource.isEmpty()) {
                     // If source is found, format it with a header and add to the map
-                    String filename = analyzer.getFileFor(className).map(ProjectFile::toString).orElse("unknown file");
-                    String formattedSource = "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
+                    String filename = analyzer.getFileFor(className)
+                            .map(ProjectFile::toString)
+                            .orElse("unknown file");
+                    String formattedSource =
+                            "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
                     sources.put(className, formattedSource);
                     // If classSource is null or empty, we simply don't add an entry for this className
                 }
@@ -246,6 +249,5 @@ public class AnalyzerUtil {
         return sources;
     }
 
-    public record CodeWithSource(String code, Set<CodeUnit> sources) {
-    }
+    public record CodeWithSource(String code, Set<CodeUnit> sources) {}
 }

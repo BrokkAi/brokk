@@ -1,20 +1,19 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
-
+import io.github.jbellis.brokk.gui.SwingUtil;
+import java.awt.*;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.text.BadLocationException;
-import io.github.jbellis.brokk.gui.SwingUtil;
-import java.awt.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * LineNumberBorder is a custom border used to display line numbers in a text editor.
- * It extends EmptyBorder and is responsible for rendering the line numbers on the side
- * of the text editor while maintaining proper alignment and spacing.
+ * LineNumberBorder is a custom border used to display line numbers in a text editor. It extends EmptyBorder and is
+ * responsible for rendering the line numbers on the side of the text editor while maintaining proper alignment and
+ * spacing.
  */
 public class LineNumberBorder extends EmptyBorder {
     private static final Logger logger = LogManager.getLogger(LineNumberBorder.class);
@@ -47,27 +46,22 @@ public class LineNumberBorder extends EmptyBorder {
         updateColors();
     }
 
-    /**
-     * Initializes font and color settings for the line number display.
-     */
+    /** Initializes font and color settings for the line number display. */
     private void init() {
         // Use a monospaced font for consistent number alignment
         font = new Font("Monospaced", Font.PLAIN, 10);
 
         // Retrieve font metrics for calculating character width and height
         FontMetrics fm = filePanel.getEditor().getFontMetrics(font);
-        fontWidth     = fm.stringWidth("0"); // Width of a single character
-        fontHeight    = fm.getHeight();      // Height of the font
+        fontWidth = fm.stringWidth("0"); // Width of a single character
+        fontHeight = fm.getHeight(); // Height of the font
     }
 
-    /**
-     * Refreshes background and separator colours so that they always follow
-     * the current Look-and-Feel / theme.
-     */
+    /** Refreshes background and separator colours so that they always follow the current Look-and-Feel / theme. */
     private void updateColors() {
         var baseColor = Colors.getPanelBackground();
-        lineColor     = ColorUtil.darker(baseColor);
-        background    = ColorUtil.brighter(baseColor);
+        lineColor = ColorUtil.darker(baseColor);
+        background = ColorUtil.brighter(baseColor);
     }
 
     /**
@@ -89,9 +83,9 @@ public class LineNumberBorder extends EmptyBorder {
     /**
      * Paints the line numbers and the separator line.
      *
-     * @param g            The Graphics object used for drawing.
-     * @param startOffset  The start offset of the visible text.
-     * @param endOffset    The end offset of the visible text.
+     * @param g The Graphics object used for drawing.
+     * @param startOffset The start offset of the visible text.
+     * @param endOffset The end offset of the visible text.
      */
     public void paintAfter(Graphics g, int startOffset, int endOffset) {
         // Ensure colours match the active theme
@@ -118,7 +112,7 @@ public class LineNumberBorder extends EmptyBorder {
             // Get the pixel coordinates of the first visible line (modern API)
             r1 = SwingUtil.modelToView(textArea, startOffset);
             if (r1 == null) {
-                 // This can happen if the text area is not yet displayable or has no content
+                // This can happen if the text area is not yet displayable or has no content
                 logger.warn("modelToView returned null for startOffset {}, cannot paint line numbers.", startOffset);
                 return;
             }

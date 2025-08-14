@@ -7,16 +7,14 @@ import static java.lang.annotation.RetentionPolicy.RUNTIME;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
-/**
- * Annotation to attach a description to a class field.
- */
+/** Annotation to attach a description to a class field. */
 @Target({FIELD, TYPE})
 @Retention(RUNTIME)
 public @interface Description {
 
     /**
-     * The description can be defined in one line or multiple lines.
-     * If the description is defined in multiple lines, the lines will be joined with a space (" ") automatically.
+     * The description can be defined in one line or multiple lines. If the description is defined in multiple lines,
+     * the lines will be joined with a space (" ") automatically.
      *
      * @return The description.
      */

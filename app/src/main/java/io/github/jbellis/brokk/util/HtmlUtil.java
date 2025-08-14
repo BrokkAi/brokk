@@ -4,8 +4,8 @@ public class HtmlUtil {
 
     /**
      * Converts HTML content to Markdown.
-     * <p>
-     * NOTE: This is currently a placeholder implementation.
+     *
+     * <p>NOTE: This is currently a placeholder implementation.
      *
      * @param htmlContent The HTML content to convert.
      * @return A Markdown representation of the HTML content.

@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.util;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class FileUtils {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(FileUtils.class);
-    
+
     /**
-     * Recursively deletes a directory and its contents.
-     * Logs errors encountered during deletion.
+     * Recursively deletes a directory and its contents. Logs errors encountered during deletion.
      *
      * @param path The directory path to delete.
      * @return true if the directory was successfully deleted (or didn't exist), false otherwise.
@@ -24,8 +22,7 @@ public class FileUtils {
             return false;
         } else {
             try (var stream = Files.walk(path)) {
-                stream
-                        .sorted(Comparator.reverseOrder()) // Ensure contents are deleted before directories
+                stream.sorted(Comparator.reverseOrder()) // Ensure contents are deleted before directories
                         .forEach(p -> {
                             try {
                                 Files.delete(p);
@@ -42,5 +39,4 @@ public class FileUtils {
             }
         }
     }
-    
 }

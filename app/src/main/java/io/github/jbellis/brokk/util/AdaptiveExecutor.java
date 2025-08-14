@@ -2,15 +2,12 @@ package io.github.jbellis.brokk.util;
 
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.Service;
-import org.jetbrains.annotations.Nullable;
-
-import java.util.List;
-import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.TimeUnit;
+import org.jetbrains.annotations.Nullable;
 
 public final class AdaptiveExecutor {
     public static ExecutorService create(Service service, StreamingChatModel model, int taskCount) {
@@ -26,20 +23,17 @@ public final class AdaptiveExecutor {
             // mechanism for controlling throughput.
             return new RateLimitedExecutor(100, tokensPerMinute);
         }
-        throw new IllegalStateException("Neither max_concurrent_requests nor tokens_per_minute defined for model "
-                                        + service.nameOf(model));
+        throw new IllegalStateException(
+                "Neither max_concurrent_requests nor tokens_per_minute defined for model " + service.nameOf(model));
     }
 
-    private AdaptiveExecutor() {
-    }
+    private AdaptiveExecutor() {}
 
     public static class RateLimitedExecutor extends java.util.concurrent.ThreadPoolExecutor {
         private final TokenRateLimiter rateLimiter;
 
         public RateLimitedExecutor(int poolSize, int tokensPerMinute) {
-            super(poolSize, poolSize,
-                  0L, TimeUnit.MILLISECONDS,
-                  new java.util.concurrent.LinkedBlockingQueue<>());
+            super(poolSize, poolSize, 0L, TimeUnit.MILLISECONDS, new java.util.concurrent.LinkedBlockingQueue<>());
             this.rateLimiter = new TokenRateLimiter(tokensPerMinute);
         }
 
@@ -56,9 +50,7 @@ public final class AdaptiveExecutor {
             super.beforeExecute(t, r);
         }
 
-        /**
-         * Return the token cost of the task, or 0 if the outer wrapper doesn't expose it.
-         */
+        /** Return the token cost of the task, or 0 if the outer wrapper doesn't expose it. */
         private static int extractTokens(Runnable r) {
             return (r instanceof TokenAware ta) ? ta.tokens() : 0;
         }
@@ -79,13 +71,14 @@ public final class AdaptiveExecutor {
             return super.newTaskFor(runnable, value);
         }
 
-
         private static final class TokenAwareFutureTask<V> extends FutureTask<V> implements TokenAware {
             private final int tokens;
+
             private TokenAwareFutureTask(java.util.concurrent.Callable<V> callable, int tokens) {
                 super(callable);
                 this.tokens = tokens;
             }
+
             @Override
             public int tokens() {
                 return tokens;
@@ -93,8 +86,8 @@ public final class AdaptiveExecutor {
         }
 
         /**
-         * Token-bucket rate limiter for models that expose only tokens_per_minute.
-         * Thread-safe; callers block in acquire() until they can spend the requested tokens.
+         * Token-bucket rate limiter for models that expose only tokens_per_minute. Thread-safe; callers block in
+         * acquire() until they can spend the requested tokens.
          */
         private static final class TokenRateLimiter {
             private final int capacity;

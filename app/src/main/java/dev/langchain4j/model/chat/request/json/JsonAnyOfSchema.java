@@ -59,8 +59,7 @@ public class JsonAnyOfSchema implements JsonSchemaElement {
     public boolean equals(final Object o) {
         if (this == o) return true;
         if (!(o instanceof final JsonAnyOfSchema that)) return false;
-        return Objects.equals(description, that.description)
-                && Objects.equals(anyOf, that.anyOf);
+        return Objects.equals(description, that.description) && Objects.equals(anyOf, that.anyOf);
     }
 
     @Override
@@ -70,9 +69,6 @@ public class JsonAnyOfSchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonAnyOfSchema {" +
-                "description = " + quoted(description) +
-                ", anyOf = " + anyOf +
-                " }";
+        return "JsonAnyOfSchema {" + "description = " + quoted(description) + ", anyOf = " + anyOf + " }";
     }
 }

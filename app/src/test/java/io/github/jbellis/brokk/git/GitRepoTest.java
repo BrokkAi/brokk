@@ -1,5 +1,13 @@
 package io.github.jbellis.brokk.git;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.junit.jupiter.api.AfterEach;
@@ -7,17 +15,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
-
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
-
 
 public class GitRepoTest {
     private Path projectRoot;
@@ -36,7 +33,11 @@ public class GitRepoTest {
             Path readme = projectRoot.resolve("README.md");
             Files.writeString(readme, "Initial commit file.");
             git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").setAuthor("Test User", "test@example.com").setSign(false).call();
+            git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Test User", "test@example.com")
+                    .setSign(false)
+                    .call();
         }
 
         repo = new GitRepo(projectRoot);
@@ -58,9 +59,10 @@ public class GitRepoTest {
     void testSupportsWorktrees_gitAvailable() {
         // This test assumes that the 'git' command-line executable is available
         // in the environment where the tests are run.
-        Assertions.assertTrue(repo.supportsWorktrees(),
-            "supportsWorktrees() should return true if git executable is available. " +
-            "If this test fails, ensure 'git' is in the PATH or the method logic is broken.");
+        Assertions.assertTrue(
+                repo.supportsWorktrees(),
+                "supportsWorktrees() should return true if git executable is available. "
+                        + "If this test fails, ensure 'git' is in the PATH or the method logic is broken.");
     }
 
     @Test
@@ -112,7 +114,8 @@ public class GitRepoTest {
 
         // The new branch is created from HEAD, so commit ID should match current repo's HEAD
         String expectedCommitId = repo.getCurrentCommitId();
-        Assertions.assertEquals(expectedCommitId, addedWorktree.commitId(), "Commit ID of the new worktree is incorrect.");
+        Assertions.assertEquals(
+                expectedCommitId, addedWorktree.commitId(), "Commit ID of the new worktree is incorrect.");
     }
 
     @Test
@@ -133,11 +136,11 @@ public class GitRepoTest {
         Assertions.assertEquals(2, worktreesAfterAdd.size(), "Should be two worktrees after adding one for removal.");
         Path worktreePathToRemoveReal = worktreePathToRemove.toRealPath();
         Assertions.assertTrue(
-            worktreesAfterAdd.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
-            "Newly added worktree (for removal) not found in list."
-        );
+                worktreesAfterAdd.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
+                "Newly added worktree (for removal) not found in list.");
         Assertions.assertTrue(Files.exists(worktreePathToRemove), "Worktree directory should exist after add.");
-        Assertions.assertTrue(Files.exists(worktreePathToRemove.resolve(".git")), "Worktree .git file should exist after add.");
+        Assertions.assertTrue(
+                Files.exists(worktreePathToRemove.resolve(".git")), "Worktree .git file should exist after add.");
 
         // Remove the worktree
         repo.removeWorktree(worktreePathToRemove, false);
@@ -146,9 +149,8 @@ public class GitRepoTest {
         List<IGitRepo.WorktreeInfo> worktreesAfterRemove = repo.listWorktrees();
         Assertions.assertEquals(1, worktreesAfterRemove.size(), "Should be one worktree after removing one.");
         Assertions.assertFalse(
-            worktreesAfterRemove.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
-            "Removed worktree should not be found in list."
-        );
+                worktreesAfterRemove.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
+                "Removed worktree should not be found in list.");
         assertFalse(Files.exists(worktreePathToRemove), "Worktree directory should not exist after clean removal.");
     }
 
@@ -174,15 +176,18 @@ public class GitRepoTest {
 
         // 3. Attempt to remove without force, expect WorktreeNeedsForceException
         GitRepo.WorktreeNeedsForceException e = Assertions.assertThrows(
-            GitRepo.WorktreeNeedsForceException.class,
-            () -> repo.removeWorktree(worktreePath, false),
-            "Expected WorktreeNeedsForceException when removing dirty worktree without force."
-        );
+                GitRepo.WorktreeNeedsForceException.class,
+                () -> repo.removeWorktree(worktreePath, false),
+                "Expected WorktreeNeedsForceException when removing dirty worktree without force.");
         // Check that the exception message indicates that force is required.
         // The message is now more specific like "Worktree at ... requires force for removal: ..."
-        assertTrue(e.getMessage().toLowerCase().contains("requires force for removal") &&
-                   (e.getMessage().contains("use --force") || e.getMessage().contains("not empty") || e.getMessage().contains("dirty")),
-                   "Exception message should indicate force is required and provide Git's reason. Actual: " + e.getMessage());
+        assertTrue(
+                e.getMessage().toLowerCase().contains("requires force for removal")
+                        && (e.getMessage().contains("use --force")
+                                || e.getMessage().contains("not empty")
+                                || e.getMessage().contains("dirty")),
+                "Exception message should indicate force is required and provide Git's reason. Actual: "
+                        + e.getMessage());
         assertTrue(Files.exists(worktreePath), "Worktree directory should still exist after failed non-force removal.");
 
         // Get the real path *before* it's removed by the force operation.
@@ -190,16 +195,14 @@ public class GitRepoTest {
 
         // 4. Attempt to remove with force=true, expect success
         Assertions.assertDoesNotThrow(
-            () -> repo.removeWorktree(worktreePath, true),
-            "Expected no exception when using removeWorktree with force=true on a dirty worktree."
-        );
+                () -> repo.removeWorktree(worktreePath, true),
+                "Expected no exception when using removeWorktree with force=true on a dirty worktree.");
 
         // 5. Verify worktree is removed
         List<IGitRepo.WorktreeInfo> worktreesAfterForceRemove = repo.listWorktrees();
         Assertions.assertFalse(
-            worktreesAfterForceRemove.stream().anyMatch(wt -> wt.path().equals(worktreeRealPath)),
-            "Force-removed worktree should not be in the list."
-        );
+                worktreesAfterForceRemove.stream().anyMatch(wt -> wt.path().equals(worktreeRealPath)),
+                "Force-removed worktree should not be in the list.");
         assertFalse(Files.exists(worktreePath), "Worktree directory should not exist after successful force removal.");
     }
 
@@ -221,43 +224,49 @@ public class GitRepoTest {
         // 2. Lock the worktree using the git command line
         try {
             io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
-                String.format("git worktree lock %s", worktreePath.toAbsolutePath().normalize()),
-                repo.getGitTopLevel(),
-                output -> {},
-                io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT
-            );
+                    String.format(
+                            "git worktree lock %s",
+                            worktreePath.toAbsolutePath().normalize()),
+                    repo.getGitTopLevel(),
+                    output -> {},
+                    io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT);
         } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
             fail("Failed to lock worktree: " + e.getMessage());
         }
 
         // 3. Attempt to remove without force, expect WorktreeNeedsForceException
         GitRepo.WorktreeNeedsForceException e = Assertions.assertThrows(
-            GitRepo.WorktreeNeedsForceException.class,
-            () -> repo.removeWorktree(worktreePath, false),
-            "Expected WorktreeNeedsForceException when removing a locked worktree without force."
-        );
+                GitRepo.WorktreeNeedsForceException.class,
+                () -> repo.removeWorktree(worktreePath, false),
+                "Expected WorktreeNeedsForceException when removing a locked worktree without force.");
         // Check that the exception message indicates that force is required due to lock.
-        // Git's output for locked worktrees typically includes "locked working tree" and "use 'remove -f -f'" or similar.
+        // Git's output for locked worktrees typically includes "locked working tree" and "use 'remove -f -f'" or
+        // similar.
         String lowerCaseMessage = e.getMessage().toLowerCase();
-        assertTrue(lowerCaseMessage.contains("requires force for removal") &&
-                   (lowerCaseMessage.contains("locked working tree") || lowerCaseMessage.contains("is locked")) && // Check for "locked working tree" or "is locked"
-                   (lowerCaseMessage.contains("use --force") || lowerCaseMessage.contains("use 'remove -f -f'")), // Check for "--force" or "-f -f"
-                   "Exception message should indicate force is required for a locked worktree. Actual: " + e.getMessage());
-        assertTrue(Files.exists(worktreePath), "Worktree directory should still exist after failed non-force removal of locked worktree.");
+        assertTrue(
+                lowerCaseMessage.contains("requires force for removal")
+                        && (lowerCaseMessage.contains("locked working tree") || lowerCaseMessage.contains("is locked"))
+                        && // Check for "locked working tree" or "is locked"
+                        (lowerCaseMessage.contains("use --force")
+                                || lowerCaseMessage.contains("use 'remove -f -f'")), // Check for "--force" or "-f -f"
+                "Exception message should indicate force is required for a locked worktree. Actual: " + e.getMessage());
+        assertTrue(
+                Files.exists(worktreePath),
+                "Worktree directory should still exist after failed non-force removal of locked worktree.");
 
         // 4. Attempt to remove with force=true, expect success
         Assertions.assertDoesNotThrow(
-            () -> repo.removeWorktree(worktreePath, true),
-            "Expected no exception when using removeWorktree with force=true on a locked worktree."
-        );
+                () -> repo.removeWorktree(worktreePath, true),
+                "Expected no exception when using removeWorktree with force=true on a locked worktree.");
 
         // 5. Verify worktree is removed
         List<IGitRepo.WorktreeInfo> worktreesAfterForceRemove = repo.listWorktrees();
         Assertions.assertFalse(
-            worktreesAfterForceRemove.stream().anyMatch(wt -> wt.path().equals(worktreeRealPath)),
-            "Force-removed locked worktree should not be in the list."
-        );
-        assertFalse(Files.exists(worktreePath), "Worktree directory should not exist after successful force removal of locked worktree.");
+                worktreesAfterForceRemove.stream().anyMatch(wt -> wt.path().equals(worktreeRealPath)),
+                "Force-removed locked worktree should not be in the list.");
+        assertFalse(
+                Files.exists(worktreePath),
+                "Worktree directory should not exist after successful force removal of locked worktree.");
     }
 
     // Helper method to create a commit
@@ -265,7 +274,12 @@ public class GitRepoTest {
         Path filePath = projectRoot.resolve(fileName);
         Files.writeString(filePath, content);
         repo.getGit().add().addFilepattern(fileName).call();
-        repo.getGit().commit().setAuthor("Test User", "test@example.com").setMessage(message).setSign(false).call();
+        repo.getGit()
+                .commit()
+                .setAuthor("Test User", "test@example.com")
+                .setMessage(message)
+                .setSign(false)
+                .call();
     }
 
     @Test
@@ -297,13 +311,21 @@ public class GitRepoTest {
         String mainBranch = repo.getCurrentBranch();
 
         // Create branch-A from main (at M1)
-        repo.getGit().branchCreate().setName("branch-A").setStartPoint(mainBranch).call();
+        repo.getGit()
+                .branchCreate()
+                .setName("branch-A")
+                .setStartPoint(mainBranch)
+                .call();
         repo.getGit().checkout().setName("branch-A").call();
         createCommit("a_file1.txt", "a1 content", "A1 on branch-A");
 
         // Create branch-B from main (at M1)
         repo.getGit().checkout().setName(mainBranch).call(); // Back to main
-        repo.getGit().branchCreate().setName("branch-B").setStartPoint(mainBranch).call();
+        repo.getGit()
+                .branchCreate()
+                .setName("branch-B")
+                .setStartPoint(mainBranch)
+                .call();
         repo.getGit().checkout().setName("branch-B").call();
         createCommit("b_file1.txt", "b1 content", "B1 on branch-B");
 
@@ -316,7 +338,8 @@ public class GitRepoTest {
         // Merge base is M1. Commits on branch-A after M1 are A1, A2.
         List<String> messages = repo.getCommitMessagesBetween("branch-A", "branch-B");
         List<String> expectedMessages = List.of("A1 on branch-A", "A2 on branch-A");
-        assertEquals(expectedMessages, messages, "Should return commits unique to branch-A after divergence, in order.");
+        assertEquals(
+                expectedMessages, messages, "Should return commits unique to branch-A after divergence, in order.");
     }
 
     @Test
@@ -350,7 +373,10 @@ public class GitRepoTest {
     void testSanitizeBranchName_emptyAfterSanitization() throws Exception {
         String proposedName = "!@#$%^";
         String sanitized = repo.sanitizeBranchName(proposedName);
-        assertEquals("branch", sanitized, "Should default to 'branch' if sanitization results in empty string and 'branch' is unique.");
+        assertEquals(
+                "branch",
+                sanitized,
+                "Should default to 'branch' if sanitization results in empty string and 'branch' is unique.");
 
         // Test when "branch" already exists
         repo.getGit().branchCreate().setName("branch").call();
@@ -381,7 +407,9 @@ public class GitRepoTest {
 
         java.util.Set<String> branchesInWorktrees = repo.getBranchesInWorktrees();
 
-        assertTrue(branchesInWorktrees.contains(mainBranchInitial), "Main project's branch should be in worktree branches list");
+        assertTrue(
+                branchesInWorktrees.contains(mainBranchInitial),
+                "Main project's branch should be in worktree branches list");
         assertTrue(branchesInWorktrees.contains(wtBranch1), "Branch from worktree1 should be listed");
         assertTrue(branchesInWorktrees.contains(wtBranch2), "Branch from worktree2 should be listed");
         // Main project is also a worktree in the context of `git worktree list` output
@@ -390,8 +418,8 @@ public class GitRepoTest {
 
     @Test
     void testGetBranchesInWorktrees_DetachedHead() throws Exception {
-        assumeTrue(repo.supportsWorktrees(),
-                   "Worktrees not supported, skipping testGetBranchesInWorktrees_DetachedHead");
+        assumeTrue(
+                repo.supportsWorktrees(), "Worktrees not supported, skipping testGetBranchesInWorktrees_DetachedHead");
 
         var mainBranch = repo.getCurrentBranch();
 
@@ -399,12 +427,12 @@ public class GitRepoTest {
         Path detachedWorktreePath = tempDir.resolve("detached-worktree");
         try {
             io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
-                String.format("git worktree add --detach %s",
-                              detachedWorktreePath.toAbsolutePath().normalize()),
-                repo.getGitTopLevel(),
-                output -> { },
-                io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT
-            );
+                    String.format(
+                            "git worktree add --detach %s",
+                            detachedWorktreePath.toAbsolutePath().normalize()),
+                    repo.getGitTopLevel(),
+                    output -> {},
+                    io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT);
         } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
             fail("Failed to create detached HEAD worktree: " + e.getMessage());
         }
@@ -412,12 +440,15 @@ public class GitRepoTest {
         // The detached worktree should *not* contribute a branch name
         var branchesInWorktreesDetached = repo.getBranchesInWorktrees();
 
-        assertTrue(branchesInWorktreesDetached.contains(mainBranch),
-                   "Main branch should still be present in worktree branches list");
-        assertFalse(branchesInWorktreesDetached.contains(""),
-                    "Detached HEAD worktree must not add an empty branch name");
-        assertEquals(1, branchesInWorktreesDetached.size(),
-                     "Only the main branch should be listed when an extra detached worktree is present");
+        assertTrue(
+                branchesInWorktreesDetached.contains(mainBranch),
+                "Main branch should still be present in worktree branches list");
+        assertFalse(
+                branchesInWorktreesDetached.contains(""), "Detached HEAD worktree must not add an empty branch name");
+        assertEquals(
+                1,
+                branchesInWorktreesDetached.size(),
+                "Only the main branch should be listed when an extra detached worktree is present");
 
         // Clean up the detached worktree
         repo.removeWorktree(detachedWorktreePath, true);
@@ -437,7 +468,9 @@ public class GitRepoTest {
         GitRepo worktreeRepo = null;
         try {
             worktreeRepo = new GitRepo(wtPath);
-            assertTrue(worktreeRepo.isWorktree(), "GitRepo instance for a worktree path should return true for isWorktree()");
+            assertTrue(
+                    worktreeRepo.isWorktree(),
+                    "GitRepo instance for a worktree path should return true for isWorktree()");
         } finally {
             if (worktreeRepo != null) {
                 worktreeRepo.close();
@@ -461,14 +494,20 @@ public class GitRepoTest {
 
         // Second call without creating wt3, should still be wt3
         Path nextPath2 = repo.getNextWorktreePath(worktreeStorageDir);
-        assertEquals("wt3", nextPath2.getFileName().toString(), "Expected next worktree path to still be wt3 as it wasn't created");
+        assertEquals(
+                "wt3",
+                nextPath2.getFileName().toString(),
+                "Expected next worktree path to still be wt3 as it wasn't created");
 
         // Manually create wt3
         Files.createDirectories(worktreeStorageDir.resolve("wt3"));
 
         // Third call, should now find wt5 (as wt1, wt2, wt3, wt4 exist)
         Path nextPath3 = repo.getNextWorktreePath(worktreeStorageDir);
-        assertEquals("wt5", nextPath3.getFileName().toString(), "Expected next worktree path to be wt5 after wt3 is created");
+        assertEquals(
+                "wt5",
+                nextPath3.getFileName().toString(),
+                "Expected next worktree path to be wt5 after wt3 is created");
     }
 
     // --- Tests for checkMergeConflicts ---
@@ -489,7 +528,6 @@ public class GitRepoTest {
         // Add another commit to feature to make it distinct beyond the conflict
         createCommit("feature_only.txt", "feature only", "F2 on feature");
 
-
         // Return to main branch for merge/rebase target
         repo.getGit().checkout().setName(mainBranch).call();
     }
@@ -502,16 +540,25 @@ public class GitRepoTest {
 
         // Ensure "feature" doesn't exist from a previous failed run or state
         if (repo.listLocalBranches().contains("feature")) {
-            repo.getGit().branchDelete().setBranchNames("feature").setForce(true).call();
+            repo.getGit()
+                    .branchDelete()
+                    .setBranchNames("feature")
+                    .setForce(true)
+                    .call();
         }
-        repo.getGit().branchCreate().setName("feature").setStartPoint(mainBranch).call();
+        repo.getGit()
+                .branchCreate()
+                .setName("feature")
+                .setStartPoint(mainBranch)
+                .call();
         repo.getGit().checkout().setName("feature").call();
         createCommit("file1.txt", "content1", "C1_feature");
         createCommit("file2.txt", "content2", "C2_feature");
 
         repo.getGit().checkout().setName(mainBranch).call();
     }
-     private void setupBranchesForNoConflictTest_MainAhead() throws Exception {
+
+    private void setupBranchesForNoConflictTest_MainAhead() throws Exception {
         // main: Initial commit -> C1_main (main_file.txt)
         // feature: Initial commit
         String mainBranch = repo.getCurrentBranch();
@@ -520,19 +567,21 @@ public class GitRepoTest {
         // Commit on main
         createCommit("main_file.txt", "main content", "C1_main");
 
-
         repo.getGit().checkout().setName("feature").call(); // Switch to feature, it's behind main
-        // (no new commits on feature branch itself for this specific rebase test where feature is rebased onto a more advanced main)
+        // (no new commits on feature branch itself for this specific rebase test where feature is rebased onto a more
+        // advanced main)
         repo.getGit().checkout().setName(mainBranch).call(); // Back to main
     }
-
 
     @Test
     void testCheckMergeConflicts_NoConflict_MergeCommit() throws Exception {
         setupBranchesForNoConflictTest_FeatureAhead();
         String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.MERGE_COMMIT);
         assertNull(result, "Should be no conflict for MERGE_COMMIT: " + result);
-        assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
+        assertEquals(
+                repo.getCurrentBranch(),
+                repo.getGit().getRepository().getBranch(),
+                "Repository should remain on original branch");
     }
 
     @Test
@@ -542,9 +591,16 @@ public class GitRepoTest {
         assertNotNull(result, "Should be a conflict for MERGE_COMMIT");
         assertTrue(result.contains("common.txt"), "Conflict message should mention common.txt");
         // Verify that the original worktree is untouched
-        assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        org.eclipse.jgit.lib.RepositoryState stateMerge = repo.getGit().getRepository().getRepositoryState();
-        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, stateMerge, "Repository should not be in a merging state after conflict check");
+        assertEquals(
+                repo.getCurrentBranch(),
+                repo.getGit().getRepository().getBranch(),
+                "Repository should remain on original branch");
+        org.eclipse.jgit.lib.RepositoryState stateMerge =
+                repo.getGit().getRepository().getRepositoryState();
+        assertEquals(
+                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                stateMerge,
+                "Repository should not be in a merging state after conflict check");
     }
 
     @Test
@@ -553,8 +609,14 @@ public class GitRepoTest {
         String currentMainBranch = repo.getCurrentBranch();
         String result = repo.checkMergeConflicts("feature", currentMainBranch, GitRepo.MergeMode.REBASE_MERGE);
         assertNull(result, "Should be no conflict for REBASE_MERGE when feature is ancestor: " + result);
-        assertEquals(currentMainBranch, repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, repo.getGit().getRepository().getRepositoryState(), "Repository should not be in a rebasing state");
+        assertEquals(
+                currentMainBranch,
+                repo.getGit().getRepository().getBranch(),
+                "Repository should remain on original branch");
+        assertEquals(
+                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                repo.getGit().getRepository().getRepositoryState(),
+                "Repository should not be in a rebasing state");
     }
 
     @Test
@@ -562,9 +624,17 @@ public class GitRepoTest {
         setupBranchesForConflictTest();
         String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.REBASE_MERGE);
         assertNotNull(result, "Should be a conflict for REBASE_MERGE: " + result);
-        assertTrue(result.contains("Rebase conflicts detected"), "Conflict message should indicate rebase conflict. Actual: " + result);
-        assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, repo.getGit().getRepository().getRepositoryState(), "Repository should not be in a rebasing state");
+        assertTrue(
+                result.contains("Rebase conflicts detected"),
+                "Conflict message should indicate rebase conflict. Actual: " + result);
+        assertEquals(
+                repo.getCurrentBranch(),
+                repo.getGit().getRepository().getBranch(),
+                "Repository should remain on original branch");
+        assertEquals(
+                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                repo.getGit().getRepository().getRepositoryState(),
+                "Repository should not be in a rebasing state");
     }
 
     @Test
@@ -572,9 +642,16 @@ public class GitRepoTest {
         setupBranchesForNoConflictTest_FeatureAhead();
         String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.SQUASH_COMMIT);
         assertNull(result, "Should be no conflict for SQUASH_COMMIT: " + result);
-        assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        org.eclipse.jgit.lib.RepositoryState stateSquashNoConflict = repo.getGit().getRepository().getRepositoryState();
-        assertFalse(stateSquashNoConflict == org.eclipse.jgit.lib.RepositoryState.MERGING || stateSquashNoConflict == org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED, "Repository should not be in merging state after squash no conflict");
+        assertEquals(
+                repo.getCurrentBranch(),
+                repo.getGit().getRepository().getBranch(),
+                "Repository should remain on original branch");
+        org.eclipse.jgit.lib.RepositoryState stateSquashNoConflict =
+                repo.getGit().getRepository().getRepositoryState();
+        assertFalse(
+                stateSquashNoConflict == org.eclipse.jgit.lib.RepositoryState.MERGING
+                        || stateSquashNoConflict == org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED,
+                "Repository should not be in merging state after squash no conflict");
     }
 
     @Test
@@ -583,8 +660,14 @@ public class GitRepoTest {
         String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.SQUASH_COMMIT);
         assertNotNull(result, "Should be a conflict for SQUASH_COMMIT");
         assertTrue(result.contains("common.txt"), "Conflict message should mention common.txt for squash: " + result);
-        assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, repo.getGit().getRepository().getRepositoryState(), "Repository should not be in a merging state after squash conflict check");
+        assertEquals(
+                repo.getCurrentBranch(),
+                repo.getGit().getRepository().getBranch(),
+                "Repository should remain on original branch");
+        assertEquals(
+                org.eclipse.jgit.lib.RepositoryState.SAFE,
+                repo.getGit().getRepository().getRepositoryState(),
+                "Repository should not be in a merging state after squash conflict check");
     }
 
     @Test
@@ -593,8 +676,7 @@ public class GitRepoTest {
         Files.writeString(projectRoot.resolve("staged_file.txt"), "staged content");
         repo.getGit().add().addFilepattern("staged_file.txt").call();
 
-        var e = assertThrows(GitRepo.WorktreeDirtyException.class,
-                             () -> repo.squashMergeIntoHead("feature"));
+        var e = assertThrows(GitRepo.WorktreeDirtyException.class, () -> repo.squashMergeIntoHead("feature"));
         assertTrue(e.getMessage().contains("staged changes"));
     }
 
@@ -604,8 +686,7 @@ public class GitRepoTest {
         // Modify a tracked file without staging
         Files.writeString(projectRoot.resolve("main_base.txt"), "modified content");
 
-        var e = assertThrows(GitRepo.WorktreeDirtyException.class,
-                             () -> repo.squashMergeIntoHead("feature"));
+        var e = assertThrows(GitRepo.WorktreeDirtyException.class, () -> repo.squashMergeIntoHead("feature"));
         assertTrue(e.getMessage().contains("modified but uncommitted files"));
     }
 
@@ -615,8 +696,7 @@ public class GitRepoTest {
         // Create an untracked file that the merge would add
         Files.writeString(projectRoot.resolve("file1.txt"), "untracked conflicting content");
 
-        var e = assertThrows(GitRepo.WorktreeDirtyException.class,
-                             () -> repo.squashMergeIntoHead("feature"));
+        var e = assertThrows(GitRepo.WorktreeDirtyException.class, () -> repo.squashMergeIntoHead("feature"));
         assertTrue(e.getMessage().contains("untracked working tree files would be overwritten"));
         assertTrue(e.getMessage().contains("file1.txt"));
     }
@@ -624,15 +704,17 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_InvalidWorktreeBranch() throws Exception {
         String mainBranch = repo.getCurrentBranch();
-        assertThrows(GitRepo.GitRepoException.class,
-                     () -> repo.checkMergeConflicts("nonexistent-feature", mainBranch, GitRepo.MergeMode.MERGE_COMMIT));
+        assertThrows(
+                GitRepo.GitRepoException.class,
+                () -> repo.checkMergeConflicts("nonexistent-feature", mainBranch, GitRepo.MergeMode.MERGE_COMMIT));
     }
 
     @Test
     void testCheckMergeConflicts_InvalidTargetBranch() throws Exception {
         repo.getGit().branchCreate().setName("feature-exists").call();
-        assertThrows(GitRepo.GitRepoException.class,
-                     () -> repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitRepo.MergeMode.MERGE_COMMIT));
+        assertThrows(
+                GitRepo.GitRepoException.class,
+                () -> repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitRepo.MergeMode.MERGE_COMMIT));
     }
 
     @Test
@@ -647,8 +729,17 @@ public class GitRepoTest {
         Files.writeString(file3, "Initial content 3");
 
         // Add and commit initial state
-        repo.getGit().add().addFilepattern("file1.txt").addFilepattern("file2.txt").addFilepattern("file3.txt").call();
-        repo.getGit().commit().setMessage("Initial commit with 3 files").setSign(false).call();
+        repo.getGit()
+                .add()
+                .addFilepattern("file1.txt")
+                .addFilepattern("file2.txt")
+                .addFilepattern("file3.txt")
+                .call();
+        repo.getGit()
+                .commit()
+                .setMessage("Initial commit with 3 files")
+                .setSign(false)
+                .call();
         String initialCommit = repo.getCurrentCommitId();
 
         // Modify files and commit
@@ -665,10 +756,8 @@ public class GitRepoTest {
         assertEquals("Modified content 3", Files.readString(file3));
 
         // Create ProjectFile objects for file1 and file2 only
-        List<ProjectFile> filesToRollback = List.of(
-            new ProjectFile(projectRoot, "file1.txt"),
-            new ProjectFile(projectRoot, "file2.txt")
-        );
+        List<ProjectFile> filesToRollback =
+                List.of(new ProjectFile(projectRoot, "file1.txt"), new ProjectFile(projectRoot, "file2.txt"));
 
         // Checkout file1 and file2 from initial commit
         repo.checkoutFilesFromCommit(initialCommit, filesToRollback);
@@ -690,16 +779,22 @@ public class GitRepoTest {
 
         List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "file1.txt"));
 
-        assertThrows(Exception.class, () -> {
-            repo.checkoutFilesFromCommit("invalid-commit-id", files);
-        }, "Should throw exception for invalid commit ID");
+        assertThrows(
+                Exception.class,
+                () -> {
+                    repo.checkoutFilesFromCommit("invalid-commit-id", files);
+                },
+                "Should throw exception for invalid commit ID");
     }
 
     @Test
     void testCheckoutFilesFromCommit_EmptyFilesList() throws Exception {
-        assertThrows(IllegalArgumentException.class, () -> {
-            repo.checkoutFilesFromCommit("HEAD", List.of());
-        }, "Should throw IllegalArgumentException for empty files list");
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> {
+                    repo.checkoutFilesFromCommit("HEAD", List.of());
+                },
+                "Should throw IllegalArgumentException for empty files list");
     }
 
     @Test
@@ -785,12 +880,17 @@ public class GitRepoTest {
         repo.createBranchFromCommit(finalBranchName, initialCommitId);
 
         List<String> localBranches = repo.listLocalBranches();
-        assertTrue(localBranches.contains(finalBranchName), "Newly created branch '" + finalBranchName + "' should exist.");
+        assertTrue(
+                localBranches.contains(finalBranchName),
+                "Newly created branch '" + finalBranchName + "' should exist.");
 
         // Verify the start point of the new branch
         org.eclipse.jgit.lib.Ref branchRef = repo.getGit().getRepository().findRef(finalBranchName);
         assertNotNull(branchRef, "Branch ref should not be null for '" + finalBranchName + "'.");
-        assertEquals(initialCommitId, branchRef.getObjectId().getName(), "Branch '" + finalBranchName + "' should be created from commit " + initialCommitId + ".");
+        assertEquals(
+                initialCommitId,
+                branchRef.getObjectId().getName(),
+                "Branch '" + finalBranchName + "' should be created from commit " + initialCommitId + ".");
 
         // Test creating another branch with the same initial input, sanitizeBranchName should make it unique
         String duplicateInputName = newBranchNameInput; // "feature/from-commit-test"
@@ -798,7 +898,9 @@ public class GitRepoTest {
         assertNotEquals(finalBranchName, finalBranchName2, "Sanitized name for duplicate input should be different.");
 
         repo.createBranchFromCommit(finalBranchName2, initialCommitId);
-        assertTrue(repo.listLocalBranches().contains(finalBranchName2), "Second branch '" + finalBranchName2 + "' with same input (but sanitized uniquely) should exist.");
+        assertTrue(
+                repo.listLocalBranches().contains(finalBranchName2),
+                "Second branch '" + finalBranchName2 + "' with same input (but sanitized uniquely) should exist.");
         org.eclipse.jgit.lib.Ref branchRef2 = repo.getGit().getRepository().findRef(finalBranchName2);
         assertNotNull(branchRef2);
         assertEquals(initialCommitId, branchRef2.getObjectId().getName());
@@ -879,10 +981,12 @@ public class GitRepoTest {
 
         // Names may be the same if called within the same millisecond, but that's acceptable
         // since the goal is to avoid conflicts in practice, not guarantee uniqueness in tests
-        assertTrue(name1.startsWith("brokk_temp_rebase_feature_awesome-branch_"),
-                  "Generated name should start with expected prefix: " + name1);
-        assertTrue(name2.startsWith("brokk_temp_rebase_feature_awesome-branch_"),
-                  "Generated name should start with expected prefix");
+        assertTrue(
+                name1.startsWith("brokk_temp_rebase_feature_awesome-branch_"),
+                "Generated name should start with expected prefix: " + name1);
+        assertTrue(
+                name2.startsWith("brokk_temp_rebase_feature_awesome-branch_"),
+                "Generated name should start with expected prefix");
 
         // Verify timestamp suffix is numeric
         String suffix1 = name1.substring(name1.lastIndexOf('_') + 1);
@@ -892,10 +996,8 @@ public class GitRepoTest {
         assertTrue(suffix2.length() >= 10, "Timestamp suffix should be at least 10 characters: " + suffix2);
 
         // Verify suffix is valid timestamp (numeric)
-        assertDoesNotThrow(() -> Long.parseLong(suffix1),
-                          "Timestamp suffix should be numeric: " + suffix1);
-        assertDoesNotThrow(() -> Long.parseLong(suffix2),
-                          "Timestamp suffix should be numeric: " + suffix2);
+        assertDoesNotThrow(() -> Long.parseLong(suffix1), "Timestamp suffix should be numeric: " + suffix1);
+        assertDoesNotThrow(() -> Long.parseLong(suffix2), "Timestamp suffix should be numeric: " + suffix2);
 
         // Verify timestamps are non-decreasing (may be equal due to resolution)
         long timestamp1 = Long.parseLong(suffix1);
@@ -909,8 +1011,9 @@ public class GitRepoTest {
 
         String sanitized = GitRepo.createTempRebaseBranchName(unsafeName);
 
-        assertTrue(sanitized.contains("brokk_temp_rebase_feature_branch_with_spaces____"),
-                  "Should sanitize unsafe characters to underscores: " + sanitized);
+        assertTrue(
+                sanitized.contains("brokk_temp_rebase_feature_branch_with_spaces____"),
+                "Should sanitize unsafe characters to underscores: " + sanitized);
         assertFalse(sanitized.contains(" "), "Should not contain spaces");
         assertFalse(sanitized.contains("!"), "Should not contain exclamation marks");
         assertFalse(sanitized.contains("@"), "Should not contain at signs");
@@ -923,10 +1026,10 @@ public class GitRepoTest {
 
         String result = GitRepo.createTempRebaseBranchName(emptyName);
 
-        assertTrue(result.startsWith("brokk_temp_rebase__"),
-                  "Should handle empty input gracefully");
-        assertTrue(result.endsWith("_" + result.substring(result.lastIndexOf('_') + 1)),
-                  "Should still append timestamp suffix");
+        assertTrue(result.startsWith("brokk_temp_rebase__"), "Should handle empty input gracefully");
+        assertTrue(
+                result.endsWith("_" + result.substring(result.lastIndexOf('_') + 1)),
+                "Should still append timestamp suffix");
     }
 
     @Test
@@ -934,8 +1037,7 @@ public class GitRepoTest {
         String baseName = "test";
         String result = GitRepo.createTempRebaseBranchName(baseName);
 
-        assertTrue(result.startsWith("brokk_temp_rebase_"),
-                  "Should use the correct prefix constant");
+        assertTrue(result.startsWith("brokk_temp_rebase_"), "Should use the correct prefix constant");
     }
 
     @Test
@@ -943,10 +1045,12 @@ public class GitRepoTest {
         String complexName = "feature/user-auth!@#$%^&*()";
         String result = GitRepo.createTempRebaseBranchName(complexName);
 
-        assertTrue(result.startsWith("brokk_temp_rebase_feature_user-auth"),
-                  "Should sanitize complex characters properly: " + result);
-        assertTrue(result.matches("brokk_temp_rebase_feature_user-auth_+\\d+"),
-                  "Should match expected pattern with timestamp: " + result);
+        assertTrue(
+                result.startsWith("brokk_temp_rebase_feature_user-auth"),
+                "Should sanitize complex characters properly: " + result);
+        assertTrue(
+                result.matches("brokk_temp_rebase_feature_user-auth_+\\d+"),
+                "Should match expected pattern with timestamp: " + result);
         assertFalse(result.contains("!"), "Should not contain exclamation marks");
         assertFalse(result.contains("@"), "Should not contain at signs");
         assertFalse(result.contains("#"), "Should not contain hash symbols");
@@ -959,11 +1063,11 @@ public class GitRepoTest {
         String specialCharsOnly = "!@#$%^&*()";
         String result = GitRepo.createTempRebaseBranchName(specialCharsOnly);
 
-        assertTrue(result.startsWith("brokk_temp_rebase_"),
-                  "Should handle special-chars-only input: " + result);
+        assertTrue(result.startsWith("brokk_temp_rebase_"), "Should handle special-chars-only input: " + result);
         // Should result in "brokk_temp_rebase___________timestamp" (underscores replacing special chars)
-        assertTrue(result.matches("brokk_temp_rebase__+\\d+"),
-                  "Should replace all special characters with underscores: " + result);
+        assertTrue(
+                result.matches("brokk_temp_rebase__+\\d+"),
+                "Should replace all special characters with underscores: " + result);
     }
 
     @Test
@@ -971,10 +1075,10 @@ public class GitRepoTest {
         String validName = "feature_branch-name123";
         String result = GitRepo.createTempRebaseBranchName(validName);
 
-        assertTrue(result.contains("feature_branch-name123"),
-                  "Should preserve valid characters: " + result);
-        assertTrue(result.startsWith("brokk_temp_rebase_feature_branch-name123_"),
-                  "Should maintain valid branch name components: " + result);
+        assertTrue(result.contains("feature_branch-name123"), "Should preserve valid characters: " + result);
+        assertTrue(
+                result.startsWith("brokk_temp_rebase_feature_branch-name123_"),
+                "Should maintain valid branch name components: " + result);
     }
 
     @Test
@@ -986,10 +1090,12 @@ public class GitRepoTest {
             Path readme = originDir.resolve("README.md");
             Files.writeString(readme, "origin readme");
             originGit.add().addFilepattern("README.md").call();
-            originGit.commit().setAuthor("Origin", "origin@example.com")
-                              .setMessage("Initial origin commit")
-                              .setSign(false)
-                              .call();
+            originGit
+                    .commit()
+                    .setAuthor("Origin", "origin@example.com")
+                    .setMessage("Initial origin commit")
+                    .setSign(false)
+                    .call();
         }
 
         // 2. Clone it (depth = 1)
@@ -999,13 +1105,14 @@ public class GitRepoTest {
             clonedRepo = GitRepo.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
 
             assertNotNull(clonedRepo, "Clone should return a GitRepo instance");
-            assertEquals(cloneDir.toRealPath(), clonedRepo.getGitTopLevel().toRealPath(),
-                         "Git top-level should match clone directory");
+            assertEquals(
+                    cloneDir.toRealPath(),
+                    clonedRepo.getGitTopLevel().toRealPath(),
+                    "Git top-level should match clone directory");
 
             String branch = clonedRepo.getCurrentBranch();
             List<CommitInfo> commits = clonedRepo.listCommitsDetailed(branch);
-            assertEquals(1, commits.size(),
-                         "Shallow clone (depth=1) should contain exactly one commit");
+            assertEquals(1, commits.size(), "Shallow clone (depth=1) should contain exactly one commit");
         } finally {
             if (clonedRepo != null) {
                 GitTestCleanupUtil.cleanupGitResources(clonedRepo);
@@ -1019,7 +1126,11 @@ public class GitRepoTest {
         Path fileToRemove = projectRoot.resolve("file-to-remove.txt");
         Files.writeString(fileToRemove, "This file will be removed.");
         repo.getGit().add().addFilepattern("file-to-remove.txt").call();
-        repo.getGit().commit().setMessage("Add file for removal test").setSign(false).call();
+        repo.getGit()
+                .commit()
+                .setMessage("Add file for removal test")
+                .setSign(false)
+                .call();
 
         // Verify it exists and is tracked
         assertTrue(Files.exists(fileToRemove));

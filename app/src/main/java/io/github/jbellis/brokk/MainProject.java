@@ -4,18 +4,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.issues.IssueProviderType;
-import org.eclipse.jgit.errors.ConfigInvalidException;
-import org.eclipse.jgit.util.SystemReader;
-import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,9 +31,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.errors.ConfigInvalidException;
+import org.eclipse.jgit.util.SystemReader;
+import org.jetbrains.annotations.Nullable;
 
 public final class MainProject extends AbstractProject {
-    private static final Logger logger = LogManager.getLogger(MainProject.class); // Separate logger from AbstractProject
+    private static final Logger logger =
+            LogManager.getLogger(MainProject.class); // Separate logger from AbstractProject
 
     private final Path propertiesFile;
     private final Properties projectProps;
@@ -70,14 +70,19 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_API_TOKEN_KEY = "jiraProjectApiToken";
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
-    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) { }
+    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
+            "Architect",
+                    new ModelTypeInfo(
+                            "architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
+            "Code",
+                    new ModelTypeInfo(
+                            "codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
             "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.DEFAULT)),
-            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT))
-    );
+            "Search",
+                    new ModelTypeInfo(
+                            "searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -88,19 +93,29 @@ public final class MainProject extends AbstractProject {
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
-    public static final String DEFAULT_COMMIT_MESSAGE_FORMAT = """
+    public static final String DEFAULT_COMMIT_MESSAGE_FORMAT =
+            """
                                                                The commit message should be structured as follows: <type>: <description>
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
-                                                               """.stripIndent();
-    @Nullable private static volatile Boolean isDataShareAllowedCache = null;
-    @Nullable private static Properties globalPropertiesCache = null; // protected by synchronized
+                                                               """
+                    .stripIndent();
+
+    @Nullable
+    private static volatile Boolean isDataShareAllowedCache = null;
+
+    @Nullable
+    private static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
     private static final Path OUT_OF_MEMORY_EXCEPTION_FLAG = BROKK_CONFIG_DIR.resolve("oom.flag");
 
-    public enum LlmProxySetting {BROKK, LOCALHOST, STAGING}
+    public enum LlmProxySetting {
+        BROKK,
+        LOCALHOST,
+        STAGING
+    }
 
     private static final String LLM_PROXY_SETTING_KEY = "llmProxySetting";
     public static final String BROKK_PROXY_URL = "https://proxy.brokk.ai";
@@ -112,17 +127,18 @@ public final class MainProject extends AbstractProject {
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
-    public static final String DEFAULT_REVIEW_GUIDE = """
+    public static final String DEFAULT_REVIEW_GUIDE =
+            """
             When reviewing the pull request, please address the following points:
             - explain your understanding of what this PR is intended to do
             - does it accomplish its goals
             - does it conform to the style guidelines
             - what parts are the trickiest and how could they be simplified
-            """.stripIndent();
+            """
+                    .stripIndent();
 
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
-        public ProjectPersistentInfo {
-        }
+        public ProjectPersistentInfo {}
 
         public static ProjectPersistentInfo fromTimestamp(long lastOpened) {
             return new ProjectPersistentInfo(lastOpened, List.of());
@@ -167,31 +183,39 @@ public final class MainProject extends AbstractProject {
         // Migrate Architect options from projectProps to workspaceProps
         boolean migratedArchitectSettings = false;
         if (projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
-            if (!mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY) ||
-                !mainWorkspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY).equals(projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY))) {
-                 mainWorkspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
-                 migratedArchitectSettings = true;
+            if (!mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)
+                    || !mainWorkspaceProps
+                            .getProperty(ARCHITECT_OPTIONS_JSON_KEY)
+                            .equals(projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY))) {
+                mainWorkspaceProps.setProperty(
+                        ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
+                migratedArchitectSettings = true;
             }
             projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY);
             // Ensure projectProps is saved if a key is removed, even if not transferred (e.g. already in workspace)
             // This flag will trigger saveProjectProperties if any key was removed.
             // migratedArchitectSettings specifically tracks if data was written to workspaceProps.
             if (!migratedArchitectSettings && mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
-                 // Key was in projectProps, removed, but already existed (maybe identically) in workspaceProps.
-                 // We still need to save projectProps due to removal.
-                 // Let's use a broader flag for saving projectProps.
+                // Key was in projectProps, removed, but already existed (maybe identically) in workspaceProps.
+                // We still need to save projectProps due to removal.
+                // Let's use a broader flag for saving projectProps.
             }
         }
-        // boolean projectPropsChangedByMigration = projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY); // This variable is not used
+        // boolean projectPropsChangedByMigration = projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY); // This
+        // variable is not used
 
         if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
-            if (!mainWorkspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY) ||
-                !mainWorkspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY).equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
-                mainWorkspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
+            if (!mainWorkspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)
+                    || !mainWorkspaceProps
+                            .getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY)
+                            .equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
+                mainWorkspaceProps.setProperty(
+                        ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
                 migratedArchitectSettings = true;
             }
             projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
-            // projectPropsChangedByMigration = projectPropsChangedByMigration || projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
+            // projectPropsChangedByMigration = projectPropsChangedByMigration ||
+            // projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
         }
 
         // Determine if projectProps needs saving due to removal of architect keys.
@@ -199,13 +223,12 @@ public final class MainProject extends AbstractProject {
         boolean removedKey2 = projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY) != null;
         boolean needsProjectSave = removedKey1 || removedKey2;
 
-
         // Migrate Live Dependencies from projectProps to workspaceProps
         boolean migratedLiveDeps = false;
         if (projectProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
             if (!mainWorkspaceProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-                 mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
-                 migratedLiveDeps = true;
+                mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
+                migratedLiveDeps = true;
             }
             projectProps.remove(LIVE_DEPENDENCIES_KEY);
             needsProjectSave = true;
@@ -214,20 +237,28 @@ public final class MainProject extends AbstractProject {
         if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspaceProps
             persistWorkspacePropertiesFile();
             if (migratedArchitectSettings) {
-                logger.info("Migrated Architect options from project.properties to workspace.properties for {}", root.getFileName());
+                logger.info(
+                        "Migrated Architect options from project.properties to workspace.properties for {}",
+                        root.getFileName());
             }
             if (migratedLiveDeps) {
-                logger.info("Migrated Live Dependencies from project.properties to workspace.properties for {}", root.getFileName());
+                logger.info(
+                        "Migrated Live Dependencies from project.properties to workspace.properties for {}",
+                        root.getFileName());
             }
         }
         if (needsProjectSave) { // Keys were removed from projectProps
             saveProjectProperties();
-            if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in workspace)
-                 logger.info("Removed Architect/Dependency options from project.properties (already in or now moved to workspace.properties) for {}", root.getFileName());
+            if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in
+                // workspace)
+                logger.info(
+                        "Removed Architect/Dependency options from project.properties (already in or now moved to workspace.properties) for {}",
+                        root.getFileName());
             }
         }
 
-        // Load build details AFTER projectProps might have been modified by migration (though build details keys are not affected here)
+        // Load build details AFTER projectProps might have been modified by migration (though build details keys are
+        // not affected here)
         var bd = loadBuildDetailsInternal(); // Uses projectProps
         if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
             this.detailsFuture.complete(bd);
@@ -301,7 +332,6 @@ public final class MainProject extends AbstractProject {
         return loadBuildDetailsInternal();
     }
 
-
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         if (!details.equals(BuildAgent.BuildDetails.EMPTY)) {
@@ -349,8 +379,12 @@ public final class MainProject extends AbstractProject {
             try {
                 return objectMapper.readValue(jsonString, ModelConfig.class);
             } catch (JsonProcessingException e) {
-                logger.warn("Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
-                        modelTypeKey, typeInfo.configKey(), e.getMessage(), jsonString);
+                logger.warn(
+                        "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
+                        modelTypeKey,
+                        typeInfo.configKey(),
+                        e.getMessage(),
+                        jsonString);
             }
         }
 
@@ -368,7 +402,12 @@ public final class MainProject extends AbstractProject {
             props.setProperty(typeInfo.configKey(), jsonString);
             saveGlobalProperties(props);
         } catch (JsonProcessingException e) {
-            logger.error("Error serializing ModelConfig for {} (key '{}'): {}", modelTypeKey, typeInfo.configKey(), config, e);
+            logger.error(
+                    "Error serializing ModelConfig for {} (key '{}'): {}",
+                    modelTypeKey,
+                    typeInfo.configKey(),
+                    config,
+                    e);
             throw new RuntimeException("Failed to serialize ModelConfig for " + modelTypeKey, e);
         }
     }
@@ -475,11 +514,13 @@ public final class MainProject extends AbstractProject {
                 .collect(Collectors.groupingBy(l -> l, Collectors.counting()));
 
         if (languageCounts.isEmpty()) {
-            logger.debug("No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
+            logger.debug(
+                    "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
             return Set.of(Language.NONE);
         }
 
-        long totalRecognizedFiles = languageCounts.values().stream().mapToLong(Long::longValue).sum();
+        long totalRecognizedFiles =
+                languageCounts.values().stream().mapToLong(Long::longValue).sum();
         Set<Language> detectedLanguages = new HashSet<>();
 
         languageCounts.entrySet().stream()
@@ -491,7 +532,9 @@ public final class MainProject extends AbstractProject {
                     .max(Map.Entry.comparingByValue())
                     .orElseThrow();
             detectedLanguages.add(mostCommonEntry.getKey());
-            logger.debug("No language met 10% threshold for {}. Adding most common: {}", root, mostCommonEntry.getKey().name());
+            logger.debug(
+                    "No language met 10% threshold for {}. Adding most common: {}",
+                    root, mostCommonEntry.getKey().name());
         }
 
         if (languageCounts.containsKey(Language.SQL)) {
@@ -500,7 +543,9 @@ public final class MainProject extends AbstractProject {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
             }
         }
-        logger.debug("Auto-detected languages for {}: {}", root,
+        logger.debug(
+                "Auto-detected languages for {}: {}",
+                root,
                 detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
         return detectedLanguages;
     }
@@ -510,9 +555,7 @@ public final class MainProject extends AbstractProject {
         if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Language.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
-            String langsString = languages.stream()
-                    .map(Language::name)
-                    .collect(Collectors.joining(","));
+            String langsString = languages.stream().map(Language::name).collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         saveProjectProperties();
@@ -530,7 +573,8 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    @Nullable private volatile IssueProvider issuesProviderCache = null;
+    @Nullable
+    private volatile IssueProvider issuesProviderCache = null;
 
     @Override
     public IssueProvider getIssuesProvider() {
@@ -544,7 +588,10 @@ public final class MainProject extends AbstractProject {
                 issuesProviderCache = objectMapper.readValue(json, IssueProvider.class);
                 return issuesProviderCache;
             } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize IssueProvider from JSON: {}. Will attempt migration or default.", json, e);
+                logger.error(
+                        "Failed to deserialize IssueProvider from JSON: {}. Will attempt migration or default.",
+                        json,
+                        e);
             }
         }
 
@@ -557,7 +604,10 @@ public final class MainProject extends AbstractProject {
 
         // Save the default so it's persisted
         setIssuesProvider(issuesProviderCache);
-        logger.info("Defaulted issue provider to {} for project {}", issuesProviderCache.type(), getRoot().getFileName());
+        logger.info(
+                "Defaulted issue provider to {} for project {}",
+                issuesProviderCache.type(),
+                getRoot().getFileName());
         return issuesProviderCache;
     }
 
@@ -576,7 +626,9 @@ public final class MainProject extends AbstractProject {
                     oldType = providerFromProps.type();
                 } catch (JsonProcessingException e) {
                     // Log or ignore, oldType remains null or determined by migration if applicable
-                    logger.debug("Could not parse existing IssueProvider JSON from properties while determining old type: {}", e.getMessage());
+                    logger.debug(
+                            "Could not parse existing IssueProvider JSON from properties while determining old type: {}",
+                            e.getMessage());
                 }
             }
         }
@@ -598,7 +650,10 @@ public final class MainProject extends AbstractProject {
             }
 
             saveProjectProperties();
-            logger.info("Set issue provider to type '{}' for project {}", provider.type(), getRoot().getFileName());
+            logger.info(
+                    "Set issue provider to type '{}' for project {}",
+                    provider.type(),
+                    getRoot().getFileName());
 
             // Notify listeners if the provider *type* has changed.
             if (oldType != newType) {
@@ -611,7 +666,6 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-
     public void saveProjectProperties() {
         // Use AbstractProject's saveProperties for consistency if it were public static or passed instance
         // For now, keep local implementation matching AbstractProject's logic.
@@ -621,7 +675,9 @@ public final class MainProject extends AbstractProject {
             if (Files.exists(propertiesFile)) {
                 try (var reader = Files.newBufferedReader(propertiesFile)) {
                     existingProps.load(reader);
-                } catch (IOException e) { /* ignore loading error, will attempt to save anyway */ }
+                } catch (IOException e) {
+                    /* ignore loading error, will attempt to save anyway */
+                }
             }
 
             if (Objects.equals(existingProps, projectProps)) {
@@ -640,12 +696,15 @@ public final class MainProject extends AbstractProject {
             if (Files.exists(mainWorkspacePropertiesPath)) {
                 try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
                     existingProps.load(reader);
-                } catch (IOException e) { /* ignore loading error, will attempt to save anyway */ }
+                } catch (IOException e) {
+                    /* ignore loading error, will attempt to save anyway */
+                }
             }
             if (Objects.equals(existingProps, mainWorkspaceProps)) {
                 return;
             }
-            AtomicWrites.atomicSaveProperties(mainWorkspacePropertiesPath, mainWorkspaceProps, "Brokk workspace configuration");
+            AtomicWrites.atomicSaveProperties(
+                    mainWorkspacePropertiesPath, mainWorkspaceProps, "Brokk workspace configuration");
         } catch (IOException e) {
             logger.error("Error saving workspace properties to {}: {}", mainWorkspacePropertiesPath, e.getMessage());
         }
@@ -669,7 +728,10 @@ public final class MainProject extends AbstractProject {
                 return true;
             }
         } catch (IOException e) {
-            logger.error("Error checking .gitignore at {}: {}", getMasterRootPathForConfig().resolve(".gitignore"), e.getMessage());
+            logger.error(
+                    "Error checking .gitignore at {}: {}",
+                    getMasterRootPathForConfig().resolve(".gitignore"),
+                    e.getMessage());
         }
         try {
             var gitUserConfig = SystemReader.getInstance().getUserConfig();
@@ -830,7 +892,8 @@ public final class MainProject extends AbstractProject {
             try {
                 return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
             } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize ArchitectOptions from workspace JSON: {}. Returning defaults.", json, e);
+                logger.error(
+                        "Failed to deserialize ArchitectOptions from workspace JSON: {}. Returning defaults.", json, e);
             }
         }
         return ArchitectAgent.ArchitectOptions.DEFAULTS;
@@ -850,7 +913,8 @@ public final class MainProject extends AbstractProject {
             persistWorkspacePropertiesFile();
             logger.debug("Saved Architect options and worktree preference to workspace properties.");
         } catch (JsonProcessingException e) {
-            logger.error("Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
+            logger.error(
+                    "Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
         }
     }
@@ -864,26 +928,28 @@ public final class MainProject extends AbstractProject {
         }
 
         var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
-                                 .map(String::trim)
-                                 .filter(s -> !s.isEmpty())
-                                 .collect(Collectors.toSet());
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
 
-        return allDeps.stream().filter(dep -> {
-            // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
-            if (dep.getRelPath().getNameCount() < 3) {
-                return false;
-            }
-            // relPath is relative to masterRootPathForConfig, so .brokk is first component
-            var depName = dep.getRelPath().getName(2).toString();
-            return liveNamesSet.contains(depName);
-        }).collect(Collectors.toSet());
+        return allDeps.stream()
+                .filter(dep -> {
+                    // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+                    if (dep.getRelPath().getNameCount() < 3) {
+                        return false;
+                    }
+                    // relPath is relative to masterRootPathForConfig, so .brokk is first component
+                    var depName = dep.getRelPath().getName(2).toString();
+                    return liveNamesSet.contains(depName);
+                })
+                .collect(Collectors.toSet());
     }
 
     @Override
     public void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
         var names = dependencyTopLevelDirs.stream()
-                                          .map(p -> p.getFileName().toString())
-                                          .collect(Collectors.joining(","));
+                .map(p -> p.getFileName().toString())
+                .collect(Collectors.joining(","));
         mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
         persistWorkspacePropertiesFile();
     }
@@ -968,9 +1034,20 @@ public final class MainProject extends AbstractProject {
         MINIMAL("Essential Use Only"),
         UNSET("Unset");
         private final String displayName;
-        DataRetentionPolicy(String displayName) { this.displayName = displayName; }
-        public String getDisplayName() { return displayName; }
-        @Override public String toString() { return displayName; }
+
+        DataRetentionPolicy(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String getDisplayName() {
+            return displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+
         public static DataRetentionPolicy fromString(String value) {
             for (DataRetentionPolicy policy : values()) {
                 if (policy.name().equalsIgnoreCase(value)) return policy;
@@ -1000,8 +1077,7 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("o3", Service.O3, Service.ReasoningLevel.DEFAULT),
             new Service.FavoriteModel("Gemini Pro 2.5", Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT),
             new Service.FavoriteModel("Flash 2.5", "gemini-2.5-flash", Service.ReasoningLevel.DISABLE),
-            new Service.FavoriteModel("Sonnet 4", "claude-4-sonnet", Service.ReasoningLevel.LOW)
-    );
+            new Service.FavoriteModel("Sonnet 4", "claude-4-sonnet", Service.ReasoningLevel.LOW));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();
@@ -1030,9 +1106,9 @@ public final class MainProject extends AbstractProject {
      */
     public static Service.FavoriteModel getFavoriteModel(String alias) {
         return loadFavoriteModels().stream()
-                                   .filter(fm -> fm.alias().equalsIgnoreCase(alias))
-                                   .findFirst()
-                                   .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
+                .filter(fm -> fm.alias().equalsIgnoreCase(alias))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown favorite model alias: " + alias));
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
@@ -1069,7 +1145,8 @@ public final class MainProject extends AbstractProject {
     private static void saveProjectsProperties(Properties props) {
         try {
             Files.createDirectories(PROJECTS_PROPERTIES_PATH.getParent());
-            AtomicWrites.atomicSaveProperties(PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
+            AtomicWrites.atomicSaveProperties(
+                    PROJECTS_PROPERTIES_PATH, props, "Brokk projects: recently opened and currently open");
         } catch (IOException e) {
             logger.error("Error saving projects properties: {}", e.getMessage());
         }
@@ -1085,7 +1162,8 @@ public final class MainProject extends AbstractProject {
             String propertyValue = props.getProperty(key);
             try {
                 Path projectPath = Path.of(key); // Create path once
-                ProjectPersistentInfo persistentInfo = objectMapper.readValue(propertyValue, ProjectPersistentInfo.class);
+                ProjectPersistentInfo persistentInfo =
+                        objectMapper.readValue(propertyValue, ProjectPersistentInfo.class);
                 allLoadedEntries.put(projectPath, persistentInfo);
             } catch (JsonProcessingException e) {
                 // Likely old-format timestamp, try to parse as long
@@ -1095,7 +1173,10 @@ public final class MainProject extends AbstractProject {
                     ProjectPersistentInfo persistentInfo = ProjectPersistentInfo.fromTimestamp(parsedLongValue);
                     allLoadedEntries.put(projectPath, persistentInfo);
                 } catch (NumberFormatException nfe) {
-                    logger.warn("Could not parse value for key '{}' in projects.properties as JSON or long: {}", key, propertyValue);
+                    logger.warn(
+                            "Could not parse value for key '{}' in projects.properties as JSON or long: {}",
+                            key,
+                            propertyValue);
                 }
             } catch (Exception e) {
                 logger.warn("Error processing recent project entry for key '{}': {}", key, e.getMessage());
@@ -1111,7 +1192,9 @@ public final class MainProject extends AbstractProject {
             if (Files.isDirectory(projectPath)) {
                 validEntries.put(projectPath, persistentInfo);
             } else {
-                logger.warn("Recent project path '{}' no longer exists or is not a directory. Removing from recent projects list.", projectPath);
+                logger.warn(
+                        "Recent project path '{}' no longer exists or is not a directory. Removing from recent projects list.",
+                        projectPath);
                 entriesFiltered = true;
             }
         }
@@ -1127,7 +1210,9 @@ public final class MainProject extends AbstractProject {
         var props = loadProjectsProperties();
 
         var sorted = projects.entrySet().stream()
-                .sorted(Map.Entry.<Path, ProjectPersistentInfo>comparingByValue(Comparator.comparingLong(ProjectPersistentInfo::lastOpened)).reversed())
+                .sorted(Map.Entry.<Path, ProjectPersistentInfo>comparingByValue(
+                                Comparator.comparingLong(ProjectPersistentInfo::lastOpened))
+                        .reversed())
                 .limit(10)
                 .toList();
 
@@ -1166,7 +1251,10 @@ public final class MainProject extends AbstractProject {
                     pathForRecentProjectsMap = tempRepo.getGitTopLevel();
                 }
             } catch (Exception e) {
-                logger.warn("Could not determine if {} is a worktree during updateRecentProject: {}", projectDir, e.getMessage());
+                logger.warn(
+                        "Could not determine if {} is a worktree during updateRecentProject: {}",
+                        projectDir,
+                        e.getMessage());
             }
         }
 
@@ -1181,7 +1269,8 @@ public final class MainProject extends AbstractProject {
 
         if (isWorktree) {
             String worktreePathToAdd = projectDir.toAbsolutePath().normalize().toString();
-            String mainProjectPathString = pathForRecentProjectsMap.toAbsolutePath().normalize().toString();
+            String mainProjectPathString =
+                    pathForRecentProjectsMap.toAbsolutePath().normalize().toString();
             if (!newOpenWorktrees.contains(worktreePathToAdd) && !worktreePathToAdd.equals(mainProjectPathString)) {
                 newOpenWorktrees.add(worktreePathToAdd);
             }
@@ -1235,7 +1324,10 @@ public final class MainProject extends AbstractProject {
                     mainProjectPathKey = tempRepo.getGitTopLevel();
                 }
             } catch (Exception e) {
-                logger.warn("Could not determine if {} is a worktree during removeFromOpenProjectsListAndClearActiveSession: {}", projectDir, e.getMessage());
+                logger.warn(
+                        "Could not determine if {} is a worktree during removeFromOpenProjectsListAndClearActiveSession: {}",
+                        projectDir,
+                        e.getMessage());
             }
         }
 
@@ -1246,7 +1338,8 @@ public final class MainProject extends AbstractProject {
             if (mainProjectInfo != null) {
                 List<String> openWorktrees = new ArrayList<>(mainProjectInfo.openWorktrees());
                 if (openWorktrees.remove(projectDir.toAbsolutePath().normalize().toString())) {
-                    recentProjectsMap.put(mainProjectPathKey, new ProjectPersistentInfo(mainProjectInfo.lastOpened(), openWorktrees));
+                    recentProjectsMap.put(
+                            mainProjectPathKey, new ProjectPersistentInfo(mainProjectInfo.lastOpened(), openWorktrees));
                     recentProjectsMapModified = true;
                 }
             }
@@ -1299,10 +1392,17 @@ public final class MainProject extends AbstractProject {
                             if (Files.isDirectory(worktreePath)) {
                                 finalPathsToOpen.add(worktreePath);
                             } else {
-                                logger.warn("Invalid worktree path '{}' found for main project '{}', not adding to open list.", worktreePathStr, mainProjectPathKey);
+                                logger.warn(
+                                        "Invalid worktree path '{}' found for main project '{}', not adding to open list.",
+                                        worktreePathStr,
+                                        mainProjectPathKey);
                             }
                         } catch (Exception e) {
-                            logger.warn("Error processing worktree path '{}' for main project '{}': {}", worktreePathStr, mainProjectPathKey, e.getMessage());
+                            logger.warn(
+                                    "Error processing worktree path '{}' for main project '{}': {}",
+                                    worktreePathStr,
+                                    mainProjectPathKey,
+                                    e.getMessage());
                         }
                     }
                 }
@@ -1323,8 +1423,9 @@ public final class MainProject extends AbstractProject {
     }
 
     /**
-     * Attempts to persist the fact that an {@link OutOfMemoryError} occurred during this session. The JVM would be in
-     * a fatal state, and thus writing this to project properties would not work and creating a file is usually successful.
+     * Attempts to persist the fact that an {@link OutOfMemoryError} occurred during this session. The JVM would be in a
+     * fatal state, and thus writing this to project properties would not work and creating a file is usually
+     * successful.
      */
     public static void setOomFlag() {
         try {
@@ -1365,7 +1466,11 @@ public final class MainProject extends AbstractProject {
     }
 
     public Path getWorktreeStoragePath() {
-        return Path.of(System.getProperty("user.home"), ".brokk", "worktrees", getMasterRootPathForConfig().getFileName().toString());
+        return Path.of(
+                System.getProperty("user.home"),
+                ".brokk",
+                "worktrees",
+                getMasterRootPathForConfig().getFileName().toString());
     }
 
     public void reserveSessionsForKnownWorktrees() {
@@ -1395,31 +1500,41 @@ public final class MainProject extends AbstractProject {
                     if (sessionIdStr != null && !sessionIdStr.isBlank()) {
                         UUID sessionId = UUID.fromString(sessionIdStr.trim());
                         if (SessionRegistry.claim(wtPath, sessionId)) {
-                            logger.info("Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
+                            logger.info(
+                                    "Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
                         } else {
-                            logger.warn("Failed to reserve session {} for worktree {} (already claimed elsewhere or error).", sessionId, wtPath.getFileName());
+                            logger.warn(
+                                    "Failed to reserve session {} for worktree {} (already claimed elsewhere or error).",
+                                    sessionId,
+                                    wtPath.getFileName());
                         }
                     }
                 } catch (IOException | IllegalArgumentException e) {
-                    logger.warn("Error reading last active session for worktree {} or claiming it: {}", wtPath.getFileName(), e.getMessage());
+                    logger.warn(
+                            "Error reading last active session for worktree {} or claiming it: {}",
+                            wtPath.getFileName(),
+                            e.getMessage());
                 }
             }
         } catch (Exception e) {
-            logger.error("Error listing worktrees or reserving their sessions for main project {}: {}", this.root.getFileName(), e.getMessage(), e);
+            logger.error(
+                    "Error listing worktrees or reserving their sessions for main project {}: {}",
+                    this.root.getFileName(),
+                    e.getMessage(),
+                    e);
         }
     }
 
     /* --------------------------------------------------------
-       Blitz-history (parallel + post-processing instructions)
-       -------------------------------------------------------- */
+    Blitz-history (parallel + post-processing instructions)
+    -------------------------------------------------------- */
     @Override
     public List<List<String>> loadBlitzHistory() {
         try {
             String json = mainWorkspaceProps.getProperty(BLITZ_HISTORY_KEY);
             if (json != null && !json.isEmpty()) {
                 var tf = objectMapper.getTypeFactory();
-                var type = tf.constructCollectionType(List.class,
-                        tf.constructCollectionType(List.class, String.class));
+                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
                 return objectMapper.readValue(json, type);
             }
         } catch (Exception e) {
@@ -1434,9 +1549,8 @@ public final class MainProject extends AbstractProject {
             return loadBlitzHistory();
         }
         var history = new ArrayList<>(loadBlitzHistory());
-        history.removeIf(p -> p.size() >= 2 &&
-                p.get(0).equals(parallel) &&
-                p.get(1).equals(post));
+        history.removeIf(
+                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
         history.add(0, List.of(parallel, post));
         if (history.size() > maxItems) {
             history = new ArrayList<>(history.subList(0, maxItems));

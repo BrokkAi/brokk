@@ -1,9 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.gui.Chrome;
-
-import javax.imageio.ImageIO;
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -11,12 +8,11 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Modal dialog that gathers feedback details from the user and sends
- * them through Service.sendFeedback().
- */
+/** Modal dialog that gathers feedback details from the user and sends them through Service.sendFeedback(). */
 public class FeedbackDialog extends JDialog {
     private final Chrome chrome;
     private final JComboBox<CategoryItem> categoryCombo;
@@ -24,8 +20,10 @@ public class FeedbackDialog extends JDialog {
     private final JCheckBox includeDebugLogCheckBox;
     private final JCheckBox includeScreenshotCheckBox;
     private final JButton sendButton;
+
     @Nullable
     private final BufferedImage screenshotImage;
+
     private final JLabel screenshotPreviewLabel;
 
     private record CategoryItem(String displayName, String value) {
@@ -40,9 +38,9 @@ public class FeedbackDialog extends JDialog {
         this.chrome = chrome;
 
         categoryCombo = new JComboBox<>(new CategoryItem[] {
-                new CategoryItem("Bug", "bug"),
-                new CategoryItem("Feature Request", "feature_request"),
-                new CategoryItem("Other", "other")
+            new CategoryItem("Bug", "bug"),
+            new CategoryItem("Feature Request", "feature_request"),
+            new CategoryItem("Other", "other")
         });
 
         feedbackArea = new JTextArea(5, 40);
@@ -73,9 +71,7 @@ public class FeedbackDialog extends JDialog {
         screenshotPreviewLabel = new JLabel();
         if (screenshotImage != null) {
             var thumb = screenshotImage.getScaledInstance(
-                    Math.min(200, screenshotImage.getWidth() / 4),
-                    -1,
-                    Image.SCALE_SMOOTH);
+                    Math.min(200, screenshotImage.getWidth() / 4), -1, Image.SCALE_SMOOTH);
             screenshotPreviewLabel.setIcon(new ImageIcon(thumb));
             // Add a thin border that matches the current Look & Feel's focus color
             var focusColor = UIManager.getColor("Focus.color");
@@ -107,25 +103,30 @@ public class FeedbackDialog extends JDialog {
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
         // Category
-        gbc.gridx = 0; gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
         form.add(new JLabel("Category:"), gbc);
         gbc.gridx = 1;
         form.add(categoryCombo, gbc);
 
         // Feedback label
-        gbc.gridx = 0; gbc.gridy = 1;
+        gbc.gridx = 0;
+        gbc.gridy = 1;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         form.add(new JLabel("Feedback:"), gbc);
 
         // Feedback area
         gbc.gridx = 1;
-        gbc.weightx = 1.0; gbc.weighty = 1.0;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.BOTH;
         form.add(new JScrollPane(feedbackArea), gbc);
 
         // Checkboxes
-        gbc.gridx = 1; gbc.gridy = 2;
-        gbc.weighty = 0; gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 1;
+        gbc.gridy = 2;
+        gbc.weighty = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
         form.add(includeDebugLogCheckBox, gbc);
         gbc.gridy = 3;
         form.add(includeScreenshotCheckBox, gbc);
@@ -154,10 +155,8 @@ public class FeedbackDialog extends JDialog {
         var includeScreenshot = includeScreenshotCheckBox.isSelected();
 
         if (feedbackText.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                                          "Feedback text cannot be empty.",
-                                          "Validation Error",
-                                          JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this, "Feedback text cannot be empty.", "Validation Error", JOptionPane.WARNING_MESSAGE);
             sendButton.setEnabled(true);
             return;
         }
@@ -193,10 +192,11 @@ public class FeedbackDialog extends JDialog {
                 protected void done() {
                     try {
                         get(); // propagate exception if any
-                        JOptionPane.showMessageDialog(chrome.getFrame(),
-                                                      "Thank you for your feedback!",
-                                                      "Feedback Sent",
-                                                      JOptionPane.INFORMATION_MESSAGE);
+                        JOptionPane.showMessageDialog(
+                                chrome.getFrame(),
+                                "Thank you for your feedback!",
+                                "Feedback Sent",
+                                JOptionPane.INFORMATION_MESSAGE);
                     } catch (Exception ex) {
                         chrome.toolError("Failed to send feedback: " + ex.getMessage());
                     } finally {
@@ -210,9 +210,7 @@ public class FeedbackDialog extends JDialog {
         });
     }
 
-    /**
-     * Capture the current frame as a BufferedImage.
-     */
+    /** Capture the current frame as a BufferedImage. */
     private static BufferedImage captureScreenshotImage(Frame frame) {
         var img = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB);
         var g2 = img.createGraphics();
@@ -221,18 +219,14 @@ public class FeedbackDialog extends JDialog {
         return img;
     }
 
-    /**
-     * Show the captured screenshot in a modal dialog at 50% scale.
-     */
+    /** Show the captured screenshot in a modal dialog at 50% scale. */
     private void showScreenshotDialog() {
         if (screenshotImage == null) {
             return;
         }
         var dialog = new JDialog(this, "Screenshot Preview", true);
         var scaled = screenshotImage.getScaledInstance(
-                screenshotImage.getWidth() / 2,
-                screenshotImage.getHeight() / 2,
-                Image.SCALE_SMOOTH);
+                screenshotImage.getWidth() / 2, screenshotImage.getHeight() / 2, Image.SCALE_SMOOTH);
         var imgLabel = new JLabel(new ImageIcon(scaled));
         var focusColor = UIManager.getColor("Focus.color");
         if (focusColor == null) {

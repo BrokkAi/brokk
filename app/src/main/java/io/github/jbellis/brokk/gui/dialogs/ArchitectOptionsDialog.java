@@ -1,28 +1,25 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
-import java.util.Objects;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import io.github.jbellis.brokk.util.Environment;
 import java.util.function.BiFunction;
+import javax.swing.*;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * A modal dialog to configure the tools available to the Architect agent.
- */
+/** A modal dialog to configure the tools available to the Architect agent. */
 public class ArchitectOptionsDialog {
 
     private static boolean isCodeIntelConfigured(IProject project) {
@@ -30,12 +27,11 @@ public class ArchitectOptionsDialog {
         return !langs.isEmpty() && !(langs.size() == 1 && langs.contains(Language.NONE));
     }
     /**
-     * Shows a modal dialog synchronously on the Event Dispatch Thread (EDT) to configure
-     * Architect tools and returns the chosen options, or null if cancelled.
-     * This method blocks the calling thread until the dialog is closed.
+     * Shows a modal dialog synchronously on the Event Dispatch Thread (EDT) to configure Architect tools and returns
+     * the chosen options, or null if cancelled. This method blocks the calling thread until the dialog is closed.
      * Remembers the last selection for the current session.
      *
-     * @param chrome         The main application window reference for positioning and theme.
+     * @param chrome The main application window reference for positioning and theme.
      * @return The selected ArchitectChoices (options + worktree preference), or null if the dialog was cancelled.
      */
     @Nullable
@@ -64,13 +60,15 @@ public class ArchitectOptionsDialog {
             mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
             mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            JLabel explanationLabel = new JLabel("Select the sub-agents and tools that the Architect agent will have access to:");
+            JLabel explanationLabel =
+                    new JLabel("Select the sub-agents and tools that the Architect agent will have access to:");
             explanationLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
             mainPanel.add(explanationLabel);
 
             // Helper to create checkbox with description
             BiFunction<String, String, JCheckBox> createCheckbox = (text, description) -> {
-                JCheckBox cb = new JCheckBox("<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>");
+                JCheckBox cb =
+                        new JCheckBox("<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>");
                 cb.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0)); // Spacing below checkbox
                 cb.setAlignmentX(Component.LEFT_ALIGNMENT);
                 mainPanel.add(cb);
@@ -84,27 +82,34 @@ public class ArchitectOptionsDialog {
             var codeCb = createCheckbox.apply("Code Agent", "Allow invoking the Code Agent to modify files");
             codeCb.setSelected(currentOptions.includeCodeAgent());
 
-            var validationCb = createCheckbox.apply("Validation Agent", "Infer test files to include with each Code Agent call");
+            var validationCb =
+                    createCheckbox.apply("Validation Agent", "Infer test files to include with each Code Agent call");
             validationCb.setSelected(currentOptions.includeValidationAgent());
 
-            var analyzerCb = createCheckbox.apply("Code Intelligence Tools", "Allow direct querying of code structure (e.g., find usages, call graphs)");
+            var analyzerCb = createCheckbox.apply(
+                    "Code Intelligence Tools",
+                    "Allow direct querying of code structure (e.g., find usages, call graphs)");
             analyzerCb.setSelected(currentOptions.includeAnalyzerTools() && codeIntelConfigured);
             analyzerCb.setEnabled(isCpg && codeIntelConfigured); // Disable if not a CPG or if CI is not configured
 
             if (!codeIntelConfigured) {
-                analyzerCb.setToolTipText("Code Intelligence is not configured. Please configure languages in Project Settings.");
+                analyzerCb.setToolTipText(
+                        "Code Intelligence is not configured. Please configure languages in Project Settings.");
             } else if (!isCpg) {
-                analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available".formatted(project.getAnalyzerLanguages()));
+                analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available"
+                        .formatted(project.getAnalyzerLanguages()));
             }
 
-            var workspaceCb = createCheckbox.apply("Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the Workspace");
+            var workspaceCb = createCheckbox.apply(
+                    "Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the Workspace");
             workspaceCb.setSelected(currentOptions.includeWorkspaceTools());
 
-            var searchCb = createCheckbox.apply("Search Agent", "Allow invoking the Search Agent to find information beyond the current Workspace");
+            var searchCb = createCheckbox.apply(
+                    "Search Agent", "Allow invoking the Search Agent to find information beyond the current Workspace");
             searchCb.setSelected(currentOptions.includeSearchAgent());
 
-            var shellCb = createCheckbox.apply("Sandboxed Shell Command",
-                                               "Allow executing shell commands inside a sandbox");
+            var shellCb =
+                    createCheckbox.apply("Sandboxed Shell Command", "Allow executing shell commands inside a sandbox");
             boolean sandboxAvailable = Environment.isSandboxAvailable();
             shellCb.setEnabled(sandboxAvailable);
             shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
@@ -112,7 +117,8 @@ public class ArchitectOptionsDialog {
                 shellCb.setToolTipText("Sandbox execution is not available on this platform.");
             }
 
-            var askHumanCb = createCheckbox.apply("Ask-a-Human", "Allow the agent to request guidance from the user via a dialog");
+            var askHumanCb = createCheckbox.apply(
+                    "Ask-a-Human", "Allow the agent to request guidance from the user via a dialog");
             askHumanCb.setSelected(currentOptions.includeAskHuman());
 
             // --- Git Tools Separator and Header ---
@@ -125,21 +131,30 @@ public class ArchitectOptionsDialog {
             var prCb = createPrCheckbox(project, currentOptions, createCheckbox, gitState);
 
             // Keep commit & PR checkboxes consistent
-            prCb.addActionListener(e -> { if (prCb.isSelected()) commitCb.setSelected(true); });
-            commitCb.addActionListener(e -> { if (!commitCb.isSelected()) prCb.setSelected(false); });
+            prCb.addActionListener(e -> {
+                if (prCb.isSelected()) commitCb.setSelected(true);
+            });
+            commitCb.addActionListener(e -> {
+                if (!commitCb.isSelected()) prCb.setSelected(false);
+            });
 
             // --- Worktree Checkbox ---
-            var worktreeCb = new JCheckBox("<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
+            var worktreeCb = new JCheckBox(
+                    "<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
             worktreeCb.setAlignmentX(Component.LEFT_ALIGNMENT);
-            worktreeCb.setToolTipText("Create and run the Architect agent in a new Git worktree based on the current commit.");
-            boolean worktreesSupported = gitState.gitAvailable() && gitState.repo() != null && gitState.repo().supportsWorktrees();
+            worktreeCb.setToolTipText(
+                    "Create and run the Architect agent in a new Git worktree based on the current commit.");
+            boolean worktreesSupported = gitState.gitAvailable()
+                    && gitState.repo() != null
+                    && gitState.repo().supportsWorktrees();
             worktreeCb.setEnabled(worktreesSupported);
             worktreeCb.setSelected(currentRunInWorktree && worktreesSupported); // Only selected if supported
 
             if (!gitState.gitAvailable()) {
                 worktreeCb.setToolTipText("Git is not configured for this project.");
             } else if (!worktreesSupported) {
-                worktreeCb.setToolTipText("Git worktrees are not supported by your Git version or repository configuration.");
+                worktreeCb.setToolTipText(
+                        "Git worktrees are not supported by your Git version or repository configuration.");
             }
             mainPanel.add(worktreeCb);
 
@@ -158,15 +173,16 @@ public class ArchitectOptionsDialog {
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
                         contextCb.isSelected(),
                         validationCb.isSelected(),
-                        isCpg && codeIntelConfigured && analyzerCb.isSelected(), // Force false if not CPG or CI not configured
+                        isCpg
+                                && codeIntelConfigured
+                                && analyzerCb.isSelected(), // Force false if not CPG or CI not configured
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
                         searchCb.isSelected(),
                         askHumanCb.isSelected(),
                         commitCb.isSelected(), // Persist Git commit option
                         prCb.isSelected(),
-                        shellCb.isSelected()
-                );
+                        shellCb.isSelected());
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 
                 // Persist to project settings if a project is available
@@ -191,10 +207,14 @@ public class ArchitectOptionsDialog {
             });
 
             // Bind Escape key to Cancel action
-            dialog.getRootPane().registerKeyboardAction(e -> {
-                resultHolder.compareAndSet(null, null);
-                dialog.dispose();
-            }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_IN_FOCUSED_WINDOW);
+            dialog.getRootPane()
+                    .registerKeyboardAction(
+                            e -> {
+                                resultHolder.compareAndSet(null, null);
+                                dialog.dispose();
+                            },
+                            KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                            JComponent.WHEN_IN_FOCUSED_WINDOW);
 
             dialog.pack();
             dialog.setLocationRelativeTo(chrome.getFrame()); // Center relative to parent
@@ -205,7 +225,8 @@ public class ArchitectOptionsDialog {
         return resultHolder.get();
     }
 
-    private record GitState(boolean gitAvailable, boolean onDefaultBranch, String defaultBranchName, @Nullable GitRepo repo) {
+    private record GitState(
+            boolean gitAvailable, boolean onDefaultBranch, String defaultBranchName, @Nullable GitRepo repo) {
         static GitState from(@Nullable IProject project) {
             if (project == null || !project.hasGit()) {
                 return new GitState(false, false, "", null);
@@ -216,20 +237,20 @@ public class ArchitectOptionsDialog {
                 var onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
                 return new GitState(true, onDefaultBranch, defaultBranchName, repo);
             } catch (GitAPIException e) {
-                // if there's an API exception (e.g., no default branch), we can't be sure of the state, so disable git features
+                // if there's an API exception (e.g., no default branch), we can't be sure of the state, so disable git
+                // features
                 return new GitState(false, false, "", null);
             }
         }
     }
 
-    private static JCheckBox createCommitCheckbox(ArchitectAgent.ArchitectOptions currentOptions,
-                                                  BiFunction<String, String, JCheckBox> createCheckbox,
-                                                  GitState gitState)
-    {
+    private static JCheckBox createCommitCheckbox(
+            ArchitectAgent.ArchitectOptions currentOptions,
+            BiFunction<String, String, JCheckBox> createCheckbox,
+            GitState gitState) {
         var commitUsable = gitState.gitAvailable();
 
-        var commitCb = createCheckbox.apply("Commit changes",
-                                            "Stage & commit all current edits.");
+        var commitCb = createCheckbox.apply("Commit changes", "Stage & commit all current edits.");
         commitCb.setEnabled(commitUsable);
         commitCb.setSelected(commitUsable && currentOptions.includeGitCommit());
 
@@ -239,27 +260,29 @@ public class ArchitectOptionsDialog {
         return commitCb;
     }
 
-    private static JCheckBox createPrCheckbox(@Nullable IProject project,
-                                              ArchitectAgent.ArchitectOptions currentOptions,
-                                              BiFunction<String, String, JCheckBox> createCheckbox,
-                                              GitState gitState)
-    {
+    private static JCheckBox createPrCheckbox(
+            @Nullable IProject project,
+            ArchitectAgent.ArchitectOptions currentOptions,
+            BiFunction<String, String, JCheckBox> createCheckbox,
+            GitState gitState) {
         boolean prDisabled = !gitState.gitAvailable()
-                             || gitState.onDefaultBranch()
-                             || project == null
-                             || !GitHubAuth.tokenPresent(project)
-                             || gitState.repo() == null
-                             || gitState.repo().getRemoteUrl("origin") == null;
+                || gitState.onDefaultBranch()
+                || project == null
+                || !GitHubAuth.tokenPresent(project)
+                || gitState.repo() == null
+                || gitState.repo().getRemoteUrl("origin") == null;
 
-        var prCb = createCheckbox.apply("Create PR (includes push)",
-                                        "Pushes current branch and opens a pull request. Disabled on default branch or without token.");
+        var prCb = createCheckbox.apply(
+                "Create PR (includes push)",
+                "Pushes current branch and opens a pull request. Disabled on default branch or without token.");
         prCb.setEnabled(!prDisabled);
         prCb.setSelected(!prDisabled && currentOptions.includeGitCreatePr());
 
         if (!gitState.gitAvailable()) {
             prCb.setToolTipText("No Git repository detected for this project.");
         } else if (gitState.onDefaultBranch()) {
-            prCb.setToolTipText("Cannot create PR from the default branch (%s).".formatted(gitState.defaultBranchName()));
+            prCb.setToolTipText(
+                    "Cannot create PR from the default branch (%s).".formatted(gitState.defaultBranchName()));
         } else if (project == null || !GitHubAuth.tokenPresent(project)) {
             prCb.setToolTipText("No GitHub credentials found (e.g. GITHUB_TOKEN environment variable).");
         } else if (gitState.repo() == null || gitState.repo().getRemoteUrl("origin") == null) {

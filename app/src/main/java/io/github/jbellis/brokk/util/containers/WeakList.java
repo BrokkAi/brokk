@@ -6,26 +6,27 @@
  */
 package io.github.jbellis.brokk.util.containers;
 
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.Unmodifiable;
-
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.*;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 
 /**
  * Implementation of the {@link Collection} interface which:
+ *
  * <ul>
- *   <li>Stores elements using weak semantics (see {@link java.lang.ref.WeakReference})</li>
- *   <li>Automatically reclaims storage for garbage collected elements</li>
- *   <li>Is thread safe</li>
- *   <li>Is NOT RandomAccess, because garbage collector can remove element at any time</li>
- *   <li>Does NOT support null elements</li>
+ *   <li>Stores elements using weak semantics (see {@link java.lang.ref.WeakReference})
+ *   <li>Automatically reclaims storage for garbage collected elements
+ *   <li>Is thread safe
+ *   <li>Is NOT RandomAccess, because garbage collector can remove element at any time
+ *   <li>Does NOT support null elements
  * </ul>
- * Please note that since weak references can be collected at any time, index-based methods (like get(index))
- * or size-based methods (like size()) are dangerous, misleading, error-inducing and are not supported.
- * Instead, please use {@link #add(T)} and {@link #iterator()}.
+ *
+ * Please note that since weak references can be collected at any time, index-based methods (like get(index)) or
+ * size-based methods (like size()) are dangerous, misleading, error-inducing and are not supported. Instead, please use
+ * {@link #add(T)} and {@link #iterator()}.
  */
 public final class WeakList<T> extends AbstractCollection<T> {
 
@@ -198,7 +199,6 @@ public final class WeakList<T> extends AbstractCollection<T> {
         }
     }
 
-
     private final class MyIterator implements Iterator<T> {
         private final int startModCount;
         private int curIndex;
@@ -206,7 +206,9 @@ public final class WeakList<T> extends AbstractCollection<T> {
 
         private int nextIndex = -1;
         private @Nullable T nextElement;
-        private boolean modified; // set this flag on modification and update modCount in the very end of iteration to avoid CME on each remove()
+        private boolean
+                modified; // set this flag on modification and update modCount in the very end of iteration to avoid CME
+        // on each remove()
 
         private MyIterator() {
             startModCount = modCount;
@@ -303,14 +305,14 @@ public final class WeakList<T> extends AbstractCollection<T> {
     }
 
     /**
-     * @deprecated Since weak references can be collected at any time,
-     * this method considered dangerous, misleading, error-inducing and is not supported.
-     * Instead, please use {@link #add(T)} and {@link #iterator()}.
+     * @deprecated Since weak references can be collected at any time, this method considered dangerous, misleading,
+     *     error-inducing and is not supported. Instead, please use {@link #add(T)} and {@link #iterator()}.
      */
     @Override
     @Deprecated
     public int size() {
-        throw new UnsupportedOperationException("index/size-based operations in UnsafeWeakList are not supported because they don't make sense in the presence of weak references. Use .iterator() (which retains its elements to avoid sudden GC) instead.");
+        throw new UnsupportedOperationException(
+                "index/size-based operations in UnsafeWeakList are not supported because they don't make sense in the presence of weak references. Use .iterator() (which retains its elements to avoid sudden GC) instead.");
     }
 
     public @Unmodifiable List<T> copyAndClear() {

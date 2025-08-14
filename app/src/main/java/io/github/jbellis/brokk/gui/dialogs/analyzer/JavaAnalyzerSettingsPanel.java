@@ -4,20 +4,17 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.prefs.Preferences;
+import javax.swing.*;
 
 /**
- * Configuration panel for the Java analyzer – lets the user choose the JDK
- * home directory.  Persisted in the user preferences under a key that is
- * unique per project.
+ * Configuration panel for the Java analyzer – lets the user choose the JDK home directory. Persisted in the user
+ * preferences under a key that is unique per project.
  */
 public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
 
@@ -68,9 +65,11 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         long maxMemoryMB = Runtime.getRuntime().maxMemory() / (1024 * 1024);
         // If maxMemory returns Long.MAX_VALUE, use total memory instead
         if (maxMemoryMB > 100000) {
-            maxMemoryMB = Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
+            maxMemoryMB =
+                    Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
         }
-        memorySpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int) Math.min(maxMemoryMB, 32768), 256));
+        memorySpinner = new JSpinner(
+                new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int) Math.min(maxMemoryMB, 32768), 256));
         memorySpinner.setPreferredSize(new Dimension(80, memorySpinner.getPreferredSize().height));
 
         // Create a panel to hold the spinner and warning together
@@ -78,7 +77,8 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         memoryPanel.add(memorySpinner);
 
         // Memory warning label
-        memoryWarningLabel = new JLabel("<html><font color='orange'>⚠ Restart required</font> - <a href='#'>Restart now</a></html>");
+        memoryWarningLabel =
+                new JLabel("<html><font color='orange'>⚠ Restart required</font> - <a href='#'>Restart now</a></html>");
         memoryWarningLabel.setCursor(new Cursor(Cursor.HAND_CURSOR));
         memoryWarningLabel.setVisible(false);
         memoryWarningLabel.addMouseListener(new MouseAdapter() {
@@ -89,8 +89,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
                         "Save settings and restart Brokk to apply the memory change?",
                         "Restart Required",
                         JOptionPane.YES_NO_OPTION,
-                        JOptionPane.QUESTION_MESSAGE
-                );
+                        JOptionPane.QUESTION_MESSAGE);
                 if (result == JOptionPane.YES_OPTION) {
                     // Save settings first
                     saveSettings();
@@ -102,7 +101,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         });
 
         memoryPanel.add(memoryWarningLabel);
-        
+
         gbc.gridx = 1;
         gbc.gridy = 1;
         gbc.gridwidth = 2;
@@ -135,7 +134,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
     }
 
     /* Preference-key scoped to the current project root so different projects
-       can keep independent JDK selections. */
+    can keep independent JDK selections. */
     private String getPrefKey() {
         return PREF_KEY_PREFIX + Integer.toHexString(projectRoot.hashCode());
     }
@@ -154,9 +153,7 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         memoryWarningLabel.setVisible(false);
     }
 
-    /**
-     * @return the saved memory value in MB.
-     */
+    /** @return the saved memory value in MB. */
     public static int getSavedMemoryValueMb() {
         final Preferences prefs = Preferences.userNodeForPackage(SettingsProjectPanel.class);
         return prefs.getInt(PREF_MEMORY_KEY_PREFIX, DEFAULT_MEMORY_MB);
@@ -166,9 +163,8 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
     public void saveSettings() {
         final String value = jdkHomeField.getText().trim();
         if (value.isEmpty()) {
-            consoleIO.systemNotify("Please specify a valid JDK home directory.",
-                    "Invalid JDK Path",
-                    JOptionPane.WARNING_MESSAGE);
+            consoleIO.systemNotify(
+                    "Please specify a valid JDK home directory.", "Invalid JDK Path", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -176,7 +172,8 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         try {
             jdkPath = Path.of(value).normalize().toAbsolutePath();
         } catch (InvalidPathException ex) {
-            consoleIO.systemNotify("The path \"" + value + "\" is not a valid file-system path.",
+            consoleIO.systemNotify(
+                    "The path \"" + value + "\" is not a valid file-system path.",
                     "Invalid JDK Path",
                     JOptionPane.ERROR_MESSAGE);
             logger.warn("Invalid JDK path string: {}", value, ex);
@@ -184,19 +181,21 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         }
 
         if (!Files.isDirectory(jdkPath)) {
-            consoleIO.systemNotify("The path \"" + jdkPath + "\" does not exist or is not a directory.",
+            consoleIO.systemNotify(
+                    "The path \"" + jdkPath + "\" does not exist or is not a directory.",
                     "Invalid JDK Path",
                     JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        final boolean hasJavac = Files.isRegularFile(jdkPath.resolve("bin/javac")) ||
-                Files.isRegularFile(jdkPath.resolve("bin/javac.exe"));
-        final boolean hasJava = Files.isRegularFile(jdkPath.resolve("bin/java")) ||
-                Files.isRegularFile(jdkPath.resolve("bin/java.exe"));
+        final boolean hasJavac = Files.isRegularFile(jdkPath.resolve("bin/javac"))
+                || Files.isRegularFile(jdkPath.resolve("bin/javac.exe"));
+        final boolean hasJava = Files.isRegularFile(jdkPath.resolve("bin/java"))
+                || Files.isRegularFile(jdkPath.resolve("bin/java.exe"));
 
         if (!hasJavac || !hasJava) {
-            consoleIO.systemNotify("The directory \"" + jdkPath + "\" does not appear to be a valid JDK home.",
+            consoleIO.systemNotify(
+                    "The directory \"" + jdkPath + "\" does not appear to be a valid JDK home.",
                     "Invalid JDK Path",
                     JOptionPane.ERROR_MESSAGE);
             return;
@@ -214,7 +213,8 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
                         .updateWorkspaceJdk(projectRoot, jdkPath)
                         .join();
             } catch (Exception ex) {
-                consoleIO.systemNotify("Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
+                consoleIO.systemNotify(
+                        "Failed to apply the selected JDK to the Java analyzer. Please check the logs for details.",
                         "JDK Update Failed",
                         JOptionPane.ERROR_MESSAGE);
                 logger.error("Failed updating workspace JDK to {}", jdkPath, ex);
@@ -238,10 +238,10 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         memoryWarningLabel.setVisible(false);
 
         if (memoryChanged) {
-            consoleIO.systemNotify("Memory setting changed. Please restart Brokk for the change to take effect.",
+            consoleIO.systemNotify(
+                    "Memory setting changed. Please restart Brokk for the change to take effect.",
                     "Restart Required",
                     JOptionPane.INFORMATION_MESSAGE);
         }
     }
-
 }

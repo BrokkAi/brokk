@@ -9,20 +9,18 @@ import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
-
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.swing.*;
 
 /**
- * A lightweight, head-less {@link IConsoleIO} implementation that writes LLM
- * output to {@code System.out} and tool errors to {@code System.err}.  All
- * other {@code IConsoleIO} methods inherit their default no-op behaviour,
- * which is sufficient for a command-line environment with no GUI.
+ * A lightweight, head-less {@link IConsoleIO} implementation that writes LLM output to {@code System.out} and tool
+ * errors to {@code System.err}. All other {@code IConsoleIO} methods inherit their default no-op behaviour, which is
+ * sufficient for a command-line environment with no GUI.
  */
 public final class HeadlessConsole implements IConsoleIO {
-    List<ChatMessage> messages =  new ArrayList<>();
+    List<ChatMessage> messages = new ArrayList<>();
 
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
@@ -76,9 +74,7 @@ public final class HeadlessConsole implements IConsoleIO {
 
     @Override
     public String getLlmOutputText() {
-        return getLlmRawMessages().stream()
-                .map(Messages::getText)
-                .collect(Collectors.joining("\n"));
+        return getLlmRawMessages().stream().map(Messages::getText).collect(Collectors.joining("\n"));
     }
 
     @Override

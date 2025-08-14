@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.cli;
 
+import static java.util.Objects.requireNonNull;
+
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
@@ -12,16 +14,12 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import org.jetbrains.annotations.Nullable;
-import picocli.CommandLine;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,11 +35,13 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.Nullable;
+import picocli.CommandLine;
 
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fiels are initialized in picocli's call()
-@CommandLine.Command(name = "brokk-cli", mixinStandardHelpOptions = true,
+@CommandLine.Command(
+        name = "brokk-cli",
+        mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(names = "--project", description = "Path to the project root.", required = true)
@@ -54,28 +54,44 @@ public final class BrokkCli implements Callable<Integer> {
     @CommandLine.Option(names = "--read", description = "Add a file to the workspace as read-only. Can be repeated.")
     private List<String> readFiles = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-class", description = "Add the file containing the given FQCN to the workspace for editing. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-class",
+            description = "Add the file containing the given FQCN to the workspace for editing. Can be repeated.")
     private List<String> addClasses = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-url", description = "Add content from a URL as a read-only fragment. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-url",
+            description = "Add content from a URL as a read-only fragment. Can be repeated.")
     private List<String> addUrls = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-usage", description = "Add usages of a FQ symbol as a dynamic fragment. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-usage",
+            description = "Add usages of a FQ symbol as a dynamic fragment. Can be repeated.")
     private List<String> addUsages = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-summary-class", description = "Add a class summary/skeleton as a dynamic fragment. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-summary-class",
+            description = "Add a class summary/skeleton as a dynamic fragment. Can be repeated.")
     private List<String> addSummaryClasses = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-summary-file", description = "Add summaries for all classes in a file/glob as a dynamic fragment. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-summary-file",
+            description = "Add summaries for all classes in a file/glob as a dynamic fragment. Can be repeated.")
     private List<String> addSummaryFiles = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-method-source", description = "Add the source of a FQ method as a fragment. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-method-source",
+            description = "Add the source of a FQ method as a fragment. Can be repeated.")
     private List<String> addMethodSources = new ArrayList<>();
 
-    @CommandLine.Option(names = "--add-callers", description = "Add callers of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-callers",
+            description = "Add callers of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
     private Map<String, Integer> addCallers = Map.of();
 
-    @CommandLine.Option(names = "--add-callees", description = "Add callees of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
+    @CommandLine.Option(
+            names = "--add-callees",
+            description = "Add callees of a FQ method. Format: <FQN>=<depth>. Can be repeated.")
     private Map<String, Integer> addCallees = Map.of();
 
     @CommandLine.Option(names = "--architect", description = "Run Architect agent with the given prompt.")
@@ -94,7 +110,9 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String searchPrompt;
 
-    @CommandLine.Option(names = "--worktree", description = "Create a detached worktree at the given path, from the default branch's HEAD.")
+    @CommandLine.Option(
+            names = "--worktree",
+            description = "Create a detached worktree at the given path, from the default branch's HEAD.")
     @Nullable
     private Path worktreePath;
 
@@ -107,8 +125,11 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private String codeModelName;
 
-    @CommandLine.Option(names = "--deepscan", description = "Perform a Deep Scan to suggest additional relevant context.")
+    @CommandLine.Option(
+            names = "--deepscan",
+            description = "Perform a Deep Scan to suggest additional relevant context.")
     private boolean deepScan = false;
+
     private ContextManager cm;
     private AbstractProject project;
 
@@ -124,8 +145,8 @@ public final class BrokkCli implements Callable<Integer> {
     public Integer call() throws Exception {
         // --- Action Validation ---
         long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
-                                 .filter(p -> p != null && !p.isBlank())
-                                 .count();
+                .filter(p -> p != null && !p.isBlank())
+                .count();
         if (actionCount > 1) {
             System.err.println("At most one action (--architect, --code, --ask, --search) can be specified.");
             return 1;
@@ -151,9 +172,9 @@ public final class BrokkCli implements Callable<Integer> {
         //  Expand @file syntax for prompt parameters
         try {
             architectPrompt = maybeLoadFromFile(architectPrompt);
-            codePrompt      = maybeLoadFromFile(codePrompt);
-            askPrompt       = maybeLoadFromFile(askPrompt);
-            searchPrompt    = maybeLoadFromFile(searchPrompt);
+            codePrompt = maybeLoadFromFile(codePrompt);
+            askPrompt = maybeLoadFromFile(askPrompt);
+            searchPrompt = maybeLoadFromFile(searchPrompt);
         } catch (IOException e) {
             System.err.println("Error reading prompt file: " + e.getMessage());
             return 1;
@@ -236,7 +257,8 @@ public final class BrokkCli implements Callable<Integer> {
         if (cpgRequired) {
             var analyzer = cm.getAnalyzer();
             if (!analyzer.isCpg()) {
-                System.err.println("One or more of the requested options requires Code Intelligence, which is not available.");
+                System.err.println(
+                        "One or more of the requested options requires Code Intelligence, which is not available.");
                 return 1;
             }
         }
@@ -248,10 +270,10 @@ public final class BrokkCli implements Callable<Integer> {
         var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
 
         // If any resolution failed, the helper methods will have printed an error.
-        if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty()) ||
-                (resolvedReadFiles.isEmpty() && !readFiles.isEmpty()) ||
-                (resolvedClasses.isEmpty() && !addClasses.isEmpty()) ||
-                (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
+        if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
+                || (resolvedReadFiles.isEmpty() && !readFiles.isEmpty())
+                || (resolvedClasses.isEmpty() && !addClasses.isEmpty())
+                || (resolvedSummaryClasses.isEmpty() && !addSummaryClasses.isEmpty())) {
             return 1;
         }
 
@@ -260,14 +282,10 @@ public final class BrokkCli implements Callable<Integer> {
             cm.editFiles(resolvedEditFiles.stream().map(cm::toFile).toList());
         if (!resolvedReadFiles.isEmpty())
             cm.addReadOnlyFiles(resolvedReadFiles.stream().map(cm::toFile).toList());
-        if (!resolvedClasses.isEmpty())
-            workspaceTools.addClassesToWorkspace(resolvedClasses);
-        if (!resolvedSummaryClasses.isEmpty())
-            workspaceTools.addClassSummariesToWorkspace(resolvedSummaryClasses);
-        if (!addSummaryFiles.isEmpty())
-            workspaceTools.addFileSummariesToWorkspace(addSummaryFiles);
-        if (!addMethodSources.isEmpty())
-            workspaceTools.addMethodSourcesToWorkspace(addMethodSources);
+        if (!resolvedClasses.isEmpty()) workspaceTools.addClassesToWorkspace(resolvedClasses);
+        if (!resolvedSummaryClasses.isEmpty()) workspaceTools.addClassSummariesToWorkspace(resolvedSummaryClasses);
+        if (!addSummaryFiles.isEmpty()) workspaceTools.addFileSummariesToWorkspace(addSummaryFiles);
+        if (!addMethodSources.isEmpty()) workspaceTools.addMethodSourcesToWorkspace(addMethodSources);
         addUrls.forEach(workspaceTools::addUrlContentsToWorkspace);
         addUsages.forEach(workspaceTools::addSymbolUsagesToWorkspace);
         addCallers.forEach(workspaceTools::addCallGraphInToWorkspace);
@@ -289,11 +307,13 @@ public final class BrokkCli implements Callable<Integer> {
 
             if (recommendations.success()) {
                 io.systemOutput("Deep Scan suggested "
-                                + recommendations.fragments().stream().map(ContextFragment::shortDescription).toList());
+                        + recommendations.fragments().stream()
+                                .map(ContextFragment::shortDescription)
+                                .toList());
                 for (var fragment : recommendations.fragments()) {
                     switch (fragment.getType()) {
                         case SKELETON -> cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
-                        default       -> cm.addSummaries(fragment.files(), Set.of());
+                        default -> cm.addSummaries(fragment.files(), Set.of());
                     }
                 }
             } else {
@@ -310,15 +330,18 @@ public final class BrokkCli implements Callable<Integer> {
             if (architectPrompt != null) {
                 var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                 var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
-                var agent = new ArchitectAgent(cm,
-                                               architectModel,
-                                               codeModel,
-                                               cm.getToolRegistry(),
-                                               architectPrompt,
-                                               ArchitectAgent.ArchitectOptions.DEFAULTS);
+                var agent = new ArchitectAgent(
+                        cm,
+                        architectModel,
+                        codeModel,
+                        cm.getToolRegistry(),
+                        architectPrompt,
+                        ArchitectAgent.ArchitectOptions.DEFAULTS);
                 result = agent.execute();
             } else if (codePrompt != null) {
-                var effectiveModel = codeModelOverride == null ? (taskModelOverride != null ? taskModelOverride : cm.getCodeModel()) : codeModelOverride;
+                var effectiveModel = codeModelOverride == null
+                        ? (taskModelOverride != null ? taskModelOverride : cm.getCodeModel())
+                        : codeModelOverride;
                 var agent = new CodeAgent(cm, effectiveModel);
                 result = agent.runTask(codePrompt, false);
             } else if (askPrompt != null) {
@@ -339,8 +362,11 @@ public final class BrokkCli implements Callable<Integer> {
         cm.addToHistory(result, false);
 
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            io.toolError(result.stopDetails().explanation(), result.stopDetails().reason().toString());
-            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let harness see how we did
+            io.toolError(
+                    result.stopDetails().explanation(),
+                    result.stopDetails().reason().toString());
+            // exit code is 0 since we ran the task as requested; we print out the metrics from Code Agent to let
+            // harness see how we did
         }
 
         return 0;
@@ -348,7 +374,8 @@ public final class BrokkCli implements Callable<Integer> {
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {
         Supplier<Collection<ProjectFile>> primarySource = project::getAllFiles;
-        Supplier<Collection<ProjectFile>> secondarySource = () -> project.getRepo().getTrackedFiles();
+        Supplier<Collection<ProjectFile>> secondarySource =
+                () -> project.getRepo().getTrackedFiles();
 
         return inputs.stream()
                 .map(input -> {
@@ -367,8 +394,8 @@ public final class BrokkCli implements Callable<Integer> {
         if (inputs.isEmpty()) {
             return List.of();
         }
-        Supplier<Collection<CodeUnit>> source = () -> analyzer.getAllDeclarations().stream()
-                .filter(cu -> cu.kind() == CodeUnitType.CLASS).toList();
+        Supplier<Collection<CodeUnit>> source = () ->
+                analyzer.getAllDeclarations().stream().filter(CodeUnit::isClass).toList();
         return inputs.stream()
                 .map(input -> resolve(input, source, List::of, CodeUnit::fqName, entityType))
                 .flatMap(Optional::stream)
@@ -376,12 +403,12 @@ public final class BrokkCli implements Callable<Integer> {
                 .toList();
     }
 
-    private <T> Optional<T> resolve(String userInput,
-                                    Supplier<Collection<T>> primarySourceSupplier,
-                                    Supplier<Collection<T>> secondarySourceSupplier,
-                                    Function<T, String> nameExtractor,
-                                    String entityType) 
-    {
+    private <T> Optional<T> resolve(
+            String userInput,
+            Supplier<Collection<T>> primarySourceSupplier,
+            Supplier<Collection<T>> secondarySourceSupplier,
+            Function<T, String> nameExtractor,
+            String entityType) {
         var primarySource = primarySourceSupplier.get();
         var primaryResult = findUnique(userInput, primarySource, nameExtractor, entityType, "primary source");
 
@@ -412,12 +439,21 @@ public final class BrokkCli implements Callable<Integer> {
         return Optional.empty();
     }
 
-    private <T> Optional<T> findUnique(String userInput, Collection<T> candidates, Function<T, String> nameExtractor, String entityType, String sourceDescription) {
+    private <T> Optional<T> findUnique(
+            String userInput,
+            Collection<T> candidates,
+            Function<T, String> nameExtractor,
+            String entityType,
+            String sourceDescription) {
         // 1. Case-insensitive
         var matches = findMatches(userInput, candidates, nameExtractor, true);
         if (matches.size() == 1) return Optional.of(matches.getFirst());
         if (matches.size() > 1) {
-            reportAmbiguity(userInput, matches.stream().map(nameExtractor).toList(), entityType, "case-insensitive, from " + sourceDescription);
+            reportAmbiguity(
+                    userInput,
+                    matches.stream().map(nameExtractor).toList(),
+                    entityType,
+                    "case-insensitive, from " + sourceDescription);
             return Optional.empty();
         }
 
@@ -425,39 +461,42 @@ public final class BrokkCli implements Callable<Integer> {
         matches = findMatches(userInput, candidates, nameExtractor, false);
         if (matches.size() == 1) return Optional.of(matches.getFirst());
         if (matches.size() > 1) {
-            reportAmbiguity(userInput, matches.stream().map(nameExtractor).toList(), entityType, "case-sensitive, from " + sourceDescription);
+            reportAmbiguity(
+                    userInput,
+                    matches.stream().map(nameExtractor).toList(),
+                    entityType,
+                    "case-sensitive, from " + sourceDescription);
             return Optional.empty();
         }
 
         return Optional.empty(); // Not found in this source
     }
 
-    private <T> List<T> findMatches(String userInput,
-                                    Collection<T> candidates,
-                                    Function<T, String> nameExtractor,
-                                    boolean caseInsensitive) {
+    private <T> List<T> findMatches(
+            String userInput, Collection<T> candidates, Function<T, String> nameExtractor, boolean caseInsensitive) {
         if (caseInsensitive) {
             var lowerInput = userInput.toLowerCase(Locale.ROOT);
             return candidates.stream()
-                             .filter(c -> nameExtractor.apply(c)
-                                                       .toLowerCase(Locale.ROOT)
-                                                       .contains(lowerInput))
-                             .toList();
+                    .filter(c -> nameExtractor.apply(c).toLowerCase(Locale.ROOT).contains(lowerInput))
+                    .toList();
         }
         return candidates.stream()
-                         .filter(c -> nameExtractor.apply(c).contains(userInput))
-                         .toList();
+                .filter(c -> nameExtractor.apply(c).contains(userInput))
+                .toList();
     }
 
     private void reportAmbiguity(String input, List<String> matches, String entityType, String context) {
-        System.err.printf("Error: Ambiguous %s '%s' (%s). Found multiple matches:%n%s%n",
-                          entityType, input, context,
-                          matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
+        System.err.printf(
+                "Error: Ambiguous %s '%s' (%s). Found multiple matches:%n%s%n",
+                entityType,
+                input,
+                context,
+                matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
     }
 
     /**
-     * If the prompt begins with '@', treat the remainder as a filename and
-     * return the file's contents; otherwise return the original prompt.
+     * If the prompt begins with '@', treat the remainder as a filename and return the file's contents; otherwise return
+     * the original prompt.
      */
     private @Nullable String maybeLoadFromFile(@Nullable String prompt) throws IOException {
         if (prompt == null || prompt.isBlank() || prompt.charAt(0) != '@') {

@@ -1,37 +1,37 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static io.github.jbellis.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
+
 import io.github.jbellis.brokk.IProject;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Set;
-
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of("class_definition"),
-            Set.of("function_definition"),
-            Set.of("assignment", "typed_parameter"),
-            Set.of("decorator"),
-            "name",        // identifierFieldName
-            "body",        // bodyFieldName
-            "parameters",  // parametersFieldName
+            Set.of(CLASS_DEFINITION),
+            Set.of(FUNCTION_DEFINITION),
+            Set.of(ASSIGNMENT, TYPED_PARAMETER),
+            Set.of(DECORATOR),
+            "name", // identifierFieldName
+            "body", // bodyFieldName
+            "parameters", // parametersFieldName
             "return_type", // returnTypeFieldName
-            "",            // typeParametersFieldName (Python doesn't have explicit type parameters)
+            "", // typeParametersFieldName (Python doesn't have explicit type parameters)
             java.util.Map.of( // captureConfiguration
-                "class.definition", SkeletonType.CLASS_LIKE,
-                "function.definition", SkeletonType.FUNCTION_LIKE,
-                "field.definition", SkeletonType.FIELD_LIKE
-            ),
+                    "class.definition", SkeletonType.CLASS_LIKE,
+                    "function.definition", SkeletonType.FUNCTION_LIKE,
+                    "field.definition", SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
-    );
+            );
 
     public PythonAnalyzer(IProject project, Set<String> excludedFiles) {
         super(project, Language.PYTHON, excludedFiles);
@@ -52,11 +52,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
-                                                String captureName,
-                                                String simpleName,
-                                                String packageName,
-                                                String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(
+            ProjectFile file, String captureName, String simpleName, String packageName, String classChain) {
         // The packageName parameter is now supplied by determinePackageName.
         // The classChain parameter is used for Joern-style short name generation.
 
@@ -72,17 +69,25 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 yield CodeUnit.cls(file, packageName, finalShortName);
             }
             case "function.definition" -> {
-                String finalShortName = classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
+                String finalShortName =
+                        classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
             case "field.definition" -> { // For class attributes or top-level variables
                 if (file.getFileName().equals("vars.py")) {
-                    log.trace("[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
-                              file.getFileName(), captureName, simpleName, packageName, classChain, moduleName);
+                    log.trace(
+                            "[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
+                            file.getFileName(),
+                            captureName,
+                            simpleName,
+                            packageName,
+                            classChain,
+                            moduleName);
                 }
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of a "."
+                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of
+                    // a "."
                     // This also makes it consistent with how top-level functions are named (moduleName.funcName)
                     finalShortName = moduleName + "." + simpleName;
                 } else {
@@ -110,16 +115,29 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(
+            TSNode funcNode,
+            String src,
+            String exportPrefix,
+            String asyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
         String pyReturnTypeSuffix = !returnTypeText.isEmpty() ? " -> " + returnTypeText : "";
         // The 'indent' parameter is now "" when called from buildSignatureString,
         // so it's effectively ignored here for constructing the stored signature.
-        String signature = String.format("%s%sdef %s%s%s:", exportPrefix, asyncPrefix, functionName, paramsText, pyReturnTypeSuffix);
+        String signature = String.format(
+                "%s%sdef %s%s%s:", exportPrefix, asyncPrefix, functionName, paramsText, pyReturnTypeSuffix);
 
         TSNode bodyNode = funcNode.getChildByFieldName("body");
-        boolean hasMeaningfulBody = bodyNode != null && !bodyNode.isNull() &&
-                                    (bodyNode.getNamedChildCount() > 1 ||
-                                     (bodyNode.getNamedChildCount() == 1 && !"pass_statement".equals(bodyNode.getNamedChild(0).getType())));
+        boolean hasMeaningfulBody = bodyNode != null
+                && !bodyNode.isNull()
+                && (bodyNode.getNamedChildCount() > 1
+                        || (bodyNode.getNamedChildCount() == 1
+                                && !"pass_statement"
+                                        .equals(bodyNode.getNamedChild(0).getType())));
 
         if (hasMeaningfulBody) {
             return signature + " " + bodyPlaceholder(); // Do not prepend indent here
@@ -129,7 +147,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
+    protected String renderClassHeader(
+            TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
         // The 'baseIndent' parameter is now "" when called from buildSignatureString.
         // Stored signature should be unindented.
         return signatureText; // Do not prepend baseIndent here
@@ -165,15 +184,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         // Calculate the relative path from the (parent of the effective package root OR project root)
         // to the file's parent directory.
-        Path rootForRelativize = effectivePackageRoot.equals(projectRoot) ? projectRoot : effectivePackageRoot.getParent();
+        Path rootForRelativize =
+                effectivePackageRoot.equals(projectRoot) ? projectRoot : effectivePackageRoot.getParent();
         if (rootForRelativize == null) { // Should not happen if projectRoot is valid
             rootForRelativize = projectRoot;
         }
 
-        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot, effectivePackageRoot is deeper due to missing __init__.py)
+        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot, effectivePackageRoot is deeper
+        // due to missing __init__.py)
         // or if parentDir is the same as rootForRelativize, then there's no relative package path.
         if (!parentDir.startsWith(rootForRelativize) || parentDir.equals(rootForRelativize)) {
-             return "";
+            return "";
         }
 
         var relPath = rootForRelativize.relativize(parentDir);

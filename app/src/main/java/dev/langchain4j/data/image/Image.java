@@ -5,9 +5,7 @@ import static dev.langchain4j.internal.Utils.quoted;
 import java.net.URI;
 import java.util.Objects;
 
-/**
- * Represents an image as a URL or as a Base64-encoded string.
- */
+/** Represents an image as a URL or as a Base64-encoded string. */
 public final class Image {
 
     private final URI url;
@@ -17,6 +15,7 @@ public final class Image {
 
     /**
      * Create a new {@link Image} from the Builder.
+     *
      * @param builder the builder.
      */
     private Image(Builder builder) {
@@ -28,6 +27,7 @@ public final class Image {
 
     /**
      * Create a new {@link Builder}.
+     *
      * @return the new {@link Builder}.
      */
     public static Builder builder() {
@@ -36,6 +36,7 @@ public final class Image {
 
     /**
      * Get the url of the image.
+     *
      * @return the url of the image, or null if not set.
      */
     public URI url() {
@@ -44,6 +45,7 @@ public final class Image {
 
     /**
      * Get the base64 data of the image.
+     *
      * @return the base64 data of the image, or null if not set.
      */
     public String base64Data() {
@@ -52,6 +54,7 @@ public final class Image {
 
     /**
      * Get the mime type of the image.
+     *
      * @return the mime type of the image, or null if not set.
      */
     public String mimeType() {
@@ -60,6 +63,7 @@ public final class Image {
 
     /**
      * Get the revised prompt of the image.
+     *
      * @return the revised prompt of the image, or null if not set.
      */
     public String revisedPrompt() {
@@ -84,17 +88,14 @@ public final class Image {
 
     @Override
     public String toString() {
-        return "Image {" +
-                " url = " + quoted(url) +
-                ", base64Data = " + quoted(base64Data) +
-                ", mimeType = " + quoted(mimeType) +
-                ", revisedPrompt = " + quoted(revisedPrompt) +
-                " }";
+        return "Image {" + " url = "
+                + quoted(url) + ", base64Data = "
+                + quoted(base64Data) + ", mimeType = "
+                + quoted(mimeType) + ", revisedPrompt = "
+                + quoted(revisedPrompt) + " }";
     }
 
-    /**
-     * Builder for {@link Image}.
-     */
+    /** Builder for {@link Image}. */
     public static class Builder {
 
         private URI url;
@@ -102,13 +103,12 @@ public final class Image {
         private String mimeType;
         private String revisedPrompt;
 
-        /**
-         * Create a new {@link Builder}.
-         */
+        /** Create a new {@link Builder}. */
         public Builder() {}
 
         /**
          * Set the url of the image.
+         *
          * @param url the url of the image.
          * @return {@code this}
          */
@@ -119,6 +119,7 @@ public final class Image {
 
         /**
          * Set the url of the image.
+         *
          * @param url the url of the image.
          * @return {@code this}
          */
@@ -128,6 +129,7 @@ public final class Image {
 
         /**
          * Set the base64 data of the image.
+         *
          * @param base64Data the base64 data of the image.
          * @return {@code this}
          */
@@ -138,6 +140,7 @@ public final class Image {
 
         /**
          * Set the mime type of the image.
+         *
          * @param mimeType the mime type of the image.
          * @return {@code this}
          */
@@ -148,6 +151,7 @@ public final class Image {
 
         /**
          * Set the revised prompt of the image.
+         *
          * @param revisedPrompt the revised prompt of the image.
          * @return {@code this}
          */
@@ -158,6 +162,7 @@ public final class Image {
 
         /**
          * Build the {@link Image}.
+         *
          * @return the {@link Image}.
          */
         public Image build() {

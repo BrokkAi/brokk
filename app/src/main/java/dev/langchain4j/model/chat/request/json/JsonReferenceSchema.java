@@ -5,9 +5,9 @@ import static dev.langchain4j.internal.Utils.quoted;
 import java.util.Objects;
 
 /**
- * Can reference {@link JsonObjectSchema} when recursion is required.
- * When used, the {@link JsonObjectSchema#definitions()} of the root JSON schema element
- * should contain an entry with a key equal to the {@link #reference()} of this {@link JsonReferenceSchema}.
+ * Can reference {@link JsonObjectSchema} when recursion is required. When used, the
+ * {@link JsonObjectSchema#definitions()} of the root JSON schema element should contain an entry with a key equal to
+ * the {@link #reference()} of this {@link JsonReferenceSchema}.
  */
 public class JsonReferenceSchema implements JsonSchemaElement {
 
@@ -59,8 +59,6 @@ public class JsonReferenceSchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonReferenceSchema {" +
-                "reference = " + quoted(reference) +
-                " }";
+        return "JsonReferenceSchema {" + "reference = " + quoted(reference) + " }";
     }
 }

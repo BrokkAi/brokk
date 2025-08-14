@@ -5,7 +5,18 @@ import static java.lang.reflect.Modifier.isStatic;
 import static java.util.Arrays.stream;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-
+import dev.langchain4j.model.chat.request.json.JsonAnyOfSchema;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
+import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
+import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
+import dev.langchain4j.model.chat.request.json.JsonNullSchema;
+import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.chat.request.json.JsonReferenceSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
+import dev.langchain4j.model.chat.request.json.JsonStringSchema;
+import dev.langchain4j.model.output.structured.Description;
 import java.lang.reflect.Field;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -20,19 +31,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import dev.langchain4j.model.chat.request.json.JsonAnyOfSchema;
-import dev.langchain4j.model.chat.request.json.JsonArraySchema;
-import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
-import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
-import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
-import dev.langchain4j.model.chat.request.json.JsonNullSchema;
-import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
-import dev.langchain4j.model.chat.request.json.JsonReferenceSchema;
-import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
-import dev.langchain4j.model.chat.request.json.JsonStringSchema;
-import dev.langchain4j.model.output.structured.Description;
-
 public class JsonSchemaElementUtils {
 
     private static final String DEFAULT_UUID_DESCRIPTION = "String in a UUID format";
@@ -41,11 +39,12 @@ public class JsonSchemaElementUtils {
         return jsonSchemaElementFrom(clazz, clazz, null, false, new LinkedHashMap<>());
     }
 
-    public static JsonSchemaElement jsonSchemaElementFrom(Class<?> clazz,
-                                                          Type type,
-                                                          String fieldDescription,
-                                                          boolean areSubFieldsRequiredByDefault,
-                                                          Map<Class<?>, VisitedClassMetadata> visited) {
+    public static JsonSchemaElement jsonSchemaElementFrom(
+            Class<?> clazz,
+            Type type,
+            String fieldDescription,
+            boolean areSubFieldsRequiredByDefault,
+            Map<Class<?>, VisitedClassMetadata> visited) {
         if (isJsonString(clazz)) {
             return JsonStringSchema.builder()
                     .description(Optional.ofNullable(fieldDescription).orElse(descriptionFrom(clazz)))
@@ -75,14 +74,16 @@ public class JsonSchemaElementUtils {
 
         if (clazz.isArray()) {
             return JsonArraySchema.builder()
-                    .items(jsonSchemaElementFrom(clazz.getComponentType(), null, null, areSubFieldsRequiredByDefault, visited))
+                    .items(jsonSchemaElementFrom(
+                            clazz.getComponentType(), null, null, areSubFieldsRequiredByDefault, visited))
                     .description(fieldDescription)
                     .build();
         }
 
         if (Collection.class.isAssignableFrom(clazz)) {
             return JsonArraySchema.builder()
-                    .items(jsonSchemaElementFrom(getActualType(type), null, null, areSubFieldsRequiredByDefault, visited))
+                    .items(jsonSchemaElementFrom(
+                            getActualType(type), null, null, areSubFieldsRequiredByDefault, visited))
                     .description(fieldDescription)
                     .build();
         }
@@ -121,8 +122,8 @@ public class JsonSchemaElementUtils {
                 required.add(fieldName);
             }
             String fieldDescription = descriptionFrom(field);
-            JsonSchemaElement jsonSchemaElement = jsonSchemaElementFrom(field.getType(), field.getGenericType(),
-                    fieldDescription, areSubFieldsRequiredByDefault, visited);
+            JsonSchemaElement jsonSchemaElement = jsonSchemaElementFrom(
+                    field.getType(), field.getGenericType(), fieldDescription, areSubFieldsRequiredByDefault, visited);
             properties.put(fieldName, jsonSchemaElement);
         }
 
@@ -228,14 +229,20 @@ public class JsonSchemaElementUtils {
             }
 
             Map<String, Map<String, Object>> properties = new LinkedHashMap<>();
-            jsonObjectSchema.properties().forEach((property, value) ->
-                    properties.put(property, toMap(value, strict, jsonObjectSchema.required().contains(property))));
+            jsonObjectSchema
+                    .properties()
+                    .forEach((property, value) -> properties.put(
+                            property,
+                            toMap(value, strict, jsonObjectSchema.required().contains(property))));
             map.put("properties", properties);
 
             if (strict) {
                 // When using Structured Outputs with strict=true, all fields must be required.
-                // See https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat#all-fields-must-be-required
-                map.put("required", jsonObjectSchema.properties().keySet().stream().toList());
+                // See
+                // https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat#all-fields-must-be-required
+                map.put(
+                        "required",
+                        jsonObjectSchema.properties().keySet().stream().toList());
             } else {
                 if (jsonObjectSchema.required() != null) {
                     map.put("required", jsonObjectSchema.required());
@@ -322,8 +329,9 @@ public class JsonSchemaElementUtils {
     private static Object type(String type, boolean strict, boolean required) {
         if (strict && !required) {
             // Emulating an optional parameter by using a union type with null.
-            // See https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat#all-fields-must-be-required
-            return new String[]{type, "null"};
+            // See
+            // https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat#all-fields-must-be-required
+            return new String[] {type, "null"};
         } else {
             return type;
         }

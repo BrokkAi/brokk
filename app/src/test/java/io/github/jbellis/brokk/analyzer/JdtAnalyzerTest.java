@@ -1,6 +1,14 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.IProject;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -9,27 +17,21 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.*;
-
 public class JdtAnalyzerTest {
 
-    private final static Logger logger = LoggerFactory.getLogger(JdtAnalyzerTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(JdtAnalyzerTest.class);
 
     @Nullable
     private static JdtAnalyzer analyzer = null;
+
     private static IProject testProject;
 
     @BeforeAll
     public static void setup() throws IOException {
         testProject = createTestProject("testcode-java");
-        logger.debug("Setting up analyzer with test code from {}", testProject.getRoot().toAbsolutePath().normalize());
+        logger.debug(
+                "Setting up analyzer with test code from {}",
+                testProject.getRoot().toAbsolutePath().normalize());
         analyzer = new JdtAnalyzer(testProject);
     }
 
@@ -88,16 +90,19 @@ public class JdtAnalyzerTest {
         final var sourceOpt = analyzer.getMethodSource("A.method2");
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
-        final String expected = """
+        final String expected =
+                """
                 public String method2(String input) {
                         return "prefix_" + input;
                     }
-                
+
                 public String method2(String input, int otherInput) {
                         // overload of method2
                         return "prefix_" + input + " " + otherInput;
                     }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
 
         assertEquals(expected, source);
     }
@@ -108,11 +113,14 @@ public class JdtAnalyzerTest {
         assertTrue(sourceOpt.isPresent());
         final var source = sourceOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public void method7() {
                                 System.out.println("hello");
                             }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
 
         assertEquals(expected, source);
     }
@@ -128,7 +136,9 @@ public class JdtAnalyzerTest {
                         public B() {
                                 System.out.println("B constructor");
                             }
-                        """.trim().stripIndent();
+                        """
+                        .trim()
+                        .stripIndent();
 
         assertEquals(expected, source);
     }
@@ -149,7 +159,8 @@ public class JdtAnalyzerTest {
         assertNotNull(maybeSource);
         final var source = maybeSource.stripIndent();
         // Verify the source contains inner class definition
-        final var expected = """
+        final var expected =
+                """
                 public class AInner {
                         public class AInnerInner {
                             public void method7() {
@@ -157,7 +168,9 @@ public class JdtAnalyzerTest {
                             }
                         }
                     }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, source);
     }
 
@@ -167,13 +180,16 @@ public class JdtAnalyzerTest {
         assertNotNull(maybeSource);
         final var source = maybeSource.stripIndent();
         // Verify the source contains inner class definition
-        final var expected = """
+        final var expected =
+                """
                         public class AInnerInner {
                             public void method7() {
                                 System.out.println("hello");
                             }
                         }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, source);
     }
 
@@ -203,20 +219,17 @@ public class JdtAnalyzerTest {
         // Generic types
         assertEquals(
                 "Function<Integer, Integer>",
-                analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>")
-        );
+                analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>"));
 
         // Nested generic types
         assertEquals(
                 "Map<String, List<Integer>>",
-                analyzer.sanitizeType("java.util.Map<java.lang.String, java.util.List<java.lang.Integer>>")
-        );
+                analyzer.sanitizeType("java.util.Map<java.lang.String, java.util.List<java.lang.Integer>>"));
 
         // Method return type with generics
         assertEquals(
                 "Function<Integer, Integer>",
-                analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>")
-        );
+                analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>"));
     }
 
     @Test
@@ -225,7 +238,8 @@ public class JdtAnalyzerTest {
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public class A {
                   public A() {...}
                   public void method1() {...}
@@ -246,7 +260,9 @@ public class JdtAnalyzerTest {
                     public AInnerStatic() {...}
                   }
                 }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, skeleton);
     }
 
@@ -256,7 +272,8 @@ public class JdtAnalyzerTest {
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public class D {
                   public D() {...}
                   public static int field1;
@@ -270,7 +287,9 @@ public class JdtAnalyzerTest {
                     public DSub() {...}
                   }
                 }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, skeleton);
     }
 
@@ -280,23 +299,49 @@ public class JdtAnalyzerTest {
         assertTrue(skeletonOpt.isPresent());
         final var skeleton = skeletonOpt.get().trim().stripIndent();
 
-        final var expected = """
+        final var expected =
+                """
                 public class D {
                   public static int field1;
                   private String field2;
                   [...]
                 }
-                """.trim().stripIndent();
+                """
+                        .trim()
+                        .stripIndent();
         assertEquals(expected, skeleton);
     }
 
     @Test
     public void getAllClassesTest() {
-        final var classes = analyzer.getAllDeclarations().stream().map(CodeUnit::fqName).sorted().toList();
-        final var expected = List.of("A", "A.AInner", "A.AInner.AInnerInner", "A.AInnerStatic",
-                "AnonymousUsage", "AnonymousUsage.NestedClass", "B", "BaseClass", "C", "C.Foo", "CamelClass",
-                "CyclicMethods", "D", "D.DSub", "D.DSubStatic", "E", "F", "Foo", "Interface", "MethodReturner",
-                "UseE", "UsePackaged", "XExtendsY");
+        final var classes = analyzer.getAllDeclarations().stream()
+                .map(CodeUnit::fqName)
+                .sorted()
+                .toList();
+        final var expected = List.of(
+                "A",
+                "A.AInner",
+                "A.AInner.AInnerInner",
+                "A.AInnerStatic",
+                "AnonymousUsage",
+                "AnonymousUsage.NestedClass",
+                "B",
+                "BaseClass",
+                "C",
+                "C.Foo",
+                "CamelClass",
+                "CyclicMethods",
+                "D",
+                "D.DSub",
+                "D.DSubStatic",
+                "E",
+                "F",
+                "Foo",
+                "Interface",
+                "MethodReturner",
+                "UseE",
+                "UsePackaged",
+                "XExtendsY");
         assertEquals(expected, classes);
     }
 
@@ -307,11 +352,9 @@ public class JdtAnalyzerTest {
         // Expect A.method1 -> [B.callsIntoA, D.methodD1]
         assertTrue(callgraph.containsKey("A.method1"), "Should contain A.method1 as a key");
 
-        final var callers =
-                callgraph.getOrDefault("A.method1", Collections.emptyList())
-                        .stream()
-                        .map(site -> site.target().fqName())
-                        .collect(Collectors.toSet());
+        final var callers = callgraph.getOrDefault("A.method1", Collections.emptyList()).stream()
+                .map(site -> site.target().fqName())
+                .collect(Collectors.toSet());
         assertEquals(Set.of("B.callsIntoA", "D.methodD1"), callers);
     }
 
@@ -322,11 +365,9 @@ public class JdtAnalyzerTest {
         // Expect B.callsIntoA -> [A.method1, A.method2]
         assertTrue(callgraph.containsKey("B.callsIntoA"), "Should contain B.callsIntoA as a key");
 
-        final var callees =
-                callgraph.getOrDefault("B.callsIntoA", Collections.emptyList())
-                        .stream()
-                        .map(site -> site.target().fqName())
-                        .collect(Collectors.toSet());
+        final var callees = callgraph.getOrDefault("B.callsIntoA", Collections.emptyList()).stream()
+                .map(site -> site.target().fqName())
+                .collect(Collectors.toSet());
         assertTrue(callees.contains("A.method1"), "Should call A.method1");
         assertTrue(callees.contains("A.method2"), "Should call A.method2");
     }
@@ -348,8 +389,7 @@ public class JdtAnalyzerTest {
                 CodeUnit.fn(file, "", "D.methodD2"),
                 // Fields
                 CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2")
-        );
+                CodeUnit.field(file, "", "D.field2"));
         assertEquals(expected, classes);
     }
 
@@ -363,7 +403,7 @@ public class JdtAnalyzerTest {
                 // Method
                 CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo.bar")
                 // No fields in Packaged.java
-        );
+                );
         assertEquals(expected, declarations);
     }
 
@@ -412,18 +452,27 @@ public class JdtAnalyzerTest {
         final var foundRefs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
         // Get the usages of each type
-        final var functionRefs = usages.stream().filter(CodeUnit::isFunction).map(CodeUnit::fqName).collect(Collectors.toSet());
-        final var fieldRefs = usages.stream().filter(cu -> !cu.isFunction() && !cu.isClass()).map(CodeUnit::fqName).collect(Collectors.toSet());
-        final var classRefs = usages.stream().filter(CodeUnit::isClass).map(CodeUnit::fqName).collect(Collectors.toSet());
+        final var functionRefs = usages.stream()
+                .filter(CodeUnit::isFunction)
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toSet());
+        final var fieldRefs = usages.stream()
+                .filter(cu -> !cu.isFunction() && !cu.isClass())
+                .map(CodeUnit::fqName)
+                .collect(Collectors.toSet());
+        final var classRefs =
+                usages.stream().filter(CodeUnit::isClass).map(CodeUnit::fqName).collect(Collectors.toSet());
 
         // There should be function usages in these methods
-        assertEquals(Set.of(
-                "B.callsIntoA", // Both methods and constructor
-                "D.methodD1", // Both methods and constructor
-                "AnonymousUsage.foo$anon$5:12", // calls method
-                "A.method5", // invokes constructor
-                "A.method6$anon$32:12" // invokes constructor
-        ), functionRefs);
+        assertEquals(
+                Set.of(
+                        "B.callsIntoA", // Both methods and constructor
+                        "D.methodD1", // Both methods and constructor
+                        "AnonymousUsage.foo$anon$5:12", // calls method
+                        "A.method5", // invokes constructor
+                        "A.method6$anon$32:12" // invokes constructor
+                        ),
+                functionRefs);
 
         // Ensure we have the correct usage types with our refactored implementation
         final var all = new HashSet<String>();
@@ -437,9 +486,8 @@ public class JdtAnalyzerTest {
     public void getUsesClassNonexistentTest() {
         final var symbol = "NoSuchClass";
         final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));
-        assertTrue(
-                ex.getMessage().contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class")
-        );
+        assertTrue(ex.getMessage()
+                .contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class"));
     }
 
     @Test
@@ -493,7 +541,8 @@ public class JdtAnalyzerTest {
         final var refs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
         // Get references by type
-        final var classRefs = usages.stream().filter(CodeUnit::isClass).map(CodeUnit::fqName).collect(Collectors.toSet());
+        final var classRefs =
+                usages.stream().filter(CodeUnit::isClass).map(CodeUnit::fqName).collect(Collectors.toSet());
 
         // Create an error message capturing actual usages
         final var errorMsg = "Expected XExtendsY to be a usage of BaseClass. Actual usages: " + String.join(", ", refs);
@@ -502,16 +551,15 @@ public class JdtAnalyzerTest {
         assertTrue(refs.stream().anyMatch(name -> name.contains("XExtendsY")), errorMsg);
 
         // Verify that XExtendsY is specifically a CLASS type reference
-        final var classErrorMsg = "Expected XExtendsY to be a CLASS type usage. Class references: " + String.join(", ", classRefs);
+        final var classErrorMsg =
+                "Expected XExtendsY to be a CLASS type usage. Class references: " + String.join(", ", classRefs);
         assertTrue(classRefs.stream().anyMatch(name -> name.contains("XExtendsY")), classErrorMsg);
 
         // New test: Methods returning BaseClass should be included (e.g. MethodReturner.getBase)
         assertTrue(
                 refs.stream().anyMatch(name -> name.contains("MethodReturner.getBase")),
-                "Expected MethodReturner.getBase to be included in BaseClass usages"
-        );
+                "Expected MethodReturner.getBase to be included in BaseClass usages");
     }
-
 
     @Test
     public void getFunctionLocationSingleMatchTest() {
@@ -521,8 +569,7 @@ public class JdtAnalyzerTest {
         assertTrue(location.endLine() >= location.startLine(), "End line should not precede start line");
         assertTrue(
                 location.code().contains("public String method2(String input)"),
-                "Method code should contain signature for 'method2(String)'; got:\n" + location.code()
-        );
+                "Method code should contain signature for 'method2(String)'; got:\n" + location.code());
     }
 
     @Test
@@ -530,8 +577,7 @@ public class JdtAnalyzerTest {
         // "A.method2" has two overloads, but neither takes zero parameters
         assertThrows(
                 SymbolNotFoundException.class,
-                () -> analyzer.getFunctionLocation("A.method2", Collections.emptyList())
-        );
+                () -> analyzer.getFunctionLocation("A.method2", Collections.emptyList()));
     }
 
     @Test
@@ -541,17 +587,14 @@ public class JdtAnalyzerTest {
         assertTrue(location.endLine() >= location.startLine(), "End line should not precede start line");
         assertTrue(
                 location.code().contains("public void bar()"),
-                "Method code should contain signature for 'bar()'; got:\n" + location.code()
-        );
+                "Method code should contain signature for 'bar()'; got:\n" + location.code());
     }
 
     @Test
     public void getFunctionLocationParamMismatchTest() {
         // "A.method2" has overloads, but none with param name "bogusParam"
         assertThrows(
-                SymbolNotFoundException.class,
-                () -> analyzer.getFunctionLocation("A.method2", List.of("bogusParam"))
-        );
+                SymbolNotFoundException.class, () -> analyzer.getFunctionLocation("A.method2", List.of("bogusParam")));
     }
 
     @Test
@@ -559,8 +602,7 @@ public class JdtAnalyzerTest {
         // "A.noSuchMethod" does not exist at all
         assertThrows(
                 SymbolNotFoundException.class,
-                () -> analyzer.getFunctionLocation("A.noSuchMethod", Collections.emptyList())
-        );
+                () -> analyzer.getFunctionLocation("A.noSuchMethod", Collections.emptyList()));
     }
 
     @Test
@@ -579,13 +621,14 @@ public class JdtAnalyzerTest {
         final var file = maybeFile.get();
 
         final var expected = Stream.of(
-                // Methods
-                CodeUnit.fn(file, "", "D.methodD1"),
-                CodeUnit.fn(file, "", "D.methodD2"),
-                // Fields
-                CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2")
-        ).sorted().toList();
+                        // Methods
+                        CodeUnit.fn(file, "", "D.methodD1"),
+                        CodeUnit.fn(file, "", "D.methodD2"),
+                        // Fields
+                        CodeUnit.field(file, "", "D.field1"),
+                        CodeUnit.field(file, "", "D.field2"))
+                .sorted()
+                .toList();
         assertEquals(expected, members);
     }
 
@@ -600,16 +643,17 @@ public class JdtAnalyzerTest {
         final var file = maybeFile.get();
 
         final var expected = Stream.of(
-                // Classes
-                CodeUnit.cls(file, "", "D.DSub"),
-                CodeUnit.cls(file, "", "D.DSubStatic"),
-                // Methods
-                CodeUnit.fn(file, "", "D.methodD1"),
-                CodeUnit.fn(file, "", "D.methodD2"),
-                // Fields
-                CodeUnit.field(file, "", "D.field1"),
-                CodeUnit.field(file, "", "D.field2")
-        ).sorted().toList();
+                        // Classes
+                        CodeUnit.cls(file, "", "D.DSub"),
+                        CodeUnit.cls(file, "", "D.DSubStatic"),
+                        // Methods
+                        CodeUnit.fn(file, "", "D.methodD1"),
+                        CodeUnit.fn(file, "", "D.methodD2"),
+                        // Fields
+                        CodeUnit.field(file, "", "D.field1"),
+                        CodeUnit.field(file, "", "D.field2"))
+                .sorted()
+                .toList();
         assertEquals(expected, children);
     }
 
@@ -624,10 +668,8 @@ public class JdtAnalyzerTest {
         final var children = analyzer.directChildren(maybeClassFoo.get());
         final var file = maybeFile.get();
 
-        final var expected = Stream.of(
-                CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo")
-        ).toList();
+        final var expected =
+                Stream.of(CodeUnit.fn(file, "io.github.jbellis.brokk", "Foo")).toList();
         assertEquals(expected, children);
     }
-    
 }

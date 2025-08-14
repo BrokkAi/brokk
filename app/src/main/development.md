@@ -105,6 +105,9 @@ After running tests, detailed reports are automatically generated:
 
 ### Code Formatting
 
+#### Java Code (app, analyzer-api)
+- `./gradlew tidy` - Format all Java code. (Alias for `./gradlew spotlessApply`)
+
 #### Scala Code (joern-analyzers)
 - `./gradlew :joern-analyzers:scalafmt` - Format Scala code
 - `./gradlew scalafmt` - Format all Scala code in project

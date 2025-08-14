@@ -4,18 +4,14 @@ import static dev.langchain4j.internal.Utils.getOrDefault;
 
 import java.util.Objects;
 
-/**
- * Represents the token usage of a response.
- */
+/** Represents the token usage of a response. */
 public class TokenUsage {
 
     private final Integer inputTokenCount;
     private final Integer outputTokenCount;
     private final Integer totalTokenCount;
 
-    /**
-     * Creates a new {@link TokenUsage} instance with all fields set to null.
-     */
+    /** Creates a new {@link TokenUsage} instance with all fields set to null. */
     public TokenUsage() {
         this(null);
     }
@@ -32,7 +28,7 @@ public class TokenUsage {
     /**
      * Creates a new {@link TokenUsage} instance with the given input and output token counts.
      *
-     * @param inputTokenCount  The input token count, or null if unknown.
+     * @param inputTokenCount The input token count, or null if unknown.
      * @param outputTokenCount The output token count, or null if unknown.
      */
     public TokenUsage(Integer inputTokenCount, Integer outputTokenCount) {
@@ -42,9 +38,9 @@ public class TokenUsage {
     /**
      * Creates a new {@link TokenUsage} instance with the given input, output and total token counts.
      *
-     * @param inputTokenCount  The input token count, or null if unknown.
+     * @param inputTokenCount The input token count, or null if unknown.
      * @param outputTokenCount The output token count, or null if unknown.
-     * @param totalTokenCount  The total token count, or null if unknown.
+     * @param totalTokenCount The total token count, or null if unknown.
      */
     public TokenUsage(Integer inputTokenCount, Integer outputTokenCount, Integer totalTokenCount) {
         this.inputTokenCount = inputTokenCount;
@@ -80,13 +76,11 @@ public class TokenUsage {
     }
 
     /**
-     * Adds two token usages.
-     * <br>
-     * If one of the token usages is null, the other is returned without changes.
-     * <br>
+     * Adds two token usages. <br>
+     * If one of the token usages is null, the other is returned without changes. <br>
      * Fields which are null in both responses will be null in the result.
      *
-     * @param first  The first token usage to add.
+     * @param first The first token usage to add.
      * @param second The second token usage to add.
      * @return a new {@link TokenUsage} instance with the sum of token usages.
      */
@@ -122,14 +116,13 @@ public class TokenUsage {
         return new TokenUsage(
                 sum(this.inputTokenCount, that.inputTokenCount),
                 sum(this.outputTokenCount, that.outputTokenCount),
-                sum(this.totalTokenCount, that.totalTokenCount)
-        );
+                sum(this.totalTokenCount, that.totalTokenCount));
     }
 
     /**
      * Sum two integers, returning null if both are null.
      *
-     * @param first  The first integer, or null.
+     * @param first The first integer, or null.
      * @param second The second integer, or null.
      * @return the sum of the two integers, or null if both are null.
      */
@@ -158,10 +151,9 @@ public class TokenUsage {
 
     @Override
     public String toString() {
-        return "TokenUsage {" +
-                " inputTokenCount = " + inputTokenCount +
-                ", outputTokenCount = " + outputTokenCount +
-                ", totalTokenCount = " + totalTokenCount +
-                " }";
+        return "TokenUsage {" + " inputTokenCount = "
+                + inputTokenCount + ", outputTokenCount = "
+                + outputTokenCount + ", totalTokenCount = "
+                + totalTokenCount + " }";
     }
 }

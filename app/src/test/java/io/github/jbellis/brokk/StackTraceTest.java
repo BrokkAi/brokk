@@ -1,15 +1,16 @@
 package io.github.jbellis.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import io.github.jbellis.brokk.util.StackTrace;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class StackTraceTest {
 
     @Test
     public void testStackTraceClassic() {
-        var stackTraceStr = """
+        var stackTraceStr =
+                """
         Exception in thread "main" java.lang.IllegalArgumentException: requirement failed
                 at scala.Predef$.require(Predef.scala:324)
                 at io.github.jbellis.brokk.RepoFile.<init>(RepoFile.scala:16)
@@ -24,7 +25,8 @@ public class StackTraceTest {
 
     @Test
     public void testStackTraceFrames() {
-        var stackTraceStr = """
+        var stackTraceStr =
+                """
         java.lang.IllegalArgumentException: Cannot convert value [22, 3000000000, 5000000000] of type class java.util.ArrayList
             at org.apache.cassandra.utils.ByteBufferUtil.objectToBytes(ByteBufferUtil.java:577)
             at org.apache.cassandra.distributed.impl.Coordinator.lambda$executeWithPagingWithResult$2(Coordinator.java:142)
@@ -47,7 +49,8 @@ public class StackTraceTest {
 
     @Test
     public void testStackTraceWithLeadingTrailingNoise() {
-        var stackTraceStr = """
+        var stackTraceStr =
+                """
         ERROR [Native-Transport-Requests-1] 2025-02-15 07:28:44,261 QueryMessage.java:121 - Unexpected error during query
         java.lang.UnsupportedOperationException: Unable to authorize statement org.apache.cassandra.cql3.statements.DescribeStatement$4
                 at io.stargate.db.cassandra.impl.StargateQueryHandler.authorizeByToken(StargateQueryHandler.java:320)
@@ -57,13 +60,14 @@ public class StackTraceTest {
         var st = StackTrace.parse(stackTraceStr);
         assertEquals("UnsupportedOperationException", st.getExceptionType());
         assertEquals(1, st.getFrames().size());
-        
-        stackTraceStr = """
+
+        stackTraceStr =
+                """
         [error] Exception in thread "AWT-EventQueue-0" java.lang.NullPointerException: Cannot invoke "java.io.ByteArrayOutputStream.toByteArray()" because "this.micBuffer" is null
         [error]         at io.github.jbellis.brokk.gui.VoiceInputButton.stopMicCaptureAndTranscribe(VoiceInputButton.java:175)
         [error]         at io.github.jbellis.brokk.gui.VoiceInputButton.lambda$new$0(VoiceInputButton.java:89)
         """;
-        
+
         var st2 = StackTrace.parse(stackTraceStr);
         assertEquals("NullPointerException", st2.getExceptionType());
         assertEquals(2, st2.getFrames().size());

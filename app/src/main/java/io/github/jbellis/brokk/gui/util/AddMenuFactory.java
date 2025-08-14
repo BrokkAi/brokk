@@ -4,9 +4,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
-
-import javax.swing.*;
 import java.util.List;
+import javax.swing.*;
 
 public final class AddMenuFactory {
     private AddMenuFactory() {}
@@ -35,6 +34,7 @@ public final class AddMenuFactory {
 
     /**
      * Populates a JComponent (either JPopupMenu or JMenu) with "Add" actions.
+     *
      * @param parent The JComponent to populate.
      * @param wp The WorkspacePanel instance.
      * @param includeCallGraphItems whether to include "Callers" and "Callees" items.
@@ -90,7 +90,8 @@ public final class AddMenuFactory {
         addSeparator(parent);
 
         JMenuItem dependencyItem = new JMenuItem("Import Dependency...");
-        dependencyItem.addActionListener(e -> ImportDependencyDialog.show((Chrome) wp.getContextManager().getIo()));
+        dependencyItem.addActionListener(
+                e -> ImportDependencyDialog.show((Chrome) wp.getContextManager().getIo()));
         parent.add(dependencyItem);
     }
 }

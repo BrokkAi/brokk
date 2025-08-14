@@ -2,9 +2,6 @@ package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IProject;
-import org.jspecify.annotations.NullMarked;
-
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -12,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import javax.annotation.Nullable;
 
 /**
  * A Java analyzer based on TreeSitter with underlying call graph, points-to, and type hierarchy analysis supplied by
@@ -37,17 +35,18 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
     @Override
     public CompletableFuture<Boolean> isAdvancedAnalysisReady() {
         // If no exception raised, we're good to use the JDT analyzer
-        return this.jdtAnalyzerFuture
-                .handleAsync((JdtAnalyzer result, @Nullable Throwable exception) -> exception == null);
+        return this.jdtAnalyzerFuture.handleAsync(
+                (JdtAnalyzer result, @Nullable Throwable exception) -> exception == null);
     }
 
     @Override
     public void setIo(IConsoleIO io) {
         if (this.jdtAnalyzer != null) this.jdtAnalyzer.setIo(io);
-        else if (!jdtAnalyzerFuture.isDone()) jdtAnalyzerFuture.thenApply(analyzer -> {
-            analyzer.setIo(io);
-            return analyzer;
-        });
+        else if (!jdtAnalyzerFuture.isDone())
+            jdtAnalyzerFuture.thenApply(analyzer -> {
+                analyzer.setIo(io);
+                return analyzer;
+            });
     }
 
     @Override
@@ -120,5 +119,4 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
         });
         return new JavaAnalyzer(project, jdtAnalyzerFuture);
     }
-
 }

@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = Usage.Builder.class)
@@ -17,12 +16,16 @@ public final class Usage {
 
     @JsonProperty
     private final Integer totalTokens;
+
     @JsonProperty
     private final Integer promptTokens;
+
     @JsonProperty
     private final PromptTokensDetails promptTokensDetails;
+
     @JsonProperty
     private final Integer completionTokens;
+
     @JsonProperty
     private final CompletionTokensDetails completionTokensDetails;
 
@@ -57,8 +60,7 @@ public final class Usage {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof Usage
-                && equalTo((Usage) another);
+        return another instanceof Usage && equalTo((Usage) another);
     }
 
     private boolean equalTo(Usage another) {

@@ -6,16 +6,13 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-/**
- * Agent responsible for identifying relevant test files for a given task.
- */
+/** Agent responsible for identifying relevant test files for a given task. */
 public class ValidationAgent {
     private static final Logger logger = LogManager.getLogger(ValidationAgent.class);
     private static final long MAX_FILES_TO_CONSIDER = 20;
@@ -55,28 +52,28 @@ public class ValidationAgent {
         return relevantFiles;
     }
 
-    /**
-     * Step 1: Asks the LLM to identify which test files from a list MIGHT be relevant.
-     */
-    private List<ProjectFile> getPotentiallyRelevantFiles(List<ProjectFile> allTestFiles, String instructions, Llm llm) throws InterruptedException {
-        var filesText = allTestFiles.stream()
-                .map(ProjectFile::toString)
-                .collect(Collectors.joining("\n"));
+    /** Step 1: Asks the LLM to identify which test files from a list MIGHT be relevant. */
+    private List<ProjectFile> getPotentiallyRelevantFiles(List<ProjectFile> allTestFiles, String instructions, Llm llm)
+            throws InterruptedException {
+        var filesText = allTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
         var workspaceSummary = CodePrompts.formatWorkspaceDescriptions(contextManager);
 
-        var systemMessage = """
+        var systemMessage =
+                """
                 You are an assistant that identifies potentially relevant test files.
                 Given a coding task, the current workspace, and a list of test files, identify which files *may* contain tests relevant to implementing the instructions.
                 List the full paths of the potentially relevant files, one per line. If none seem relevant, respond with "None".
-                
+
                 Give the most-relevant files first.
-                """.stripIndent();
-        var userMessage = """
+                """
+                        .stripIndent();
+        var userMessage =
+                """
                 <testfiles>
                 %s
                 </testfiles>
-                
+
                 <workspace>
                 %s
                 </workspace>
@@ -86,7 +83,9 @@ public class ValidationAgent {
                 </task>
 
                 Which of these test files might be relevant to testing the changes made to satisfy the given task? List the full paths, one per line.
-                """.formatted(filesText, workspaceSummary, instructions).stripIndent();
+                """
+                        .formatted(filesText, workspaceSummary, instructions)
+                        .stripIndent();
 
         // send the request
         var messages = List.of(new SystemMessage(systemMessage), new UserMessage(userMessage));
@@ -105,24 +104,25 @@ public class ValidationAgent {
     }
 
     /**
-     * Parses the LLM response from step 1 to extract suggested file paths.
-     * It compares the LLM response against the known list of files for robustness.
+     * Parses the LLM response from step 1 to extract suggested file paths. It compares the LLM response against the
+     * known list of files for robustness.
      */
     private static List<ProjectFile> parseSuggestedFiles(String llmResponse, List<ProjectFile> allTestFiles) {
         // Filter the known files based on whether their path appears in the LLM response
-        return allTestFiles.stream().parallel()
+        return allTestFiles.stream()
+                .parallel()
                 .filter(f -> llmResponse.contains(f.toString()))
                 .limit(MAX_FILES_TO_CONSIDER)
                 .toList();
     }
 
-    /**
-     * Step 2: Checks a list of potentially relevant files in parallel to confirm relevance using a parallel stream.
-     */
-    private List<ProjectFile> checkFilesForRelevance(List<ProjectFile> potentialFiles, String instructions, Llm llm) throws InterruptedException {
+    /** Step 2: Checks a list of potentially relevant files in parallel to confirm relevance using a parallel stream. */
+    private List<ProjectFile> checkFilesForRelevance(List<ProjectFile> potentialFiles, String instructions, Llm llm)
+            throws InterruptedException {
         // Use a parallel stream to check files for relevance concurrently
         try {
-            return potentialFiles.stream().parallel()
+            return potentialFiles.stream()
+                    .parallel()
                     .map(file -> {
                         // bit of a dance to wrap/unwrap InterruptedException
                         try {
@@ -143,15 +143,12 @@ public class ValidationAgent {
         }
     }
 
-    /**
-     * Represents the result of a single file relevance check.
-     */
-    private record RelevanceResult(ProjectFile file, boolean relevant) {
-    }
+    /** Represents the result of a single file relevance check. */
+    private record RelevanceResult(ProjectFile file, boolean relevant) {}
 
     /**
-     * Asks the LLM if a specific test file is relevant to the instructions, given its content.
-     * Retries if the LLM response doesn't clearly indicate relevance or irrelevance.
+     * Asks the LLM if a specific test file is relevant to the instructions, given its content. Retries if the LLM
+     * response doesn't clearly indicate relevance or irrelevance.
      */
     private RelevanceResult isFileRelevant(ProjectFile file, String instructions, Llm llm) throws InterruptedException {
         String fileContent;
@@ -162,18 +159,24 @@ public class ValidationAgent {
             return new RelevanceResult(file, false);
         }
 
-        var criteria = """
+        var criteria =
+                """
                        Determine whether the following test file is useful for verifying code
                        changes required by these instructions:
 
                        %s
-                       """.formatted(instructions).stripIndent();
+                       """
+                        .formatted(instructions)
+                        .stripIndent();
 
-        var candidate = """
+        var candidate =
+                """
                         Test file path: %s
 
                         %s
-                        """.formatted(file, fileContent).stripIndent();
+                        """
+                        .formatted(file, fileContent)
+                        .stripIndent();
 
         boolean relevant = RelevanceClassifier.isRelevant(llm, criteria, candidate);
         return new RelevanceResult(file, relevant);

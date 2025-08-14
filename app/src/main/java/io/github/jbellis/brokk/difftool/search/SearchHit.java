@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.search;
 
 import java.util.Objects;

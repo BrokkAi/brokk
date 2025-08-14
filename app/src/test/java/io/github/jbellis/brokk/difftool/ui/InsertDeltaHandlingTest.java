@@ -1,20 +1,19 @@
 package io.github.jbellis.brokk.difftool.ui;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.DeltaType;
 import io.github.jbellis.brokk.difftool.doc.InMemoryDocument;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.DisplayName;
-
-import javax.swing.text.PlainDocument;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
+import javax.swing.text.PlainDocument;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 
 /**
- * Comprehensive tests for INSERT delta handling and document synchronization.
- * Tests both the root cause bug (chunk selection logic) and the fix mechanism (document sync).
- * This reproduces the LICENSE.txt scenario that was causing the bug.
+ * Comprehensive tests for INSERT delta handling and document synchronization. Tests both the root cause bug (chunk
+ * selection logic) and the fix mechanism (document sync). This reproduces the LICENSE.txt scenario that was causing the
+ * bug.
  */
 class InsertDeltaHandlingTest {
 
@@ -22,23 +21,21 @@ class InsertDeltaHandlingTest {
     void testInsertDeltaDoesNotProduceGarbledOutput() {
         // Original content that mimics LICENSE.txt structure
         var originalLines = List.of(
-            "                    GNU GENERAL PUBLIC LICENSE",
-            "                       Version 3, 29 June 2007",
-            "",
-            " Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>",
-            " Everyone is permitted to copy and distribute verbatim copies"
-        );
+                "                    GNU GENERAL PUBLIC LICENSE",
+                "                       Version 3, 29 June 2007",
+                "",
+                " Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>",
+                " Everyone is permitted to copy and distribute verbatim copies");
 
         // Modified content with insertion at line 3 (0-based)
         var modifiedLines = List.of(
-            "                    GNU GENERAL PUBLIC LICENSE",
-            "                       Version 3, 29 June 2007",
-            "",
-            "1234",
-            "",
-            " Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>",
-            " Everyone is permitted to copy and distribute verbatim copies"
-        );
+                "                    GNU GENERAL PUBLIC LICENSE",
+                "                       Version 3, 29 June 2007",
+                "",
+                "1234",
+                "",
+                " Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>",
+                " Everyone is permitted to copy and distribute verbatim copies");
 
         // Generate the diff patch
         var patch = DiffUtils.diff(originalLines, modifiedLines);
@@ -75,8 +72,7 @@ class InsertDeltaHandlingTest {
         }
 
         // Verify that we get empty text for INSERT delta, not garbled content
-        assertEquals("", extractedText,
-            "INSERT delta should extract empty text, not partial line content");
+        assertEquals("", extractedText, "INSERT delta should extract empty text, not partial line content");
 
         // Verify the target content is what we expect to insert
         var targetChunk = delta.getTarget();
@@ -118,8 +114,9 @@ class InsertDeltaHandlingTest {
         }
 
         // Should extract the actual line content for CHANGE deltas
-        assertTrue(extractedText.contains("Old Line 2"),
-            "CHANGE delta should extract actual line content: " + extractedText);
+        assertTrue(
+                extractedText.contains("Old Line 2"),
+                "CHANGE delta should extract actual line content: " + extractedText);
     }
 
     @Test
@@ -149,7 +146,7 @@ class InsertDeltaHandlingTest {
     @DisplayName("Document synchronization concept - handle empty source")
     void testDocumentSynchronizationConceptEmptySource() throws Exception {
         // Arrange
-        PlainDocument sourceDoc = new PlainDocument();  // empty
+        PlainDocument sourceDoc = new PlainDocument(); // empty
         PlainDocument targetDoc = new PlainDocument();
         targetDoc.insertString(0, "Target content", null);
 
@@ -164,5 +161,4 @@ class InsertDeltaHandlingTest {
         assertEquals("", targetDoc.getText(0, targetDoc.getLength()));
         assertEquals(0, targetDoc.getLength());
     }
-
 }

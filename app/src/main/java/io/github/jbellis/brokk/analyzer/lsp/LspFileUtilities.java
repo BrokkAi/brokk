@@ -1,10 +1,5 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
-import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
-import org.jetbrains.annotations.NotNull;
-
 import java.io.BufferedInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -13,15 +8,20 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.stream.Stream;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.jetbrains.annotations.NotNull;
 
 public final class LspFileUtilities {
 
     public static Path findFile(Path dir, String partialName) throws IOException {
         try (Stream<Path> stream = Files.walk(dir)) {
-            return stream
-                    .filter(p -> p.getFileName().toString().contains(partialName) && p.toString().endsWith(".jar"))
+            return stream.filter(p -> p.getFileName().toString().contains(partialName)
+                            && p.toString().endsWith(".jar"))
                     .findFirst()
-                    .orElseThrow(() -> new FileNotFoundException("Could not find launcher jar with name containing: " + partialName));
+                    .orElseThrow(() -> new FileNotFoundException(
+                            "Could not find launcher jar with name containing: " + partialName));
         }
     }
 
@@ -84,7 +84,7 @@ public final class LspFileUtilities {
             }
         }
 
-        //If the ARM-specific one isn't found (or we're not on ARM), fall back to the generic one.
+        // If the ARM-specific one isn't found (or we're not on ARM), fall back to the generic one.
         final Path genericConfigPath = dir.resolve(baseConfigDir);
         if (Files.isDirectory(genericConfigPath)) {
             return genericConfigPath;
@@ -93,9 +93,6 @@ public final class LspFileUtilities {
         // If neither is found, throw an error.
         throw new FileNotFoundException(String.format(
                 "Could not find a valid configuration directory. Checked for '%s_arm' and '%s' in %s",
-                baseConfigDir, baseConfigDir, dir
-        ));
+                baseConfigDir, baseConfigDir, dir));
     }
-    
 }
-

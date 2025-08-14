@@ -9,15 +9,12 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
 
-/**
- * Interface for context manager functionality
- */
+/** Interface for context manager functionality */
 public interface IContextManager {
     default EditBlockParser getParserForWorkspace() {
         throw new UnsupportedOperationException();
@@ -41,6 +38,7 @@ public interface IContextManager {
 
     /**
      * Returns the live, unfrozen context that we can edit.
+     *
      * @return the live, unfrozen context that we can edit
      */
     default Context liveContext() {
@@ -49,15 +47,14 @@ public interface IContextManager {
 
     /**
      * Returns the frozen counterpart of liveContext.
+     *
      * @return the frozen counterpart of liveContext
      */
     default Context topContext() {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Listener interface for context change events.
-     */
+    /** Listener interface for context change events. */
     interface ContextListener {
         /**
          * Called when the context has changed.
@@ -72,11 +69,9 @@ public interface IContextManager {
      *
      * @param listener The listener to add. Must not be null.
      */
-    default void addContextListener(ContextListener listener) {
-    }
+    default void addContextListener(ContextListener listener) {}
 
-    default void removeContextListener(ContextListener listener) {
-    }
+    default void removeContextListener(ContextListener listener) {}
 
     default ProjectFile toFile(String relName) {
         throw new UnsupportedOperationException();
@@ -100,11 +95,9 @@ public interface IContextManager {
 
     default List<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
-        return allFiles.stream()
-                .filter(ContextManager::isTestFile)
-                .toList();
+        return allFiles.stream().filter(ContextManager::isTestFile).toList();
     }
-    
+
     default AnalyzerWrapper getAnalyzerWrapper() {
         throw new UnsupportedOperationException();
     }
@@ -127,8 +120,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default void editFiles(Collection<ProjectFile> path) {
-    }
+    default void editFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
         return new IProject() {};
@@ -142,17 +134,18 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    /**
-     * Create a new LLM instance for the given model and description
-     */
+    /** Create a new LLM instance for the given model and description */
     default Llm getLlm(StreamingChatModel model, String taskDescription) {
         return getLlm(model, taskDescription, false);
     }
 
-    /**
-     * Create a new LLM instance for the given model and description
-     */
+    /** Create a new LLM instance for the given model and description */
     default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
-        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
+        return new Llm(
+                model,
+                taskDescription,
+                this,
+                allowPartialResponses,
+                getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 }

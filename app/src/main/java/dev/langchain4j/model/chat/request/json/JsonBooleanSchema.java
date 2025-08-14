@@ -54,8 +54,6 @@ public class JsonBooleanSchema implements JsonSchemaElement {
 
     @Override
     public String toString() {
-        return "JsonBooleanSchema {" +
-                "description = " + quoted(description) +
-                " }";
+        return "JsonBooleanSchema {" + "description = " + quoted(description) + " }";
     }
 }

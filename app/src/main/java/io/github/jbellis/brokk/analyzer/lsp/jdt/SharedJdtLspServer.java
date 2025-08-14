@@ -5,18 +5,14 @@ import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
 import io.github.jbellis.brokk.gui.dialogs.analyzer.JavaAnalyzerSettingsPanel;
-import org.eclipse.lsp4j.services.LanguageClient;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import org.eclipse.lsp4j.services.LanguageClient;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Manages a single, shared instance of the JDT Language Server process.
- * This class is a thread-safe singleton.
- */
+/** Manages a single, shared instance of the JDT Language Server process. This class is a thread-safe singleton. */
 public final class SharedJdtLspServer extends LspServer {
 
     private static final SharedJdtLspServer INSTANCE = new SharedJdtLspServer();
@@ -78,18 +74,17 @@ public final class SharedJdtLspServer extends LspServer {
                 "-XX:+UseStringDeduplication",
                 "-Dsun.zip.disableMemoryMapping=true",
                 // Running the JAR
-                "-jar", launcherJar.toString(),
-                "-configuration", configDir.toString(),
-                "-data", cache.toString()
-        );
+                "-jar",
+                launcherJar.toString(),
+                "-configuration",
+                configDir.toString(),
+                "-data",
+                cache.toString());
     }
 
     @Override
     protected LanguageClient getLanguageClient(
-            String language,
-            CountDownLatch serverReadyLatch,
-            Map<String, CountDownLatch> workspaceReadyLatchMap
-    ) {
+            String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.languageClient = new JdtLanguageClient(language, serverReadyLatch, workspaceReadyLatchMap);
         return this.languageClient;
     }

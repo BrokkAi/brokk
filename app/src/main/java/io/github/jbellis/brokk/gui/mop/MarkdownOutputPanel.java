@@ -1,29 +1,30 @@
 package io.github.jbellis.brokk.gui.mop;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.mop.webview.MOPBridge;
 import io.github.jbellis.brokk.gui.mop.webview.MOPWebViewHost;
 import io.github.jbellis.brokk.util.Messages;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+import java.util.function.Consumer;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * A Swing JPanel that uses a JavaFX WebView to display structured conversations.
- * This is a modern, web-based alternative to the pure-Swing MarkdownOutputPanel.
+ * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
+ * alternative to the pure-Swing MarkdownOutputPanel.
  */
 public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
@@ -100,7 +101,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         if (text.isEmpty()) {
             return;
         }
-        if (isNewMessage || messages.isEmpty() || messages.get(messages.size() - 1).type() != type) {
+        if (isNewMessage
+                || messages.isEmpty()
+                || messages.get(messages.size() - 1).type() != type) {
             messages.add(Messages.create(text, type));
         } else {
             var lastIdx = messages.size() - 1;
@@ -151,9 +154,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public String getText() {
-        return messages.stream()
-                       .map(Messages::getRepr)
-                       .collect(java.util.stream.Collectors.joining("\n\n"));
+        return messages.stream().map(Messages::getRepr).collect(java.util.stream.Collectors.joining("\n\n"));
     }
 
     public List<ChatMessage> getRawMessages() {
@@ -181,9 +182,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public String getDisplayedText() {
-        return messages.stream()
-                       .map(Messages::getText)
-                       .collect(java.util.stream.Collectors.joining("\n\n"));
+        return messages.stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n\n"));
     }
 
     public String getSelectedText() {
@@ -204,9 +203,36 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
     }
 
+    public void setSearch(String query, boolean caseSensitive) {
+        webHost.setSearch(query, caseSensitive);
+    }
+
+    public void clearSearch() {
+        webHost.clearSearch();
+    }
+
+    public void nextMatch() {
+        webHost.nextMatch();
+    }
+
+    public void prevMatch() {
+        webHost.prevMatch();
+    }
+
+    public void scrollSearchCurrent() {
+        webHost.scrollToCurrent();
+    }
+
+    public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+        webHost.addSearchStateListener(l);
+    }
+
+    public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+        webHost.removeSearchStateListener(l);
+    }
+
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
         webHost.dispose();
     }
-
 }

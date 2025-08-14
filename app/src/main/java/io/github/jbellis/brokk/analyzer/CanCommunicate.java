@@ -14,5 +14,4 @@ public interface CanCommunicate {
      * @param io the IO object to use.
      */
     void setIo(IConsoleIO io);
-
 }

@@ -1,6 +1,13 @@
 package io.github.jbellis.brokk.analyzer;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.testutil.TestProject;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
+import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.treesitter.TSLanguage;
@@ -8,15 +15,6 @@ import org.treesitter.TSNode;
 import org.treesitter.TSParser;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Set;
-import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
-
-
-import static org.junit.jupiter.api.Assertions.*;
 
 public class GoAnalyzerTest {
     private static TestProject testProject;
@@ -28,7 +26,6 @@ public class GoAnalyzerTest {
     private static ProjectFile noPkgGoFile;
     private static ProjectFile emptyGoFile;
     private static ProjectFile declarationsGoFile;
-
 
     @BeforeAll
     static void setUp() {
@@ -147,11 +144,14 @@ public class GoAnalyzerTest {
 
         // Check if the analyzer processed the file at all. If topLevelDeclarations doesn't contain the file,
         // it means it might have been filtered out or an error occurred during its initial processing.
-        assertTrue(analyzer.topLevelDeclarations.containsKey(declarationsGoFile),
-                   "Analyzer's topLevelDeclarations should contain declarations.go. Current keys: " + analyzer.topLevelDeclarations.keySet());
-        assertFalse(declarations.isEmpty(),
-                    "Declarations set should not be empty for declarations.go. Check query and createCodeUnit logic. Actual declarations: " +
-                    declarations.stream().map(CodeUnit::fqName).toList());
+        assertTrue(
+                analyzer.topLevelDeclarations.containsKey(declarationsGoFile),
+                "Analyzer's topLevelDeclarations should contain declarations.go. Current keys: "
+                        + analyzer.topLevelDeclarations.keySet());
+        assertFalse(
+                declarations.isEmpty(),
+                "Declarations set should not be empty for declarations.go. Check query and createCodeUnit logic. Actual declarations: "
+                        + declarations.stream().map(CodeUnit::fqName).toList());
 
         ProjectFile pf = declarationsGoFile;
 
@@ -165,30 +165,66 @@ public class GoAnalyzerTest {
         CodeUnit expectedStructFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
         CodeUnit expectedInterfaceMethod_DoSomething = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
 
+        assertTrue(
+                declarations.contains(expectedFunc),
+                "Declarations should contain MyTopLevelFunction. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedStruct),
+                "Declarations should contain MyStruct. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedInterface),
+                "Declarations should contain MyInterface. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(otherFunc),
+                "Declarations should contain anotherFunc. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedVar),
+                "Declarations should contain MyGlobalVar. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedConst),
+                "Declarations should contain MyGlobalConst. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedMethod_GetFieldA),
+                "Declarations should contain method MyStruct.GetFieldA. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedStructFieldA),
+                "Declarations should contain struct field MyStruct.FieldA. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
+        assertTrue(
+                declarations.contains(expectedInterfaceMethod_DoSomething),
+                "Declarations should contain interface method MyInterface.DoSomething. Found: "
+                        + declarations.stream()
+                                .map(cu -> cu.fqName() + "(" + cu.kind() + ")")
+                                .toList());
 
-        assertTrue(declarations.contains(expectedFunc),
-                   "Declarations should contain MyTopLevelFunction. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedStruct),
-                   "Declarations should contain MyStruct. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedInterface),
-                   "Declarations should contain MyInterface. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(otherFunc),
-                   "Declarations should contain anotherFunc. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedVar),
-                   "Declarations should contain MyGlobalVar. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedConst),
-                   "Declarations should contain MyGlobalConst. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedMethod_GetFieldA),
-                   "Declarations should contain method MyStruct.GetFieldA. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedStructFieldA),
-                   "Declarations should contain struct field MyStruct.FieldA. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-        assertTrue(declarations.contains(expectedInterfaceMethod_DoSomething),
-                   "Declarations should contain interface method MyInterface.DoSomething. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
-
-
-        assertEquals(9, declarations.size(),
-                    "Expected 9 declarations in declarations.go. Found: " +
-                    declarations.stream().map(CodeUnit::fqName).toList());
+        assertEquals(
+                9,
+                declarations.size(),
+                "Expected 9 declarations in declarations.go. Found: "
+                        + declarations.stream().map(CodeUnit::fqName).toList());
     }
 
     @Test
@@ -240,7 +276,8 @@ public class GoAnalyzerTest {
         // From declarations.go: package declpkg; type MyInterface interface { DoSomething() }
         java.util.Optional<String> skeleton = analyzer.getSkeleton("declpkg.MyInterface");
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyInterface should be found.");
-        String expected = """
+        String expected =
+                """
                           type MyInterface interface {
                             DoSomething()
                           }""";
@@ -260,7 +297,8 @@ public class GoAnalyzerTest {
     void testGetSkeletonHeader_Type() {
         java.util.Optional<String> headerStruct = analyzer.getSkeletonHeader("declpkg.MyStruct");
         assertTrue(headerStruct.isPresent(), "Skeleton header for declpkg.MyStruct should be found.");
-        String expectedStruct = """
+        String expectedStruct =
+                """
                 type MyStruct struct {
                   FieldA int
                   [...]
@@ -270,7 +308,8 @@ public class GoAnalyzerTest {
 
         java.util.Optional<String> headerInterface = analyzer.getSkeletonHeader("declpkg.MyInterface");
         assertTrue(headerInterface.isPresent(), "Skeleton header for declpkg.MyInterface should be found.");
-        String expectedInterface = """
+        String expectedInterface =
+                """
                 type MyInterface interface {
                   [...]
                 }
@@ -330,13 +369,17 @@ public class GoAnalyzerTest {
         assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyStruct should be found.");
 
         // Now expecting fields and methods.
-        String expectedSkeleton = """
+        String expectedSkeleton =
+                """
                                   type MyStruct struct {
                                     FieldA int
                                     func (s MyStruct) GetFieldA() int { ... }
                                   }""";
         String actualSkeleton = skeleton.get().replaceAll("\\r\\n", "\n").trim(); // Normalize newlines
-        assertEquals(expectedSkeleton.stripIndent().trim(), actualSkeleton, "Skeleton for MyStruct with fields and methods mismatch.");
+        assertEquals(
+                expectedSkeleton.stripIndent().trim(),
+                actualSkeleton,
+                "Skeleton for MyStruct with fields and methods mismatch.");
     }
 
     @Test
@@ -347,18 +390,22 @@ public class GoAnalyzerTest {
         assertFalse(members.isEmpty(), "Members list for MyStruct should not be empty.");
 
         CodeUnit expectedFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
-        assertTrue(members.contains(expectedFieldA),
-                   "Members of MyStruct should include FieldA. Found: " +
-                   members.stream().map(CodeUnit::fqName).toList());
+        assertTrue(
+                members.contains(expectedFieldA),
+                "Members of MyStruct should include FieldA. Found: "
+                        + members.stream().map(CodeUnit::fqName).toList());
 
         CodeUnit expectedMethod = CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA");
-        assertTrue(members.contains(expectedMethod),
-                   "Members of MyStruct should include GetFieldA method. Found: " +
-                   members.stream().map(CodeUnit::fqName).toList());
+        assertTrue(
+                members.contains(expectedMethod),
+                "Members of MyStruct should include GetFieldA method. Found: "
+                        + members.stream().map(CodeUnit::fqName).toList());
 
-        assertEquals(2, members.size(),
-                     "MyStruct should have 2 members (FieldA and GetFieldA method). Actual: " +
-                     members.stream().map(CodeUnit::fqName).toList());
+        assertEquals(
+                2,
+                members.size(),
+                "MyStruct should have 2 members (FieldA and GetFieldA method). Actual: "
+                        + members.stream().map(CodeUnit::fqName).toList());
     }
 
     @Test
@@ -369,13 +416,16 @@ public class GoAnalyzerTest {
         assertFalse(members.isEmpty(), "Members list for MyInterface should not be empty.");
 
         CodeUnit expectedMethod = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
-        assertTrue(members.contains(expectedMethod),
-                   "Members of MyInterface should include DoSomething method. Found: " +
-                   members.stream().map(CodeUnit::fqName).toList());
+        assertTrue(
+                members.contains(expectedMethod),
+                "Members of MyInterface should include DoSomething method. Found: "
+                        + members.stream().map(CodeUnit::fqName).toList());
 
-        assertEquals(1, members.size(),
-                     "MyInterface should have 1 member (DoSomething method). Actual: " +
-                     members.stream().map(CodeUnit::fqName).toList());
+        assertEquals(
+                1,
+                members.size(),
+                "MyInterface should have 1 member (DoSomething method). Actual: "
+                        + members.stream().map(CodeUnit::fqName).toList());
     }
 
     private String normalizeSource(String s) {
@@ -440,38 +490,38 @@ public class GoAnalyzerTest {
         // Create a diverse set of CodeUnits that are expected to be in declarations.go
         // Note: For methods, use the FQN as currently generated by createCodeUnit (e.g., pkg.MethodName)
         Set<CodeUnit> sourceCodeUnits = Set.of(
-            CodeUnit.fn(pf, "declpkg", "MyTopLevelFunction"),
-            CodeUnit.cls(pf, "declpkg", "MyStruct"),
-            CodeUnit.cls(pf, "declpkg", "MyInterface"),
-            CodeUnit.field(pf, "declpkg", "_module_.MyGlobalVar"),
-            CodeUnit.field(pf, "declpkg", "_module_.MyGlobalConst"),
-            CodeUnit.fn(pf, "declpkg", "anotherFunc"),
-            CodeUnit.field(pf, "declpkg", "MyStruct.FieldA"),          // Field of MyStruct
-            CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA"),         // Method of MyStruct
-            CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething") // Method of MyInterface
-        );
+                CodeUnit.fn(pf, "declpkg", "MyTopLevelFunction"),
+                CodeUnit.cls(pf, "declpkg", "MyStruct"),
+                CodeUnit.cls(pf, "declpkg", "MyInterface"),
+                CodeUnit.field(pf, "declpkg", "_module_.MyGlobalVar"),
+                CodeUnit.field(pf, "declpkg", "_module_.MyGlobalConst"),
+                CodeUnit.fn(pf, "declpkg", "anotherFunc"),
+                CodeUnit.field(pf, "declpkg", "MyStruct.FieldA"), // Field of MyStruct
+                CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA"), // Method of MyStruct
+                CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething") // Method of MyInterface
+                );
 
         // Filter to ensure we only use CUs actually found by the analyzer in that file for the test input
         // This makes the test robust to an evolving analyzer that might not find all initially listed CUs
         Set<CodeUnit> actualCUsInFile = analyzer.getDeclarationsInFile(declarationsGoFile);
-        Set<CodeUnit> inputCUsForTest = sourceCodeUnits.stream()
-                                           .filter(actualCUsInFile::contains)
-                                           .collect(Collectors.toSet());
-        
+        Set<CodeUnit> inputCUsForTest =
+                sourceCodeUnits.stream().filter(actualCUsInFile::contains).collect(Collectors.toSet());
+
         if (inputCUsForTest.size() < 5) { // Arbitrary threshold to ensure enough variety
-            System.err.println("testGetSymbols_Go: Warning - Input CUs for test is smaller than expected. Actual found in file: " + 
-                               actualCUsInFile.stream().map(CodeUnit::fqName).toList());
+            System.err.println(
+                    "testGetSymbols_Go: Warning - Input CUs for test is smaller than expected. Actual found in file: "
+                            + actualCUsInFile.stream().map(CodeUnit::fqName).toList());
             // Potentially fail or log more assertively if this implies a regression in earlier stages
         }
-        
+
         Set<String> extractedSymbols = analyzer.getSymbols(inputCUsForTest);
 
         // Define expected unqualified symbols based on the FQNs above
         // CodeUnit.identifier() correctly gives the unqualified name.
         Set<String> relevantExpectedSymbols = sourceCodeUnits.stream()
-            .filter(inputCUsForTest::contains) // ensure we only expect symbols for CUs that are actually testable
-            .map(CodeUnit::identifier) 
-            .collect(Collectors.toSet());
+                .filter(inputCUsForTest::contains) // ensure we only expect symbols for CUs that are actually testable
+                .map(CodeUnit::identifier)
+                .collect(Collectors.toSet());
 
         assertEquals(relevantExpectedSymbols, extractedSymbols, "Extracted symbols do not match expected symbols.");
 

@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.gui.search;
 
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.border.EmptyBorder;
-
-import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 /**
- * A completely generic search bar component that works with any component
- * implementing the SearchableComponent interface. This provides
- * reusability across different types of text components.
+ * A completely generic search bar component that works with any component implementing the SearchableComponent
+ * interface. This provides reusability across different types of text components.
  */
 public class GenericSearchBar extends JPanel {
     private final JTextField searchField;
@@ -190,32 +188,22 @@ public class GenericSearchBar extends JPanel {
         }
     }
 
-    /**
-     * Registers global keyboard shortcuts for the search bar.
-     */
+    /** Registers global keyboard shortcuts for the search bar. */
     public void registerGlobalShortcuts(JComponent parentComponent) {
         // Standard search shortcuts: Ctrl/Cmd+F to focus, Esc to clear
         KeyboardShortcutUtil.registerStandardSearchShortcuts(
-            parentComponent,
-            searchField,
-            this::focusSearchField,
-            () -> {
-                clearHighlights();
-                targetComponent.requestFocusInWindow();
-            }
-        );
+                parentComponent, searchField, this::focusSearchField, () -> {
+                    clearHighlights();
+                    targetComponent.requestFocusInWindow();
+                });
     }
 
-    /**
-     * Gets the search field component for external keyboard shortcut registration.
-     */
+    /** Gets the search field component for external keyboard shortcut registration. */
     public JTextField getSearchField() {
         return searchField;
     }
 
-    /**
-     * Focuses the search field and optionally populates it with selected text.
-     */
+    /** Focuses the search field and optionally populates it with selected text. */
     public void focusSearchField() {
         var selected = targetComponent.getSelectedText();
         if (selected != null && !selected.isEmpty()) {
@@ -233,16 +221,12 @@ public class GenericSearchBar extends JPanel {
         }
     }
 
-    /**
-     * Clears all search highlights but keeps the search text.
-     */
+    /** Clears all search highlights but keeps the search text. */
     public void clearHighlights() {
         targetComponent.clearHighlights();
     }
 
-    /**
-     * Updates the visibility of the clear button based on search field content.
-     */
+    /** Updates the visibility of the clear button based on search field content. */
     private void updateClearButtonVisibility() {
         var text = searchField.getText();
         boolean hasText = text != null && !text.isEmpty();
@@ -266,10 +250,7 @@ public class GenericSearchBar extends JPanel {
         });
     }
 
-    /**
-     * Updates search highlights in the target component.
-     *
-     */
+    /** Updates search highlights in the target component. */
     private void updateSearchHighlights() {
         var query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
@@ -286,8 +267,8 @@ public class GenericSearchBar extends JPanel {
     }
 
     /**
-     * Callback method for async search completion.
-     * This will be called by async SearchableComponent implementations when search is complete.
+     * Callback method for async search completion. This will be called by async SearchableComponent implementations
+     * when search is complete.
      */
     private void onSearchComplete(int totalMatches, int currentMatchIndex) {
         SwingUtilities.invokeLater(() -> {
@@ -364,23 +345,17 @@ public class GenericSearchBar extends JPanel {
         updateTooltip();
     }
 
-    /**
-     * Adds a listener that will be notified when the case-sensitive button is toggled.
-     */
+    /** Adds a listener that will be notified when the case-sensitive button is toggled. */
     public void addCaseSensitiveListener(Consumer<Boolean> listener) {
         caseSensitiveListeners.add(listener);
     }
 
-    /**
-     * Removes a case-sensitive listener.
-     */
+    /** Removes a case-sensitive listener. */
     public void removeCaseSensitiveListener(Consumer<Boolean> listener) {
         caseSensitiveListeners.remove(listener);
     }
 
-    /**
-     * Notifies all case-sensitive listeners of a change.
-     */
+    /** Notifies all case-sensitive listeners of a change. */
     private void fireCaseSensitiveChanged(boolean isSelected) {
         for (var listener : caseSensitiveListeners) {
             listener.accept(isSelected);

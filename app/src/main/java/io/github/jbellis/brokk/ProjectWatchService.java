@@ -1,18 +1,15 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class ProjectWatchService implements IWatchService {
 
@@ -23,17 +20,16 @@ public class ProjectWatchService implements IWatchService {
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
 
     private final Path root;
+
     @Nullable
     private final Path gitRepoRoot;
+
     private final Listener listener;
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
 
-    public ProjectWatchService(Path root,
-                               @Nullable Path gitRepoRoot,
-                               Listener listener)
-    {
+    public ProjectWatchService(Path root, @Nullable Path gitRepoRoot, Listener listener) {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;
         this.listener = listener;
@@ -41,7 +37,9 @@ public class ProjectWatchService implements IWatchService {
 
     @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
-        Thread watcherThread = new Thread(() -> beginWatching(delayNotificationsUntilCompleted), "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
+        Thread watcherThread = new Thread(
+                () -> beginWatching(delayNotificationsUntilCompleted),
+                "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
     }
 
@@ -159,7 +157,8 @@ public class ProjectWatchService implements IWatchService {
                         .filter(dir -> !dir.startsWith(brokkPrivate))
                         .forEach(dir -> {
                             try {
-                                dir.register(watchService,
+                                dir.register(
+                                        watchService,
                                         StandardWatchEventKinds.ENTRY_CREATE,
                                         StandardWatchEventKinds.ENTRY_DELETE,
                                         StandardWatchEventKinds.ENTRY_MODIFY);
@@ -175,7 +174,11 @@ public class ProjectWatchService implements IWatchService {
 
                 // Retry only if it's a NoSuchFileException and we have attempts left.
                 if (cause instanceof java.nio.file.NoSuchFileException && attempt < 3) {
-                    logger.warn("Attempt {} failed to walk directory {} due to NoSuchFileException. Retrying in 10ms...", attempt, start, cause);
+                    logger.warn(
+                            "Attempt {} failed to walk directory {} due to NoSuchFileException. Retrying in 10ms...",
+                            attempt,
+                            start,
+                            cause);
                     try {
                         Thread.sleep(10);
                     } catch (InterruptedException ie) {
@@ -187,18 +190,14 @@ public class ProjectWatchService implements IWatchService {
         logger.debug("Failed to (completely) register directory `{}` for watching", start);
     }
 
-    /**
-     * Pause the file watching service.
-     */
+    /** Pause the file watching service. */
     @Override
     public synchronized void pause() {
         logger.debug("Pausing file watcher");
         pauseCount++;
     }
 
-    /**
-     * Resume the file watching service.
-     */
+    /** Resume the file watching service. */
     @Override
     public synchronized void resume() {
         logger.debug("Resuming file watcher");
@@ -213,14 +212,14 @@ public class ProjectWatchService implements IWatchService {
         pauseCount = 0; // Ensure any waiting thread is woken up to exit
     }
 
-
     /**
      * Checks if any window in the application currently has focus
      *
      * @return true if any application window has focus, false otherwise
      */
     private boolean isApplicationFocused() {
-        var focusedWindow = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
+        var focusedWindow =
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
         return focusedWindow != null;
     }
 }

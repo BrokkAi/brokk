@@ -1,31 +1,28 @@
 package io.github.jbellis.brokk.gui;
 
+import java.awt.*;
+import java.util.Map;
+import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import java.awt.*;
-import java.util.Map;
-
 /**
- * Utility for discovering and displaying Look and Feel icons.
- * Run with "icons" argument to show a GUI browser of all available icons.
+ * Utility for discovering and displaying Look and Feel icons. Run with "icons" argument to show a GUI browser of all
+ * available icons.
  */
-public final class SwingIconUtil
-{
+public final class SwingIconUtil {
     private static final Logger logger = LogManager.getLogger(SwingIconUtil.class);
 
-    private SwingIconUtil() { /* no instances */ }
+    private SwingIconUtil() {
+        /* no instances */
+    }
 
-    /**
-     * Prints all available UIManager icons to console.
-     */
-    public static void printAvailableIcons()
-    {
+    /** Prints all available UIManager icons to console. */
+    public static void printAvailableIcons() {
         var defaults = UIManager.getDefaults();
         var iconEntries = new java.util.ArrayList<Map.Entry<String, Icon>>();
-        
+
         for (var key : defaults.keySet()) {
             try {
                 var value = UIManager.get(key);
@@ -36,28 +33,26 @@ public final class SwingIconUtil
                 // Skip if unable to load
             }
         }
-        
+
         iconEntries.sort(Map.Entry.comparingByKey());
-        
+
         System.out.println("=== Available Look and Feel Icons ===");
         System.out.println("Total icons: " + iconEntries.size());
         System.out.println();
-        
+
         iconEntries.forEach(entry -> {
             var icon = entry.getValue();
-            System.out.printf("%-50s [%2dx%-2d] %s%n", 
-                    entry.getKey(), 
-                    icon.getIconWidth(), 
+            System.out.printf(
+                    "%-50s [%2dx%-2d] %s%n",
+                    entry.getKey(),
+                    icon.getIconWidth(),
                     icon.getIconHeight(),
                     icon.getClass().getSimpleName());
         });
     }
 
-    /**
-     * Shows a GUI browser of all available Look and Feel icons.
-     */
-    public static void showLookAndFeelIconFrame()
-    {
+    /** Shows a GUI browser of all available Look and Feel icons. */
+    public static void showLookAndFeelIconFrame() {
         SwingUtilities.invokeLater(() -> {
             // Collect all icons
             var iconEntries = new java.util.ArrayList<Map.Entry<String, Icon>>();
@@ -80,14 +75,15 @@ public final class SwingIconUtil
             frame.setLocationRelativeTo(null);
 
             // Create table
-            var columnNames = new String[]{"Icon", "Name", "Size", "Type"};
+            var columnNames = new String[] {"Icon", "Name", "Size", "Type"};
             var tableData = new Object[iconEntries.size()][4];
-            
+
             for (int i = 0; i < iconEntries.size(); i++) {
                 var entry = iconEntries.get(i);
                 var icon = entry.getValue();
-                tableData[i] = new Object[]{
-                    icon, entry.getKey(), 
+                tableData[i] = new Object[] {
+                    icon,
+                    entry.getKey(),
                     icon.getIconWidth() + "x" + icon.getIconHeight(),
                     icon.getClass().getSimpleName()
                 };
@@ -96,7 +92,7 @@ public final class SwingIconUtil
             var table = new JTable(tableData, columnNames);
             table.setRowHeight(32);
             table.setAutoCreateRowSorter(true);
-            
+
             // Set column widths
             var colModel = table.getColumnModel();
             colModel.getColumn(0).setMaxWidth(50);
@@ -107,8 +103,8 @@ public final class SwingIconUtil
             // Icon renderer
             colModel.getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
                 @Override
-                public Component getTableCellRendererComponent(JTable table, Object value,
-                        boolean isSelected, boolean hasFocus, int row, int column) {
+                public Component getTableCellRendererComponent(
+                        JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                     var component = super.getTableCellRendererComponent(table, "", isSelected, hasFocus, row, column);
                     if (value instanceof Icon icon) {
                         setIcon(icon);
@@ -123,16 +119,23 @@ public final class SwingIconUtil
             var rowSorter = (javax.swing.table.TableRowSorter<?>) table.getRowSorter();
             searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
                 @Override
-                public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+                public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                    filter();
+                }
+
                 @Override
-                public void removeUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+                public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                    filter();
+                }
+
                 @Override
-                public void changedUpdate(javax.swing.event.DocumentEvent e) { filter(); }
-                
+                public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                    filter();
+                }
+
                 private void filter() {
                     var text = searchField.getText().trim();
-                    rowSorter.setRowFilter(text.isEmpty() ? null : 
-                        javax.swing.RowFilter.regexFilter("(?i)" + text, 1));
+                    rowSorter.setRowFilter(text.isEmpty() ? null : javax.swing.RowFilter.regexFilter("(?i)" + text, 1));
                 }
             });
 
@@ -152,21 +155,20 @@ public final class SwingIconUtil
 
     /**
      * Main method to explore available icons.
-     * 
+     *
      * @param args Use "icons" to show GUI browser, otherwise prints to console
      */
-    public static void main(String[] args)
-    {
+    public static void main(String[] args) {
         com.formdev.flatlaf.FlatLightLaf.setup();
-        
+
         // Register Brokk's custom icons so they appear in the browser
         // Makes Null Away Grumpy
-//        try {
-//            new GuiTheme(null, null, null).applyTheme(false); // false = light theme
-//        } catch (Exception e) {
-//            logger.warn("Failed to register custom icons: {}", e.getMessage());
-//        }
-        
+        //        try {
+        //            new GuiTheme(null, null, null).applyTheme(false); // false = light theme
+        //        } catch (Exception e) {
+        //            logger.warn("Failed to register custom icons: {}", e.getMessage());
+        //        }
+
         if (args.length > 0 && "icons".equals(args[0])) {
             showLookAndFeelIconFrame();
         } else {

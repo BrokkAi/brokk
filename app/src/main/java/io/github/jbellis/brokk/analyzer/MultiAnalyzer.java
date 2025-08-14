@@ -1,12 +1,11 @@
 package io.github.jbellis.brokk.analyzer;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class MultiAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(MultiAnalyzer.class);
@@ -35,11 +34,10 @@ public class MultiAnalyzer implements IAnalyzer {
         return delegates.values().stream()
                 .filter(IAnalyzer::isCpg)
                 .flatMap(analyzer -> extractor.apply(analyzer).entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey,
-                                          Map.Entry::getValue,
-                                          (list1, list2) -> Stream.concat(list1.stream(), list2.stream())
-                                                                  .distinct()
-                                                                  .collect(Collectors.toList())));
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (list1, list2) -> Stream.concat(
+                                list1.stream(), list2.stream())
+                        .distinct()
+                        .collect(Collectors.toList())));
     }
 
     @Override
@@ -56,7 +54,8 @@ public class MultiAnalyzer implements IAnalyzer {
     public List<CodeUnit> getUses(String fqName) {
         return delegates.values().stream()
                 .filter(IAnalyzer::isCpg)
-                .flatMap(analyzer1 -> ((Function<IAnalyzer, List<CodeUnit>>) analyzer -> analyzer.getUses(fqName)).apply(analyzer1).stream())
+                .flatMap(analyzer1 -> ((Function<IAnalyzer, List<CodeUnit>>) analyzer -> analyzer.getUses(fqName))
+                        .apply(analyzer1).stream())
                 .distinct()
                 .collect(Collectors.toList());
     }
@@ -136,7 +135,8 @@ public class MultiAnalyzer implements IAnalyzer {
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Language.fromExtension(com.google.common.io.Files.getFileExtension(file.absPath().toString()));
+        var lang = Language.fromExtension(
+                com.google.common.io.Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate != null) {
             return delegate.getSkeletons(file);
@@ -164,7 +164,8 @@ public class MultiAnalyzer implements IAnalyzer {
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        var lang = Language.fromExtension(com.google.common.io.Files.getFileExtension(file.absPath().toString()));
+        var lang = Language.fromExtension(
+                com.google.common.io.Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
         if (delegate != null) {
             return delegate.getDeclarationsInFile(file);
@@ -206,7 +207,7 @@ public class MultiAnalyzer implements IAnalyzer {
 
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
-        for (var an: delegates.values()) {
+        for (var an : delegates.values()) {
             an.update(changedFiles);
         }
         return this;

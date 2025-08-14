@@ -7,14 +7,14 @@ import javax.swing.undo.CompoundEdit;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.UndoableEdit;
 
-public abstract class AbstractContentPanel
-        extends JPanel
-        implements JMeldContentPanelIF {
+public abstract class AbstractContentPanel extends JPanel implements JMeldContentPanelIF {
     private MyUndoManager undoManager = new MyUndoManager();
 
     // Abstract methods to be implemented by subclasses for navigation logic
     public abstract boolean isAtFirstLogicalChange();
+
     public abstract boolean isAtLastLogicalChange();
+
     public abstract void goToLastLogicalChange();
 
     @Override
@@ -42,16 +42,12 @@ public abstract class AbstractContentPanel
     }
 
     @Override
-    public void doUp() {
-    }
+    public void doUp() {}
 
     @Override
-    public void doDown() {
-    }
+    public void doDown() {}
 
-    public class MyUndoManager
-            extends UndoManager
-            implements UndoableEditListener {
+    public class MyUndoManager extends UndoManager implements UndoableEditListener {
         @org.jetbrains.annotations.Nullable
         CompoundEdit activeEdit;
 
@@ -92,7 +88,5 @@ public abstract class AbstractContentPanel
         return undoManager;
     }
 
-    public void checkActions() {
-    }
-
+    public void checkActions() {}
 }

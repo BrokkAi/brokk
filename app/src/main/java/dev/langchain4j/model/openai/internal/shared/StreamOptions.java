@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = StreamOptions.Builder.class)
@@ -29,8 +28,7 @@ public final class StreamOptions {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof StreamOptions
-                && equalTo((StreamOptions) another);
+        return another instanceof StreamOptions && equalTo((StreamOptions) another);
     }
 
     private boolean equalTo(StreamOptions another) {
@@ -46,9 +44,7 @@ public final class StreamOptions {
 
     @Override
     public String toString() {
-        return "StreamOptions{" +
-                "includeUsage=" + includeUsage +
-                "}";
+        return "StreamOptions{" + "includeUsage=" + includeUsage + "}";
     }
 
     public static Builder builder() {

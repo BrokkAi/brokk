@@ -1,11 +1,10 @@
 package dev.langchain4j.model.openai.internal;
 
-import java.time.Duration;
-import java.util.Map;
-
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
+import java.time.Duration;
+import java.util.Map;
 
 public abstract class OpenAiClient {
 
@@ -48,8 +47,8 @@ public abstract class OpenAiClient {
         }
 
         /**
-         * @param organizationId The OpenAI Organization ID.
-         *                       More info <a href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
+         * @param organizationId The OpenAI Organization ID. More info <a
+         *     href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
          * @return builder
          */
         public B organizationId(String organizationId) {
@@ -58,8 +57,8 @@ public abstract class OpenAiClient {
         }
 
         /**
-         * @param projectId The OpenAI Project ID.
-         *                  More info <a href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
+         * @param projectId The OpenAI Project ID. More info <a
+         *     href="https://platform.openai.com/docs/api-reference/organizations-and-projects-optional">here</a>.
          * @return builder
          */
         public B projectId(String projectId) {
@@ -68,8 +67,7 @@ public abstract class OpenAiClient {
         }
 
         /**
-         * @param apiKey OpenAI API key.
-         *               Will be injected in HTTP headers like this: "Authorization: Bearer ${apiKey}"
+         * @param apiKey OpenAI API key. Will be injected in HTTP headers like this: "Authorization: Bearer ${apiKey}"
          * @return builder
          */
         public B apiKey(String apiKey) {

@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
-import javax.swing.undo.UndoManager;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.*;
+import javax.swing.undo.UndoManager;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
- * Comprehensive state transition tests for ChunkApplicationEdit undo/redo functionality.
- * Tests concurrent operations, state consistency, and memory management.
+ * Comprehensive state transition tests for ChunkApplicationEdit undo/redo functionality. Tests concurrent operations,
+ * state consistency, and memory management.
  */
 public class ChunkApplicationEditStateTest {
 
@@ -36,8 +34,8 @@ public class ChunkApplicationEditStateTest {
         assertFalse(initialCanRedo, "Initially no redo should be available");
 
         // After operations are added, state should be consistent
-        assertTrue(undoManager.canUndoOrRedo() || !undoManager.canUndoOrRedo(),
-            "Undo manager should be in a valid state");
+        assertTrue(
+                undoManager.canUndoOrRedo() || !undoManager.canUndoOrRedo(), "Undo manager should be in a valid state");
     }
 
     @Test
@@ -76,8 +74,10 @@ public class ChunkApplicationEditStateTest {
             }
 
             assertTrue(latch.await(5, TimeUnit.SECONDS), "All operations should complete within timeout");
-            assertEquals(threadCount * operationCount, completedOperations.get(),
-                "All operations should complete successfully");
+            assertEquals(
+                    threadCount * operationCount,
+                    completedOperations.get(),
+                    "All operations should complete successfully");
 
         } finally {
             executor.shutdownNow();
@@ -99,8 +99,7 @@ public class ChunkApplicationEditStateTest {
                 boolean canDoEither = undoManager.canUndoOrRedo();
 
                 // Verify logical consistency
-                assertTrue(canDoEither == (canUndo || canRedo),
-                    "canUndoOrRedo should match individual states");
+                assertTrue(canDoEither == (canUndo || canRedo), "canUndoOrRedo should match individual states");
 
                 successCount.incrementAndGet();
 
@@ -117,10 +116,8 @@ public class ChunkApplicationEditStateTest {
         }
 
         // Most operations should succeed
-        assertTrue(successCount.get() > operations * 0.9,
-            "At least 90% of operations should succeed under stress");
-        assertTrue(errorCount.get() < operations * 0.1,
-            "Less than 10% of operations should fail");
+        assertTrue(successCount.get() > operations * 0.9, "At least 90% of operations should succeed under stress");
+        assertTrue(errorCount.get() < operations * 0.1, "Less than 10% of operations should fail");
     }
 
     @Test
@@ -143,8 +140,7 @@ public class ChunkApplicationEditStateTest {
             boolean canUndoOrRedo = undoManager.canUndoOrRedo();
 
             // State should be internally consistent
-            assertEquals(canUndo || canRedo, canUndoOrRedo,
-                "canUndoOrRedo should match individual capabilities");
+            assertEquals(canUndo || canRedo, canUndoOrRedo, "canUndoOrRedo should match individual capabilities");
         }
     }
 
@@ -163,10 +159,10 @@ public class ChunkApplicationEditStateTest {
 
         // Test that state queries are stable (no side effects)
         for (int i = 0; i < 10; i++) {
-            assertEquals(initialCanUndo, undoManager.canUndo(),
-                "Multiple canUndo() calls should return consistent results");
-            assertEquals(initialCanRedo, undoManager.canRedo(),
-                "Multiple canRedo() calls should return consistent results");
+            assertEquals(
+                    initialCanUndo, undoManager.canUndo(), "Multiple canUndo() calls should return consistent results");
+            assertEquals(
+                    initialCanRedo, undoManager.canRedo(), "Multiple canRedo() calls should return consistent results");
         }
     }
 
@@ -207,15 +203,14 @@ public class ChunkApplicationEditStateTest {
         }
 
         // State should remain consistent
-        assertEquals(initialState, undoManager.canUndoOrRedo(),
-            "State should remain consistent after many operations");
+        assertEquals(initialState, undoManager.canUndoOrRedo(), "State should remain consistent after many operations");
 
         // Force GC to test for any memory leaks
         System.gc();
 
         // State should still be consistent
-        assertEquals(initialState, undoManager.canUndoOrRedo(),
-            "State should remain consistent after garbage collection");
+        assertEquals(
+                initialState, undoManager.canUndoOrRedo(), "State should remain consistent after garbage collection");
     }
 
     @Test
@@ -238,8 +233,7 @@ public class ChunkApplicationEditStateTest {
                             boolean canUndoOrRedo = undoManager.canUndoOrRedo();
 
                             // Verify consistency within this thread
-                            assertEquals(canUndo || canRedo, canUndoOrRedo,
-                                "State should be consistent within thread");
+                            assertEquals(canUndo || canRedo, canUndoOrRedo, "State should be consistent within thread");
 
                             successfulQueries.incrementAndGet();
                         }
@@ -249,10 +243,8 @@ public class ChunkApplicationEditStateTest {
                 });
             }
 
-            assertTrue(latch.await(10, TimeUnit.SECONDS),
-                "All concurrent queries should complete within timeout");
-            assertEquals(threadCount * queryCount, successfulQueries.get(),
-                "All state queries should succeed");
+            assertTrue(latch.await(10, TimeUnit.SECONDS), "All concurrent queries should complete within timeout");
+            assertEquals(threadCount * queryCount, successfulQueries.get(), "All state queries should succeed");
 
         } finally {
             executor.shutdownNow();

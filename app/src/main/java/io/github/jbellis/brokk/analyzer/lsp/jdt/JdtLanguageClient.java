@@ -3,18 +3,17 @@ package io.github.jbellis.brokk.analyzer.lsp.jdt;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.LspStatus;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.stream.Collectors;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
 import org.eclipse.lsp4j.services.LanguageClient;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.stream.Collectors;
 
 public final class JdtLanguageClient implements LanguageClient {
 
@@ -27,9 +26,7 @@ public final class JdtLanguageClient implements LanguageClient {
     private final Set<String> accumulatedErrors = new HashSet<>();
 
     public JdtLanguageClient(
-            String language,
-            CountDownLatch serverReadyLatch,
-            Map<String, CountDownLatch> workspaceReadyLatchMap) {
+            String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.language = language;
         this.serverReadyLatch = serverReadyLatch;
         this.workspaceReadyLatchMap = workspaceReadyLatchMap;
@@ -37,6 +34,7 @@ public final class JdtLanguageClient implements LanguageClient {
 
     /**
      * Sets the IO to report client-facing diagnostics with.
+     *
      * @param io the IO object to use.
      */
     public void setIo(@Nullable IConsoleIO io) {
@@ -57,8 +55,7 @@ public final class JdtLanguageClient implements LanguageClient {
     }
 
     @Override
-    public void telemetryEvent(Object object) {
-    }
+    public void telemetryEvent(Object object) {}
 
     @Override
     public void showMessage(MessageParams messageParams) {
@@ -105,7 +102,8 @@ public final class JdtLanguageClient implements LanguageClient {
                             .map(s -> s.split(": "))
                             .filter(arr -> arr.length == 2 && !arr[0].startsWith(" "))
                             .forEach(arr -> {
-                                final var workspace = Path.of(arr[1].trim()).toUri().toString();
+                                final var workspace =
+                                        Path.of(arr[1].trim()).toUri().toString();
                                 Optional.ofNullable(workspaceReadyLatchMap.get(workspace))
                                         .ifPresent(latch -> {
                                             logger.info("Marking {} as ready", workspace);
@@ -122,10 +120,10 @@ public final class JdtLanguageClient implements LanguageClient {
         var messageLines = message.getMessage().lines().toList();
         // Avoid chained stack trace spam, these are recorded in the LSP logs elsewhere anyway
         if (messageLines.size() > ERROR_LOG_LINE_LIMIT) {
-            final var conciseMessageLines = new ArrayList<>(messageLines.stream().limit(ERROR_LOG_LINE_LIMIT).toList());
-            final var cachePath = LspServer.getCacheForLsp(language)
-                    .resolve(".metadata")
-                    .resolve(".log");
+            final var conciseMessageLines = new ArrayList<>(
+                    messageLines.stream().limit(ERROR_LOG_LINE_LIMIT).toList());
+            final var cachePath =
+                    LspServer.getCacheForLsp(language).resolve(".metadata").resolve(".log");
             conciseMessageLines.add("See logs at '" + cachePath + "' for more details.");
             messageLines = conciseMessageLines;
         }
@@ -137,13 +135,15 @@ public final class JdtLanguageClient implements LanguageClient {
         // latches to unblock the clients
         if (failedToImportProject(message)) {
             logger.warn("Failed to import projects, counting down all latches");
-            alertUser("Failed to import Java project, code analysis will be limited.\nPlease ensure the project can build via Gradle, Maven, or Eclipse.");
+            alertUser(
+                    "Failed to import Java project, code analysis will be limited.\nPlease ensure the project can build via Gradle, Maven, or Eclipse.");
             workspaceReadyLatchMap.forEach((workspace, latch) -> {
                 logger.debug("Marking {} as ready", workspace);
                 latch.countDown();
             });
         } else if (isOutOfMemoryError(message)) {
-            alertUser("The Java Language Server ran out of memory. Consider increasing this under 'Settings' -> 'Analyzers' -> 'Java'.");
+            alertUser(
+                    "The Java Language Server ran out of memory. Consider increasing this under 'Settings' -> 'Analyzers' -> 'Java'.");
         } else if (isUnhandledError(message)) {
             alertUser("Failed to import Java project due to unknown error. Please look at $HOME/.brokk/debug.log.");
         }
@@ -165,16 +165,15 @@ public final class JdtLanguageClient implements LanguageClient {
     }
 
     private boolean failedToImportProject(MessageParams message) {
-        return message.getMessage().contains("Failed to import projects") ||
-                message.getMessage().contains("Problems occurred when invoking code from plug-in:");
+        return message.getMessage().contains("Failed to import projects")
+                || message.getMessage().contains("Problems occurred when invoking code from plug-in:");
     }
 
     private boolean isOutOfMemoryError(MessageParams message) {
-        return  message.getMessage().contains("Java heap space");
+        return message.getMessage().contains("Java heap space");
     }
 
     private boolean isUnhandledError(MessageParams message) {
         return message.getMessage().contains("Unhandled error");
     }
-
 }

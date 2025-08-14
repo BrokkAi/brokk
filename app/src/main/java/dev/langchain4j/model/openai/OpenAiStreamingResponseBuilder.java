@@ -7,11 +7,6 @@ import static dev.langchain4j.model.openai.internal.OpenAiUtils.tokenUsageFrom;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
-
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -23,11 +18,14 @@ import dev.langchain4j.model.openai.internal.chat.ToolCall;
 import dev.langchain4j.model.openai.internal.shared.Usage;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.TokenUsage;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * This class needs to be thread safe because it is called when a streaming result comes back
- * and there is no guarantee that this thread will be the same as the one that initiated the request,
- * in fact it almost certainly won't be.
+ * This class needs to be thread safe because it is called when a streaming result comes back and there is no guarantee
+ * that this thread will be the same as the one that initiated the request, in fact it almost certainly won't be.
  */
 public class OpenAiStreamingResponseBuilder {
 
@@ -37,7 +35,8 @@ public class OpenAiStreamingResponseBuilder {
     private final StringBuffer toolNameBuilder = new StringBuffer();
     private final StringBuffer toolArgumentsBuilder = new StringBuffer();
 
-    private final Map<Integer, ToolExecutionRequestBuilder> indexToToolExecutionRequestBuilder = new ConcurrentHashMap<>();
+    private final Map<Integer, ToolExecutionRequestBuilder> indexToToolExecutionRequestBuilder =
+            new ConcurrentHashMap<>();
 
     private final AtomicReference<String> id = new AtomicReference<>();
     private final AtomicReference<Long> created = new AtomicReference<>();
@@ -120,9 +119,7 @@ public class OpenAiStreamingResponseBuilder {
             ToolCall toolCall = delta.toolCalls().get(0);
 
             ToolExecutionRequestBuilder builder = this.indexToToolExecutionRequestBuilder.computeIfAbsent(
-                    toolCall.index(),
-                    idx -> new ToolExecutionRequestBuilder()
-            );
+                    toolCall.index(), idx -> new ToolExecutionRequestBuilder());
 
             if (toolCall.id() != null) {
                 builder.idBuilder.append(toolCall.id());

@@ -4,18 +4,6 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.DefaultCompletionProvider;
-import org.fife.ui.autocomplete.ShorthandCompletion;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -23,7 +11,17 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
-
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.text.JTextComponent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.Nullable;
 
 public class ProjectFilesPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(ProjectFilesPanel.class);
@@ -47,8 +45,7 @@ public class ProjectFilesPanel extends JPanel {
                 "Project Files",
                 javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
                 javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
@@ -102,30 +99,34 @@ public class ProjectFilesPanel extends JPanel {
                     Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
                     List<ProjectFile> matches = trackedFiles.stream()
-                        .filter(pf -> {
-                            String pathStrLower = pf.getRelPath().toString().toLowerCase(Locale.ROOT);
-                            String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
+                            .filter(pf -> {
+                                String pathStrLower = pf.getRelPath().toString().toLowerCase(Locale.ROOT);
+                                String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
 
-                            if (typedLower.contains("/") || typedLower.contains("\\")) {
-                                // If typed text has path separators, treat it as a path prefix match
-                                return pathStrLower.startsWith(typedLower);
-                            } else {
-                                // If no path separators, check if it's part of the filename
-                                if (fileNameLower.contains(typedLower)) {
-                                    return true;
-                                }
-                                // Or if it's part of any directory name in the path
-                                Path currentParent = pf.getRelPath().getParent();
-                                while (currentParent != null) {
-                                    if (currentParent.getFileName().toString().toLowerCase(Locale.ROOT).contains(typedLower)) {
+                                if (typedLower.contains("/") || typedLower.contains("\\")) {
+                                    // If typed text has path separators, treat it as a path prefix match
+                                    return pathStrLower.startsWith(typedLower);
+                                } else {
+                                    // If no path separators, check if it's part of the filename
+                                    if (fileNameLower.contains(typedLower)) {
                                         return true;
                                     }
-                                    currentParent = currentParent.getParent();
+                                    // Or if it's part of any directory name in the path
+                                    Path currentParent = pf.getRelPath().getParent();
+                                    while (currentParent != null) {
+                                        if (currentParent
+                                                .getFileName()
+                                                .toString()
+                                                .toLowerCase(Locale.ROOT)
+                                                .contains(typedLower)) {
+                                            return true;
+                                        }
+                                        currentParent = currentParent.getParent();
+                                    }
+                                    return false;
                                 }
-                                return false;
-                            }
-                        })
-                        .toList();
+                            })
+                            .toList();
 
                     if (matches.size() == 1) {
                         projectTree.selectAndExpandToFile(matches.getFirst());
@@ -143,14 +144,15 @@ public class ProjectFilesPanel extends JPanel {
         // Otherwise, try to find and select a file based on search text.
 
         String searchText = searchField.getText();
-        
+
         // If there's already a tree selection, focus tree and show context menu regardless of search text
         if (projectTree.getSelectionCount() > 0) {
             projectTree.requestFocusInWindow();
             SwingUtilities.invokeLater(() -> {
                 Action contextMenuAction = projectTree.getActionMap().get("showContextMenu");
                 if (contextMenuAction != null) {
-                    contextMenuAction.actionPerformed(new java.awt.event.ActionEvent(projectTree, java.awt.event.ActionEvent.ACTION_PERFORMED, "showContextMenu"));
+                    contextMenuAction.actionPerformed(new java.awt.event.ActionEvent(
+                            projectTree, java.awt.event.ActionEvent.ACTION_PERFORMED, "showContextMenu"));
                 }
             });
             return;
@@ -172,13 +174,15 @@ public class ProjectFilesPanel extends JPanel {
             // Fallback: If toFile didn't find it, check if current text exactly matches a completion's replacement.
             List<Completion> completions = ac.getCompletionProvider().getCompletions(searchField);
             for (Completion comp : completions) {
-                if (comp instanceof ProjectFileCompletion pfc && pfc.getReplacementText().equals(searchText)) {
+                if (comp instanceof ProjectFileCompletion pfc
+                        && pfc.getReplacementText().equals(searchText)) {
                     projectTree.selectAndExpandToFile(pfc.getProjectFile());
                     SwingUtilities.invokeLater(() -> projectTree.requestFocusInWindow());
                     return;
                 }
             }
-            logger.debug("Enter on search field: No exact file found for '" + searchText + "'. Tree selection relies on DocumentListener for unique prefixes.");
+            logger.debug("Enter on search field: No exact file found for '" + searchText
+                    + "'. Tree selection relies on DocumentListener for unique prefixes.");
         } catch (Exception ex) {
             logger.error("Error on search confirmation for file: " + searchText, ex);
         }
@@ -224,18 +228,28 @@ public class ProjectFilesPanel extends JPanel {
                     pf -> 0,
                     this::createProjectFileCompletion);
 
-            return scoredCompletions.stream().map(c -> (Completion)c).collect(Collectors.toList());
+            return scoredCompletions.stream().map(c -> (Completion) c).collect(Collectors.toList());
         }
 
         private ProjectFileCompletion createProjectFileCompletion(ProjectFile pf) {
-            return new ProjectFileCompletion(this, pf.getFileName(), pf.getRelPath().toString(), pf.getRelPath().toString(), pf);
+            return new ProjectFileCompletion(
+                    this,
+                    pf.getFileName(),
+                    pf.getRelPath().toString(),
+                    pf.getRelPath().toString(),
+                    pf);
         }
     }
 
     private static class ProjectFileCompletion extends ShorthandCompletion {
         private final ProjectFile projectFile;
 
-        public ProjectFileCompletion(DefaultCompletionProvider provider, String inputText, String replacementText, String shortDesc, ProjectFile projectFile) {
+        public ProjectFileCompletion(
+                DefaultCompletionProvider provider,
+                String inputText,
+                String replacementText,
+                String shortDesc,
+                ProjectFile projectFile) {
             super(provider, inputText, replacementText, shortDesc);
             this.projectFile = projectFile;
         }

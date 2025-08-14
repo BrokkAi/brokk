@@ -1,37 +1,34 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.ContextManager;
 import static io.github.jbellis.brokk.SessionManager.SessionInfo;
+
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import io.github.jbellis.brokk.gui.SwingUtil;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
-import java.time.LocalDate;
-
-import io.github.jbellis.brokk.gui.GitUiUtil;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview
- */
+/** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
 public class SessionsDialog extends JDialog {
     private final HistoryOutputPanel historyOutputPanel;
     private final Chrome chrome;
@@ -71,7 +68,7 @@ public class SessionsDialog extends JDialog {
 
     private void initializeComponents() {
         // Initialize sessions table model with Active, Session Name, Date, and hidden SessionInfo columns
-        sessionsTableModel = new DefaultTableModel(new Object[]{"Active", "Session Name", "Date", "SessionInfo"}, 0) {
+        sessionsTableModel = new DefaultTableModel(new Object[] {"Active", "Session Name", "Date", "SessionInfo"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -86,7 +83,10 @@ public class SessionsDialog extends JDialog {
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
                     SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, 3);
-                    return "Last modified: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(sessionInfo.modified()));
+                    return "Last modified: "
+                            + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+                                    .withZone(ZoneId.systemDefault())
+                                    .format(Instant.ofEpochMilli(sessionInfo.modified()));
                 }
                 return super.getToolTipText(event);
             }
@@ -97,16 +97,17 @@ public class SessionsDialog extends JDialog {
         // Set up column renderers for sessions table
         sessionsTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                JLabel label =
+                        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 label.setHorizontalAlignment(JLabel.CENTER);
                 return label;
             }
         });
 
         // Initialize activity table model
-        activityTableModel = new DefaultTableModel(new Object[]{"", "Action", "Context"}, 0) {
+        activityTableModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -122,10 +123,10 @@ public class SessionsDialog extends JDialog {
         // Set up tooltip renderer for activity description column
         activityTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel)super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                JLabel label =
+                        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 label.setToolTipText(value.toString());
                 return label;
             }
@@ -134,10 +135,10 @@ public class SessionsDialog extends JDialog {
         // Set up icon renderer for first column of activity table
         activityTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                          boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label = (JLabel)super.getTableCellRendererComponent(
-                        table, value, isSelected, hasFocus, row, column);
+            public Component getTableCellRendererComponent(
+                    JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                JLabel label =
+                        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 
                 // Set icon and center-align
                 if (value instanceof Icon icon) {
@@ -163,9 +164,7 @@ public class SessionsDialog extends JDialog {
         activityTable.getColumnModel().getColumn(2).setWidth(0);
 
         // Initialize workspace panel for preview (copy-only menu)
-        workspacePanel = new WorkspacePanel(chrome,
-                                            contextManager,
-                                            WorkspacePanel.PopupMenuMode.COPY_ONLY);
+        workspacePanel = new WorkspacePanel(chrome, contextManager, WorkspacePanel.PopupMenuMode.COPY_ONLY);
         workspacePanel.setWorkspaceEditable(false); // Make workspace read-only in manage dialog
 
         // Initialize markdown output panel for preview
@@ -315,17 +314,20 @@ public class SessionsDialog extends JDialog {
         clearPreviewPanels();
 
         // Load session history asynchronously
-        contextManager.loadSessionHistoryAsync(sessionId).thenAccept(history -> {
-            SwingUtilities.invokeLater(() -> {
-                populateActivityTable(history);
-            });
-        }).exceptionally(throwable -> {
-            SwingUtilities.invokeLater(() -> {
-                chrome.toolError("Failed to load session history: " + throwable.getMessage());
-                activityTableModel.setRowCount(0);
-            });
-            return null;
-        });
+        contextManager
+                .loadSessionHistoryAsync(sessionId)
+                .thenAccept(history -> {
+                    SwingUtilities.invokeLater(() -> {
+                        populateActivityTable(history);
+                    });
+                })
+                .exceptionally(throwable -> {
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Failed to load session history: " + throwable.getMessage());
+                        activityTableModel.setRowCount(0);
+                    });
+                    return null;
+                });
     }
 
     private void populateActivityTable(ContextHistory history) {
@@ -339,11 +341,9 @@ public class SessionsDialog extends JDialog {
         for (var ctx : history.getHistory()) {
             // Add icon for AI responses, null for user actions
             Icon iconEmoji = (ctx.getParsedOutput() != null) ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
-            activityTableModel.addRow(new Object[]{
-                    iconEmoji,
-                    ctx.getAction(),
-                    ctx // Store the actual context object in hidden column
-            });
+            activityTableModel.addRow(
+                    new Object[] {iconEmoji, ctx.getAction(), ctx // Store the actual context object in hidden column
+                    });
         }
 
         // Select the most recent item (last row) if available
@@ -378,14 +378,16 @@ public class SessionsDialog extends JDialog {
 
     public void refreshSessionsTable() {
         sessionsTableModel.setRowCount(0);
-        List<SessionInfo> sessions = contextManager.getProject().getSessionManager().listSessions();
+        List<SessionInfo> sessions =
+                contextManager.getProject().getSessionManager().listSessions();
         sessions.sort(java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Sort newest first
 
         UUID currentSessionId = contextManager.getCurrentSessionId();
         for (var session : sessions) {
             String active = session.id().equals(currentSessionId) ? "✓" : "";
-            var date = GitUiUtil.formatRelativeDate(Instant.ofEpochMilli(session.modified()), LocalDate.now(ZoneId.systemDefault()));
-            sessionsTableModel.addRow(new Object[]{active, session.name(), date, session});
+            var date = GitUiUtil.formatRelativeDate(
+                    Instant.ofEpochMilli(session.modified()), LocalDate.now(ZoneId.systemDefault()));
+            sessionsTableModel.addRow(new Object[] {active, session.name(), date, session});
         }
 
         // Hide the "SessionInfo" column
@@ -422,8 +424,8 @@ public class SessionsDialog extends JDialog {
 
         int[] selectedRows = sessionsTable.getSelectedRows();
         var selectedSessions = java.util.Arrays.stream(selectedRows)
-                                               .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 3))
-                                               .toList();
+                .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 3))
+                .toList();
 
         JPopupMenu popup = new JPopupMenu();
 
@@ -433,11 +435,12 @@ public class SessionsDialog extends JDialog {
 
             JMenuItem setActiveItem = new JMenuItem("Set as Active");
             setActiveItem.setEnabled(!sessionInfo.id().equals(contextManager.getCurrentSessionId()));
-            setActiveItem.addActionListener(ev -> contextManager.switchSessionAsync(sessionInfo.id())
-                                                                .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                                                                    refreshSessionsTable();
-                                                                    historyOutputPanel.updateSessionComboBox();
-                                                                })));
+            setActiveItem.addActionListener(ev -> contextManager
+                    .switchSessionAsync(sessionInfo.id())
+                    .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                        refreshSessionsTable();
+                        historyOutputPanel.updateSessionComboBox();
+                    })));
             popup.add(setActiveItem);
             popup.addSeparator();
 
@@ -449,21 +452,23 @@ public class SessionsDialog extends JDialog {
         /* ---------- delete (single or multi) ---------- */
         JMenuItem deleteItem = new JMenuItem(selectedSessions.size() == 1 ? "Delete" : "Delete Selected");
         deleteItem.addActionListener(ev -> {
-            int confirm = JOptionPane.showConfirmDialog(SessionsDialog.this,
-                                                        "Are you sure you want to delete the selected session(s)?",
-                                                        "Confirm Delete",
-                                                        JOptionPane.YES_NO_OPTION,
-                                                        JOptionPane.WARNING_MESSAGE);
+            int confirm = JOptionPane.showConfirmDialog(
+                    SessionsDialog.this,
+                    "Are you sure you want to delete the selected session(s)?",
+                    "Confirm Delete",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
                 for (var s : selectedSessions) {
                     futures.add(contextManager.deleteSessionAsync(s.id()));
                 }
-                java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                                                      .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                                                          refreshSessionsTable();
-                                                          historyOutputPanel.updateSessionComboBox();
-                                                      }));
+                java.util.concurrent.CompletableFuture.allOf(
+                                futures.toArray(new java.util.concurrent.CompletableFuture[0]))
+                        .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                            refreshSessionsTable();
+                            historyOutputPanel.updateSessionComboBox();
+                        }));
             }
         });
         popup.add(deleteItem);
@@ -476,10 +481,10 @@ public class SessionsDialog extends JDialog {
                 futures.add(contextManager.copySessionAsync(s.id(), s.name()));
             }
             java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                                                  .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                                                      refreshSessionsTable();
-                                                      historyOutputPanel.updateSessionComboBox();
-                                                  }));
+                    .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                        refreshSessionsTable();
+                        historyOutputPanel.updateSessionComboBox();
+                    }));
         });
         popup.add(dupItem);
 
@@ -490,16 +495,15 @@ public class SessionsDialog extends JDialog {
     }
 
     private void renameSession(SessionInfo sessionInfo) {
-        String newName = JOptionPane.showInputDialog(SessionsDialog.this,
-                                                     "Enter new name for session '" + sessionInfo.name() + "':",
-                                                     sessionInfo.name());
+        String newName = JOptionPane.showInputDialog(
+                SessionsDialog.this, "Enter new name for session '" + sessionInfo.name() + "':", sessionInfo.name());
         if (newName != null && !newName.trim().isBlank()) {
-            contextManager.renameSessionAsync(sessionInfo.id(), CompletableFuture.completedFuture(newName.trim())).thenRun(() ->
-                SwingUtilities.invokeLater(() -> {
-                    refreshSessionsTable();
-                    historyOutputPanel.updateSessionComboBox();
-                })
-            );
+            contextManager
+                    .renameSessionAsync(sessionInfo.id(), CompletableFuture.completedFuture(newName.trim()))
+                    .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                        refreshSessionsTable();
+                        historyOutputPanel.updateSessionComboBox();
+                    }));
         }
     }
 
@@ -511,48 +515,50 @@ public class SessionsDialog extends JDialog {
     }
 
     // ---------- Static helpers for other UI components ----------
-    public static void renameCurrentSession(Component parent, Chrome chrome, ContextManager contextManager,
-                                            HistoryOutputPanel historyOutputPanel) {
+    public static void renameCurrentSession(
+            Component parent, Chrome chrome, ContextManager contextManager, HistoryOutputPanel historyOutputPanel) {
         var sessionManager = contextManager.getProject().getSessionManager();
         var currentId = contextManager.getCurrentSessionId();
         var maybeInfo = sessionManager.listSessions().stream()
-                                      .filter(s -> s.id().equals(currentId))
-                                      .findFirst();
+                .filter(s -> s.id().equals(currentId))
+                .findFirst();
         if (maybeInfo.isEmpty()) {
             chrome.toolError("Current session not found");
             return;
         }
         var info = maybeInfo.get();
-        String newName = JOptionPane.showInputDialog(parent,
-                                                     "Enter new name for session '" + info.name() + "':",
-                                                     info.name());
+        String newName =
+                JOptionPane.showInputDialog(parent, "Enter new name for session '" + info.name() + "':", info.name());
         if (newName != null && !newName.trim().isBlank()) {
-            contextManager.renameSessionAsync(info.id(),
-                                              java.util.concurrent.CompletableFuture.completedFuture(newName.trim()))
-                          .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
+            contextManager
+                    .renameSessionAsync(
+                            info.id(), java.util.concurrent.CompletableFuture.completedFuture(newName.trim()))
+                    .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
         }
     }
 
-    public static void deleteCurrentSession(Component parent, Chrome chrome, ContextManager contextManager,
-                                            HistoryOutputPanel historyOutputPanel) {
+    public static void deleteCurrentSession(
+            Component parent, Chrome chrome, ContextManager contextManager, HistoryOutputPanel historyOutputPanel) {
         var sessionManager = contextManager.getProject().getSessionManager();
         var currentId = contextManager.getCurrentSessionId();
         var maybeInfo = sessionManager.listSessions().stream()
-                                      .filter(s -> s.id().equals(currentId))
-                                      .findFirst();
+                .filter(s -> s.id().equals(currentId))
+                .findFirst();
         if (maybeInfo.isEmpty()) {
             chrome.toolError("Current session not found");
             return;
         }
         var info = maybeInfo.get();
-        int confirm = JOptionPane.showConfirmDialog(parent,
-                                                    "Are you sure you want to delete the current session?",
-                                                    "Confirm Delete",
-                                                    JOptionPane.YES_NO_OPTION,
-                                                    JOptionPane.WARNING_MESSAGE);
+        int confirm = JOptionPane.showConfirmDialog(
+                parent,
+                "Are you sure you want to delete the current session?",
+                "Confirm Delete",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
         if (confirm == JOptionPane.YES_OPTION) {
-            contextManager.deleteSessionAsync(info.id())
-                          .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
+            contextManager
+                    .deleteSessionAsync(info.id())
+                    .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
         }
     }
 }

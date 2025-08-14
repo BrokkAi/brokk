@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.util;
 
-import org.junit.jupiter.api.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -9,8 +9,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.*;
 
 class SerialByKeyExecutorTest {
 
@@ -194,5 +193,4 @@ class SerialByKeyExecutorTest {
         // Verify key is no longer active
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
-
 }

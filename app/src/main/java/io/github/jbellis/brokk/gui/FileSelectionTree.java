@@ -2,19 +2,6 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.event.TreeExpansionEvent;
-import javax.swing.event.TreeWillExpandListener;
-import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.DefaultTreeCellRenderer;
-import javax.swing.tree.DefaultTreeModel;
-import javax.swing.tree.ExpandVetoException;
-import javax.swing.tree.TreePath;
-import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.InvalidPathException;
@@ -28,10 +15,22 @@ import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
+import javax.swing.*;
+import javax.swing.event.TreeExpansionEvent;
+import javax.swing.event.TreeWillExpandListener;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.ExpandVetoException;
+import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * A JTree component specialized for displaying file hierarchies, either from a Git repository
- * or the local file system, with support for lazy loading.
+ * A JTree component specialized for displaying file hierarchies, either from a Git repository or the local file system,
+ * with support for lazy loading.
  */
 public class FileSelectionTree extends JTree {
     private static final Logger logger = LogManager.getLogger(FileSelectionTree.class);
@@ -43,9 +42,9 @@ public class FileSelectionTree extends JTree {
     /**
      * Constructs a FileTree based on a Project.
      *
-     * @param project            The current project.
+     * @param project The current project.
      * @param allowExternalFiles If true, shows the full file system; otherwise, shows project repo files.
-     * @param fileFilterIn         Optional predicate to filter files shown in the tree (external mode only).
+     * @param fileFilterIn Optional predicate to filter files shown in the tree (external mode only).
      */
     public FileSelectionTree(IProject project, boolean allowExternalFiles, Predicate<File> fileFilterIn) {
         this.project = project;
@@ -65,8 +64,8 @@ public class FileSelectionTree extends JTree {
     }
 
     /**
-     * Builds the TreeModel for the project's file hierarchy (from Git or file system walk).
-     * Does not set the model on the JTree directly.
+     * Builds the TreeModel for the project's file hierarchy (from Git or file system walk). Does not set the model on
+     * the JTree directly.
      *
      * @return The DefaultTreeModel.
      */
@@ -107,11 +106,12 @@ public class FileSelectionTree extends JTree {
         return new DefaultTreeModel(rootNode);
     }
 
-    /**
-     * Helper for setupProjectFileSystemModel to recursively find or create parent nodes
-     */
-    private DefaultMutableTreeNode findOrCreateParentNode(Path projectRoot, Path targetParentDirAbs, DefaultMutableTreeNode rootNode, Map<Path, DefaultMutableTreeNode> dirNodes)
-    {
+    /** Helper for setupProjectFileSystemModel to recursively find or create parent nodes */
+    private DefaultMutableTreeNode findOrCreateParentNode(
+            Path projectRoot,
+            Path targetParentDirAbs,
+            DefaultMutableTreeNode rootNode,
+            Map<Path, DefaultMutableTreeNode> dirNodes) {
         if (targetParentDirAbs.equals(projectRoot)) {
             return rootNode;
         }
@@ -139,17 +139,13 @@ public class FileSelectionTree extends JTree {
     }
 
     /**
-     * Expands the tree view to show the specified target path and selects it.
-     * This method now uses a simpler background worker that loads all segments
-     * in one pass instead of step-by-step. It still relies on LazyLoadingTreeModel
-     * for loading child directories on demand.
+     * Expands the tree view to show the specified target path and selects it. This method now uses a simpler background
+     * worker that loads all segments in one pass instead of step-by-step. It still relies on LazyLoadingTreeModel for
+     * loading child directories on demand.
      *
      * @param targetPath The absolute path to expand to.
      */
-    /**
-     * Displays a simple "Loading..." placeholder in the tree.
-     * Call this before {@link #loadTreeInBackground()}.
-     */
+    /** Displays a simple "Loading..." placeholder in the tree. Call this before {@link #loadTreeInBackground()}. */
     public void showLoadingPlaceholder() {
         DefaultMutableTreeNode loadingRoot = new DefaultMutableTreeNode("Loading...");
         setModel(new DefaultTreeModel(loadingRoot));
@@ -158,8 +154,8 @@ public class FileSelectionTree extends JTree {
     }
 
     /**
-     * Loads the actual file tree data in a background thread.
-     * Replaces the current model (e.g., the placeholder) with the loaded data upon completion.
+     * Loads the actual file tree data in a background thread. Replaces the current model (e.g., the placeholder) with
+     * the loaded data upon completion.
      */
     public void loadTreeInBackground() {
         logger.trace("Starting background tree loading...");
@@ -197,7 +193,8 @@ public class FileSelectionTree extends JTree {
                     } else { // DefaultTreeModel for project files
                         logger.trace("DefaultTreeModel set (Project files).");
                         // Optionally expand the project root node if desired
-                        if (getModel().getRoot() instanceof DefaultMutableTreeNode rootNode && rootNode.getChildCount() > 0) {
+                        if (getModel().getRoot() instanceof DefaultMutableTreeNode rootNode
+                                && rootNode.getChildCount() > 0) {
                             expandPath(new TreePath(rootNode.getPath()));
                         }
                     }
@@ -219,9 +216,7 @@ public class FileSelectionTree extends JTree {
         worker.execute();
     }
 
-    /**
-     * Creates the root node for the external file system view.
-     */
+    /** Creates the root node for the external file system view. */
     private DefaultMutableTreeNode createExternalFileSystemRoot() { // fileFilter parameter removed
         logger.trace("Building external file system model");
         DefaultMutableTreeNode rootNode = new DefaultMutableTreeNode("File System");
@@ -244,16 +239,18 @@ public class FileSelectionTree extends JTree {
         return rootNode;
     }
 
-    /**
-     * Creates a TreeWillExpandListener for lazy loading.
-     */
+    /** Creates a TreeWillExpandListener for lazy loading. */
     private TreeWillExpandListener createLazyLoadListener(LazyLoadingTreeModel model) {
         return new TreeWillExpandListener() {
             @Override
             public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
-                DefaultMutableTreeNode node = (DefaultMutableTreeNode) event.getPath().getLastPathComponent();
+                DefaultMutableTreeNode node =
+                        (DefaultMutableTreeNode) event.getPath().getLastPathComponent();
                 // Removed unused fileNode binding
-                if (node.getUserObject() instanceof FileTreeNode && node.getChildCount() > 0 && node.getFirstChild() instanceof DefaultMutableTreeNode child && LazyLoadingTreeModel.LOADING_PLACEHOLDER.equals(child.getUserObject())) {
+                if (node.getUserObject() instanceof FileTreeNode
+                        && node.getChildCount() > 0
+                        && node.getFirstChild() instanceof DefaultMutableTreeNode child
+                        && LazyLoadingTreeModel.LOADING_PLACEHOLDER.equals(child.getUserObject())) {
                     // Start loading children in the background
                     model.loadChildrenInBackground(node);
                 }
@@ -266,8 +263,7 @@ public class FileSelectionTree extends JTree {
         };
     }
 
-    public void expandTreeToPath(Path targetPath)
-    {
+    public void expandTreeToPath(Path targetPath) {
         logger.info("Attempting to expand tree to path: {}", targetPath);
         if (!(getModel() instanceof LazyLoadingTreeModel model)) {
             logger.warn("expandTreeToPath called but model is not LazyLoadingTreeModel. Skipping.");
@@ -283,17 +279,15 @@ public class FileSelectionTree extends JTree {
     // --- Inner Worker Class for Path Expansion ---
 
     /**
-     * A simpler SwingWorker for path expansion: we find the drive node,
-     * load all child segments in a single background pass, then expand
-     * and select the final node on the EDT.
+     * A simpler SwingWorker for path expansion: we find the drive node, load all child segments in a single background
+     * pass, then expand and select the final node on the EDT.
      */
     private static class ExpansionWorker extends SwingWorker<TreePath, Void> {
         private final LazyLoadingTreeModel model;
         private final Path targetPath;
         private final FileSelectionTree tree;
 
-        ExpansionWorker(LazyLoadingTreeModel model, Path targetPath, FileSelectionTree tree)
-        {
+        ExpansionWorker(LazyLoadingTreeModel model, Path targetPath, FileSelectionTree tree) {
             this.model = model;
             this.targetPath = targetPath;
             this.tree = tree;
@@ -312,7 +306,7 @@ public class FileSelectionTree extends JTree {
             }
 
             // 2. Initial TreePath includes the overall root + the drive node
-            var currentTreePath = new TreePath(new Object[]{rootNode, driveNode});
+            var currentTreePath = new TreePath(new Object[] {rootNode, driveNode});
 
             // Ensure the drive node's children are loaded before proceeding
             if (!model.ensureChildrenLoadedSync(driveNode)) {
@@ -321,13 +315,20 @@ public class FileSelectionTree extends JTree {
             }
 
             // 3. Relativize targetPath against the drive node's absolute path
-            var drivePath = ((FileSelectionTree.FileTreeNode) driveNode.getUserObject()).getFile().toPath().toAbsolutePath();
+            var drivePath = ((FileSelectionTree.FileTreeNode) driveNode.getUserObject())
+                    .getFile()
+                    .toPath()
+                    .toAbsolutePath();
             Path relativePath;
             try {
                 relativePath = drivePath.relativize(targetPath);
                 logger.trace("[ExpansionWorker] Relative path segments to traverse: {}", relativePath);
             } catch (IllegalArgumentException e) {
-                logger.warn("[ExpansionWorker] Could not relativize {} against {}: {}", targetPath, drivePath, e.getMessage());
+                logger.warn(
+                        "[ExpansionWorker] Could not relativize {} against {}: {}",
+                        targetPath,
+                        drivePath,
+                        e.getMessage());
                 return currentTreePath;
             }
 
@@ -351,12 +352,12 @@ public class FileSelectionTree extends JTree {
         }
 
         @Override
-        protected void done()
-        {
+        protected void done() {
             try {
                 var finalPath = get();
                 if (finalPath != null) {
-                    logger.trace("[ExpansionWorker] Expansion complete, selecting: {}", finalPath.getLastPathComponent());
+                    logger.trace(
+                            "[ExpansionWorker] Expansion complete, selecting: {}", finalPath.getLastPathComponent());
                     tree.expandPath(finalPath);
                     tree.setSelectionPath(finalPath);
                     tree.scrollPathToVisible(finalPath);
@@ -371,8 +372,7 @@ public class FileSelectionTree extends JTree {
             }
         }
 
-        private @Nullable DefaultMutableTreeNode findDriveNode(DefaultMutableTreeNode rootNode, Path target)
-        {
+        private @Nullable DefaultMutableTreeNode findDriveNode(DefaultMutableTreeNode rootNode, Path target) {
             for (int i = 0; i < rootNode.getChildCount(); i++) {
                 var child = (DefaultMutableTreeNode) rootNode.getChildAt(i);
                 if (child.getUserObject() instanceof FileSelectionTree.FileTreeNode fileNode) {
@@ -389,8 +389,7 @@ public class FileSelectionTree extends JTree {
             return null;
         }
 
-        private @Nullable DefaultMutableTreeNode findChildNode(DefaultMutableTreeNode parent, Path segment)
-        {
+        private @Nullable DefaultMutableTreeNode findChildNode(DefaultMutableTreeNode parent, Path segment) {
             var segmentName = segment.getFileName().toString();
             for (int i = 0; i < parent.getChildCount(); i++) {
                 var child = (DefaultMutableTreeNode) parent.getChildAt(i);
@@ -406,9 +405,7 @@ public class FileSelectionTree extends JTree {
 
     // --- Inner Classes for Tree Nodes and Model ---
 
-    /**
-     * A node object representing a File, holding the loading state.
-     */
+    /** A node object representing a File, holding the loading state. */
     public static class FileTreeNode { // Keep public static if potentially useful elsewhere
         private final File file;
         private volatile boolean childrenLoaded = false; // volatile for visibility across threads
@@ -451,13 +448,11 @@ public class FileSelectionTree extends JTree {
         }
     }
 
-    /**
-     * Custom cell renderer for the file tree.
-     */
+    /** Custom cell renderer for the file tree. */
     private static class FileTreeCellRenderer extends DefaultTreeCellRenderer {
         @Override
-        public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus)
-        {
+        public Component getTreeCellRendererComponent(
+                JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
             // Let the default renderer handle text, selection background, etc.
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus);
 
@@ -469,13 +464,15 @@ public class FileSelectionTree extends JTree {
                 if (userObject instanceof FileTreeNode fileNode) {
                     // External file system node
                     File file = fileNode.getFile();
-                    javax.swing.filechooser.FileSystemView fsv = javax.swing.filechooser.FileSystemView.getFileSystemView();
+                    javax.swing.filechooser.FileSystemView fsv =
+                            javax.swing.filechooser.FileSystemView.getFileSystemView();
                     icon = fsv.getSystemIcon(file); // Preferred way to get OS-specific icons
                     toolTip = file.getAbsolutePath();
                     // Text is already set by super call using fileNode.toString()
                 } else if (userObject instanceof String name) {
                     // Project file/folder node (repo mode or root "File System" node)
-                    javax.swing.filechooser.FileSystemView fsv = javax.swing.filechooser.FileSystemView.getFileSystemView();
+                    javax.swing.filechooser.FileSystemView fsv =
+                            javax.swing.filechooser.FileSystemView.getFileSystemView();
                     if (node.isRoot() && name.equals("File System")) {
                         // Maybe a computer icon? Default folder is okay.
                         icon = fsv.getSystemIcon(new File(".")); // Generic folder/file icon
@@ -502,9 +499,7 @@ public class FileSelectionTree extends JTree {
         }
     }
 
-    /**
-     * Tree model that loads directory contents lazily upon expansion.
-     */
+    /** Tree model that loads directory contents lazily upon expansion. */
     private static class LazyLoadingTreeModel extends DefaultTreeModel {
         public static final String LOADING_PLACEHOLDER = "Loading...";
         private final Predicate<File> fileFilter;
@@ -535,16 +530,14 @@ public class FileSelectionTree extends JTree {
             return super.isLeaf(node); // Fallback
         }
 
-        /**
-         * Loads children for the given node in a background thread.
-         * Called by the TreeWillExpandListener.
-         */
+        /** Loads children for the given node in a background thread. Called by the TreeWillExpandListener. */
         public void loadChildrenInBackground(DefaultMutableTreeNode node) {
             if (!(node.getUserObject() instanceof FileTreeNode fileNode) || fileNode.areChildrenLoaded()) {
                 return; // Not expandable or already loaded
             }
 
-            modelLogger.trace("Queueing background load for: {}", fileNode.getFile().getAbsolutePath());
+            modelLogger.trace(
+                    "Queueing background load for: {}", fileNode.getFile().getAbsolutePath());
 
             SwingWorker<List<DefaultMutableTreeNode>, Void> worker = new SwingWorker<>() {
                 @Override
@@ -558,11 +551,16 @@ public class FileSelectionTree extends JTree {
                         List<DefaultMutableTreeNode> children = get();
                         updateModelWithChildren(node, fileNode, children);
                     } catch (InterruptedException | CancellationException e) {
-                        modelLogger.warn("Background loading cancelled for: {}", fileNode.getFile().getAbsolutePath());
+                        modelLogger.warn(
+                                "Background loading cancelled for: {}",
+                                fileNode.getFile().getAbsolutePath());
                         Thread.currentThread().interrupt();
                         // Optionally reset node state on EDT if needed
                     } catch (ExecutionException e) {
-                        modelLogger.error("Error loading children for: {}", fileNode.getFile().getAbsolutePath(), e.getCause());
+                        modelLogger.error(
+                                "Error loading children for: {}",
+                                fileNode.getFile().getAbsolutePath(),
+                                e.getCause());
                         // Update node to show error state on EDT
                         SwingUtilities.invokeLater(() -> updateModelWithError(node, fileNode));
                     }
@@ -572,9 +570,8 @@ public class FileSelectionTree extends JTree {
         }
 
         /**
-         * Ensures children are loaded synchronously relative to the calling thread.
-         * Uses SwingUtilities.invokeAndWait for model updates, so MUST NOT be called from EDT.
-         * Returns true if successful, false otherwise.
+         * Ensures children are loaded synchronously relative to the calling thread. Uses SwingUtilities.invokeAndWait
+         * for model updates, so MUST NOT be called from EDT. Returns true if successful, false otherwise.
          */
         public boolean ensureChildrenLoadedSync(DefaultMutableTreeNode node) {
             if (!(node.getUserObject() instanceof FileTreeNode fileNode)) {
@@ -582,35 +579,43 @@ public class FileSelectionTree extends JTree {
                 return true; // Nothing to load
             }
             if (fileNode.areChildrenLoaded()) {
-                modelLogger.trace("Children already loaded for: {}", fileNode.getFile().getAbsolutePath());
+                modelLogger.trace(
+                        "Children already loaded for: {}", fileNode.getFile().getAbsolutePath());
                 return true; // Already loaded
             }
 
-            modelLogger.trace("Performing synchronous load for: {}", fileNode.getFile().getAbsolutePath());
+            modelLogger.trace(
+                    "Performing synchronous load for: {}", fileNode.getFile().getAbsolutePath());
             try {
                 // Perform file I/O in the current (worker) thread
                 List<DefaultMutableTreeNode> children = performLoadChildren(fileNode);
 
                 // Update the Swing model synchronously on the EDT
                 SwingUtil.runOnEdt(() -> updateModelWithChildren(node, fileNode, children));
-                modelLogger.trace("Synchronous load complete for: {}", fileNode.getFile().getAbsolutePath());
+                modelLogger.trace(
+                        "Synchronous load complete for: {}", fileNode.getFile().getAbsolutePath());
                 return true;
             } catch (Exception e) { // Catch exceptions from performLoadChildren or invokeAndWait
-                modelLogger.error("Error during synchronous load for: {}", fileNode.getFile().getAbsolutePath(), e);
+                modelLogger.error(
+                        "Error during synchronous load for: {}",
+                        fileNode.getFile().getAbsolutePath(),
+                        e);
                 // Update node to show error state on EDT (use invokeLater if invokeAndWait failed)
                 try {
                     SwingUtil.runOnEdt(() -> updateModelWithError(node, fileNode));
                 } catch (Exception edtEx) {
-                    modelLogger.error("Failed to update model with error state for {}", fileNode.getFile().getAbsolutePath(), edtEx);
+                    modelLogger.error(
+                            "Failed to update model with error state for {}",
+                            fileNode.getFile().getAbsolutePath(),
+                            edtEx);
                 }
                 return false;
             }
         }
 
-
         /**
-         * Performs the actual file listing and node creation. Runs in background thread.
-         * Returns list of child nodes or throws exception on error.
+         * Performs the actual file listing and node creation. Runs in background thread. Returns list of child nodes or
+         * throws exception on error.
          */
         private List<DefaultMutableTreeNode> performLoadChildren(FileTreeNode fileNode) {
             File dir = fileNode.getFile();
@@ -660,11 +665,13 @@ public class FileSelectionTree extends JTree {
             return childNodes;
         }
 
-        /**
-         * Updates the tree model on the EDT after children have been loaded.
-         */
-        private void updateModelWithChildren(DefaultMutableTreeNode node, FileTreeNode fileNode, List<DefaultMutableTreeNode> children) {
-            modelLogger.trace("[EDT] Updating model for {} with {} children", fileNode.getFile().getName(), children.size());
+        /** Updates the tree model on the EDT after children have been loaded. */
+        private void updateModelWithChildren(
+                DefaultMutableTreeNode node, FileTreeNode fileNode, List<DefaultMutableTreeNode> children) {
+            modelLogger.trace(
+                    "[EDT] Updating model for {} with {} children",
+                    fileNode.getFile().getName(),
+                    children.size());
             node.removeAllChildren(); // Remove "Loading..." or previous content
             for (DefaultMutableTreeNode child : children) {
                 node.add(child); // Add the new child nodes
@@ -672,14 +679,15 @@ public class FileSelectionTree extends JTree {
             // It's often better to signal structure change after all additions
             nodeStructureChanged(node); // Inform the tree view about the update
             fileNode.setChildrenLoaded(true); // Mark as loaded *after* updates are applied
-            modelLogger.trace("[EDT] Model update complete for {}", fileNode.getFile().getName());
+            modelLogger.trace(
+                    "[EDT] Model update complete for {}", fileNode.getFile().getName());
         }
 
-        /**
-         * Updates the tree model on the EDT to show an error state for a node.
-         */
+        /** Updates the tree model on the EDT to show an error state for a node. */
         private void updateModelWithError(DefaultMutableTreeNode node, FileTreeNode fileNode) {
-            modelLogger.trace("[EDT] Updating model with error state for {}", fileNode.getFile().getName());
+            modelLogger.trace(
+                    "[EDT] Updating model with error state for {}",
+                    fileNode.getFile().getName());
             node.removeAllChildren();
             node.add(new DefaultMutableTreeNode("Error listing files"));
             nodeStructureChanged(node);

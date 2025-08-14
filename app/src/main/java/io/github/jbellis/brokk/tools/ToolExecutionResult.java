@@ -6,19 +6,16 @@ import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Represents the result of executing a tool, providing more context than
- * the standard ToolExecutionResultMessage.
- * It includes the execution status, a classification of the action type,
- * the textual result (or error message), and the original request.
+ * Represents the result of executing a tool, providing more context than the standard ToolExecutionResultMessage. It
+ * includes the execution status, a classification of the action type, the textual result (or error message), and the
+ * original request.
  */
 public record ToolExecutionResult(
         ToolExecutionRequest request,
         Status status,
         String resultText // Contains the primary output on SUCCESS, or error message on FAILURE.
-) {
-    /**
-     * Overall status of the tool execution.
-     */
+        ) {
+    /** Overall status of the tool execution. */
     public enum Status {
         /** The tool executed successfully and produced its intended outcome. */
         SUCCESS,
@@ -28,9 +25,7 @@ public record ToolExecutionResult(
 
     // --- Constructor ---
 
-    /**
-     * Primary constructor. Ensures non-null fields.
-     */
+    /** Primary constructor. Ensures non-null fields. */
     public ToolExecutionResult {
         Objects.requireNonNull(request, "request cannot be null");
         Objects.requireNonNull(status, "status cannot be null");
@@ -81,8 +76,8 @@ public record ToolExecutionResult(
     // --- Conversion ---
 
     /**
-     * Converts this extended result into the standard LangChain4j
-     * ToolExecutionResultMessage suitable for sending back to the LLM.
+     * Converts this extended result into the standard LangChain4j ToolExecutionResultMessage suitable for sending back
+     * to the LLM.
      *
      * @return A ToolExecutionResultMessage.
      */

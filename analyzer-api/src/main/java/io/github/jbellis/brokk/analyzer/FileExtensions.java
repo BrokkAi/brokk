@@ -1,10 +1,10 @@
 package io.github.jbellis.brokk.analyzer;
 
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
-import java.util.HashSet;
-import java.util.Arrays;
 
 public class FileExtensions {
     public static boolean matches(Path path, String extension) {
@@ -13,28 +13,116 @@ public class FileExtensions {
 
     public static final Set<String> IMAGE_EXTENSIONS = new HashSet<>(Arrays.asList(
             // Raster formats
-            ".ani", ".anim", ".apng", ".art", ".avif", ".bmp", ".bpg", ".bsave", ".cal", ".cin",
-            ".cpc", ".cpt", ".dds", ".dpx", ".ecw", ".exr", ".fits", ".flic", ".flif", ".fpx",
-            ".gif", ".hdri", ".hevc", ".icer", ".icns", ".ico", ".cur", ".ics", ".ilbm", ".jbig",
-            ".jbig2", ".jng", ".jpeg", ".jpeg_ls", "jpeg_2000", "jpeg_xl", "jpeg_xr",
-            "jpeg_xs", "jpeg_xt", "jpeg-hdr", "kra", ".mng", ".miff", ".nrrd", ".ora", ".pam",
-            ".pbm", ".pgm", ".ppm", ".pnm", ".pcx", ".pgf", ".pictor", ".png", ".psd", ".psb",
-            ".psp", ".qoi", ".qtvr", ".ras", ".rgbe", ".logluv", ".tiff", ".sgi", ".tga",
-            ".tiff_ep", "tiff_it", "ufo", ".ufp", ".wbmp", ".webp", ".xbm", ".xcf", ".xpm", ".xwd",
+            ".ani",
+            ".anim",
+            ".apng",
+            ".art",
+            ".avif",
+            ".bmp",
+            ".bpg",
+            ".bsave",
+            ".cal",
+            ".cin",
+            ".cpc",
+            ".cpt",
+            ".dds",
+            ".dpx",
+            ".ecw",
+            ".exr",
+            ".fits",
+            ".flic",
+            ".flif",
+            ".fpx",
+            ".gif",
+            ".hdri",
+            ".hevc",
+            ".icer",
+            ".icns",
+            ".ico",
+            ".cur",
+            ".ics",
+            ".ilbm",
+            ".jbig",
+            ".jbig2",
+            ".jng",
+            ".jpeg",
+            ".jpeg_ls",
+            "jpeg_2000",
+            "jpeg_xl",
+            "jpeg_xr",
+            "jpeg_xs",
+            "jpeg_xt",
+            "jpeg-hdr",
+            "kra",
+            ".mng",
+            ".miff",
+            ".nrrd",
+            ".ora",
+            ".pam",
+            ".pbm",
+            ".pgm",
+            ".ppm",
+            ".pnm",
+            ".pcx",
+            ".pgf",
+            ".pictor",
+            ".png",
+            ".psd",
+            ".psb",
+            ".psp",
+            ".qoi",
+            ".qtvr",
+            ".ras",
+            ".rgbe",
+            ".logluv",
+            ".tiff",
+            ".sgi",
+            ".tga",
+            ".tiff_ep",
+            "tiff_it",
+            "ufo",
+            ".ufp",
+            ".wbmp",
+            ".webp",
+            ".xbm",
+            ".xcf",
+            ".xpm",
+            ".xwd",
 
             // Raw formats
-            ".ciff", ".dng",
+            ".ciff",
+            ".dng",
 
             // Vector formats
-            ".ai", ".cdr", ".cgm", ".dxf", ".emf", ".emf+", "gerber", ".hvif", ".iges", ".pgml",
-            ".svg", ".vml", ".wmf", ".xar",
+            ".ai",
+            ".cdr",
+            ".cgm",
+            ".dxf",
+            ".emf",
+            ".emf+",
+            "gerber",
+            ".hvif",
+            ".iges",
+            ".pgml",
+            ".svg",
+            ".vml",
+            ".wmf",
+            ".xar",
 
             // Compound formats
-            ".cdf", ".djvu", ".eps", ".modca", ".pdf", ".pict", ".ps", ".swf", ".xaml",
+            ".cdf",
+            ".djvu",
+            ".eps",
+            ".modca",
+            ".pdf",
+            ".pict",
+            ".ps",
+            ".swf",
+            ".xaml",
 
             // Metadata-related
-            ".exif", ".xmp"
-    ));
+            ".exif",
+            ".xmp"));
 
     public static final Set<String> TEXT_EXTENSIONS = new HashSet<>(Arrays.asList(
             ".as",
@@ -231,6 +319,5 @@ public class FileExtensions {
             ".xml",
             ".xsl",
             ".yuck",
-            ".zig"
-    ));
+            ".zig"));
 }

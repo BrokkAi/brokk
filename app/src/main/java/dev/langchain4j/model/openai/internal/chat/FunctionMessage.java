@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = FunctionMessage.Builder.class)
@@ -20,8 +19,10 @@ public final class FunctionMessage implements Message {
 
     @JsonProperty
     private final Role role = FUNCTION;
+
     @JsonProperty
     private final String name;
+
     @JsonProperty
     private final String content;
 
@@ -45,8 +46,7 @@ public final class FunctionMessage implements Message {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof FunctionMessage
-                && equalTo((FunctionMessage) another);
+        return another instanceof FunctionMessage && equalTo((FunctionMessage) another);
     }
 
     private boolean equalTo(FunctionMessage another) {
@@ -66,19 +66,12 @@ public final class FunctionMessage implements Message {
 
     @Override
     public String toString() {
-        return "FunctionMessage{"
-                + "role=" + role
-                + ", name=" + name
-                + ", content=" + content
-                + "}";
+        return "FunctionMessage{" + "role=" + role + ", name=" + name + ", content=" + content + "}";
     }
 
     @Deprecated
     public static FunctionMessage from(String name, String content) {
-        return FunctionMessage.builder()
-                .name(name)
-                .content(content)
-                .build();
+        return FunctionMessage.builder().name(name).content(content).build();
     }
 
     @Deprecated

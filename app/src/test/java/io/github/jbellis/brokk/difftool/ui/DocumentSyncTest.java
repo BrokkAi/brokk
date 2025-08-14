@@ -1,16 +1,16 @@
 package io.github.jbellis.brokk.difftool.ui;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
 import static org.junit.jupiter.api.Assertions.*;
 
-import javax.swing.text.PlainDocument;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.PlainDocument;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 /**
- * Tests for document synchronization in FilePanel to prevent line joining bugs.
- * This test specifically addresses the issue where editing text in the diff tool
- * can cause line breaks to be removed, joining the current line with the next line.
+ * Tests for document synchronization in FilePanel to prevent line joining bugs. This test specifically addresses the
+ * issue where editing text in the diff tool can cause line breaks to be removed, joining the current line with the next
+ * line.
  */
 public class DocumentSyncTest {
 
@@ -26,7 +26,8 @@ public class DocumentSyncTest {
     @Test
     void testLinePreservationDuringInsert() throws BadLocationException {
         // Set up initial document with multiple lines
-        String initialContent = "// File navigation handlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
+        String initialContent =
+                "// File navigation handlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
         sourceDoc.insertString(0, initialContent, null);
         destDoc.insertString(0, initialContent, null);
 
@@ -43,7 +44,8 @@ public class DocumentSyncTest {
         destDoc.insertString(0, sourceText, null);
 
         // Verify that lines are preserved correctly
-        String expectedContent = "// File navigation cqchandlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
+        String expectedContent =
+                "// File navigation cqchandlers\nbtnPreviousFile.addActionListener(e -> previousFile());\nbtnNextFile.addActionListener(e -> nextFile());";
         String actualContent = destDoc.getText(0, destDoc.getLength());
 
         assertEquals(expectedContent, actualContent, "Document synchronization should preserve line breaks");
@@ -52,7 +54,8 @@ public class DocumentSyncTest {
         assertTrue(actualContent.contains("\n"), "Document should contain newline characters");
 
         // Count lines to ensure no lines were joined
-        long expectedLineCount = expectedContent.chars().filter(ch -> ch == '\n').count() + 1;
+        long expectedLineCount =
+                expectedContent.chars().filter(ch -> ch == '\n').count() + 1;
         long actualLineCount = actualContent.chars().filter(ch -> ch == '\n').count() + 1;
         assertEquals(expectedLineCount, actualLineCount, "Line count should be preserved");
     }

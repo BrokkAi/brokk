@@ -3,10 +3,7 @@ package io.github.jbellis.brokk.gui;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
-/**
- * A simplified DocumentListener interface that forwards all change events
- * to a single {@code changed} method.
- */
+/** A simplified DocumentListener interface that forwards all change events to a single {@code changed} method. */
 interface SimpleListener extends DocumentListener {
     void changed(DocumentEvent e);
 

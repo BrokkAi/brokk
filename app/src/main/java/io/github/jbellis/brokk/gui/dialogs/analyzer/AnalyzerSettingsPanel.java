@@ -3,12 +3,11 @@ package io.github.jbellis.brokk.gui.dialogs.analyzer;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.swing.*;
 import java.awt.*;
 import java.nio.file.Path;
+import javax.swing.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class AnalyzerSettingsPanel extends JPanel {
 
@@ -26,7 +25,8 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         this.consoleIO = io;
     }
 
-    public static AnalyzerSettingsPanel createAnalyzersPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
+    public static AnalyzerSettingsPanel createAnalyzersPanel(
+            SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
         if (language.internalName().equals("JAVA")) {
             return new JavaAnalyzerSettingsPanel(parent, language, projectRoot, io);
         } else {
@@ -34,8 +34,5 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         }
     }
 
-    public void saveSettings() {
-
-    }
-
+    public void saveSettings() {}
 }

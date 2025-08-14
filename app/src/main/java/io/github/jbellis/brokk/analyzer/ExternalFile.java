@@ -1,13 +1,11 @@
 package io.github.jbellis.brokk.analyzer;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.nio.file.Path;
 
-/**
- * A BrokkFile that represents a file not relative to any repo, just specified by its absolute path.
- */
+/** A BrokkFile that represents a file not relative to any repo, just specified by its absolute path. */
 public class ExternalFile implements BrokkFile {
     private final transient Path path;
 
@@ -22,7 +20,6 @@ public class ExternalFile implements BrokkFile {
         }
         this.path = path;
     }
-
 
     @Override
     public Path absPath() {

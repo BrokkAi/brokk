@@ -1,20 +1,19 @@
 package io.github.jbellis.brokk.gui;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import javax.swing.*;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
 import javax.swing.event.TableModelEvent;
 import javax.swing.event.TableModelListener;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
- * AutoScroller provides tail-following behavior for a JScrollPane, automatically scrolling to the bottom
- * when new content is added, unless the user manually scrolls away. It supports various component types
- * by selecting the appropriate growth detection mechanism at runtime.
+ * AutoScroller provides tail-following behavior for a JScrollPane, automatically scrolling to the bottom when new
+ * content is added, unless the user manually scrolls away. It supports various component types by selecting the
+ * appropriate growth detection mechanism at runtime.
  */
 public final class AutoScroller {
     private static final Logger logger = LogManager.getLogger(AutoScroller.class);
@@ -24,8 +23,8 @@ public final class AutoScroller {
     }
 
     /**
-     * Installs tail-following behavior on the supplied JScrollPane. Safe to call multiple times
-     * (no-op if already installed).
+     * Installs tail-following behavior on the supplied JScrollPane. Safe to call multiple times (no-op if already
+     * installed).
      *
      * @param pane the JScrollPane to manage scrolling for
      */
@@ -72,13 +71,13 @@ public final class AutoScroller {
                     lastHeight[0] = newH;
                 }
             });
-            logger.trace("[AutoScroller] Installed ComponentListener fallback for {}", view.getClass().getSimpleName());
+            logger.trace(
+                    "[AutoScroller] Installed ComponentListener fallback for {}",
+                    view.getClass().getSimpleName());
         }
     }
 
-    /**
-     * Inner class to manage the auto-follow state and scrolling logic.
-     */
+    /** Inner class to manage the auto-follow state and scrolling logic. */
     private static final class AutoFollowState {
         private final JScrollBar bar;
         private volatile boolean autoFollow = true;
@@ -108,9 +107,18 @@ public final class AutoScroller {
             // Check if user scrolled back to bottom (within reattach tolerance)
             if (!autoFollow && currentValue + m.getExtent() >= currentMax - REATTACH_TOLERANCE) {
                 autoFollow = true;
-                logger.trace("[AutoScroller] User scrolled back to bottom, autoFollow=true (value={}, extent={}, max={})", currentValue, m.getExtent(), currentMax);
+                logger.trace(
+                        "[AutoScroller] User scrolled back to bottom, autoFollow=true (value={}, extent={}, max={})",
+                        currentValue,
+                        m.getExtent(),
+                        currentMax);
             }
-            logger.trace("[AutoScroller] autoFollow={} (value={}, extent={}, max={})", autoFollow, currentValue, m.getExtent(), currentMax);
+            logger.trace(
+                    "[AutoScroller] autoFollow={} (value={}, extent={}, max={})",
+                    autoFollow,
+                    currentValue,
+                    m.getExtent(),
+                    currentMax);
         }
 
         void contentGrew() {
@@ -125,9 +133,7 @@ public final class AutoScroller {
         }
     }
 
-    /**
-     * Adapter for JTable growth detection.
-     */
+    /** Adapter for JTable growth detection. */
     private static final class TableModelAdapter implements TableModelListener {
         private final AutoFollowState state;
 
@@ -143,9 +149,7 @@ public final class AutoScroller {
         }
     }
 
-    /**
-     * Adapter for JList growth detection.
-     */
+    /** Adapter for JList growth detection. */
     private static final class ListDataAdapter implements ListDataListener {
         private final AutoFollowState state;
 

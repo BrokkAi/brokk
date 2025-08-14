@@ -1,15 +1,14 @@
 package io.github.jbellis.brokk.analyzer.lsp.jdt;
 
-import org.jetbrains.annotations.NotNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.NotNull;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class JdtProjectHelper {
 
@@ -32,7 +31,8 @@ public final class JdtProjectHelper {
 
         if (Files.exists(projectPath.resolve("pom.xml"))) {
             return configureMavenProject(projectPath);
-        } else if (Files.exists(projectPath.resolve("build.gradle")) || Files.exists(projectPath.resolve("build.gradle.kts"))) {
+        } else if (Files.exists(projectPath.resolve("build.gradle"))
+                || Files.exists(projectPath.resolve("build.gradle.kts"))) {
             return configureGradleProject(projectPath);
         } else if (Files.exists(projectPath.resolve("build.xml")) && !configureAntProject(projectPath)) {
             logger.warn("Failed to set-up Ant project. Generating default Eclipse configuration.");
@@ -96,36 +96,29 @@ public final class JdtProjectHelper {
     private static boolean configureAntProject(Path projectPath) throws IOException {
         final List<Path> buildXmlDirs;
         try (var stream = Files.walk(projectPath)) {
-            buildXmlDirs =
-                    stream
-                            .filter(p -> p.getFileName().toString().equals("build.xml"))
-                            .map(Path::getParent)
-                            .distinct()
-                            .toList();
+            buildXmlDirs = stream.filter(p -> p.getFileName().toString().equals("build.xml"))
+                    .map(Path::getParent)
+                    .distinct()
+                    .toList();
         }
 
         if (buildXmlDirs.isEmpty()) {
             return false;
         }
 
-        var sourceModules =
-                buildXmlDirs.stream()
-                        .filter(JdtProjectHelper::looksLikeSourceDir)
-                        .collect(Collectors.toSet());
+        var sourceModules = buildXmlDirs.stream()
+                .filter(JdtProjectHelper::looksLikeSourceDir)
+                .collect(Collectors.toSet());
 
         var nonSourceModules = new HashSet<>(buildXmlDirs);
         nonSourceModules.removeAll(sourceModules);
 
         // A non-source module is a leaf module (not an aggregator) if it has no other module as a
         // descendant.
-        var leafModules =
-                nonSourceModules.stream()
-                        .filter(
-                                potentialLeaf ->
-                                        buildXmlDirs.stream()
-                                                .noneMatch(
-                                                        other -> !other.equals(potentialLeaf) && other.startsWith(potentialLeaf)))
-                        .collect(Collectors.toSet());
+        var leafModules = nonSourceModules.stream()
+                .filter(potentialLeaf -> buildXmlDirs.stream()
+                        .noneMatch(other -> !other.equals(potentialLeaf) && other.startsWith(potentialLeaf)))
+                .collect(Collectors.toSet());
 
         var allModules = new HashSet<>(sourceModules);
         allModules.addAll(leafModules);
@@ -146,8 +139,8 @@ public final class JdtProjectHelper {
         var projectFile = moduleDir.resolve(".project");
         var classpathFile = moduleDir.resolve(".classpath");
 
-        var pCreated =
-                createIfAbsent(projectFile, generateProjectFileContent(moduleDir.getFileName().toString()));
+        var pCreated = createIfAbsent(
+                projectFile, generateProjectFileContent(moduleDir.getFileName().toString()));
         var cCreated = createIfAbsent(classpathFile, generateAntClassPathContent(moduleDir));
 
         return pCreated || cCreated;
@@ -183,7 +176,9 @@ public final class JdtProjectHelper {
         var sourcePath = findSourcePath(moduleDir).orElse("src");
         final int javaVersion = Runtime.version().feature();
         final String jreVersionString = (javaVersion >= 9) ? "JavaSE-" + javaVersion : "JavaSE-1." + javaVersion;
-        final String jreContainerPath = "org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/" + jreVersionString;
+        final String jreContainerPath =
+                "org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/"
+                        + jreVersionString;
 
         var content = new StringJoiner("\n");
         content.add("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -194,15 +189,13 @@ public final class JdtProjectHelper {
             var libDir = moduleDir.resolve(libDirName);
             if (Files.isDirectory(libDir)) {
                 try (var stream = Files.walk(libDir)) {
-                    stream
-                            .filter(p -> p.toString().endsWith(".jar") && Files.isRegularFile(p))
+                    stream.filter(p -> p.toString().endsWith(".jar") && Files.isRegularFile(p))
                             .map(moduleDir::relativize)
                             .map(Path::toString)
                             .map(s -> s.replace('\\', '/'))
                             .sorted()
-                            .map(
-                                    relativePath ->
-                                            String.format("    <classpathentry kind=\"lib\" path=\"%s\"/>", relativePath))
+                            .map(relativePath ->
+                                    String.format("    <classpathentry kind=\"lib\" path=\"%s\"/>", relativePath))
                             .forEach(content::add);
                 }
             }
@@ -236,9 +229,8 @@ public final class JdtProjectHelper {
     }
 
     /**
-     * Checks for a build file (pom.xml, build.gradle) or a .classpath file.
-     * If none exist, it generates a default .classpath file by guessing the source directory. This is absolutely
-     * required for the LSP server to import code.
+     * Checks for a build file (pom.xml, build.gradle) or a .classpath file. If none exist, it generates a default
+     * .classpath file by guessing the source directory. This is absolutely required for the LSP server to import code.
      *
      * @param projectPath The root of the project workspace.
      * @throws IOException If file I/O fails.
@@ -247,38 +239,53 @@ public final class JdtProjectHelper {
         // Guess the common source directory path. This is not multi-module
         final String sourcePath = findSourcePath(projectPath).orElseGet(() -> {
             // As a last resort, assume sources are in the root.
-            logger.warn("Could not find a 'src' directory for {}. Defaulting source path to project root.", projectPath);
+            logger.warn(
+                    "Could not find a 'src' directory for {}. Defaulting source path to project root.", projectPath);
             return ".";
         });
 
         // Dynamically determine the JRE version from the current runtime.
         final int javaVersion = Runtime.version().feature();
         String classpathContent = generateClassPathContent(javaVersion, sourcePath);
-        String projectFileContent = generateProjectFileContent(projectPath.getFileName().toString());
+        String projectFileContent =
+                generateProjectFileContent(projectPath.getFileName().toString());
 
         // Write the new .classpath and .project file.
-        Files.writeString(projectPath.resolve(".project"), projectFileContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        Files.writeString(projectPath.resolve(".classpath"), classpathContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(
+                projectPath.resolve(".project"),
+                projectFileContent,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(
+                projectPath.resolve(".classpath"),
+                classpathContent,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
         logger.debug("Generated default .classpath for {} with source path '{}'", projectPath, sourcePath);
         return true; // exceptions would prevent this return
     }
 
     private static @NotNull String generateClassPathContent(int javaVersion, String sourcePath) {
         final String jreVersionString = (javaVersion >= 9) ? "JavaSE-" + javaVersion : "JavaSE-1." + javaVersion;
-        final String jreContainerPath = "org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/" + jreVersionString;
+        final String jreContainerPath =
+                "org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/"
+                        + jreVersionString;
 
         // Generate the .classpath content with the dynamic JRE path.
-        return String.format("""
+        return String.format(
+                """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <classpath>
                     <classpathentry kind="src" path="%s"/>
                     <classpathentry kind="con" path="%s"/>
                 </classpath>
-                """, sourcePath, jreContainerPath);
+                """,
+                sourcePath, jreContainerPath);
     }
 
     private static @NotNull String generateProjectFileContent(String projectName) {
-        return String.format("""
+        return String.format(
+                """
                 <?xml version="1.0" encoding="UTF-8"?>
                 <projectDescription>
                     <name>%s</name>
@@ -294,7 +301,7 @@ public final class JdtProjectHelper {
                         <nature>org.eclipse.jdt.core.javanature</nature>
                     </natures>
                 </projectDescription>
-                """, projectName);
+                """,
+                projectName);
     }
-
 }

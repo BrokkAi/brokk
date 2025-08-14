@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk;
 
+import static java.lang.Math.max;
+import static java.lang.Math.min;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
@@ -10,11 +13,6 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import okhttp3.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -31,14 +29,14 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
-
-import static java.lang.Math.max;
-import static java.lang.Math.min;
+import okhttp3.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
- * Manages dynamically loaded models via LiteLLM.
- * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
- * knows how to reload the Service.
+ * Manages dynamically loaded models via LiteLLM. This is intended to be immutable -- we handle changes by wrapping this
+ * in a ServiceWrapper that knows how to reload the Service.
  */
 public class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
@@ -51,12 +49,12 @@ public class Service {
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, Service.ReasoningLevel reasoning) {}
 
-    public record PriceBand(long minTokensInclusive,
-                            long maxTokensInclusive, // Long.MAX_VALUE means "no upper limit"
-                            double inputCostPerToken,
-                            double cachedInputCostPerToken,
-                            double outputCostPerToken)
-    {
+    public record PriceBand(
+            long minTokensInclusive,
+            long maxTokensInclusive, // Long.MAX_VALUE means "no upper limit"
+            double inputCostPerToken,
+            double cachedInputCostPerToken,
+            double outputCostPerToken) {
         public boolean contains(long tokens) {
             return tokens >= minTokensInclusive && tokens <= maxTokensInclusive;
         }
@@ -75,17 +73,17 @@ public class Service {
     public record ModelPricing(List<PriceBand> bands) {
         public PriceBand bandFor(long tokens) {
             return bands.stream()
-                        .filter(b -> b.contains(tokens))
-                        .findFirst()
-                        .orElse(bands.getLast()); // fallback to last band if no match
+                    .filter(b -> b.contains(tokens))
+                    .findFirst()
+                    .orElse(bands.getLast()); // fallback to last band if no match
         }
 
         public double estimateCost(long uncachedInputTokens, long cachedTokens, long outputTokens) {
             var promptTokens = uncachedInputTokens + cachedTokens;
             var band = bandFor(promptTokens);
             return uncachedInputTokens * band.inputCostPerToken()
-                 + cachedTokens * band.cachedInputCostPerToken()
-                 + outputTokens * band.outputCostPerToken();
+                    + cachedTokens * band.cachedInputCostPerToken()
+                    + outputTokens * band.outputCostPerToken();
         }
     }
 
@@ -125,26 +123,28 @@ public class Service {
 
         if (hasAbove200k) {
             // Two-tier pricing: <= 200k and > 200k tokens
-            var band1 = new PriceBand(0, 199_999,
-                                      inputCost, cachedInputCost, outputCost);
-            var band2 = new PriceBand(200_000, Long.MAX_VALUE,
-                                      inputAbove200k == null ? inputCost : tryDouble.apply(inputAbove200k),
-                                      cachedInputAbove200k == null ? cachedInputCost : tryDouble.apply(cachedInputAbove200k),
-                                      outputAbove200k == null ? outputCost : tryDouble.apply(outputAbove200k));
+            var band1 = new PriceBand(0, 199_999, inputCost, cachedInputCost, outputCost);
+            var band2 = new PriceBand(
+                    200_000,
+                    Long.MAX_VALUE,
+                    inputAbove200k == null ? inputCost : tryDouble.apply(inputAbove200k),
+                    cachedInputAbove200k == null ? cachedInputCost : tryDouble.apply(cachedInputAbove200k),
+                    outputAbove200k == null ? outputCost : tryDouble.apply(outputAbove200k));
             return new ModelPricing(List.of(band1, band2));
         } else {
             // Single-tier pricing
-            var band = new PriceBand(0, Long.MAX_VALUE,
-                                     inputCost, cachedInputCost, outputCost);
+            var band = new PriceBand(0, Long.MAX_VALUE, inputCost, cachedInputCost, outputCost);
             return new ModelPricing(List.of(band));
         }
     }
 
-    /**
-     * Enum defining the reasoning effort levels for models.
-     */
+    /** Enum defining the reasoning effort levels for models. */
     public enum ReasoningLevel {
-        DEFAULT, LOW, MEDIUM, HIGH, DISABLE;
+        DEFAULT,
+        LOW,
+        MEDIUM,
+        HIGH,
+        DISABLE;
 
         @Override
         public String toString() {
@@ -152,9 +152,7 @@ public class Service {
             return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
         }
 
-        /**
-         * Converts a String to a ReasoningLevel, falling back to the provided default.
-         */
+        /** Converts a String to a ReasoningLevel, falling back to the provided default. */
         public static ReasoningLevel fromString(String value, ReasoningLevel defaultLevel) {
             try {
                 return ReasoningLevel.valueOf(value.toUpperCase(Locale.ROOT));
@@ -164,19 +162,15 @@ public class Service {
         }
     }
 
-    /**
-     * Represents the parsed Brokk API key components.
-     */
+    /** Represents the parsed Brokk API key components. */
     public record KeyParts(java.util.UUID userId, String token) {}
 
-    /**
-     * Represents a user-defined favorite model alias.
-     */
+    /** Represents a user-defined favorite model alias. */
     public record FavoriteModel(String alias, String modelName, ReasoningLevel reasoning) {}
 
     /**
-     * Parses a Brokk API key of the form 'brk+<userId>+<proToken>+<freeToken>'.
-     * The userId must be a valid UUID. The `sk-` prefix is added implicitly to tokens.
+     * Parses a Brokk API key of the form 'brk+<userId>+<proToken>+<freeToken>'. The userId must be a valid UUID. The
+     * `sk-` prefix is added implicitly to tokens.
      *
      * @param key the raw key string
      * @return KeyParts containing userId, proToken, and freeToken
@@ -233,7 +227,9 @@ public class Service {
         // Get and handle data retention policy
         var policy = project.getDataRetentionPolicy();
         if (policy == MainProject.DataRetentionPolicy.UNSET) {
-            logger.warn("Data Retention Policy is UNSET for project {}. Defaulting to MINIMAL.", project.getRoot().getFileName());
+            logger.warn(
+                    "Data Retention Policy is UNSET for project {}. Defaulting to MINIMAL.",
+                    project.getRoot().getFileName());
             policy = MainProject.DataRetentionPolicy.MINIMAL;
         }
 
@@ -246,8 +242,7 @@ public class Service {
         try {
             fetchAvailableModels(policy, tempModelLocations, tempModelInfoMap);
         } catch (IOException e) {
-            logger.error("Failed to connect to LiteLLM at {} or parse response: {}",
-                         proxyUrl, e.getMessage(), e);
+            logger.error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
             // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
         }
 
@@ -263,7 +258,10 @@ public class Service {
         var qm = getModel("gemini-2.0-flash", ReasoningLevel.DEFAULT);
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, OpenAiChatRequestParameters.builder().temperature(0.0));
+        var qqm = getModel(
+                "gemini-2.0-flash-lite",
+                ReasoningLevel.DEFAULT,
+                OpenAiChatRequestParameters.builder().temperature(0.0));
         quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
@@ -282,9 +280,7 @@ public class Service {
         }
     }
 
-    /**
-     * Returns the display name for a given model instance
-     */
+    /** Returns the display name for a given model instance */
     public String nameOf(StreamingChatModel model) {
         // langchain4j "name" corresponds to our "location"
         var location = model.defaultRequestParameters().modelName();
@@ -293,7 +289,8 @@ public class Service {
                 .filter(entry -> entry.getValue().equals(location))
                 .map(Map.Entry::getKey)
                 .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Model location not found in known models: " + location));
+                .orElseThrow(
+                        () -> new IllegalArgumentException("Model location not found in known models: " + location));
     }
 
     public float getUserBalance() throws IOException {
@@ -302,6 +299,7 @@ public class Service {
 
     /**
      * Fetches the user's balance for the given Brokk API key.
+     *
      * @param key The Brokk API key.
      * @return The user's balance.
      * @throws IOException If a network error occurs or the API response is invalid.
@@ -311,10 +309,7 @@ public class Service {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
         String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
-        Request request = new Request.Builder()
-                .url(url)
-                .get()
-                .build();
+        Request request = new Request.Builder().url(url).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
@@ -322,14 +317,14 @@ public class Service {
                     throw new IllegalArgumentException("Invalid Brokk Key (Unauthorized from server): " + errorBody);
                 }
                 // For other non-successful responses
-                throw new IOException("Failed to fetch user balance: "
-                                              + response.code() + " - " + errorBody);
+                throw new IOException("Failed to fetch user balance: " + response.code() + " - " + errorBody);
             }
             // Successful response processing
             String responseBody = response.body() != null ? response.body().string() : "";
             var objectMapper = new ObjectMapper();
             JsonNode rootNode = objectMapper.readTree(responseBody);
-            if (rootNode.has("available_balance") && rootNode.get("available_balance").isNumber()) {
+            if (rootNode.has("available_balance")
+                    && rootNode.get("available_balance").isNumber()) {
                 return rootNode.get("available_balance").floatValue();
             } else if (rootNode.isNumber()) {
                 return rootNode.floatValue();
@@ -340,8 +335,9 @@ public class Service {
     }
 
     /**
-     * Checks if data sharing is allowed for the organization associated with the given Brokk API key.
-     * Defaults to true (sharing allowed) if the key is invalid or the request fails.
+     * Checks if data sharing is allowed for the organization associated with the given Brokk API key. Defaults to true
+     * (sharing allowed) if the key is invalid or the request fails.
+     *
      * @param key The Brokk API key.
      * @return True if data sharing is allowed or cannot be determined, false otherwise.
      */
@@ -350,38 +346,49 @@ public class Service {
             parseKey(key); // Validate key format first
         } catch (IllegalArgumentException e) {
             // Invalid key format, cannot fetch org policy, assume allowed.
-            LogManager.getLogger(Service.class).debug("Invalid key format, cannot fetch data sharing status. Assuming allowed.", e);
+            LogManager.getLogger(Service.class)
+                    .debug("Invalid key format, cannot fetch data sharing status. Assuming allowed.", e);
             return true;
         }
 
         String encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
         String url = MainProject.getServiceUrl() + "/api/users/check-data-sharing?brokk_key=" + encodedKey;
-        Request request = new Request.Builder()
-                .url(url)
-                .get()
-                .build();
+        Request request = new Request.Builder().url(url).get().build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
-                LogManager.getLogger(Service.class).warn("Failed to fetch data sharing status (HTTP {}): {}. Assuming allowed.", response.code(), errorBody);
+                LogManager.getLogger(Service.class)
+                        .warn(
+                                "Failed to fetch data sharing status (HTTP {}): {}. Assuming allowed.",
+                                response.code(),
+                                errorBody);
                 return true; // Assume allowed if request fails
             }
             String responseBody = response.body() != null ? response.body().string() : "";
             try {
                 JsonNode rootNode = new ObjectMapper().readValue(responseBody, JsonNode.class);
-                if (rootNode.has("data_sharing_enabled") && rootNode.get("data_sharing_enabled").isBoolean()) {
+                if (rootNode.has("data_sharing_enabled")
+                        && rootNode.get("data_sharing_enabled").isBoolean()) {
                     return rootNode.get("data_sharing_enabled").asBoolean();
                 } else {
-                    LogManager.getLogger(Service.class).warn("Data sharing status response did not contain 'data_sharing_enabled' boolean field: {}. Assuming allowed.", responseBody);
+                    LogManager.getLogger(Service.class)
+                            .warn(
+                                    "Data sharing status response did not contain 'data_sharing_enabled' boolean field: {}. Assuming allowed.",
+                                    responseBody);
                     return true; // Assume allowed if field is missing or not a boolean
                 }
             } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                LogManager.getLogger(Service.class).warn("Failed to parse data sharing status JSON response: {}. Assuming allowed.", responseBody, e);
+                LogManager.getLogger(Service.class)
+                        .warn(
+                                "Failed to parse data sharing status JSON response: {}. Assuming allowed.",
+                                responseBody,
+                                e);
                 return true; // Assume allowed if JSON parsing fails
             }
         } catch (IOException e) {
-            LogManager.getLogger(Service.class).warn("IOException while fetching data sharing status. Assuming allowed.", e);
+            LogManager.getLogger(Service.class)
+                    .warn("IOException while fetching data sharing status. Assuming allowed.", e);
             return true; // Assume allowed if network error
         }
     }
@@ -395,15 +402,17 @@ public class Service {
 
     /**
      * Fetches available models from the LLM proxy, populates the provided maps, and applies filters.
+     *
      * @param policy The data retention policy.
      * @param locationsTarget The map to populate with model display names to locations.
      * @param infoTarget The map to populate with model locations to their info.
      * @throws IOException If network or parsing errors occur.
      */
-    protected void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
-                                      Map<String, String> locationsTarget,
-                                      Map<String, Map<String, Object>> infoTarget) throws IOException
-    {
+    protected void fetchAvailableModels(
+            MainProject.DataRetentionPolicy policy,
+            Map<String, String> locationsTarget,
+            Map<String, Map<String, Object>> infoTarget)
+            throws IOException {
         locationsTarget.clear(); // Clear at the beginning of an attempt
         infoTarget.clear();
 
@@ -425,8 +434,8 @@ public class Service {
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String errorBody = response.body() != null ? response.body().string() : "(no body)";
-                throw new IOException("Failed to fetch model info: " + response.code() + " " +
-                                              response.message() + " - " + errorBody);
+                throw new IOException("Failed to fetch model info: " + response.code() + " " + response.message()
+                        + " - " + errorBody);
             }
 
             ResponseBody responseBodyObj = response.body();
@@ -460,10 +469,8 @@ public class Service {
 
             for (JsonNode modelInfoNode : dataNode) {
                 String modelName = modelInfoNode.path("model_name").asText();
-                String modelLocation = modelInfoNode
-                        .path("litellm_params")
-                        .path("model")
-                        .asText();
+                String modelLocation =
+                        modelInfoNode.path("litellm_params").path("model").asText();
 
                 // Process max_output_tokens from model_info
                 JsonNode modelInfoData = modelInfoNode.path("model_info");
@@ -497,11 +504,14 @@ public class Service {
                             } else if (value.isArray()) {
                                 // Special handling for supported_openai_params
                                 try {
-                                    var type = objectMapper.getTypeFactory().constructCollectionType(List.class, String.class);
+                                    var type = objectMapper
+                                            .getTypeFactory()
+                                            .constructCollectionType(List.class, String.class);
                                     List<String> paramsList = objectMapper.convertValue(value, type);
                                     modelInfo.put(key, paramsList);
                                 } catch (IllegalArgumentException e) {
-                                    logger.error("Could not parse array for model {}: {}", modelName, value.toString(), e);
+                                    logger.error(
+                                            "Could not parse array for model {}: {}", modelName, value.toString(), e);
                                 }
                             } else if (value.isObject()) {
                                 // Convert objects to String representation
@@ -529,17 +539,19 @@ public class Service {
                     // Store the immutable copy of model info
                     var immutableModelInfo = Map.copyOf(modelInfo);
                     infoTarget.put(modelLocation, immutableModelInfo);
-                    logger.debug("Discovered model: {} -> {} with info {})",
-                                 modelName, modelLocation, immutableModelInfo);
+                    logger.debug(
+                            "Discovered model: {} -> {} with info {})", modelName, modelLocation, immutableModelInfo);
 
                     // Only add chat models (not STT) to the available locations for selection
                     if ("chat".equals(immutableModelInfo.get("mode"))
-                        || "responses".equals(immutableModelInfo.get("mode")))
-                    {
-                         locationsTarget.put(modelName, modelLocation);
-                         logger.debug("Added chat model {} to available locations.", modelName);
+                            || "responses".equals(immutableModelInfo.get("mode"))) {
+                        locationsTarget.put(modelName, modelLocation);
+                        logger.debug("Added chat model {} to available locations.", modelName);
                     } else {
-                        logger.debug("Skipping model {} (mode: {}) from available locations.", modelName, immutableModelInfo.get("mode"));
+                        logger.debug(
+                                "Skipping model {} (mode: {}) from available locations.",
+                                modelName,
+                                immutableModelInfo.get("mode"));
                     }
                 }
             }
@@ -549,9 +561,8 @@ public class Service {
     }
 
     /**
-     * Gets a map of available model *names* to their full location strings, suitable for display in settings.
-     * Filters out internal/utility models like flash-lite.
-     * e.g. "deepseek-v3" -> "deepseek/deepseek-chat"
+     * Gets a map of available model *names* to their full location strings, suitable for display in settings. Filters
+     * out internal/utility models like flash-lite. e.g. "deepseek-v3" -> "deepseek/deepseek-chat"
      */
     public Map<String, String> getAvailableModels() {
         return modelLocations.entrySet().stream()
@@ -560,8 +571,8 @@ public class Service {
     }
 
     /**
-     * Retrieves the maximum output tokens for the given model name.
-     * Returns a default value if the information is not available.
+     * Retrieves the maximum output tokens for the given model name. Returns a default value if the information is not
+     * available.
      */
     private int getMaxOutputTokens(String location) {
         var info = getModelInfo(location);
@@ -574,17 +585,26 @@ public class Service {
             value = (Integer) info.get("max_output_tokens");
         }
 
-        // some models can output a lot of tokens, but if you ask for them it gets subtracted from the input budget
+        // Most providers subtract the max output tokens from the input token budget. Since we very infrequently
+        // need the entire output token budget, and even when we might we can recover and retry starting from where
+        // we left off, we limit the output tokens to 1/8 of the input token budget.
+        // (Previously we hard-capped this at 32k, but gpt5-mini and gpt5-nano with reasoning=high will blow past that,
+        // causing request failures. So now it's uncapped.)
+        int ceiling = min(value, getMaxInputTokens(location) / 8);
         int floor = min(8192, value);
-        return max(floor, min(32768, value / 8));
+        return max(floor, ceiling);
     }
 
     /**
-     * Retrieves the maximum input tokens for the given model name.
-     * Returns a default value if the information is not available.
+     * Retrieves the maximum input tokens for the given model name. Returns a default value if the information is not
+     * available.
      */
     public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
+        return getMaxInputTokens(location);
+    }
+
+    private int getMaxInputTokens(String location) {
         var info = getModelInfo(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
@@ -596,8 +616,8 @@ public class Service {
     }
 
     /**
-     * Retrieves the maximum concurrent requests for the given model name.
-     * Returns a default value of 1 if the information is not available.
+     * Retrieves the maximum concurrent requests for the given model name. Returns a default value of 1 if the
+     * information is not available.
      */
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
@@ -608,10 +628,7 @@ public class Service {
         return (Integer) info.get("max_concurrent_requests");
     }
 
-    /**
-     * Retrieves the tokens per second for the given model.
-     * Returns null if the information is not available.
-     */
+    /** Retrieves the tokens per second for the given model. Returns null if the information is not available. */
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
@@ -637,8 +654,8 @@ public class Service {
     }
 
     /**
-     * Returns true if the given model exposes the toggle to completely disable reasoning
-     * (independent of the usual LOW/MEDIUM/HIGH levels).
+     * Returns true if the given model exposes the toggle to completely disable reasoning (independent of the usual
+     * LOW/MEDIUM/HIGH levels).
      */
     public boolean supportsReasoningDisable(String modelName) {
         var location = modelLocations.get(modelName);
@@ -672,16 +689,14 @@ public class Service {
         }
 
         return switch (info.get("supported_openai_params")) {
-            case List<?> list -> list.stream()
-                                     .map(Object::toString)
-                                     .anyMatch("reasoning_effort"::equals);
+            case List<?> list -> list.stream().map(Object::toString).anyMatch("reasoning_effort"::equals);
             case null, default -> false;
         };
     }
 
     /**
-     * Checks if the model explicitly supports reasoning steps based on its metadata.
-     * This is distinct from `supportsReasoningEffort` which checks for the Anthropic parameter.
+     * Checks if the model explicitly supports reasoning steps based on its metadata. This is distinct from
+     * `supportsReasoningEffort` which checks for the Anthropic parameter.
      *
      * @param location The model location string.
      * @return True if the model info contains `"supports_reasoning": true`, false otherwise.
@@ -699,13 +714,19 @@ public class Service {
     /**
      * Retrieves or creates a StreamingChatModel for the given modelName and reasoning level.
      *
-     * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
+     * @param modelName The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
     @Nullable
-    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+    public StreamingChatModel getModel(
+            String modelName,
+            ReasoningLevel reasoningLevel,
+            @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
         @Nullable String location = modelLocations.get(modelName);
-        logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
-                     modelName, location, reasoningLevel);
+        logger.trace(
+                "Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
+                modelName,
+                location,
+                reasoningLevel);
         if (location == null) {
             logger.error("Location not found for model name: {}", modelName);
             return null;
@@ -730,9 +751,7 @@ public class Service {
             builder = builder.apiKey("dummy-key");
         } else {
             var kp = parseKey(MainProject.getBrokkKey());
-            builder = builder
-                    .apiKey(kp.token())
-                    .customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
+            builder = builder.apiKey(kp.token()).customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
             params = params.user(kp.userId().toString());
         }
 
@@ -741,7 +760,7 @@ public class Service {
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
         if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
-                params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
+            params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
         }
         if (parametersOverride != null) {
             params = params.overrideWith(parametersOverride.build());
@@ -789,8 +808,8 @@ public class Service {
 
         var info = getModelInfo(location);
         if (info == null) {
-             logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
-             return true;
+            logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
+            return true;
         }
 
         // if it doesn't support function calling then we need to emulate
@@ -808,9 +827,11 @@ public class Service {
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
-        // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with that
+        // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with
+        // that
         // that serial calls is the lesser evil
-        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can do parallel calls
+        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can
+        // do parallel calls
         var location = model.defaultRequestParameters().modelName();
         return !location.contains("gemini")
                 && !location.contains("o3")
@@ -819,8 +840,8 @@ public class Service {
     }
 
     /**
-     * Checks if the model is designated as a "reasoning" model based on its metadata.
-     * Reasoning models are expected to perform "think" steps implicitly.
+     * Checks if the model is designated as a "reasoning" model based on its metadata. Reasoning models are expected to
+     * perform "think" steps implicitly.
      *
      * @param model The model instance to check.
      * @return True if the model is configured for reasoning
@@ -840,8 +861,8 @@ public class Service {
         // Everyone except Anthropic turns thinking on by default
         var locationLower = location.toLowerCase(Locale.ROOT);
         var isDisable = (locationLower.contains("sonnet") || locationLower.contains("opus"))
-                        ? effort == null || "disable".equalsIgnoreCase(effort)
-                        : "disable".equalsIgnoreCase(effort);
+                ? effort == null || "disable".equalsIgnoreCase(effort)
+                : "disable".equalsIgnoreCase(effort);
         return !isDisable;
     }
 
@@ -916,27 +937,20 @@ public class Service {
         return quickModel;
     }
 
-    /**
-     * Returns the default speech-to-text model instance.
-     */
+    /** Returns the default speech-to-text model instance. */
     public SpeechToTextModel sttModel() {
         return sttModel;
     }
 
-    /**
-     * Interface for speech-to-text operations.
-     * Can remain static as it's just an interface definition.
-     */
+    /** Interface for speech-to-text operations. Can remain static as it's just an interface definition. */
     public interface SpeechToTextModel {
-        /**
-         * Transcribes audio, with optional context symbols.
-         */
+        /** Transcribes audio, with optional context symbols. */
         String transcribe(Path audioFile, Set<String> symbols) throws IOException;
     }
 
     /**
-     * Stubbed STT model for when speech-to-text is unavailable.
-     * Can remain static as it has no dependency on Models instance state.
+     * Stubbed STT model for when speech-to-text is unavailable. Can remain static as it has no dependency on Models
+     * instance state.
      */
     public static class UnavailableSTT implements SpeechToTextModel {
         @Override
@@ -946,20 +960,18 @@ public class Service {
     }
 
     /**
-     * Sends feedback supplied by the GUI dialog to Brokk’s backend.
-     * Files are attached with the multipart field name "attachment".
+     * Sends feedback supplied by the GUI dialog to Brokk’s backend. Files are attached with the multipart field name
+     * "attachment".
      */
-    public void sendFeedback(String category,
-                             String feedbackText,
-                             boolean includeDebugLog,
-                             @Nullable File screenshotFile) throws IOException
-    {
+    public void sendFeedback(
+            String category, String feedbackText, boolean includeDebugLog, @Nullable File screenshotFile)
+            throws IOException {
         Objects.requireNonNull(category, "category must not be null");
         Objects.requireNonNull(feedbackText, "feedbackText must not be null");
 
         // Get user ID from Brokk key
         var kp = parseKey(MainProject.getBrokkKey());
-        
+
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("category", category)
@@ -974,16 +986,17 @@ public class Service {
                     // Create a temporary gzipped version of the debug log
                     var gzippedFile = Files.createTempFile("debug", ".log.gz").toFile();
                     gzippedFile.deleteOnExit();
-                    
+
                     try (var fis = new FileInputStream(debugFile);
-                         var fos = new FileOutputStream(gzippedFile);
-                         var gzos = new GZIPOutputStream(fos)) {
+                            var fos = new FileOutputStream(gzippedFile);
+                            var gzos = new GZIPOutputStream(fos)) {
                         fis.transferTo(gzos);
                     }
-                    
-                    bodyBuilder.addFormDataPart("attachments",
-                                                "debug.log.gz",
-                                                RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
+
+                    bodyBuilder.addFormDataPart(
+                            "attachments",
+                            "debug.log.gz",
+                            RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
                 } catch (IOException e) {
                     logger.warn("Failed to gzip debug log, skipping: {}", e.getMessage());
                 }
@@ -993,9 +1006,10 @@ public class Service {
         }
 
         if (screenshotFile != null && screenshotFile.exists()) {
-            bodyBuilder.addFormDataPart("attachments",
-                                        screenshotFile.getName(),
-                                        RequestBody.create(screenshotFile, MediaType.parse("image/png")));
+            bodyBuilder.addFormDataPart(
+                    "attachments",
+                    screenshotFile.getName(),
+                    RequestBody.create(screenshotFile, MediaType.parse("image/png")));
         }
 
         var requestBuilder = new Request.Builder()
@@ -1005,15 +1019,14 @@ public class Service {
         try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
             if (!response.isSuccessful()) {
                 throw new IOException("Failed to send feedback: " + response.code() + " - "
-                                      + (response.body() != null ? response.body().string() : "(no body)"));
+                        + (response.body() != null ? response.body().string() : "(no body)"));
             }
             logger.debug("Feedback sent successfully");
         }
     }
 
     public static class UnavailableStreamingModel implements StreamingChatModel {
-        public UnavailableStreamingModel() {
-        }
+        public UnavailableStreamingModel() {}
 
         // Removed @Override annotations that seemed to cause compile errors
         public void generate(String userMessage, StreamingResponseHandler<AiMessage> handler) {
@@ -1024,11 +1037,17 @@ public class Service {
             handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
         }
 
-        public void generate(List<ChatMessage> messages, List<ToolSpecification> toolSpecifications, StreamingResponseHandler<AiMessage> handler) {
+        public void generate(
+                List<ChatMessage> messages,
+                List<ToolSpecification> toolSpecifications,
+                StreamingResponseHandler<AiMessage> handler) {
             handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
         }
 
-        public void generate(List<ChatMessage> messages, ToolSpecification toolSpecification, StreamingResponseHandler<AiMessage> handler) {
+        public void generate(
+                List<ChatMessage> messages,
+                ToolSpecification toolSpecification,
+                StreamingResponseHandler<AiMessage> handler) {
             handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
         }
 
@@ -1044,8 +1063,7 @@ public class Service {
     }
 
     /**
-     * STT implementation using Whisper-compatible API via LiteLLM proxy.
-     * Uses OkHttp for multipart/form-data upload.
+     * STT implementation using Whisper-compatible API via LiteLLM proxy. Uses OkHttp for multipart/form-data upload.
      */
     public class OpenAIStt implements SpeechToTextModel {
         private final Logger logger = LogManager.getLogger(OpenAIStt.class);
@@ -1057,6 +1075,7 @@ public class Service {
 
         /**
          * Determines the MediaType based on file extension.
+         *
          * @param fileName Name of the file
          * @return MediaType for the HTTP request
          */
@@ -1126,8 +1145,7 @@ public class Service {
 
                 if (!response.isSuccessful()) {
                     logger.error("Proxied STT call failed with status {}: {}", response.code(), bodyStr);
-                    throw new IOException("Proxied STT call failed with status "
-                                                  + response.code() + ": " + bodyStr);
+                    throw new IOException("Proxied STT call failed with status " + response.code() + ": " + bodyStr);
                 }
 
                 // Parse JSON response

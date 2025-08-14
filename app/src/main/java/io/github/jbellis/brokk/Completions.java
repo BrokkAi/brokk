@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
-import org.fife.ui.autocomplete.ShorthandCompletion;
-
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -11,8 +9,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
-
-import static java.util.Objects.requireNonNull;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
@@ -48,53 +45,26 @@ public class Completions {
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
-                                .thenComparing(sc -> sc.cu().fqName()))
+                        .thenComparing(sc -> sc.cu().fqName()))
                 .distinct()
                 .map(ScoredCU::cu)
                 .toList();
     }
 
-    /**
-     * Expand paths that may contain wildcards (*, ?), returning all matches.
-     */
+    /** Expand paths that may contain wildcards (*, ?), returning all matches. */
     public static List<BrokkFile> expandPath(IProject project, String pattern) {
-        // First check if this is a single file
-        var file = maybeExternalFile(project.getRoot(), pattern);
-        if (file.exists()) {
-            return List.of(file);
-        }
-
-        // Handle glob patterns [only in the last part of the path]
-        if (pattern.contains("*") || pattern.contains("?")) {
-            var parent = file.absPath().getParent();
-            while (parent != null && (parent.getFileName().toString().contains("*") || parent.getFileName().toString().contains("?"))) {
-                parent = parent.getParent();
-            }
-            requireNonNull(parent);
-            var matcher = FileSystems.getDefault().getPathMatcher("glob:" + file.absPath());
-            try (var stream = Files.walk(parent)) {
-                return stream
-                        .filter(Files::isRegularFile)
-                        .filter(matcher::matches)
-                        .map(p -> maybeExternalFile(project.getRoot(), p.toString()))
-                        .toList();
-            } catch (IOException e) {
-                // part of the path doesn't exist
-                return List.of();
-            }
-        }
-
-        // If not a glob and doesn't exist directly, look for matches in git tracked files
-        var filename = Path.of(pattern).getFileName().toString();
-        var matches = project.getAllFiles().stream()
-                .filter(p -> p.getFileName().equals(filename))
-                .map(f -> (BrokkFile) f)
+        var paths = expandPatternToPaths(project, pattern);
+        var root = project.getRoot().toAbsolutePath().normalize();
+        return paths.stream()
+                .map(p -> {
+                    var abs = p.toAbsolutePath().normalize();
+                    if (abs.startsWith(root)) {
+                        return (BrokkFile) new ProjectFile(root, root.relativize(abs));
+                    } else {
+                        return (BrokkFile) new ExternalFile(abs);
+                    }
+                })
                 .toList();
-        if (matches.size() != 1) {
-            return List.of();
-        }
-
-        return matches;
     }
 
     public static BrokkFile maybeExternalFile(Path root, String pathStr) {
@@ -109,16 +79,122 @@ public class Completions {
         return new ProjectFile(root, root.relativize(p));
     }
 
+    /**
+     * Expand a path or glob pattern into concrete file Paths. - Supports absolute and relative inputs. - Avoids
+     * constructing Path from strings containing wildcards (Windows-safe). - Returns only regular files that exist.
+     */
+    public static List<Path> expandPatternToPaths(IProject project, String pattern) {
+        var trimmed = pattern.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+
+        boolean hasGlob = trimmed.indexOf('*') >= 0 || trimmed.indexOf('?') >= 0;
+        var sepChar = java.io.File.separatorChar;
+        var root = project.getRoot().toAbsolutePath().normalize();
+
+        if (!hasGlob) {
+            // Exact path (no wildcards)
+            if (looksAbsolute(trimmed)) {
+                try {
+                    var p = Path.of(trimmed).toAbsolutePath().normalize();
+                    return Files.isRegularFile(p) ? List.of(p) : List.of();
+                } catch (Exception e) {
+                    return List.of();
+                }
+            } else {
+                var p = root.resolve(trimmed).toAbsolutePath().normalize();
+                return Files.isRegularFile(p) ? List.of(p) : List.of();
+            }
+        }
+
+        // Globbing path
+        int star = trimmed.indexOf('*');
+        int ques = trimmed.indexOf('?');
+        int firstWildcard = (star == -1) ? ques : (ques == -1 ? star : Math.min(star, ques));
+
+        int lastSepBefore = -1;
+        for (int i = firstWildcard - 1; i >= 0; i--) {
+            char c = trimmed.charAt(i);
+            if (c == '/' || c == '\\') {
+                lastSepBefore = i;
+                break;
+            }
+        }
+        String basePrefix = lastSepBefore >= 0 ? trimmed.substring(0, lastSepBefore + 1) : "";
+
+        Path baseDir;
+        if (looksAbsolute(trimmed)) {
+            if (!basePrefix.isEmpty()) {
+                baseDir = Path.of(basePrefix);
+            } else if (trimmed.startsWith("\\\\")) {
+                // UNC root without server/share is not walkable; require at least \\server\share\
+                return List.of();
+            } else if (trimmed.length() >= 2 && Character.isLetter(trimmed.charAt(0)) && trimmed.charAt(1) == ':') {
+                baseDir = Path.of(Character.toString(trimmed.charAt(0)) + ":\\");
+            } else {
+                baseDir = Path.of(java.io.File.separator);
+            }
+        } else {
+            var baseRel = basePrefix.replace('/', sepChar).replace('\\', sepChar);
+            baseDir = root.resolve(baseRel);
+        }
+
+        if (!Files.isDirectory(baseDir)) {
+            return List.of();
+        }
+
+        // Using matcher relative to baseDir; no absolute glob construction needed here.
+
+        // Determine how deep to walk:
+        // - If pattern uses **, search recursively.
+        // - Otherwise, limit to the number of remaining path segments after the base prefix.
+        boolean recursive = trimmed.contains("**");
+        String remainder = lastSepBefore >= 0 ? trimmed.substring(lastSepBefore + 1) : trimmed;
+        int remainingSeparators = 0;
+        for (int i = 0; i < remainder.length(); i++) {
+            char c = remainder.charAt(i);
+            if (c == '/' || c == '\\') remainingSeparators++;
+        }
+        int maxDepth = recursive ? Integer.MAX_VALUE : (1 + remainingSeparators);
+
+        // Build a matcher relative to baseDir to avoid Windows absolute glob quirks.
+        String relGlob = remainder.replace('/', sepChar).replace('\\', sepChar);
+        var matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
+
+        try (var stream = Files.walk(baseDir, maxDepth)) {
+            return stream.filter(Files::isRegularFile)
+                    .filter(p -> matcher.matches(baseDir.relativize(p)))
+                    .map(Path::toAbsolutePath)
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    private static boolean looksAbsolute(String s) {
+        if (s.startsWith("/")) {
+            return true;
+        }
+        if (s.startsWith("\\\\")) { // UNC path
+            return true;
+        }
+        return s.length() >= 3
+                && Character.isLetter(s.charAt(0))
+                && s.charAt(1) == ':'
+                && (s.charAt(2) == '\\' || s.charAt(2) == '/');
+    }
+
     private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict
     }
 
-    public static <T> List<ShorthandCompletion> scoreShortAndLong(String pattern,
-                                                                  Collection<T> candidates,
-                                                                  Function<T, String> extractShort,
-                                                                  Function<T, String> extractLong,
-                                                                  Function<T, Integer> tiebreaker,
-                                                                  Function<T, ShorthandCompletion> toCompletion)
-    {
+    public static <T> List<ShorthandCompletion> scoreShortAndLong(
+            String pattern,
+            Collection<T> candidates,
+            Function<T, String> extractShort,
+            Function<T, String> extractLong,
+            Function<T, Integer> tiebreaker,
+            Function<T, ShorthandCompletion> toCompletion) {
         var matcher = new FuzzyMatcher(pattern);
         var scoredCandidates = candidates.stream()
                 .map(c -> {
@@ -131,8 +207,8 @@ public class Completions {
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
-                                .thenComparingInt(ScoredItem::tiebreakScore)
-                                .thenComparing(sc -> extractShort.apply(sc.source)))
+                        .thenComparingInt(ScoredItem::tiebreakScore)
+                        .thenComparing(sc -> extractShort.apply(sc.source)))
                 .toList();
 
         // Find the highest score among the "short" matches

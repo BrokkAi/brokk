@@ -3,17 +3,16 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitWorkflowService;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
-
-import javax.swing.*;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class CommitDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CommitDialog.class);
@@ -30,13 +29,13 @@ public class CommitDialog extends JDialog {
     private static final String PLACEHOLDER_INFERRING = "Inferring commit message...";
     private static final String PLACEHOLDER_FAILURE = "Unable to infer message. Please write one manually.";
 
-    public CommitDialog(Frame owner,
-                        Chrome chrome,
-                        ContextManager contextManager,
-                        GitWorkflowService workflowService,
-                        List<ProjectFile> filesToCommit,
-                        Consumer<GitWorkflowService.CommitResult> onCommitSuccessCallback)
-    {
+    public CommitDialog(
+            Frame owner,
+            Chrome chrome,
+            ContextManager contextManager,
+            GitWorkflowService workflowService,
+            List<ProjectFile> filesToCommit,
+            Consumer<GitWorkflowService.CommitResult> onCommitSuccessCallback) {
         super(owner, "Commit Changes", true);
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -82,11 +81,19 @@ public class CommitDialog extends JDialog {
         // Enable commit button when text area is enabled and not empty (after LLM or manual input)
         commitMessageArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { checkCommitButtonState(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                checkCommitButtonState();
+            }
+
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { checkCommitButtonState(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                checkCommitButtonState();
+            }
+
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { checkCommitButtonState(); }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                checkCommitButtonState();
+            }
         });
 
         initiateCommitMessageSuggestion();
@@ -96,7 +103,7 @@ public class CommitDialog extends JDialog {
         if (commitMessageArea.isEnabled()) {
             String text = commitMessageArea.getText();
             boolean hasNonCommentText = Arrays.stream(text.split("\n"))
-                                             .anyMatch(line -> !line.trim().isEmpty() && !line.trim().startsWith("#"));
+                    .anyMatch(line -> !line.trim().isEmpty() && !line.trim().startsWith("#"));
             commitButton.setEnabled(hasNonCommentText);
         } else {
             commitButton.setEnabled(false);
@@ -105,29 +112,26 @@ public class CommitDialog extends JDialog {
 
     private void initiateCommitMessageSuggestion() {
         CompletableFuture<String> suggestionFuture = contextManager.submitBackgroundTask(
-                "Suggesting commit message",
-                () -> workflowService.suggestCommitMessage(filesToCommit)
-        );
+                "Suggesting commit message", () -> workflowService.suggestCommitMessage(filesToCommit));
 
-        suggestionFuture.whenComplete((@Nullable String suggestedMessage, @Nullable Throwable throwable) ->
-            SwingUtilities.invokeLater(() -> {
-                if (throwable == null) {
-                    if (suggestedMessage != null && !suggestedMessage.isEmpty()) {
-                        commitMessageArea.setText(suggestedMessage);
+        suggestionFuture.whenComplete(
+                (@Nullable String suggestedMessage, @Nullable Throwable throwable) -> SwingUtilities.invokeLater(() -> {
+                    if (throwable == null) {
+                        if (suggestedMessage != null && !suggestedMessage.isEmpty()) {
+                            commitMessageArea.setText(suggestedMessage);
+                        } else {
+                            commitMessageArea.setText(""); // Clear placeholder if suggestion is empty
+                        }
+                        commitMessageArea.setEnabled(true);
+                        commitMessageArea.requestFocusInWindow(); // Focus for editing
                     } else {
-                        commitMessageArea.setText(""); // Clear placeholder if suggestion is empty
+                        logger.error("Error suggesting commit message for dialog:", throwable);
+                        commitMessageArea.setText(PLACEHOLDER_FAILURE);
+                        commitMessageArea.setEnabled(true);
+                        commitMessageArea.requestFocusInWindow(); // Focus for manual input
                     }
-                    commitMessageArea.setEnabled(true);
-                    commitMessageArea.requestFocusInWindow(); // Focus for editing
-                } else {
-                    logger.error("Error suggesting commit message for dialog:", throwable);
-                    commitMessageArea.setText(PLACEHOLDER_FAILURE);
-                    commitMessageArea.setEnabled(true);
-                    commitMessageArea.requestFocusInWindow(); // Focus for manual input
-                }
-                checkCommitButtonState(); // Update commit button based on new text/state
-            })
-        );
+                    checkCommitButtonState(); // Update commit button based on new text/state
+                }));
     }
 
     private void performCommit() {

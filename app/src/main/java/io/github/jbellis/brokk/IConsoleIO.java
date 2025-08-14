@@ -6,14 +6,12 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.util.Messages;
+import java.util.List;
+import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.util.List;
-
 public interface IConsoleIO {
-    default void actionComplete() {
-    }
+    default void actionComplete() {}
 
     void toolError(String msg, String title);
 
@@ -25,7 +23,8 @@ public interface IConsoleIO {
         throw new UnsupportedOperationException();
     }
 
-    default int showConfirmDialog(@Nullable JFrame frame, String message, String title, int optionType, int messageType) {
+    default int showConfirmDialog(
+            @Nullable JFrame frame, String message, String title, int optionType, int messageType) {
         throw new UnsupportedOperationException();
     }
 
@@ -63,8 +62,8 @@ public interface IConsoleIO {
     }
 
     /**
-     * default implementation just forwards to systemOutput but the Chrome GUI implementation
-     * wraps JOptionPane; messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
+     * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
+     * messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
      */
     default void systemNotify(String message, String title, int messageType) {
         systemOutput(message);

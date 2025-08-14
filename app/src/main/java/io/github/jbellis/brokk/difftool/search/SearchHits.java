@@ -1,12 +1,12 @@
 package io.github.jbellis.brokk.difftool.search;
 
-import org.jetbrains.annotations.Nullable;
-
 import java.util.ArrayList;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 public class SearchHits {
     private final List<SearchHit> searchHits;
+
     @Nullable
     private SearchHit current;
 

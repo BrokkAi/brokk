@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.Objects;
 
 @JsonDeserialize(builder = CompletionTokensDetails.Builder.class)
@@ -29,8 +28,7 @@ public final class CompletionTokensDetails {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof CompletionTokensDetails
-                && equalTo((CompletionTokensDetails) another);
+        return another instanceof CompletionTokensDetails && equalTo((CompletionTokensDetails) another);
     }
 
     private boolean equalTo(CompletionTokensDetails another) {
@@ -46,9 +44,7 @@ public final class CompletionTokensDetails {
 
     @Override
     public String toString() {
-        return "CompletionTokensDetails{"
-                + "reasoningTokens=" + reasoningTokens
-                + "}";
+        return "CompletionTokensDetails{" + "reasoningTokens=" + reasoningTokens + "}";
     }
 
     public static Builder builder() {

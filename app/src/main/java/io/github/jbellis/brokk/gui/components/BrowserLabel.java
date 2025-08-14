@@ -1,15 +1,14 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.util.Environment;
-
-import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import javax.swing.*;
 
 /**
- * A JLabel that displays a clickable hyperlink, opening it in the default browser.
- * Handles common errors like browser unavailability.
+ * A JLabel that displays a clickable hyperlink, opening it in the default browser. Handles common errors like browser
+ * unavailability.
  */
 public class BrowserLabel extends JLabel {
     private final String url;
@@ -26,7 +25,7 @@ public class BrowserLabel extends JLabel {
     /**
      * Creates a new BrowserLabel for the specified URL with custom display text.
      *
-     * @param url  The URL to link to.
+     * @param url The URL to link to.
      * @param text The text to display on the label (will be wrapped in HTML link tags).
      */
     public BrowserLabel(String url, String text) {

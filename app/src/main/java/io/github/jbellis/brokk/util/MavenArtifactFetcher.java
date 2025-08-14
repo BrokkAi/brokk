@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.util;
 
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
@@ -16,17 +19,12 @@ import org.eclipse.aether.resolution.ArtifactResolutionException;
 import org.eclipse.aether.resolution.ArtifactResult;
 import org.eclipse.aether.spi.connector.RepositoryConnectorFactory;
 import org.eclipse.aether.spi.connector.transport.TransporterFactory;
-import org.eclipse.aether.transport.http.HttpTransporterFactory;
 import org.eclipse.aether.transfer.AbstractTransferListener;
 import org.eclipse.aether.transfer.TransferEvent;
+import org.eclipse.aether.transport.http.HttpTransporterFactory;
 import org.jetbrains.annotations.Nullable;
 
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
-
-public class MavenArtifactFetcher
-{
+public class MavenArtifactFetcher {
     private static final Logger logger = LogManager.getLogger(MavenArtifactFetcher.class);
 
     private final RepositorySystem system;
@@ -36,7 +34,8 @@ public class MavenArtifactFetcher
     public MavenArtifactFetcher() {
         this.system = newRepositorySystem();
         this.session = newRepositorySystemSession(system);
-        this.repositories = List.of(new RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2/").build());
+        this.repositories = List.of(
+                new RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2/").build());
     }
 
     @SuppressWarnings("deprecation")
@@ -68,11 +67,12 @@ public class MavenArtifactFetcher
         try {
             var baseArtifact = new DefaultArtifact(coordinates);
             if (classifier != null && !classifier.isBlank()) {
-                artifact = new DefaultArtifact(baseArtifact.getGroupId(),
-                                               baseArtifact.getArtifactId(),
-                                               classifier,
-                                               baseArtifact.getExtension(),
-                                               baseArtifact.getVersion());
+                artifact = new DefaultArtifact(
+                        baseArtifact.getGroupId(),
+                        baseArtifact.getArtifactId(),
+                        classifier,
+                        baseArtifact.getExtension(),
+                        baseArtifact.getVersion());
             } else {
                 artifact = baseArtifact;
             }
@@ -101,8 +101,7 @@ public class MavenArtifactFetcher
         }
     }
 
-    private static class LoggingTransferListener extends AbstractTransferListener
-    {
+    private static class LoggingTransferListener extends AbstractTransferListener {
         @Override
         public void transferInitiated(TransferEvent event) {
             var resource = event.getResource();
@@ -118,7 +117,11 @@ public class MavenArtifactFetcher
         @Override
         public void transferFailed(TransferEvent event) {
             var resource = event.getResource();
-            logger.warn("Download failed for {}{}", resource.getRepositoryUrl(), resource.getResourceName(), event.getException());
+            logger.warn(
+                    "Download failed for {}{}",
+                    resource.getRepositoryUrl(),
+                    resource.getResourceName(),
+                    event.getException());
         }
     }
 }

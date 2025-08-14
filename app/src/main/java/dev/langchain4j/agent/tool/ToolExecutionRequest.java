@@ -4,9 +4,7 @@ import static dev.langchain4j.internal.Utils.quoted;
 
 import java.util.Objects;
 
-/**
- * Represents an LLM-generated request to execute a tool.
- */
+/** Represents an LLM-generated request to execute a tool. */
 public class ToolExecutionRequest {
     private final String id;
     private final String name;
@@ -14,6 +12,7 @@ public class ToolExecutionRequest {
 
     /**
      * Creates a {@link ToolExecutionRequest} from a {@link Builder}.
+     *
      * @param builder the builder.
      */
     private ToolExecutionRequest(Builder builder) {
@@ -24,6 +23,7 @@ public class ToolExecutionRequest {
 
     /**
      * Returns the id of the tool.
+     *
      * @return the id of the tool.
      */
     public String id() {
@@ -32,6 +32,7 @@ public class ToolExecutionRequest {
 
     /**
      * Returns the name of the tool.
+     *
      * @return the name of the tool.
      */
     public String name() {
@@ -40,6 +41,7 @@ public class ToolExecutionRequest {
 
     /**
      * Returns the arguments of the tool.
+     *
      * @return the arguments of the tool.
      */
     public String arguments() {
@@ -49,8 +51,7 @@ public class ToolExecutionRequest {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof ToolExecutionRequest ter
-                && equalTo(ter);
+        return another instanceof ToolExecutionRequest ter && equalTo(ter);
     }
 
     private boolean equalTo(ToolExecutionRequest another) {
@@ -79,28 +80,25 @@ public class ToolExecutionRequest {
 
     /**
      * Creates builder to build {@link ToolExecutionRequest}.
+     *
      * @return created builder
      */
     public static Builder builder() {
         return new Builder();
     }
 
-    /**
-     * {@code ToolExecutionRequest} builder static inner class.
-     */
+    /** {@code ToolExecutionRequest} builder static inner class. */
     public static final class Builder {
         private String id;
         private String name;
         private String arguments;
 
-        /**
-         * Creates a builder for {@code ToolExecutionRequest}.
-         */
-        private Builder() {
-        }
+        /** Creates a builder for {@code ToolExecutionRequest}. */
+        private Builder() {}
 
         /**
          * Sets the {@code id}.
+         *
          * @param id the {@code id}
          * @return the {@code Builder}
          */
@@ -111,6 +109,7 @@ public class ToolExecutionRequest {
 
         /**
          * Sets the {@code name}.
+         *
          * @param name the {@code name}
          * @return the {@code Builder}
          */
@@ -121,6 +120,7 @@ public class ToolExecutionRequest {
 
         /**
          * Sets the {@code arguments}.
+         *
          * @param arguments the {@code arguments}
          * @return the {@code Builder}
          */
@@ -131,6 +131,7 @@ public class ToolExecutionRequest {
 
         /**
          * Returns a {@code ToolExecutionRequest} built from the parameters previously set.
+         *
          * @return a {@code ToolExecutionRequest}
          */
         public ToolExecutionRequest build() {

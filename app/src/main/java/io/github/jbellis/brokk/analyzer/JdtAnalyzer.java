@@ -5,18 +5,17 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
-import org.eclipse.lsp4j.SymbolKind;
-import org.jetbrains.annotations.Nullable;
-
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.eclipse.lsp4j.SymbolKind;
+import org.jetbrains.annotations.Nullable;
 
 public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
 
@@ -39,11 +38,15 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
             try {
                 useEclipseBuildFiles = JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
             } catch (Exception e) {
-                logger.warn("Error validating and creating project build files for: {}. Attempting to continue.", projectRoot, e);
+                logger.warn(
+                        "Error validating and creating project build files for: {}. Attempting to continue.",
+                        projectRoot,
+                        e);
             }
             this.workspace = this.projectRoot.toUri().toString();
             this.sharedServer = SharedJdtLspServer.getInstance();
-            this.sharedServer.registerClient(this.projectRoot, project.getExcludedDirectories(), getInitializationOptions(), getLanguage());
+            this.sharedServer.registerClient(
+                    this.projectRoot, project.getExcludedDirectories(), getInitializationOptions(), getLanguage());
             this.sharedServer.refreshWorkspace().join();
             try {
                 // Indexing generally completes within a couple of seconds, but larger projects need grace
@@ -103,7 +106,6 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
             imporT.put("maven", Map.of("enabled", true, "wrapper", Map.of("enabled", true)));
             imporT.put("gradle", Map.of("enabled", true, "wrapper", Map.of("enabled", true)));
         }
-
 
         javaOptions.put("server", server);
         javaOptions.put("symbols", symbols);
@@ -178,8 +180,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
     }
 
     /**
-     * A helper method to convert a single, non-generic type name
-     * to its simple name, preserving array brackets.
+     * A helper method to convert a single, non-generic type name to its simple name, preserving array brackets.
      *
      * @param typeString The type string (e.g., "java.lang.String" or "int[]").
      * @return The simple name (e.g., "String" or "int[]").
@@ -199,31 +200,31 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
 
     private Optional<String> getSkeleton(String fqName, boolean headerOnly) {
         final Set<String> skeletons = LspAnalyzerHelper.findTypesInWorkspace(fqName, workspace, sharedServer, false)
-                .thenApply(typeSymbols ->
-                        typeSymbols.stream().map(typeSymbol -> {
-                                    // First, read the full source text of the file.
-                                    final Optional<String> fullSourceOpt =
-                                            LspAnalyzerHelper.getSourceForUriString(typeSymbol.getLocation().getLeft().getUri());
-                                    if (fullSourceOpt.isEmpty()) {
-                                        return Optional.<String>empty();
-                                    } else {
-                                        final String fullSource = fullSourceOpt.get();
-                                        final var eitherLocationForType = typeSymbol.getLocation();
-                                        if (eitherLocationForType.isLeft()) {
-                                            return JdtSkeletonHelper.getSymbolSkeleton(
+                .thenApply(typeSymbols -> typeSymbols.stream()
+                        .map(typeSymbol -> {
+                            // First, read the full source text of the file.
+                            final Optional<String> fullSourceOpt = LspAnalyzerHelper.getSourceForUriString(
+                                    typeSymbol.getLocation().getLeft().getUri());
+                            if (fullSourceOpt.isEmpty()) {
+                                return Optional.<String>empty();
+                            } else {
+                                final String fullSource = fullSourceOpt.get();
+                                final var eitherLocationForType = typeSymbol.getLocation();
+                                if (eitherLocationForType.isLeft()) {
+                                    return JdtSkeletonHelper.getSymbolSkeleton(
                                                     sharedServer,
                                                     eitherLocationForType.getLeft(),
                                                     fullSource,
-                                                    headerOnly
-                                            ).join();
-                                        } else {
-                                            return Optional.<String>empty();
-                                        }
-                                    }
-                                })
-                                .flatMap(Optional::stream)
-                                .collect(Collectors.toSet())
-                ).join();
+                                                    headerOnly)
+                                            .join();
+                                } else {
+                                    return Optional.<String>empty();
+                                }
+                            }
+                        })
+                        .flatMap(Optional::stream)
+                        .collect(Collectors.toSet()))
+                .join();
 
         if (skeletons.isEmpty()) {
             return Optional.empty();
@@ -243,10 +244,8 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
     }
 
     // A regex to match anonymous class instantiation patterns from symbol names.
-    private static final Pattern ANONYMOUS_CLASS_PATTERN = Pattern.compile(
-            "(?s)^new\\s+[\\w.]+(?:<.*?>)?\\s*\\(.*\\)\\s*\\{.*\\}.*",
-            Pattern.DOTALL
-    );
+    private static final Pattern ANONYMOUS_CLASS_PATTERN =
+            Pattern.compile("(?s)^new\\s+[\\w.]+(?:<.*?>)?\\s*\\(.*\\)\\s*\\{.*\\}.*", Pattern.DOTALL);
 
     @Override
     public boolean isAnonymousClass(SymbolKind kind, String name) {

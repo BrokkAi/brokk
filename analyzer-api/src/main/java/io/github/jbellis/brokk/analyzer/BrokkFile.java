@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.jbellis.brokk.util.SyntaxDetector;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -27,15 +26,13 @@ public interface BrokkFile extends Comparable<BrokkFile> {
             return Files.isRegularFile(absPath())
                     && FileExtensions.IMAGE_EXTENSIONS.stream().noneMatch(ext -> FileExtensions.matches(absPath(), ext))
                     && (FileExtensions.TEXT_EXTENSIONS.stream().anyMatch(ext -> FileExtensions.matches(absPath(), ext))
-                        || Files.size(absPath()) < 128 * 1024);
+                            || Files.size(absPath()) < 128 * 1024);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
-    /**
-     * Just the filename, no path at all
-     */
+    /** Just the filename, no path at all */
     @JsonIgnore
     default String getFileName() {
         return absPath().getFileName().toString();

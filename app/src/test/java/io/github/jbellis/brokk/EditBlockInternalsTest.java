@@ -1,36 +1,26 @@
 package io.github.jbellis.brokk;
 
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.junit.jupiter.api.Test;
+
 /**
- * Tests the individual static methods of {@link EditBlock} to pinpoint
- * where behavior diverges from expectations in multi-line replacements
- * with leading blank lines and indentation.
+ * Tests the individual static methods of {@link EditBlock} to pinpoint where behavior diverges from expectations in
+ * multi-line replacements with leading blank lines and indentation.
  */
 class EditBlockInternalsTest {
     @Test
     void testCountLeadingBlankLines() {
         // 1. No blank lines at start
-        String[] lines1 = {
-                "line1",
-                "line2",
-                ""
-        };
+        String[] lines1 = {"line1", "line2", ""};
         assertEquals(0, EditBlock.countLeadingBlankLines(lines1));
 
         // 2. Some blank lines at start
-        String[] lines2 = {
-                "",
-                "  ",
-                "lineA",
-                "lineB"
-        };
+        String[] lines2 = {"", "  ", "lineA", "lineB"};
         // Two blank lines at start
         assertEquals(2, EditBlock.countLeadingBlankLines(lines2));
     }
@@ -45,14 +35,8 @@ class EditBlockInternalsTest {
 
     @Test
     void testMatchesIgnoringWhitespace() {
-        String[] whole = {
-                "    line1\n",
-                "        line2\n"
-        };
-        String[] part = {
-                "line1\n",
-                "    line2\n"
-        };
+        String[] whole = {"    line1\n", "        line2\n"};
+        String[] part = {"line1\n", "    line2\n"};
         // We expect a match ignoring leading spaces
         assertTrue(EditBlock.matchesIgnoringWhitespace(whole, 0, part));
 
@@ -62,9 +46,9 @@ class EditBlockInternalsTest {
 
     @Test
     void testPerfectReplace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String[] whole = { "A\n", "B\n", "C\n" };
-        String[] part  = { "B\n" };
-        String[] repl  = { "B-REPLACED\n" };
+        String[] whole = {"A\n", "B\n", "C\n"};
+        String[] part = {"B\n"};
+        String[] repl = {"B-REPLACED\n"};
 
         String result = EditBlock.perfectReplace(whole, part, repl);
         assertNotNull(result);
@@ -74,21 +58,18 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceIgnoringWhitespace_includingBlankLine() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceIgnoringWhitespace_includingBlankLine()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         // This is closer to the scenario that breaks in your test:
         // There's an extra blank line in 'search' that doesn't appear in the original.
-        String[] whole = {
-                "line1\n",
-                "    line2\n",
-                "    line3\n"
-        };
+        String[] whole = {"line1\n", "    line2\n", "    line3\n"};
         String[] part = {
-                "\n",        // blank line
-                "  line2\n"  // partial indentation
+            "\n", // blank line
+            "  line2\n" // partial indentation
         };
         String[] replace = {
-                "\n",          // blank line
-                "  replaced_line2\n"
+            "\n", // blank line
+            "  replaced_line2\n"
         };
 
         String attempt = EditBlock.replaceIgnoringWhitespace(whole, part, replace);
@@ -102,7 +83,8 @@ class EditBlockInternalsTest {
         // line1
         //     replaced_line2
         //     line3
-        String expected = """
+        String expected =
+                """
                 line1
                     replaced_line2
                     line3
@@ -112,7 +94,8 @@ class EditBlockInternalsTest {
 
     @Test
     void testReplaceMostSimilarChunk() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String whole = """
+        String whole =
+                """
                 line1
                     line2
                     line3
@@ -124,7 +107,8 @@ class EditBlockInternalsTest {
 
         // We'll see if an extra blank line got inserted.
         // We'll check the final lines carefully.
-        String expected = """
+        String expected =
+                """
                 line1
                     replaced_line2
                     line3
@@ -135,7 +119,8 @@ class EditBlockInternalsTest {
     @Test
     void testDoReplaceWithBlankLineAndIndent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         // "doReplace" is a higher-level method that calls stripQuotedWrapping + replaceMostSimilarChunk, etc.
-        String original = """
+        String original =
+                """
                 line1
                     line2
                     line3
@@ -145,7 +130,8 @@ class EditBlockInternalsTest {
 
         String result = EditBlock.replaceMostSimilarChunk(original, before, after);
 
-        String expected = """
+        String expected =
+                """
                 line1
                     replaced_line2
                     line3
@@ -166,11 +152,13 @@ class EditBlockInternalsTest {
 
     @Test
     void testReplaceIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String original = """
+        String original =
+                """
                 line1
                     line2
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
         String search = """
                 line2
                     line3
@@ -179,11 +167,13 @@ class EditBlockInternalsTest {
                 new_line2
                     new_line3
                 """;
-        String expected = """
+        String expected =
+                """
                 line1
                     new_line2
                     new_line3
-                """.stripIndent();
+                """
+                        .stripIndent();
 
         String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
         assertEquals(expected, updated);
@@ -202,7 +192,8 @@ class EditBlockInternalsTest {
 
     @Test
     void testAmbiguousMatch() {
-        String original = """
+        String original =
+                """
                 line1
                 line2
                 line1
@@ -211,12 +202,15 @@ class EditBlockInternalsTest {
         String search = "line1\n";
         String replace = "new_line\n";
 
-        assertThrows(EditBlock.AmbiguousMatchException.class, () -> EditBlock.replaceMostSimilarChunk(original, search, replace));
+        assertThrows(
+                EditBlock.AmbiguousMatchException.class,
+                () -> EditBlock.replaceMostSimilarChunk(original, search, replace));
     }
 
     @Test
     void testNoMatch() {
-        String original = """
+        String original =
+                """
                 line1
                 line2
                 line1
@@ -225,7 +219,8 @@ class EditBlockInternalsTest {
         String search = "line4\n";
         String replace = "new_line\n";
 
-        assertThrows(EditBlock.NoMatchException.class, () -> EditBlock.replaceMostSimilarChunk(original, search, replace));
+        assertThrows(
+                EditBlock.NoMatchException.class, () -> EditBlock.replaceMostSimilarChunk(original, search, replace));
     }
 
     @Test
@@ -241,17 +236,18 @@ class EditBlockInternalsTest {
         assertEquals(expected, updated);
     }
 
-    /**
-     * LLM likes to start blocks without the leading whitespace sometimes
-     */
+    /** LLM likes to start blocks without the leading whitespace sometimes */
     @Test
-    void testReplacePartWithMissingLeadingWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String original = """
+    void testReplacePartWithMissingLeadingWhitespace()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+        String original =
+                """
                 line1
                     line2
                     line3
                 line4
-                """.stripIndent();
+                """
+                        .stripIndent();
 
         // We'll omit some leading whitespace in the beforeText block
         String search = """
@@ -265,34 +261,39 @@ class EditBlockInternalsTest {
 
         String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
 
-        String expected = """
+        String expected =
+                """
                 line1
                     NEW_line2
                     NEW_line3
                 line4
-                """.stripIndent();
+                """
+                        .stripIndent();
 
         assertEquals(expected, updated);
     }
 
     /**
-     * Test blank line with missing leading whitespace in beforeText.
-     * (Similar to python test_replace_part_with_missing_leading_whitespace_including_blank_line)
+     * Test blank line with missing leading whitespace in beforeText. (Similar to python
+     * test_replace_part_with_missing_leading_whitespace_including_blank_line)
      */
     @Test
-    void testReplaceIgnoringWhitespaceIncludingBlankLine() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String original = """
+    void testReplaceIgnoringWhitespaceIncludingBlankLine()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+        String original =
+                """
                 line1
                     line2
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
         // Insert a blank line in the beforeText, plus incomplete indentation
         String search = """
-                
+
                   line2
                 """;
         String replace = """
-                
+
                   replaced_line2
                 """;
 
@@ -300,22 +301,26 @@ class EditBlockInternalsTest {
 
         // The beforeText block basically tries to match line2 ignoring some whitespace and skipping a blank line
         // We expect line2 -> replaced_line2, with same leading indentation as original (4 spaces).
-        String expected = """
+        String expected =
+                """
                 line1
                     replaced_line2
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
 
         assertEquals(expected, updated);
     }
 
     @Test
     void testReplaceIgnoringTrailingWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String original = """
+        String original =
+                """
                 line1
-                    line2  
+                    line2
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
         // Insert a blank line in the beforeText, plus incomplete indentation
         String search = """
                   line2
@@ -325,21 +330,25 @@ class EditBlockInternalsTest {
                 """;
 
         String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
-        String expected = """
+        String expected =
+                """
                 line1
                     replaced_line2
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
         assertEquals(expected, updated);
     }
 
     @Test
     void testReplaceIgnoringInternalWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
-        String original = """
+        String original =
+                """
                 line1
-                    a   b 
+                    a   b
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
         // Insert a blank line in the beforeText, plus incomplete indentation
         String search = """
                   a b
@@ -349,21 +358,23 @@ class EditBlockInternalsTest {
                 """;
 
         String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
-        String expected = """
+        String expected =
+                """
                 line1
                     replaced_line2
                     line3
-                """.stripIndent();
+                """
+                        .stripIndent();
         assertEquals(expected, updated);
     }
 
     /**
-     * Tests that if beforeText block lines are already in the filename, but user tries the same "afterText",
-     * we do not break anything. We can't confirm the "already replaced" scenario fully
-     * but we can ensure no weird edge crash.
+     * Tests that if beforeText block lines are already in the filename, but user tries the same "afterText", we do not
+     * break anything. We can't confirm the "already replaced" scenario fully but we can ensure no weird edge crash.
      */
     @Test
-    void testApplyFuzzySearchReplaceIfReplaceAlreadyPresent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testApplyFuzzySearchReplaceIfReplaceAlreadyPresent()
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         String original = """
                 line1
                 line2
@@ -383,7 +394,7 @@ class EditBlockInternalsTest {
     @Test
     void testEmptySearchOnEmptyFile() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         String original = "";
-        String search = "";  // empty
+        String search = ""; // empty
         String replace = "initial content\n";
 
         String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
@@ -392,70 +403,75 @@ class EditBlockInternalsTest {
 
     @Test
     void testAmbiguousMatchRejected() {
-        String original = """
+        String original =
+                """
                 line1
                 line2
                 line1
                 line3
                 """;
 
-        assertThrows(EditBlock.AmbiguousMatchException.class, () -> EditBlock.replaceMostSimilarChunk(original, "line1\n", "replaced\n"));
-      }
-  
-      @Test
-      void testExtractCodeFromTripleBackticks() {
-          // Case 1: Language specifier present, code starts on next line
-          String input1 = """
+        assertThrows(
+                EditBlock.AmbiguousMatchException.class,
+                () -> EditBlock.replaceMostSimilarChunk(original, "line1\n", "replaced\n"));
+    }
+
+    @Test
+    void testExtractCodeFromTripleBackticks() {
+        // Case 1: Language specifier present, code starts on next line
+        String input1 =
+                """
                   ```java
                   System.out.println("Hello");
                   ```
                   """;
-          // Expect content starting *after* the first newline
-          assertEquals("System.out.println(\"Hello\");\n", EditBlock.extractCodeFromTripleBackticks(input1));
-  
-          // Case 2: No language specifier, code starts on next line
-          String input2 = """
+        // Expect content starting *after* the first newline
+        assertEquals("System.out.println(\"Hello\");\n", EditBlock.extractCodeFromTripleBackticks(input1));
+
+        // Case 2: No language specifier, code starts on next line
+        String input2 =
+                """
                   ```
                   Just code here.
                   ```
                   """;
-          assertEquals("Just code here.\n", EditBlock.extractCodeFromTripleBackticks(input2));
-  
-          // Case 3: Empty content block (only newline between backticks)
-          String input3 = """
+        assertEquals("Just code here.\n", EditBlock.extractCodeFromTripleBackticks(input2));
+
+        // Case 3: Empty content block (only newline between backticks)
+        String input3 = """
                   ```
-  
+
                   ```
                   """;
-           // The newline between the opening and closing backticks is captured
-          assertEquals("\n", EditBlock.extractCodeFromTripleBackticks(input3));
-  
-          // Case 4: Content on the same line as opening backticks (should not match pattern)
-          String input4 = "```System.out.println(\"Inline\");```";
-          // No match because content isn't on the line *after* the opening ```
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks(input4));
-  
-          // Case 5: No backticks
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks("Just plain text."));
-  
-          // Case 6: Only opening backticks with language specifier and newline
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks("```java\nSome code"));
-  
-          // Case 7: Only closing backticks
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks("Some code\n```"));
-  
-          // Case 8: Empty string input
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks(""));
-  
-           // Case 9: Backticks with only language specifier and newline, nothing else
-          String input9 = "```python\n```";
-           // Empty content captured after the newline
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks(input9));
-  
-          // Case 10: Backticks with language specifier, but no newline after it (invalid)
-          String input10 = "```python```";
-          assertEquals("", EditBlock.extractCodeFromTripleBackticks(input10));
-      }
+        // The newline between the opening and closing backticks is captured
+        assertEquals("\n", EditBlock.extractCodeFromTripleBackticks(input3));
+
+        // Case 4: Content on the same line as opening backticks (should not match pattern)
+        String input4 = "```System.out.println(\"Inline\");```";
+        // No match because content isn't on the line *after* the opening ```
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks(input4));
+
+        // Case 5: No backticks
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks("Just plain text."));
+
+        // Case 6: Only opening backticks with language specifier and newline
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks("```java\nSome code"));
+
+        // Case 7: Only closing backticks
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks("Some code\n```"));
+
+        // Case 8: Empty string input
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks(""));
+
+        // Case 9: Backticks with only language specifier and newline, nothing else
+        String input9 = "```python\n```";
+        // Empty content captured after the newline
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks(input9));
+
+        // Case 10: Backticks with language specifier, but no newline after it (invalid)
+        String input10 = "```python```";
+        assertEquals("", EditBlock.extractCodeFromTripleBackticks(input10));
+    }
 
     @Test
     void testIsDeletion() {

@@ -43,10 +43,16 @@ public class StringDocument extends AbstractBufferDocument {
                 public void write(char[] cbuf, int off, int len) throws java.io.IOException {
                     throw new java.io.IOException("Document is read-only: " + getName());
                 }
+
                 @Override
-                public void flush() { /* No-op */ }
+                public void flush() {
+                    /* No-op */
+                }
+
                 @Override
-                public void close() { /* No-op */ }
+                public void close() {
+                    /* No-op */
+                }
             };
         }
 
@@ -66,16 +72,16 @@ public class StringDocument extends AbstractBufferDocument {
     }
 
     /**
-     * Gets the current string content.
-     * Note: This might not reflect changes made through getWriter() until the writer is closed.
+     * Gets the current string content. Note: This might not reflect changes made through getWriter() until the writer
+     * is closed.
      */
     public String getContent() {
         return content;
     }
 
     /**
-     * Sets the string content directly and re-initializes the document.
-     * Use this if you need to bypass the Writer mechanism.
+     * Sets the string content directly and re-initializes the document. Use this if you need to bypass the Writer
+     * mechanism.
      */
     public void setContent(String newContent) {
         if (isReadonly()) {

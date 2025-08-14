@@ -7,8 +7,8 @@ import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 import java.util.Objects;
 
 /**
- * Represents a system message, typically defined by a developer.
- * This type of message usually provides instructions regarding the AI's actions, such as its behavior or response style.
+ * Represents a system message, typically defined by a developer. This type of message usually provides instructions
+ * regarding the AI's actions, such as its behavior or response style.
  */
 public class SystemMessage implements ChatMessage {
 
@@ -16,6 +16,7 @@ public class SystemMessage implements ChatMessage {
 
     /**
      * Creates a new system message.
+     *
      * @param text the message text.
      */
     public SystemMessage(String text) {
@@ -24,6 +25,7 @@ public class SystemMessage implements ChatMessage {
 
     /**
      * Returns the message text.
+     *
      * @return the message text.
      */
     public String text() {
@@ -50,13 +52,12 @@ public class SystemMessage implements ChatMessage {
 
     @Override
     public String toString() {
-        return "SystemMessage {" +
-                " text = " + quoted(text) +
-                " }";
+        return "SystemMessage {" + " text = " + quoted(text) + " }";
     }
 
     /**
      * Creates a new system message.
+     *
      * @param text the message text.
      * @return the system message.
      */
@@ -66,6 +67,7 @@ public class SystemMessage implements ChatMessage {
 
     /**
      * Creates a new system message.
+     *
      * @param text the message text.
      * @return the system message.
      */

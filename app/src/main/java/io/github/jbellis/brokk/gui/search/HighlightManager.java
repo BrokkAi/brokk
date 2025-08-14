@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.gui.search;
 
 import io.github.jbellis.brokk.difftool.ui.JMHighlightPainter;
-import org.jetbrains.annotations.Nullable;
-
+import java.util.ArrayList;
+import java.util.List;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Highlighter;
 import javax.swing.text.JTextComponent;
-import java.util.ArrayList;
-import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
-/**
- * Manages search highlights in text components.
- */
+/** Manages search highlights in text components. */
 public class HighlightManager {
     private final JTextComponent textComponent;
     private final List<Highlighter.Highlight> searchHighlights = new ArrayList<>();
+
     @Nullable
     private Highlighter.Highlight currentHighlight = null;
 
@@ -33,9 +31,7 @@ public class HighlightManager {
         }
     }
 
-    /**
-     * Adds a search highlight.
-     */
+    /** Adds a search highlight. */
     public Highlighter.Highlight addHighlight(int start, int end, boolean isCurrent) {
         Highlighter highlighter = textComponent.getHighlighter();
         if (highlighter == null) {
@@ -43,9 +39,8 @@ public class HighlightManager {
         }
 
         try {
-            Highlighter.HighlightPainter painter = isCurrent
-                ? JMHighlightPainter.CURRENT_SEARCH
-                : JMHighlightPainter.SEARCH;
+            Highlighter.HighlightPainter painter =
+                    isCurrent ? JMHighlightPainter.CURRENT_SEARCH : JMHighlightPainter.SEARCH;
             Object tag = highlighter.addHighlight(start, end, painter);
             Highlighter.Highlight highlight = (Highlighter.Highlight) tag;
             searchHighlights.add(highlight);
@@ -58,9 +53,7 @@ public class HighlightManager {
         }
     }
 
-    /**
-     * Updates a highlight from regular to current or vice versa.
-     */
+    /** Updates a highlight from regular to current or vice versa. */
     public void updateHighlight(int start, int end, boolean isCurrent) {
         Highlighter highlighter = textComponent.getHighlighter();
         if (highlighter == null) {
@@ -72,8 +65,8 @@ public class HighlightManager {
         for (Highlighter.Highlight highlight : highlights) {
             if (highlight.getStartOffset() == start && highlight.getEndOffset() == end) {
                 Highlighter.HighlightPainter currentPainter = highlight.getPainter();
-                if (currentPainter == JMHighlightPainter.SEARCH ||
-                    currentPainter == JMHighlightPainter.CURRENT_SEARCH) {
+                if (currentPainter == JMHighlightPainter.SEARCH
+                        || currentPainter == JMHighlightPainter.CURRENT_SEARCH) {
                     highlighter.removeHighlight(highlight);
                     searchHighlights.remove(highlight);
                     break;
@@ -85,9 +78,7 @@ public class HighlightManager {
         addHighlight(start, end, isCurrent);
     }
 
-    /**
-     * Highlights all matches in the text.
-     */
+    /** Highlights all matches in the text. */
     public void highlightAllMatches(List<int[]> matches, int currentMatchIndex) {
         clearHighlights();
 

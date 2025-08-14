@@ -1,19 +1,18 @@
 package io.github.jbellis.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class CompletionsTest {
     @TempDir
@@ -37,27 +36,17 @@ public class CompletionsTest {
                     CodeUnit.cls(mockFile, "a.b", "Do$Re$Sub"), // nested inside Re
                     CodeUnit.cls(mockFile, "x.y", "Zz"),
                     CodeUnit.cls(mockFile, "w.u", "Zz"),
-                    CodeUnit.cls(mockFile, "test", "CamelClass")
-            );
+                    CodeUnit.cls(mockFile, "test", "CamelClass"));
             this.methodsMap = Map.ofEntries(
-                    Map.entry("a.b.Do", List.of(
-                            CodeUnit.fn(mockFile, "a.b", "Do.foo"),
-                            CodeUnit.fn(mockFile, "a.b", "Do.bar")
-                    )),
-                    Map.entry("a.b.Do$Re", List.of(
-                            CodeUnit.fn(mockFile, "a.b", "Do$Re.baz")
-                    )),
-                    Map.entry("a.b.Do$Re$Sub", List.of(
-                            CodeUnit.fn(mockFile, "a.b", "Do$Re$Sub.qux")
-                    )),
+                    Map.entry(
+                            "a.b.Do",
+                            List.of(CodeUnit.fn(mockFile, "a.b", "Do.foo"), CodeUnit.fn(mockFile, "a.b", "Do.bar"))),
+                    Map.entry("a.b.Do$Re", List.of(CodeUnit.fn(mockFile, "a.b", "Do$Re.baz"))),
+                    Map.entry("a.b.Do$Re$Sub", List.of(CodeUnit.fn(mockFile, "a.b", "Do$Re$Sub.qux"))),
                     Map.entry("x.y.Zz", List.of()),
                     Map.entry("w.u.Zz", List.of()),
-                    Map.entry("test.CamelClass", List.of(
-                            CodeUnit.fn(mockFile, "test", "CamelClass.someMethod")
-                    ))
-            );
+                    Map.entry("test.CamelClass", List.of(CodeUnit.fn(mockFile, "test", "CamelClass.someMethod"))));
         }
-
 
         @Override
         public List<CodeUnit> getAllDeclarations() {
@@ -76,33 +65,30 @@ public class CompletionsTest {
 
             // Find matching classes
             var matchingClasses = allClasses.stream()
-                .filter(cu -> cu.identifier().matches(regex))
-                .toList();
+                    .filter(cu -> cu.identifier().matches(regex))
+                    .toList();
 
             // Find matching methods
             var matchingMethods = methodsMap.entrySet().stream()
-                .flatMap(entry -> entry.getValue().stream())
-                .filter(cu -> cu.identifier().matches(regex))
-                .toList();
+                    .flatMap(entry -> entry.getValue().stream())
+                    .filter(cu -> cu.identifier().matches(regex))
+                    .toList();
 
             // Fields not tested
 
             // Combine results
             return Stream.concat(matchingClasses.stream(), matchingMethods.stream())
-                .toList();
+                    .toList();
         }
     }
-    
+
     // Helper to extract values for easy assertion
     private static Set<String> toValues(List<CodeUnit> candidates) {
-        return candidates.stream()
-               .map(CodeUnit::fqName)
-               .collect(Collectors.toSet());
+        return candidates.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
     }
+
     private static Set<String> toShortValues(List<CodeUnit> candidates) {
-        return candidates.stream()
-                .map(CodeUnit::identifier)
-                .collect(Collectors.toSet());
+        return candidates.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
     }
 
     @Test

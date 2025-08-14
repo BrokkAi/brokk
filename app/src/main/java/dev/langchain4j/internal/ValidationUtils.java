@@ -6,15 +6,14 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Utility class for validating method arguments.
- */
+/** Utility class for validating method arguments. */
 public class ValidationUtils {
 
     private ValidationUtils() {}
 
     /**
      * Ensure that the two values are equal.
+     *
      * @param lhs the left hand side value.
      * @param rhs the right hand side value.
      * @param format the format string for the exception message.
@@ -28,6 +27,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given object is not null.
+     *
      * @param object The object to check.
      * @param name The name of the object to be used in the exception message.
      * @return The object if it is not null.
@@ -40,6 +40,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given object is not null.
+     *
      * @param object The object to check.
      * @param format The format of the exception message.
      * @param args The arguments for the exception message.
@@ -55,11 +56,12 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given collection is not null and not empty.
+     *
      * @param collection The collection to check.
      * @param name The name of the collection to be used in the exception message.
      * @return The collection if it is not null and not empty.
      * @param <T> The type of the collection.
-     *           @throws IllegalArgumentException if the collection is null or empty.
+     * @throws IllegalArgumentException if the collection is null or empty.
      */
     public static <T extends Collection<?>> T ensureNotEmpty(T collection, String name) {
         if (collection == null || collection.isEmpty()) {
@@ -71,6 +73,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given array is not null and not empty.
+     *
      * @param array The array to check.
      * @param name The name of the array to be used in the exception message.
      * @return The array if it is not null and not empty.
@@ -88,10 +91,10 @@ public class ValidationUtils {
     /**
      * Ensures that the given map is not null and not empty.
      *
-     * @param map  The map to check.
+     * @param map The map to check.
      * @param name The name of the map to be used in the exception message.
-     * @param <K>  The type of the key.
-     * @param <V>  The type of the value.
+     * @param <K> The type of the key.
+     * @param <V> The type of the value.
      * @return The map if it is not null and not empty.
      * @throws IllegalArgumentException if the collection is null or empty.
      */
@@ -105,6 +108,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given string is not null and not blank.
+     *
      * @param string The string to check.
      * @param name The name of the string to be used in the exception message.
      * @return The string if it is not null and not blank.
@@ -120,6 +124,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given expression is true.
+     *
      * @param expression The expression to check.
      * @param msg The message to be used in the exception.
      * @throws IllegalArgumentException if the expression is false.
@@ -132,6 +137,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given expression is true.
+     *
      * @param i The expression to check.
      * @param name The message to be used in the exception.
      * @return The value if it is greater than zero.
@@ -147,6 +153,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given expression is true.
+     *
      * @param i The expression to check.
      * @param name The message to be used in the exception.
      * @return The value if it is greater than zero.
@@ -162,6 +169,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given Double value is in {@code [min, max]}.
+     *
      * @param d The value to check.
      * @param min The minimum value.
      * @param max The maximum value.
@@ -178,6 +186,7 @@ public class ValidationUtils {
 
     /**
      * Ensures that the given Integer value is in {@code [min, max]}.
+     *
      * @param i The value to check.
      * @param min The minimum value.
      * @param max The maximum value.
@@ -193,6 +202,7 @@ public class ValidationUtils {
     }
     /**
      * Ensures that the given Long value is in {@code [min, max]}.
+     *
      * @param i The value to check.
      * @param min The minimum value.
      * @param max The maximum value.

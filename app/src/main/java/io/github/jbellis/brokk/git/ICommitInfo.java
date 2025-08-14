@@ -1,12 +1,11 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
-
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 public interface ICommitInfo {
     List<ProjectFile> changedFiles() throws GitAPIException;
@@ -22,6 +21,7 @@ public interface ICommitInfo {
 
     /**
      * Returns the stash index if this commit represents a stash entry.
+     *
      * @return An Optional containing the stash index (e.g., 0 for stash@{0}), or empty if not a stash.
      */
     Optional<Integer> stashIndex();

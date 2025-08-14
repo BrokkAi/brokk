@@ -1,20 +1,17 @@
 package io.github.jbellis.brokk.gui.util;
 
-import javax.swing.*;
 import java.awt.*;
 import java.util.Objects;
+import javax.swing.*;
 
-/**
- * Icon wrapper that paints its delegate scaled by the given factor.
- */
+/** Icon wrapper that paints its delegate scaled by the given factor. */
 public final class ScaledIcon implements Icon {
     private final Icon delegate;
     private final double factor;
     private final int width;
     private final int height;
 
-    public ScaledIcon(Icon delegate, double factor)
-    {
+    public ScaledIcon(Icon delegate, double factor) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.factor = factor;
         this.width = (int) Math.round(delegate.getIconWidth() * factor);
@@ -22,8 +19,7 @@ public final class ScaledIcon implements Icon {
     }
 
     @Override
-    public void paintIcon(Component c, Graphics g, int x, int y)
-    {
+    public void paintIcon(Component c, Graphics g, int x, int y) {
         Graphics2D g2 = (Graphics2D) g.create();
         try {
             g2.translate(x, y);

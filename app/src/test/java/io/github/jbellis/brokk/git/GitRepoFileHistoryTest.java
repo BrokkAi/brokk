@@ -1,20 +1,17 @@
 package io.github.jbellis.brokk.git;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import static org.junit.jupiter.api.Assertions.*;
-
-/**
- * Tests for GitRepo file history with rename following functionality.
- */
+/** Tests for GitRepo file history with rename following functionality. */
 public class GitRepoFileHistoryTest {
     private Path projectRoot;
     private GitRepo repo;
@@ -35,10 +32,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(initialFile, "Initial content");
         git.add().addFilepattern("original.txt").call();
         git.commit()
-           .setMessage("Initial commit")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Initial commit")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         repo = new GitRepo(projectRoot);
     }
@@ -58,10 +55,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(originalFile, "Modified content");
         git.add().addFilepattern("original.txt").call();
         git.commit()
-           .setMessage("Modify file")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Modify file")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         // Rename the file using git mv to ensure rename detection
         git.rm().addFilepattern("original.txt").call();
@@ -69,10 +66,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(renamedFile, "Modified content");
         git.add().addFilepattern("renamed.txt").call();
         git.commit()
-           .setMessage("Rename file")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Rename file")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         // Test getFileHistoryWithPaths
         var currentFile = new ProjectFile(projectRoot, "renamed.txt");
@@ -104,10 +101,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(middleFile, "Initial content");
         git.add().addFilepattern("middle.txt").call();
         git.commit()
-           .setMessage("First rename")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("First rename")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         // Second rename: middle.txt -> final.txt
         git.rm().addFilepattern("middle.txt").call();
@@ -115,10 +112,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(finalFile, "Initial content");
         git.add().addFilepattern("final.txt").call();
         git.commit()
-           .setMessage("Second rename")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Second rename")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         var currentFile = new ProjectFile(projectRoot, "final.txt");
         var history = repo.getFileHistoryWithPaths(currentFile);
@@ -145,10 +142,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(originalFile, "Modified content");
         git.add().addFilepattern("original.txt").call();
         git.commit()
-           .setMessage("Modify original file")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Modify original file")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         // Then rename it
         git.rm().addFilepattern("original.txt").call();
@@ -156,10 +153,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(renamedFile, "Modified content");
         git.add().addFilepattern("renamed.txt").call();
         git.commit()
-           .setMessage("Rename file")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Rename file")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         var currentFile = new ProjectFile(projectRoot, "renamed.txt");
         var history = repo.getFileHistoryWithPaths(currentFile);
@@ -184,10 +181,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(file, "Modified content");
         git.add().addFilepattern("original.txt").call();
         git.commit()
-           .setMessage("Modify file")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Modify file")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         var currentFile = new ProjectFile(projectRoot, "original.txt");
         var history = repo.getFileHistoryWithPaths(currentFile);
@@ -196,8 +193,7 @@ public class GitRepoFileHistoryTest {
 
         // All entries should have same path since no rename occurred
         for (var entry : history) {
-            assertEquals(Path.of("original.txt"), entry.path().getRelPath(),
-                        "All entries should have original path");
+            assertEquals(Path.of("original.txt"), entry.path().getRelPath(), "All entries should have original path");
         }
     }
 
@@ -231,10 +227,10 @@ public class GitRepoFileHistoryTest {
         Files.writeString(movedFile, "Initial content");
         git.add().addFilepattern("subdir/moved.txt").call();
         git.commit()
-           .setMessage("Move to subdirectory")
-           .setAuthor("Test User", "test@example.com")
-           .setSign(false)
-           .call();
+                .setMessage("Move to subdirectory")
+                .setAuthor("Test User", "test@example.com")
+                .setSign(false)
+                .call();
 
         var currentFile = new ProjectFile(projectRoot, "subdir/moved.txt");
         var history = repo.getFileHistoryWithPaths(currentFile);

@@ -1,9 +1,9 @@
 package io.github.jbellis.brokk.issues;
 
 public enum IssueProviderType {
-    NONE,      // explicitly “do not fetch issues”
-    GITHUB,    // GitHub‐backed issues (owner/repo can be overridden)
-    JIRA;      // Jira‐backed issues
+    NONE, // explicitly “do not fetch issues”
+    GITHUB, // GitHub‐backed issues (owner/repo can be overridden)
+    JIRA; // Jira‐backed issues
 
     public String getDisplayName() {
         return switch (this) {
@@ -18,8 +18,8 @@ public enum IssueProviderType {
             return NONE; // Default to NONE if blank
         }
         for (IssueProviderType type : IssueProviderType.values()) {
-            if (type.name().equalsIgnoreCase(text.trim()) || 
-                type.getDisplayName().equalsIgnoreCase(text.trim())) {
+            if (type.name().equalsIgnoreCase(text.trim())
+                    || type.getDisplayName().equalsIgnoreCase(text.trim())) {
                 return type;
             }
         }

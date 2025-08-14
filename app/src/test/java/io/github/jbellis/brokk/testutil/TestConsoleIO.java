@@ -5,7 +5,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
-
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,7 +13,6 @@ public class TestConsoleIO implements IConsoleIO {
     private final StringBuilder errorLog = new StringBuilder();
     private final List<ChatMessage> llmRawMessages = new ArrayList<>();
     private final StringBuilder streamingAiMessage = new StringBuilder();
-
 
     public void actionOutput(String text) {
         outputLog.append(text).append("\n");

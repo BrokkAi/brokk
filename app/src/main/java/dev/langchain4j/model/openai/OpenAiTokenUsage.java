@@ -1,8 +1,7 @@
 package dev.langchain4j.model.openai;
 
-import java.util.Objects;
-
 import dev.langchain4j.model.output.TokenUsage;
+import java.util.Objects;
 
 public class OpenAiTokenUsage extends TokenUsage {
 
@@ -46,7 +45,9 @@ public class OpenAiTokenUsage extends TokenUsage {
                 return this.inputTokensDetails;
             } else {
                 return InputTokensDetails.builder()
-                        .cachedTokens(sum(this.inputTokensDetails.cachedTokens, thatOpenAiTokenUsage.inputTokensDetails.cachedTokens))
+                        .cachedTokens(sum(
+                                this.inputTokensDetails.cachedTokens,
+                                thatOpenAiTokenUsage.inputTokensDetails.cachedTokens))
                         .build();
             }
         } else {
@@ -62,7 +63,9 @@ public class OpenAiTokenUsage extends TokenUsage {
                 return this.outputTokensDetails;
             } else {
                 return OutputTokensDetails.builder()
-                        .reasoningTokens(sum(this.outputTokensDetails.reasoningTokens, thatOpenAiTokenUsage.outputTokensDetails.reasoningTokens))
+                        .reasoningTokens(sum(
+                                this.outputTokensDetails.reasoningTokens,
+                                thatOpenAiTokenUsage.outputTokensDetails.reasoningTokens))
                         .build();
             }
         } else {
@@ -87,13 +90,12 @@ public class OpenAiTokenUsage extends TokenUsage {
 
     @Override
     public String toString() {
-        return "OpenAiTokenUsage {" +
-                " inputTokenCount = " + inputTokenCount() +
-                ", inputTokensDetails = " + inputTokensDetails +
-                ", outputTokenCount = " + outputTokenCount() +
-                ", outputTokensDetails = " + outputTokensDetails +
-                ", totalTokenCount = " + totalTokenCount() +
-                " }";
+        return "OpenAiTokenUsage {" + " inputTokenCount = "
+                + inputTokenCount() + ", inputTokensDetails = "
+                + inputTokensDetails + ", outputTokenCount = "
+                + outputTokenCount() + ", outputTokensDetails = "
+                + outputTokensDetails + ", totalTokenCount = "
+                + totalTokenCount() + " }";
     }
 
     public static Builder builder() {
@@ -183,9 +185,7 @@ public class OpenAiTokenUsage extends TokenUsage {
 
         @Override
         public String toString() {
-            return "OpenAiTokenUsage.InputTokensDetails {" +
-                    " cachedTokens = " + cachedTokens +
-                    " }";
+            return "OpenAiTokenUsage.InputTokensDetails {" + " cachedTokens = " + cachedTokens + " }";
         }
     }
 
@@ -234,9 +234,7 @@ public class OpenAiTokenUsage extends TokenUsage {
 
         @Override
         public String toString() {
-            return "OpenAiTokenUsage.OutputTokensDetails {" +
-                    " reasoningTokens = " + reasoningTokens +
-                    " }";
+            return "OpenAiTokenUsage.OutputTokensDetails {" + " reasoningTokens = " + reasoningTokens + " }";
         }
     }
 }

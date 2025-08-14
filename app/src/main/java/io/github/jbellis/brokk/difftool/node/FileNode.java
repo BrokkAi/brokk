@@ -1,11 +1,11 @@
 package io.github.jbellis.brokk.difftool.node;
 
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.difftool.doc.FileDocument;
-import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.lang.ref.SoftReference;
-
-import static java.util.Objects.requireNonNull;
+import org.jetbrains.annotations.Nullable;
 
 public class FileNode implements Comparable<FileNode>, BufferNode {
     private final String name;

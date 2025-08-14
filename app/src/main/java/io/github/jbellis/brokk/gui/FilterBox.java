@@ -1,21 +1,20 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.event.*;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.*;
 import java.util.List;
 import java.util.function.Supplier;
+import javax.swing.*;
+import javax.swing.event.*;
+import org.jetbrains.annotations.Nullable;
 
 public final class FilterBox extends JPanel implements ThemeAware {
 
-    private final String label;                     // e.g. "Author"
-    private final Supplier<List<String>> choices;   // lazy source of values
-    private @Nullable String selected;             // null == “nothing”
+    private final String label; // e.g. "Author"
+    private final Supplier<List<String>> choices; // lazy source of values
+    private @Nullable String selected; // null == “nothing”
 
     private final JLabel textLabel;
     private final JLabel iconLabel;
@@ -25,10 +24,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
     private static final Icon HOVER_ARROW = createHoverIcon(ARROW_BASE);
     private static final Icon HOVER_CLEAR = createHoverIcon(CLEAR_BASE);
 
-
-    /**
-     * Wraps an icon to ensure consistent 12x12 sizing for alignment
-     */
+    /** Wraps an icon to ensure consistent 12x12 sizing for alignment */
     private static Icon createConsistentSizedIcon(Icon originalIcon) {
         return new Icon() {
             @Override
@@ -45,16 +41,18 @@ public final class FilterBox extends JPanel implements ThemeAware {
             }
 
             @Override
-            public int getIconWidth() { return 12; }
+            public int getIconWidth() {
+                return 12;
+            }
 
             @Override
-            public int getIconHeight() { return 12; }
+            public int getIconHeight() {
+                return 12;
+            }
         };
     }
 
-    /**
-     * Creates a slightly larger version of an icon for hover effect
-     */
+    /** Creates a slightly larger version of an icon for hover effect */
     private static Icon createHoverIcon(Icon originalIcon) {
         return new Icon() {
             @Override
@@ -77,17 +75,21 @@ public final class FilterBox extends JPanel implements ThemeAware {
                 // Apply scaling and draw centered
                 g2.translate(centerX, centerY);
                 g2.scale(scaleFactor, scaleFactor);
-                g2.translate(-iconWidth/2, -iconHeight/2);
+                g2.translate(-iconWidth / 2, -iconHeight / 2);
 
                 originalIcon.paintIcon(c, g2, 0, 0);
                 g2.dispose();
             }
 
             @Override
-            public int getIconWidth() { return 12; }
+            public int getIconWidth() {
+                return 12;
+            }
 
             @Override
-            public int getIconHeight() { return 12; }
+            public int getIconHeight() {
+                return 12;
+            }
         };
     }
 
@@ -307,9 +309,9 @@ public final class FilterBox extends JPanel implements ThemeAware {
                 } else if (e.getKeyCode() == KeyEvent.VK_ENTER) {
                     // Find the first JMenuItem after the search field
                     Optional<JMenuItem> firstItem = Arrays.stream(pop.getComponents())
-                                                          .filter(JMenuItem.class::isInstance)
-                                                          .map(JMenuItem.class::cast)
-                                                          .findFirst();
+                            .filter(JMenuItem.class::isInstance)
+                            .map(JMenuItem.class::cast)
+                            .findFirst();
                     if (firstItem.isPresent()) {
                         firstItem.get().doClick(); // Simulate a click
                     } else {
@@ -326,8 +328,10 @@ public final class FilterBox extends JPanel implements ThemeAware {
             public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(search::requestFocusInWindow);
             }
+
             @Override
             public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+
             @Override
             public void popupMenuCanceled(PopupMenuEvent e) {}
         });

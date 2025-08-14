@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
@@ -8,9 +7,16 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
+import java.awt.*;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.event.MouseMotionListener;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import javax.swing.*;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
@@ -19,16 +25,9 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
-import java.util.Comparator;
-import java.awt.*;
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseMotionAdapter;
-import java.awt.event.MouseMotionListener;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
@@ -39,10 +38,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     // UI Components managed by this panel
     private JTextField brokkKeyField = new JTextField();
+
     @Nullable
     private JRadioButton brokkProxyRadio; // Can be null if STAGING
+
     @Nullable
     private JRadioButton localhostProxyRadio; // Can be null if STAGING
+
     private JComboBox<String> architectModelComboBox = new JComboBox<>();
     private JComboBox<Service.ReasoningLevel> architectReasoningComboBox = new JComboBox<>();
     private JComboBox<String> codeModelComboBox = new JComboBox<>();
@@ -55,11 +57,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JTextField balanceField = new JTextField();
     private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
+
     @Nullable
     private JTextField gitHubTokenField; // Null if GitHub tab not shown
+
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
     private JPanel defaultModelsPanel = new JPanel(); // Initialized
-
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
         this.chrome = chrome;
@@ -82,7 +85,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Default Models Tab
         defaultModelsPanel = createModelsPanel(); // Store reference, createModelsPanel handles null project
-        globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, defaultModelsPanel, "Default model selection and configuration");
+        globalSubTabbedPane.addTab(
+                MODELS_TAB_TITLE, null, defaultModelsPanel, "Default model selection and configuration");
 
         // Quick Models Tab
         var quickModelsPanel = createQuickModelsPanel();
@@ -94,7 +98,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         if (shouldShowGitHubTab) {
             var gitHubPanel = createGitHubPanel();
-            globalSubTabbedPane.addTab(SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
+            globalSubTabbedPane.addTab(
+                    SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
         }
 
         // Jira Tab removed
@@ -108,7 +113,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     public JTabbedPane getGlobalSubTabbedPane() {
         return globalSubTabbedPane;
     }
-    
+
     public void updateModelsPanelEnablement() {
         defaultModelsPanel.setEnabled(true);
         setEnabledRecursive(defaultModelsPanel, true);
@@ -188,7 +193,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         servicePanel.add(new JLabel("LLM Proxy:"), gbc);
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.STAGING) {
-            var proxyInfoLabel = new JLabel("Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
+            var proxyInfoLabel = new JLabel(
+                    "Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
             proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridx = 1;
             gbc.gridy = row++;
@@ -252,8 +258,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gitHubPanel.add(gitHubTokenField, gbc);
 
-        var explanationLabel = new JLabel("<html>This token is used to access GitHub APIs. It should have read and write access to Pull Requests and Issues.</html>");
-        explanationLabel.setFont(explanationLabel.getFont().deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
+        var explanationLabel = new JLabel(
+                "<html>This token is used to access GitHub APIs. It should have read and write access to Pull Requests and Issues.</html>");
+        explanationLabel.setFont(explanationLabel
+                .getFont()
+                .deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -319,10 +328,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         var models = chrome.getContextManager().getService();
-        var availableModelNames = models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
+        var availableModelNames =
+                models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
         var reasoningLevels = Service.ReasoningLevel.values();
 
-        quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>()); // Initial empty, loaded in loadSettings
+        quickModelsTableModel =
+                new FavoriteModelsTableModel(new ArrayList<>()); // Initial empty, loaded in loadSettings
         quickModelsTable = new JTable(quickModelsTableModel);
         quickModelsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         quickModelsTable.setRowHeight(quickModelsTable.getRowHeight() + 4);
@@ -358,9 +369,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 quickModelsTable.getCellEditor().stopCellEditing();
             }
             String defaultModel = availableModelNames.length > 0 ? availableModelNames[0] : "";
-            quickModelsTableModel.addFavorite(new Service.FavoriteModel("new-alias", defaultModel, Service.ReasoningLevel.DEFAULT));
+            quickModelsTableModel.addFavorite(
+                    new Service.FavoriteModel("new-alias", defaultModel, Service.ReasoningLevel.DEFAULT));
             int modelRowIndex = quickModelsTableModel.getRowCount() - 1;
-            int viewRowIndex  = quickModelsTable.convertRowIndexToView(modelRowIndex);
+            int viewRowIndex = quickModelsTable.convertRowIndexToView(modelRowIndex);
             quickModelsTable.setRowSelectionInterval(viewRowIndex, viewRowIndex);
             quickModelsTable.scrollRectToVisible(quickModelsTable.getCellRect(viewRowIndex, 0, true));
             quickModelsTable.editCellAt(viewRowIndex, 0);
@@ -371,15 +383,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         });
 
         removeButton.addActionListener(e -> {
-    int viewRow = quickModelsTable.getSelectedRow();
-    if (viewRow != -1) {
-        if (quickModelsTable.isEditing()) {
-            quickModelsTable.getCellEditor().stopCellEditing();
-        }
-        int modelRow = quickModelsTable.convertRowIndexToModel(viewRow);
-        quickModelsTableModel.removeFavorite(modelRow);
-    }
-});
+            int viewRow = quickModelsTable.getSelectedRow();
+            if (viewRow != -1) {
+                if (quickModelsTable.isEditing()) {
+                    quickModelsTable.getCellEditor().stopCellEditing();
+                }
+                int modelRow = quickModelsTable.convertRowIndexToModel(viewRow);
+                quickModelsTableModel.removeFavorite(modelRow);
+            }
+        });
 
         panel.add(new JScrollPane(quickModelsTable), BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
@@ -398,13 +410,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
 
         var models = chrome.getContextManager().getService();
-        var availableModels = models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
+        var availableModels =
+                models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
         var reasoningLevels = Service.ReasoningLevel.values();
 
         var modelComboRenderer = new DefaultListCellRenderer() {
             @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                JLabel label =
+                        (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof String modelName) {
                     label.setToolTipText(generateModelTooltipText(modelName, models));
                 } else {
@@ -439,21 +454,42 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         architectModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
         addHoverTooltipUpdater(architectModelComboBox, models);
         architectReasoningComboBox = new JComboBox<>(reasoningLevels);
-        row = addModelSection(panel, gbc, row, "Architect", architectModelComboBox, architectReasoningComboBox, "The Architect plans and executes multi-step projects, calling other agents and tools as needed");
+        row = addModelSection(
+                panel,
+                gbc,
+                row,
+                "Architect",
+                architectModelComboBox,
+                architectReasoningComboBox,
+                "The Architect plans and executes multi-step projects, calling other agents and tools as needed");
 
         codeModelComboBox = new JComboBox<>(availableModels);
         codeModelComboBox.setRenderer(modelComboRenderer);
         codeModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
         addHoverTooltipUpdater(codeModelComboBox, models);
         codeReasoningComboBox = new JComboBox<>(reasoningLevels);
-        row = addModelSection(panel, gbc, row, "Code", codeModelComboBox, codeReasoningComboBox, "Used when invoking the Code Agent manually or via Architect");
+        row = addModelSection(
+                panel,
+                gbc,
+                row,
+                "Code",
+                codeModelComboBox,
+                codeReasoningComboBox,
+                "Used when invoking the Code Agent manually or via Architect");
 
         searchModelComboBox = new JComboBox<>(availableModels);
         searchModelComboBox.setRenderer(modelComboRenderer);
         searchModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
         addHoverTooltipUpdater(searchModelComboBox, models);
         searchReasoningComboBox = new JComboBox<>(reasoningLevels);
-        addModelSection(panel, gbc, row, "Search", searchModelComboBox, searchReasoningComboBox, "Searches the project for information described in natural language; also used for Deep Scan");
+        addModelSection(
+                panel,
+                gbc,
+                row,
+                "Search",
+                searchModelComboBox,
+                searchReasoningComboBox,
+                "Searches the project for information described in natural language; also used for Deep Scan");
 
         gbc.gridy = row + 2; // Ensure glue is after the last section
         gbc.gridx = 0;
@@ -475,7 +511,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 Object popup = sourceComboBox.getUI().getAccessibleChild(sourceComboBox, 0);
                 if (popup instanceof BasicComboPopup basicPopup) {
                     JList<?> list = basicPopup.getList();
-                    MouseMotionListener existingListener = (MouseMotionListener) list.getClientProperty(MOUSE_MOTION_LISTENER_KEY);
+                    MouseMotionListener existingListener =
+                            (MouseMotionListener) list.getClientProperty(MOUSE_MOTION_LISTENER_KEY);
                     if (existingListener != null) list.removeMouseMotionListener(existingListener);
 
                     MouseMotionListener newListener = new MouseMotionAdapter() {
@@ -505,15 +542,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 Object popup = sourceComboBox.getUI().getAccessibleChild(sourceComboBox, 0);
                 if (popup instanceof BasicComboPopup basicPopup) {
                     JList<?> list = basicPopup.getList();
-                    MouseMotionListener listener = (MouseMotionListener) list.getClientProperty(MOUSE_MOTION_LISTENER_KEY);
+                    MouseMotionListener listener =
+                            (MouseMotionListener) list.getClientProperty(MOUSE_MOTION_LISTENER_KEY);
                     if (listener != null) {
                         list.removeMouseMotionListener(listener);
                         list.putClientProperty(MOUSE_MOTION_LISTENER_KEY, null);
                     }
                 }
             }
-            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) { cleanupListenerAndResetTooltip(e); }
-            @Override public void popupMenuCanceled(PopupMenuEvent e) { cleanupListenerAndResetTooltip(e); }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                cleanupListenerAndResetTooltip(e);
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+                cleanupListenerAndResetTooltip(e);
+            }
         });
     }
 
@@ -535,22 +581,37 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private @Nullable String generateModelTooltipText(String modelName, Service service) {
         var pricing = service.getModelPricing(modelName);
         if (pricing.bands().isEmpty()) return "Price information not available.";
-        if (pricing.bands().stream().allMatch(b -> b.inputCostPerToken() == 0 && b.cachedInputCostPerToken() == 0 && b.outputCostPerToken() == 0)) return "Free";
+        if (pricing.bands().stream()
+                .allMatch(b ->
+                        b.inputCostPerToken() == 0 && b.cachedInputCostPerToken() == 0 && b.outputCostPerToken() == 0))
+            return "Free";
         if (pricing.bands().size() > 1) {
-            return "<html>" + pricing.bands().stream()
-                    .map(b -> String.format("%s: $%.2f per 1M in, $%.2f per 1M out", b.getDescription(), b.inputCostPerToken() * 1e6, b.outputCostPerToken() * 1e6))
-                    .collect(java.util.stream.Collectors.joining("<br/>")) + "</html>";
+            return "<html>"
+                    + pricing.bands().stream()
+                            .map(b -> String.format(
+                                    "%s: $%.2f per 1M in, $%.2f per 1M out",
+                                    b.getDescription(), b.inputCostPerToken() * 1e6, b.outputCostPerToken() * 1e6))
+                            .collect(java.util.stream.Collectors.joining("<br/>"))
+                    + "</html>";
         }
         var band = pricing.bands().getFirst();
-        return String.format("$%.2f per 1M in, $%.2f per 1M out", band.inputCostPerToken() * 1e6, band.outputCostPerToken() * 1e6);
+        return String.format(
+                "$%.2f per 1M in, $%.2f per 1M out", band.inputCostPerToken() * 1e6, band.outputCostPerToken() * 1e6);
     }
 
-    private int addModelSection(JPanel panel, GridBagConstraints gbc, int startRow, String typeLabel,
-                                JComboBox<String> modelCombo, JComboBox<Service.ReasoningLevel> reasoningCombo, String explanation) {
+    private int addModelSection(
+            JPanel panel,
+            GridBagConstraints gbc,
+            int startRow,
+            String typeLabel,
+            JComboBox<String> modelCombo,
+            JComboBox<Service.ReasoningLevel> reasoningCombo,
+            String explanation) {
         var savedInsets = gbc.insets;
         gbc.insets = new Insets(startRow == 0 ? 4 : 14, 4, 4, 4);
         gbc.anchor = GridBagConstraints.EAST;
-        gbc.gridx = 0; gbc.gridy = startRow;
+        gbc.gridx = 0;
+        gbc.gridy = startRow;
         panel.add(new JLabel(typeLabel), gbc);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.gridx = 1;
@@ -558,27 +619,39 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         gbc.insets = new Insets(4, 4, 2, 4);
         gbc.anchor = GridBagConstraints.EAST;
-        gbc.gridx = 0; gbc.gridy = startRow + 1;
+        gbc.gridx = 0;
+        gbc.gridy = startRow + 1;
         panel.add(new JLabel("Reasoning"), gbc);
         gbc.anchor = GridBagConstraints.WEST;
         gbc.gridx = 1;
         panel.add(reasoningCombo, gbc);
 
         var tip = new JTextArea(explanation);
-        tip.setEditable(false); tip.setFocusable(false); tip.setLineWrap(true); tip.setWrapStyleWord(true);
-        tip.setOpaque(false); tip.setBorder(null);
+        tip.setEditable(false);
+        tip.setFocusable(false);
+        tip.setLineWrap(true);
+        tip.setWrapStyleWord(true);
+        tip.setOpaque(false);
+        tip.setBorder(null);
         tip.setFont(tip.getFont().deriveFont(Font.ITALIC, tip.getFont().getSize() * 0.9f));
         gbc.insets = new Insets(startRow == 0 ? 4 : 14, 10, 2, 4);
-        gbc.gridx = 2; gbc.gridy = startRow; gbc.gridheight = 2;
-        gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0;
+        gbc.gridx = 2;
+        gbc.gridy = startRow;
+        gbc.gridheight = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         panel.add(tip, gbc);
 
-        gbc.insets = savedInsets; gbc.gridheight = 1; gbc.weightx = 0.0; gbc.fill = GridBagConstraints.NONE;
+        gbc.insets = savedInsets;
+        gbc.gridheight = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
         return startRow + 2;
     }
 
-    private void updateReasoningComboBox(JComboBox<String> modelComboBox, JComboBox<Service.ReasoningLevel> reasoningComboBox, Service service) {
+    private void updateReasoningComboBox(
+            JComboBox<String> modelComboBox, JComboBox<Service.ReasoningLevel> reasoningComboBox, Service service) {
         String selectedModelName = (String) modelComboBox.getSelectedItem();
         boolean supportsReasoning = selectedModelName != null && service.supportsReasoningEffort(selectedModelName);
 
@@ -598,7 +671,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var prevSelection = (Service.ReasoningLevel) reasoningComboBox.getSelectedItem();
         reasoningComboBox.setModel(new DefaultComboBoxModel<>(levels.toArray(Service.ReasoningLevel[]::new)));
         reasoningComboBox.setEnabled(supportsReasoning);
-        reasoningComboBox.setToolTipText(supportsReasoning ? "Select reasoning effort" : "Reasoning effort not supported by this model");
+        reasoningComboBox.setToolTipText(
+                supportsReasoning ? "Select reasoning effort" : "Reasoning effort not supported by this model");
 
         if (supportsReasoning && levels.contains(prevSelection)) {
             reasoningComboBox.setSelectedItem(prevSelection);
@@ -609,8 +683,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (!supportsReasoning) {
             reasoningComboBox.setRenderer(new DefaultListCellRenderer() {
                 @Override
-                public Component getListCellRendererComponent(JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                    JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                public Component getListCellRendererComponent(
+                        JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                    JLabel label =
+                            (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                     if (index == -1 && !reasoningComboBox.isEnabled()) {
                         label.setText("Off");
                         label.setForeground(UIManager.getColor("ComboBox.disabledForeground"));
@@ -632,7 +708,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
         updateSignupLabelVisibility();
-        if (brokkProxyRadio != null && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
+        if (brokkProxyRadio != null
+                && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
             if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
                 brokkProxyRadio.setSelected(true);
             } else {
@@ -695,7 +772,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
                     return false;
                 } catch (IOException ex) { // Network error, but allow saving
-                    JOptionPane.showMessageDialog(this, "Network error: " + ex.getMessage() + ". Key saved, but validation failed.", "Network Error", JOptionPane.WARNING_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Network error: " + ex.getMessage() + ". Key saved, but validation failed.",
+                            "Network Error",
+                            JOptionPane.WARNING_MESSAGE);
                     MainProject.setBrokkKey(newBrokkKeyFromField);
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
@@ -710,11 +791,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         if (brokkProxyRadio != null && localhostProxyRadio != null) { // Not STAGING
-            MainProject.LlmProxySetting proxySetting = brokkProxyRadio.isSelected() ? MainProject.LlmProxySetting.BROKK : MainProject.LlmProxySetting.LOCALHOST;
+            MainProject.LlmProxySetting proxySetting = brokkProxyRadio.isSelected()
+                    ? MainProject.LlmProxySetting.BROKK
+                    : MainProject.LlmProxySetting.LOCALHOST;
             if (proxySetting != MainProject.getProxySetting()) {
-                 MainProject.setLlmProxySetting(proxySetting);
-                 logger.debug("Applied LLM Proxy Setting: {}", proxySetting);
-                 // Consider notifying user about restart if changed. Dialog does this.
+                MainProject.setLlmProxySetting(proxySetting);
+                logger.debug("Applied LLM Proxy Setting: {}", proxySetting);
+                // Consider notifying user about restart if changed. Dialog does this.
             }
         }
 
@@ -728,9 +811,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Models Tab (Project specific)
         var project = chrome.getProject();
-        applyModelConfig(architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
-        applyModelConfig(codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
-        applyModelConfig(searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
+        applyModelConfig(
+                architectModelComboBox,
+                architectReasoningComboBox,
+                project::getArchitectModelConfig,
+                project::setArchitectModelConfig);
+        applyModelConfig(
+                codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
+        applyModelConfig(
+                searchModelComboBox,
+                searchReasoningComboBox,
+                project::getSearchModelConfig,
+                project::setSearchModelConfig);
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {
@@ -752,19 +844,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return true;
     }
 
-    private void applyModelConfig(JComboBox<String> modelCombo,
-                                  JComboBox<Service.ReasoningLevel> reasoningCombo,
-                                  Supplier<Service.ModelConfig> currentConfigGetter,
-                                  Consumer<Service.ModelConfig> configSetter) {
+    private void applyModelConfig(
+            JComboBox<String> modelCombo,
+            JComboBox<Service.ReasoningLevel> reasoningCombo,
+            Supplier<Service.ModelConfig> currentConfigGetter,
+            Consumer<Service.ModelConfig> configSetter) {
         if (!modelCombo.isEnabled()) return; // Not initialized or panel disabled
 
         String selectedModelName = (String) modelCombo.getSelectedItem();
         Service.ReasoningLevel selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
-        boolean supportsReasoning = selectedModelName != null && chrome.getContextManager().getService().supportsReasoningEffort(selectedModelName);
-        Service.ReasoningLevel effectiveSelectedReasoning = supportsReasoning ? selectedReasoning : Service.ReasoningLevel.DEFAULT;
+        boolean supportsReasoning = selectedModelName != null
+                && chrome.getContextManager().getService().supportsReasoningEffort(selectedModelName);
+        Service.ReasoningLevel effectiveSelectedReasoning =
+                supportsReasoning ? selectedReasoning : Service.ReasoningLevel.DEFAULT;
         Service.ModelConfig currentConfig = currentConfigGetter.get();
 
-        if (selectedModelName != null && (!selectedModelName.equals(currentConfig.name()) || effectiveSelectedReasoning != currentConfig.reasoning())) {
+        if (selectedModelName != null
+                && (!selectedModelName.equals(currentConfig.name())
+                        || effectiveSelectedReasoning != currentConfig.reasoning())) {
             configSetter.accept(new Service.ModelConfig(selectedModelName, effectiveSelectedReasoning));
         }
     }
@@ -804,18 +901,37 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         }
 
-        @Override public int getRowCount() { return favorites.size(); }
-        @Override public int getColumnCount() { return columnNames.length; }
-        @Override public String getColumnName(int column) { return columnNames[column]; }
-        @Override public Class<?> getColumnClass(int columnIndex) {
+        @Override
+        public int getRowCount() {
+            return favorites.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return columnNames.length;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return columnNames[column];
+        }
+
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
             return switch (columnIndex) {
                 case 0, 1 -> String.class;
                 case 2 -> Service.ReasoningLevel.class;
                 default -> Object.class;
             };
         }
-        @Override public boolean isCellEditable(int rowIndex, int columnIndex) { return true; }
-        @Override public @Nullable Object getValueAt(int rowIndex, int columnIndex) {
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return true;
+        }
+
+        @Override
+        public @Nullable Object getValueAt(int rowIndex, int columnIndex) {
             Service.FavoriteModel favorite = favorites.get(rowIndex);
             return switch (columnIndex) {
                 case 0 -> favorite.alias();
@@ -824,7 +940,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 default -> null;
             };
         }
-        @Override public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             if (rowIndex < 0 || rowIndex >= favorites.size()) return;
             Service.FavoriteModel oldFavorite = favorites.get(rowIndex);
             Service.FavoriteModel newFavorite;
@@ -832,7 +950,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 newFavorite = switch (columnIndex) {
                     case 0 -> {
                         if (aValue instanceof String alias) {
-                            yield new Service.FavoriteModel(alias.trim(), oldFavorite.modelName(), oldFavorite.reasoning());
+                            yield new Service.FavoriteModel(
+                                    alias.trim(), oldFavorite.modelName(), oldFavorite.reasoning());
                         }
                         yield oldFavorite;
                     }
@@ -857,72 +976,114 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             if (!newFavorite.equals(oldFavorite)) {
                 favorites.set(rowIndex, newFavorite);
                 fireTableCellUpdated(rowIndex, columnIndex);
-                if (columnIndex == 1) fireTableCellUpdated(rowIndex, 2); // If model name changed, reasoning support might change
+                if (columnIndex == 1)
+                    fireTableCellUpdated(rowIndex, 2); // If model name changed, reasoning support might change
             }
         }
     }
 
     private static class ReasoningCellRenderer extends DefaultTableCellRenderer {
         private final Service models;
-        public ReasoningCellRenderer(Service service) { this.models = service; }
-        @Override public Component getTableCellRendererComponent(JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-        int modelRow   = table.convertRowIndexToModel(row);
-        String modelName = (String) table.getModel().getValueAt(modelRow, 1);
+
+        public ReasoningCellRenderer(Service service) {
+            this.models = service;
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            JLabel label =
+                    (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            int modelRow = table.convertRowIndexToModel(row);
+            String modelName = (String) table.getModel().getValueAt(modelRow, 1);
             if (modelName != null && !models.supportsReasoningEffort(modelName)) {
-                label.setText("Off"); label.setEnabled(false); label.setToolTipText("Reasoning effort not supported by " + modelName);
+                label.setText("Off");
+                label.setEnabled(false);
+                label.setToolTipText("Reasoning effort not supported by " + modelName);
             } else if (value instanceof Service.ReasoningLevel level) {
-                label.setText(level.toString()); label.setEnabled(true); label.setToolTipText("Select reasoning effort");
+                label.setText(level.toString());
+                label.setEnabled(true);
+                label.setToolTipText("Select reasoning effort");
             } else {
-                label.setText(value == null ? "" : value.toString()); label.setEnabled(true); label.setToolTipText(null);
+                label.setText(value == null ? "" : value.toString());
+                label.setEnabled(true);
+                label.setToolTipText(null);
             }
             if (!isSelected) {
                 label.setBackground(table.getBackground());
-                label.setForeground(label.isEnabled() ? table.getForeground() : UIManager.getColor("Label.disabledForeground"));
+                label.setForeground(
+                        label.isEnabled() ? table.getForeground() : UIManager.getColor("Label.disabledForeground"));
             } else {
                 label.setBackground(table.getSelectionBackground());
-                label.setForeground(label.isEnabled() ? table.getSelectionForeground() : UIManager.getColor("Label.disabledForeground"));
+                label.setForeground(
+                        label.isEnabled()
+                                ? table.getSelectionForeground()
+                                : UIManager.getColor("Label.disabledForeground"));
             }
             return label;
         }
     }
 
     private static class ReasoningCellEditor extends DefaultCellEditor {
-        private final Service models; private final JTable table; private final JComboBox<Service.ReasoningLevel> comboBox;
+        private final Service models;
+        private final JTable table;
+        private final JComboBox<Service.ReasoningLevel> comboBox;
+
         public ReasoningCellEditor(JComboBox<Service.ReasoningLevel> comboBox, Service service, JTable table) {
-            super(comboBox); this.comboBox = comboBox; this.models = service; this.table = table; setClickCountToStart(1);
+            super(comboBox);
+            this.comboBox = comboBox;
+            this.models = service;
+            this.table = table;
+            setClickCountToStart(1);
         }
-        @Override public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-            int modelRow   = table.convertRowIndexToModel(row);
+
+        @Override
+        public Component getTableCellEditorComponent(
+                JTable table, Object value, boolean isSelected, int row, int column) {
+            int modelRow = table.convertRowIndexToModel(row);
             String modelName = (String) table.getModel().getValueAt(modelRow, 1);
             boolean supportsReasoning = modelName != null && models.supportsReasoningEffort(modelName);
             Component editorComponent = super.getTableCellEditorComponent(table, value, isSelected, row, column);
-            editorComponent.setEnabled(supportsReasoning); comboBox.setEnabled(supportsReasoning);
+            editorComponent.setEnabled(supportsReasoning);
+            comboBox.setEnabled(supportsReasoning);
             if (!supportsReasoning) {
                 comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
                 comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
-                    @Override public Component getListCellRendererComponent(JList<?> list, @Nullable Object val, int i, boolean sel, boolean foc) {
+                    @Override
+                    public Component getListCellRendererComponent(
+                            JList<?> list, @Nullable Object val, int i, boolean sel, boolean foc) {
                         JLabel label = (JLabel) super.getListCellRendererComponent(list, val, i, sel, foc);
-                        if (i == -1) { label.setText("Off"); label.setForeground(UIManager.getColor("ComboBox.disabledForeground")); }
-                        else if (val instanceof Service.ReasoningLevel lvl) label.setText(lvl.toString()); else label.setText(val == null ? "" : val.toString());
+                        if (i == -1) {
+                            label.setText("Off");
+                            label.setForeground(UIManager.getColor("ComboBox.disabledForeground"));
+                        } else if (val instanceof Service.ReasoningLevel lvl) label.setText(lvl.toString());
+                        else label.setText(val == null ? "" : val.toString());
                         return label;
                     }
                 });
             } else {
-                comboBox.setToolTipText("Select reasoning effort"); comboBox.setRenderer(new DefaultListCellRenderer()); comboBox.setSelectedItem(value);
+                comboBox.setToolTipText("Select reasoning effort");
+                comboBox.setRenderer(new DefaultListCellRenderer());
+                comboBox.setSelectedItem(value);
             }
             return editorComponent;
         }
-        @Override public boolean isCellEditable(java.util.EventObject anEvent) {
+
+        @Override
+        public boolean isCellEditable(java.util.EventObject anEvent) {
             int editingRow = table.getEditingRow();
             if (editingRow != -1) {
-                int modelRow  = table.convertRowIndexToModel(editingRow);
+                int modelRow = table.convertRowIndexToModel(editingRow);
                 String modelName = (String) table.getModel().getValueAt(modelRow, 1);
                 return modelName != null && models.supportsReasoningEffort(modelName);
             }
             return super.isCellEditable(anEvent);
         }
-        @Override public Object getCellEditorValue() { return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT; }
+
+        @Override
+        public Object getCellEditorValue() {
+            return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT;
+        }
     }
 }

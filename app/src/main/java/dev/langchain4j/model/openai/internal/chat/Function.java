@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -19,10 +18,13 @@ public class Function {
 
     @JsonProperty
     private final String name;
+
     @JsonProperty
     private final String description;
+
     @JsonProperty
     private final Boolean strict;
+
     @JsonProperty
     private final Map<String, Object> parameters;
 
@@ -52,8 +54,7 @@ public class Function {
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
-        return another instanceof Function
-                && equalTo((Function) another);
+        return another instanceof Function && equalTo((Function) another);
     }
 
     private boolean equalTo(Function another) {
