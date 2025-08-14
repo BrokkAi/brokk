@@ -223,6 +223,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private final JButton btnUndo = new JButton("Undo"); // Initialize to prevent NullAway issues
     private final JButton btnRedo = new JButton("Redo");
     private final JButton btnSaveAll = new JButton("Save");
+
+    // Components for undo/redo/save group that need to be hidden together
+    private @Nullable Component undoRedoGroupSeparator;
+    private @Nullable Component undoRedoGroupStrutBefore;
+    private @Nullable Component undoRedoGroupStrutAfter1;
+    private @Nullable Component undoRedoGroupStrutAfter2;
+    private @Nullable Component undoRedoGroupStrutAfter3;
     private final JButton captureDiffButton = new JButton("Capture Diff");
     private final JButton btnNext = new JButton("Next Change");
     private final JButton btnPrevious = new JButton("Previous Change");
@@ -485,13 +492,19 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             toolBar.add(fileIndicatorLabel);
         }
 
-        toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
+        undoRedoGroupStrutBefore = Box.createHorizontalStrut(20); // 20px spacing
+        toolBar.add(undoRedoGroupStrutBefore);
         toolBar.addSeparator(); // Adds space between groups
-        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
+        // Get reference to the separator that was just added
+        undoRedoGroupSeparator = toolBar.getComponent(toolBar.getComponentCount() - 1);
+        undoRedoGroupStrutAfter1 = Box.createHorizontalStrut(10); // 10px spacing
+        toolBar.add(undoRedoGroupStrutAfter1);
         toolBar.add(btnUndo);
-        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
+        undoRedoGroupStrutAfter2 = Box.createHorizontalStrut(10); // 10px spacing
+        toolBar.add(undoRedoGroupStrutAfter2);
         toolBar.add(btnRedo);
-        toolBar.add(Box.createHorizontalStrut(10)); // spacing
+        undoRedoGroupStrutAfter3 = Box.createHorizontalStrut(10); // spacing
+        toolBar.add(undoRedoGroupStrutAfter3);
         toolBar.add(btnSaveAll);
 
         toolBar.add(Box.createHorizontalStrut(20));
@@ -534,10 +547,30 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Capture diff button should always be enabled
         captureDiffButton.setEnabled(true);
 
-        // Update save button text and enable state
+        // Update save button text, enable state, and visibility
         boolean hasUnsaved = hasUnsavedChanges();
         btnSaveAll.setText(fileComparisons.size() > 1 ? "Save All" : "Save");
         btnSaveAll.setEnabled(hasUnsaved);
+
+        // Hide save button when all sides are read-only (like PR diffs)
+        btnSaveAll.setVisible(showUndoRedo);
+
+        // Hide separator and struts for undo/redo/save group when buttons are hidden
+        if (undoRedoGroupSeparator != null) {
+            undoRedoGroupSeparator.setVisible(showUndoRedo);
+        }
+        if (undoRedoGroupStrutBefore != null) {
+            undoRedoGroupStrutBefore.setVisible(showUndoRedo);
+        }
+        if (undoRedoGroupStrutAfter1 != null) {
+            undoRedoGroupStrutAfter1.setVisible(showUndoRedo);
+        }
+        if (undoRedoGroupStrutAfter2 != null) {
+            undoRedoGroupStrutAfter2.setVisible(showUndoRedo);
+        }
+        if (undoRedoGroupStrutAfter3 != null) {
+            undoRedoGroupStrutAfter3.setVisible(showUndoRedo);
+        }
     }
 
     /** Returns true if any loaded diff-panel holds modified documents. */
