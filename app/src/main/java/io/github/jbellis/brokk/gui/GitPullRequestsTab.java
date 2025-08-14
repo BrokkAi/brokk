@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.context.ContextFragment.StringFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
+import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.awt.*;
@@ -231,7 +232,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         JPanel verticalFilterPanel = new JPanel(new BorderLayout());
         JPanel filtersContainer = new JPanel();
         // Horizontal filter bar with overflow scroller
-        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.X_AXIS));
+        // WrapLayout recalculates preferred height so rows below are pushed down
+        filtersContainer.setLayout(new WrapLayout(FlowLayout.LEFT, Constants.H_GAP, Constants.V_GAP));
         filtersContainer.setBorder(
                 BorderFactory.createEmptyBorder(0, Constants.H_PAD, Constants.V_GAP, Constants.H_PAD));
 
@@ -274,12 +276,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         filtersContainer.add(reviewFilter);
 
         // Wrap filters in a scroll pane so they can overflow cleanly
-        JScrollPane filtersScrollPane = new JScrollPane(
-                filtersContainer,
-                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
-                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        filtersScrollPane.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
-        verticalFilterPanel.add(filtersScrollPane, BorderLayout.CENTER);
+        // Directly add the wrapping container – no horizontal scrollbar needed
+        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        verticalFilterPanel.add(filtersContainer, BorderLayout.CENTER);
         centerContentPanel.add(verticalFilterPanel, BorderLayout.NORTH);
 
         // Panel for PR Table (CENTER) and PR Buttons (SOUTH)

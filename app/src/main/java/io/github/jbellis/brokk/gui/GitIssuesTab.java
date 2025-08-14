@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
+import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.HtmlUtil;
@@ -244,8 +245,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Container for the actual filters
         JPanel filtersContainer = new JPanel();
-        // Show filters horizontally
-        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.X_AXIS));
+        // Show filters horizontally and wrap; WrapLayout grows vertically as needed
+        filtersContainer.setLayout(new WrapLayout(FlowLayout.LEFT, Constants.H_GAP, Constants.V_GAP));
         // add bottom padding so the filters are not obscured when the horizontal
         // scrollbar appears
         filtersContainer.setBorder(
@@ -306,14 +307,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         filtersContainer.add(assigneeFilter);
 
         // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
-        JScrollPane filtersScrollPane = new JScrollPane(
-                filtersContainer,
-                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
-                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        // Add bottom padding so the filters aren’t cramped when the horizontal
-        // scrollbar is visible
-        filtersScrollPane.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
-        verticalFilterPanel.add(filtersScrollPane, BorderLayout.CENTER);
+        // Add bottom padding and attach the container directly; FlowLayout wraps rows automatically
+        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        verticalFilterPanel.add(filtersContainer, BorderLayout.CENTER);
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
         JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Added V_GAP

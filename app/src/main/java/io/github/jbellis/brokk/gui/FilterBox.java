@@ -113,15 +113,15 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
         // Layout - Use BorderLayout with proper spacing
         setLayout(new BorderLayout());
-        setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6)); // Provides overall padding
+        setBorder(BorderFactory.createEmptyBorder(3, 2, 3, 2)); // Reduced horizontal padding
         setOpaque(false); // Make panel transparent
 
         // Colors will be set in applyTheme
         textLabel.setOpaque(false);
         iconLabel.setOpaque(false);
 
-        // Set a minimum width for the text label to ensure consistent icon positioning
-        textLabel.setPreferredSize(new Dimension(60, textLabel.getPreferredSize().height));
+        // Use natural width to avoid wasting horizontal space
+        textLabel.setPreferredSize(textLabel.getPreferredSize());
         textLabel.setHorizontalAlignment(SwingConstants.LEFT);
 
         // Set fixed size for icon label to ensure consistent positioning
@@ -397,6 +397,15 @@ public final class FilterBox extends JPanel implements ThemeAware {
         }
 
         SwingUtilities.updateComponentTreeUI(this);
+    }
+
+    /**
+     * Prevent the FilterBox from expanding beyond its preferred width so that adjacent filter boxes sit tightly
+     * together.
+     */
+    @Override
+    public Dimension getMaximumSize() {
+        return getPreferredSize();
     }
 
     // SimpleListener is now a top-level package-private interface in its own file.
