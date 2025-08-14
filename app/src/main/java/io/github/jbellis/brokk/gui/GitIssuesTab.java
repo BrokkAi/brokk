@@ -362,7 +362,45 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         ToolTipManager.sharedInstance().registerComponent(issueTable);
 
-        issueTableAndButtonsPanel.add(new JScrollPane(issueTable), BorderLayout.CENTER);
+        // Issue Description panel (initially hidden – shown when a row is selected)
+        this.issueDetailPanel = new JPanel(new BorderLayout()) {
+            @Override
+            public Dimension getPreferredSize() {
+                Dimension pref = super.getPreferredSize();
+                Container parent = getParent();
+                if (parent != null) {
+                    int maxHeight = parent.getHeight() / 3; // ≈ 33 % of parent
+                    if (maxHeight > 0) {
+                        return new Dimension(pref.width, Math.min(pref.height, maxHeight));
+                    }
+                }
+                return pref;
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension max = super.getMaximumSize();
+                Container parent = getParent();
+                if (parent != null) {
+                    int maxHeight = parent.getHeight() / 3;
+                    if (maxHeight > 0) {
+                        return new Dimension(max.width, maxHeight);
+                    }
+                }
+                return max;
+            }
+        };
+        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
+
+        JScrollPane issueTableScrollPane = new JScrollPane(issueTable);
+
+        // vertical split: issues table (top)  |  description panel (bottom)
+        final JSplitPane tableDetailsSplitPane =
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, issueTableScrollPane, issueDetailPanel);
+        tableDetailsSplitPane.setResizeWeight(1.0); // keep table large until description is shown
+        tableDetailsSplitPane.setDividerSize(3);
+
+        issueTableAndButtonsPanel.add(tableDetailsSplitPane, BorderLayout.CENTER);
 
         // Create shared actions
         copyDescriptionAction = new AbstractAction("Copy Description") {
@@ -413,36 +451,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
 
-        // Issue Description panel (initially hidden – shown when a row is selected)
-        this.issueDetailPanel = new JPanel(new BorderLayout()) {
-            @Override
-            public Dimension getPreferredSize() {
-                Dimension pref = super.getPreferredSize();
-                Container parent = getParent();
-                if (parent != null) {
-                    int maxHeight = parent.getHeight() / 3; // ≈ 33 % of parent
-                    if (maxHeight > 0) {
-                        return new Dimension(pref.width, Math.min(pref.height, maxHeight));
-                    }
-                }
-                return pref;
-            }
-
-            @Override
-            public Dimension getMaximumSize() {
-                Dimension max = super.getMaximumSize();
-                Container parent = getParent();
-                if (parent != null) {
-                    int maxHeight = parent.getHeight() / 3;
-                    if (maxHeight > 0) {
-                        return new Dimension(max.width, maxHeight);
-                    }
-                }
-                return max;
-            }
-        };
-        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
-
         issueBodyTextPane = new JTextPane();
         issueBodyTextPane.setEditorKit(new AutoScalingHtmlPane.ScalingHTMLEditorKit());
         issueBodyTextPane.setEditable(false);
@@ -475,7 +483,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueDetailPanel.add(actionScrollPane, BorderLayout.SOUTH);
 
         // Add the Issue-Description panel under the table and hide it until a row is chosen
-        filtersAndTablePanel.add(issueDetailPanel, BorderLayout.SOUTH);
+        /* issueDetailPanel is now managed by the JSplitPane; no direct add() here */
         issueDetailPanel.setVisible(false);
 
         add(mainIssueAreaPanel, BorderLayout.CENTER);
@@ -521,6 +529,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 if (index == -1 || index >= displayedIssues.size()) {
                     disableIssueActionsAndClearDetails();
                     pendingHeaderForDescription = null;
+                    tableDetailsSplitPane.setDividerLocation(1.0); // collapse details
                     if (descriptionDebounceTimer.isRunning()) {
                         descriptionDebounceTimer.stop();
                     }
@@ -533,6 +542,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 openInBrowserAction.setEnabled(true);
                 captureAction.setEnabled(true);
                 issueDetailPanel.setVisible(true);
+                tableDetailsSplitPane.setDividerLocation(0.75); // reveal details (~25 % height)
 
                 // Debounce loading of the issue body
                 pendingHeaderForDescription = selectedHeader;
