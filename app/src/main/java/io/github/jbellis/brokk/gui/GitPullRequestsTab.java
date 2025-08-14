@@ -335,7 +335,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
         prButtonPanel.setLayout(new BoxLayout(prButtonPanel, BoxLayout.X_AXIS));
 
-        viewPrDiffButton = new JButton("View Diff"); // This button remains
+        viewPrDiffButton = new JButton(); // This button remains
+        viewPrDiffButton.setIcon(SwingUtil.uiIcon("Brokk.difference"));
         viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
         viewPrDiffButton.setEnabled(false);
         viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
@@ -343,7 +344,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
 
-        refreshPrButton = new JButton("Refresh");
+        refreshPrButton = new JButton();
+        refreshPrButton.setIcon(SwingUtil.uiIcon("Brokk.refresh"));
         refreshPrButton.addActionListener(e -> updatePrList());
         prButtonPanel.add(refreshPrButton);
 
