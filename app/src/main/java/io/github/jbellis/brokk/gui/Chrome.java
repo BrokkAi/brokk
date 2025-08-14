@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import java.util.Objects;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.FrozenFragment;
@@ -13,9 +14,11 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -38,7 +41,6 @@ import java.util.concurrent.ExecutionException;
 import static io.github.jbellis.brokk.gui.Constants.*;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 import static java.util.Objects.requireNonNull;
-
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
@@ -289,6 +291,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return null;
             });
         }
+
+        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
     }
 
     /**
@@ -404,7 +408,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // JMHighlightPainter.initializePainters(); // Removed: Painters are now created dynamically with theme colors
         // Initialize theme manager now that all components are created
         // and contextManager should be properly set
-        // historyOutputPanel.getLlmScrollPane() is now @NotNull
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
         // Apply current theme based on project settings
@@ -580,7 +583,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void actionComplete() {
         SwingUtilities.invokeLater(() -> instructionsPanel.clearCommandResultText());
     }
-    
+
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage));
@@ -686,18 +689,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * @return A JPanel containing the search bar, optional toolbar, and content
      */
     public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel) {
+        return createSearchableContentPanel(markdownPanels, toolbarPanel, true);
+    }
+
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel, boolean wrapInScrollPane) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
 
-        // If single panel, create a scroll pane for it
+        // If single panel, create a scroll pane for it if requested
         JComponent contentComponent;
         var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
-            var scrollPane = new JScrollPane(markdownPanels.getFirst());
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
-            scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-            contentComponent = scrollPane;
+            if (wrapInScrollPane) {
+                var scrollPane = new JScrollPane(markdownPanels.getFirst());
+                scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+                contentComponent = scrollPane;
+            } else {
+                contentComponent = markdownPanels.getFirst();
+            }
         } else {
             // Multiple panels - create container with BoxLayout
             var messagesContainer = new JPanel();
@@ -708,14 +719,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 messagesContainer.add(panel);
             }
 
-            var scrollPane = new JScrollPane(messagesContainer);
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-            contentComponent = scrollPane;
+            if (wrapInScrollPane) {
+                var scrollPane = new JScrollPane(messagesContainer);
+                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+                contentComponent = scrollPane;
+            } else {
+                contentComponent = messagesContainer;
+            }
         }
 
         // Create main content panel to hold search bar and content
-        var contentPanel = new SearchableContentPanel(componentsWithChatBackground);
+        var contentPanel = new SearchableContentPanel(componentsWithChatBackground, markdownPanels);
         componentsWithChatBackground.add(contentPanel);
 
         // Create searchable component adapter and generic search bar
@@ -741,7 +756,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Add 5px gap below the top panel
         topPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
-    
+
         // Add components to content panel
         contentPanel.add(topPanel, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
@@ -763,6 +778,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
         JFrame previewFrame = newFrame(title);
+        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         previewFrame.setContentPane(contentComponent);
         previewFrame.setBackground(themeManager.isDarkTheme()
                                         ? UIManager.getColor("chat_background")
@@ -798,6 +814,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
         if (contentComponent instanceof PreviewTextPanel) {
             previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        }
+
+        if (contentComponent instanceof SearchableContentPanel scp) {
+            var panels = scp.getMarkdownPanels();
+            if (!panels.isEmpty()) {
+                previewFrame.addWindowListener(new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent e) {
+                        for (var panel : scp.getMarkdownPanels()) {
+                            MarkdownOutputPool.instance().giveBack(panel);
+                        }
+                    }
+                });
+            }
         }
 
         // Add ESC key binding to close the window (delegates to windowClosing)
@@ -894,47 +924,28 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // 2. Output-only fragments (Task / History / Search)
             if (workingFragment.getType().isOutputFragment()) {
-                // (unchanged from previous implementation)
                 var outputFragment = (ContextFragment.OutputFragment) workingFragment;
-                JPanel messagesContainer = new JPanel();
-                messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-                messagesContainer.setBackground(themeManager.isDarkTheme()
-                                                ? UIManager.getColor("Panel.background")
-                                                : Color.WHITE);
-
-                var scrollPane = new JScrollPane(messagesContainer);
-                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-
-                var compactionFutures = new ArrayList<CompletableFuture<?>>();
-                var markdownPanels = new ArrayList<MarkdownOutputPanel>();
-                var escapeHtml = outputFragment.isEscapeHtml();
-
+                // var escapeHtml = outputFragment.isEscapeHtml();
+                var combinedMessages = new ArrayList<ChatMessage>();
+                
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
-                    markdownPanel.updateTheme(themeManager.isDarkTheme());
-                    markdownPanel.setText(entry);
-                    markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
-                    messagesContainer.add(markdownPanel);
-                    markdownPanels.add(markdownPanel);
-                    compactionFutures.add(markdownPanel.scheduleCompaction());
+                    if (entry.isCompressed()) {
+                        
+                        combinedMessages.add(Messages.create(Objects.toString(entry.summary(), "Summary not available"), ChatMessageType.SYSTEM));
+                    } else {
+                        combinedMessages.addAll(castNonNull(entry.log()).messages());
+                    }
                 }
 
-                // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, null);
+                var markdownPanel = MarkdownOutputPool.instance().borrow();
+                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.setText(combinedMessages);
+                markdownPanel.scheduleCompaction();
 
-                // When all panels are compacted, scroll to the top
-                CompletableFuture
-                        .allOf(compactionFutures.toArray(CompletableFuture[]::new))
-                        .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                            // Find the scroll pane within the searchable content panel
-                            Component foundScrollPane = findScrollPaneIn(previewContentPanel);
-                            if (foundScrollPane instanceof JScrollPane jsp) {
-                                jsp.getViewport().setViewPosition(new Point(0, 0));
-                            }
-                        }));
+                // Use shared utility method to create searchable content panel without scroll pane
+                JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
 
-                showPreviewFrame(contextManager, title, previewContentPanel); // Use new panel with search
+                showPreviewFrame(contextManager, title, previewContentPanel);
                 return;
             }
 
@@ -1524,6 +1535,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        return showConfirmDialog(frame, message, title, optionType, messageType);
+    }
+
+    @Override
+    public int showConfirmDialog(@Nullable JFrame frame, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
         return JOptionPane.showConfirmDialog(frame, message, title, optionType, messageType);
     }
@@ -1562,10 +1578,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     private static class SearchableContentPanel extends JPanel implements ThemeAware {
         private final List<JComponent> componentsWithChatBackground;
+        private final List<MarkdownOutputPanel> markdownPanels;
 
-        public SearchableContentPanel(List<JComponent> componentsWithChatBackground) {
+        public SearchableContentPanel(List<JComponent> componentsWithChatBackground, List<MarkdownOutputPanel> markdownPanels) {
             super(new BorderLayout());
             this.componentsWithChatBackground = componentsWithChatBackground;
+            this.markdownPanels = markdownPanels;
+        }
+
+        public List<MarkdownOutputPanel> getMarkdownPanels() {
+            return markdownPanels;
         }
 
         @Override

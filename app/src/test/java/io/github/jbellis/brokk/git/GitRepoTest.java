@@ -225,7 +225,8 @@ public class GitRepoTest {
             io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
                 String.format("git worktree lock %s", worktreePath.toAbsolutePath().normalize()),
                 repo.getGitTopLevel(),
-                output -> {}
+                output -> {},
+                io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT
             );
         } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
             fail("Failed to lock worktree: " + e.getMessage());
@@ -403,7 +404,8 @@ public class GitRepoTest {
                 String.format("git worktree add --detach %s",
                               detachedWorktreePath.toAbsolutePath().normalize()),
                 repo.getGitTopLevel(),
-                output -> { }
+                output -> { },
+                io.github.jbellis.brokk.util.Environment.UNLIMITED_TIMEOUT
             );
         } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
             fail("Failed to create detached HEAD worktree: " + e.getMessage());
@@ -701,7 +703,7 @@ public class GitRepoTest {
             repo.checkoutFilesFromCommit("HEAD", List.of());
         }, "Should throw IllegalArgumentException for empty files list");
     }
-    
+
     @Test
     void testCheckoutFilesFromCommit_NonExistentFile() throws Exception {
         // Create and commit a file
@@ -976,7 +978,7 @@ public class GitRepoTest {
         assertTrue(result.startsWith("brokk_temp_rebase_feature_branch-name123_"),
                   "Should maintain valid branch name components: " + result);
     }
-    
+
     @Test
     void testCloneRepo_Shallow() throws Exception {
         // 1. Create an origin repository with a single commit

@@ -639,6 +639,35 @@ public class ScrollSynchronizer
     }
 
     /**
+     * Temporarily disable scroll synchronization during document operations.
+     * This prevents interference when applying diff deltas that modify document content.
+     *
+     * @param inProgress true to disable sync, false to re-enable
+     */
+    void setProgrammaticScrollMode(boolean inProgress) {
+        syncState.setProgrammaticScroll(inProgress);
+    }
+
+    /**
+     * Creates an AutoCloseable resource that disables scroll synchronization for the duration
+     * of a try-with-resources block. Synchronization is re-enabled via SwingUtilities.invokeLater
+     * when the block is exited.
+     *
+     * @return an AutoCloseable to manage the programmatic scroll state.
+     */
+    public AutoCloseable programmaticSection() {
+        setProgrammaticScrollMode(true);
+        return () -> javax.swing.SwingUtilities.invokeLater(() -> setProgrammaticScrollMode(false));
+    }
+
+    /**
+     * Check if a programmatic scroll operation is currently in progress.
+     */
+    public boolean isProgrammaticScroll() {
+        return syncState.isProgrammaticScroll();
+    }
+
+    /**
      * Record for throttling performance metrics.
      */
     public record ThrottlingMetrics(

@@ -1,0 +1,67 @@
+@import './theme-colors.generated.scss';
+@import './markdown.scss';
+
+body {
+  background: white;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.5;
+  font-size: 14px;
+  background: var(--chat-background);
+}
+
+#mop-root {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  background: var(--chat-background);
+}
+
+/* Scrollbar styling for consistency across themes and platforms */
+:root {
+  --scrollbar-track: var(--chat-background);
+  --scrollbar-thumb: var(--border-color-hex);
+  --scrollbar-thumb-hover: var(--code-highlight);
+}
+
+.theme-dark {
+  --scrollbar-thumb: #666;
+  --scrollbar-thumb-hover: #7b8286;
+}
+
+.theme-light {
+  --scrollbar-thumb: #b7b7b7;
+  --scrollbar-thumb-hover: #8c8c8c;
+}
+
+* {
+  /* Firefox (Gecko) */
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+/* WebKit/Blink - for JavaFX WebView, Chrome, Edge, Safari */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}

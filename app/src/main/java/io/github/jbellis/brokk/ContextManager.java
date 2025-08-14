@@ -147,6 +147,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
 
+    // BuildAgent task tracking for cancellation
+    private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -1249,6 +1252,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public void close() {
+        // Cancel BuildAgent task if still running
+        if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
+            logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
+            buildAgentFuture.cancel(true);
+        }
+
         userActionExecutor.shutdown();
         contextActionExecutor.shutdown();
         lowMemoryWatcherManager.close();
@@ -1323,6 +1332,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    private void captureGitState(Context frozenContext) {
+        if (!project.hasGit()) {
+            return;
+        }
+
+        try {
+            var repo = project.getRepo();
+            String commitHash = repo.getCurrentCommitId();
+            String diff = repo.diff();
+
+            var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
+            contextHistory.addGitState(frozenContext.id(), gitState);
+        } catch (Exception e) {
+            logger.error("Failed to capture git state", e);
+        }
+    }
+
     /**
      * Processes external file changes by deciding whether to replace the top context or push a new one.
      * If the current top context's action starts with "Loaded external changes", it updates the count and replaces it.
@@ -1381,6 +1407,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         var frozen = contextHistory.topContext();
+        captureGitState(frozen);
         // Ensure listeners are notified on the EDT
         SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
 
@@ -1559,24 +1586,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Ensures build details are loaded or inferred using BuildAgent if necessary.
      * Runs asynchronously in the background.
      */
-    private void ensureBuildDetailsAsync() {
+    private synchronized void ensureBuildDetailsAsync() {
         if (project.hasBuildDetails()) {
-            logger.trace("Using existing build details");
+            logger.debug("Using existing build details");
+            return;
+        }
+
+        // Check if a BuildAgent task is already in progress
+        if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
+            logger.debug("BuildAgent task already in progress, skipping");
             return;
         }
 
         // No details found, run the BuildAgent asynchronously
-        submitBackgroundTask("Inferring build details", () -> {
+        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
             io.systemOutput("Inferring project build details");
+
+            // Check if task was cancelled before starting
+            if (Thread.currentThread().isInterrupted()) {
+                logger.debug("BuildAgent task cancelled before execution");
+                return BuildDetails.EMPTY;
+            }
+
             BuildAgent agent = new BuildAgent(project, getLlm(getSearchModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
+            } catch (InterruptedException e) {
+                logger.debug("BuildAgent execution interrupted");
+                Thread.currentThread().interrupt();
+                return BuildDetails.EMPTY;
             } catch (Exception e) {
                 var msg = "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: " + e.getMessage();
                 logger.error(msg, e);
                 io.toolError(msg, "Build Information Agent failed");
                 inferredDetails = BuildDetails.EMPTY;
+            }
+
+            // Check if task was cancelled after execution
+            if (Thread.currentThread().isInterrupted()) {
+                logger.debug("BuildAgent task cancelled after execution, not saving results");
+                return BuildDetails.EMPTY;
             }
 
             project.saveBuildDetails(inferredDetails);
@@ -2106,6 +2156,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    @SuppressWarnings("unused")
+    public void restoreGitProjectState(UUID sessionId, UUID contextId) {
+        if (!project.hasGit()) {
+            return;
+        }
+        var ch = project.getSessionManager().loadHistory(sessionId, this);
+        if (ch == null) {
+            io.toolError("Could not load session " + sessionId, "Error");
+            return;
+        }
+
+        var gitState = ch.getGitState(contextId).orElse(null);
+        if (gitState == null) {
+            io.toolError("Could not find git state for context " + contextId, "Error");
+            return;
+        }
+
+        var restorer = new GitProjectStateRestorer(project, io);
+        restorer.restore(gitState);
     }
 
     // Convert a throwable to a string with full stack trace

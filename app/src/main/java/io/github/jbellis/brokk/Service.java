@@ -260,7 +260,7 @@ public class Service {
         var qm = getModel("gemini-2.0-flash", ReasoningLevel.DEFAULT);
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
+        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, OpenAiChatRequestParameters.builder().temperature(0.0));
         quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
@@ -307,7 +307,7 @@ public class Service {
     public static float getUserBalance(String key) throws IOException {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
-        String url = "https://app.brokk.ai/api/payments/balance-lookup/" + key;
+        String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
         Request request = new Request.Builder()
                 .url(url)
                 .get()
@@ -352,7 +352,7 @@ public class Service {
         }
 
         String encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
-        String url = "https://app.brokk.ai/api/users/check-data-sharing?brokk_key=" + encodedKey;
+        String url = MainProject.getServiceUrl() + "/api/users/check-data-sharing?brokk_key=" + encodedKey;
         Request request = new Request.Builder()
                 .url(url)
                 .get()
@@ -405,7 +405,7 @@ public class Service {
         infoTarget.clear();
 
         String baseUrl = MainProject.getProxyUrl(); // Get full URL (including scheme) from project settings
-        boolean isBrokk = MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK;
+        boolean isBrokk = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST;
         boolean isFreeTierOnly = false;
 
         var authHeader = "Bearer dummy-key";
@@ -529,8 +529,10 @@ public class Service {
                     logger.debug("Discovered model: {} -> {} with info {})",
                                  modelName, modelLocation, immutableModelInfo);
 
-                    // Only add chat models to the available locations for selection
-                    if ("chat".equals(immutableModelInfo.get("mode"))) {
+                    // Only add chat models (not STT) to the available locations for selection
+                    if ("chat".equals(immutableModelInfo.get("mode"))
+                        || "responses".equals(immutableModelInfo.get("mode")))
+                    {
                          locationsTarget.put(modelName, modelLocation);
                          logger.debug("Added chat model {} to available locations.", modelName);
                     } else {
@@ -611,6 +613,17 @@ public class Service {
         return (Integer) info.get("tokens_per_minute");
     }
 
+    public boolean supportsToolChoiceRequired(StreamingChatModel model) {
+        var modelName = nameOf(model);
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, assuming no tool_choice=required support", modelName);
+            return false;
+        }
+
+        return !location.contains("claude") && !location.contains("deepseek-reasoner");
+    }
+
     /**
      * Returns true if the given model exposes the toggle to completely disable reasoning
      * (independent of the usual LOW/MEDIUM/HIGH levels).
@@ -677,7 +690,7 @@ public class Service {
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
     @Nullable
-    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable Double temperature) {
+    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
         @Nullable String location = modelLocations.get(modelName);
         logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
@@ -686,6 +699,9 @@ public class Service {
             return null;
         }
 
+        // default request parameters
+        var params = OpenAiChatRequestParameters.builder();
+
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
         String baseUrl = MainProject.getProxyUrl();
@@ -693,30 +709,30 @@ public class Service {
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
-                .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
+        params = params.maxCompletionTokens(getMaxOutputTokens(location));
 
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
-                var kp = parseKey(MainProject.getBrokkKey());
-                builder = builder
-                        .apiKey(kp.token())
-                        .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
-                        .user(kp.userId().toString());
-            } else {
-                // Non-Brokk proxy
-                builder = builder.apiKey("dummy-key");
-            }
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
+            // Non-Brokk proxy
+            builder = builder.apiKey("dummy-key");
+        } else {
+            var kp = parseKey(MainProject.getBrokkKey());
+            builder = builder
+                    .apiKey(kp.token())
+                    .customHeaders(Map.of("Authorization", "Bearer " + kp.token()));
+            params = params.user(kp.userId().toString());
+        }
 
-        builder = builder.modelName(location);
+        params = params.modelName(location);
 
-        // default request parameters
-        var params = OpenAiChatRequestParameters.builder()
-                .temperature(temperature);
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
         if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
                 params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
+        }
+        if (parametersOverride != null) {
+            params = params.overrideWith(parametersOverride.build());
         }
         builder.defaultRequestParameters(params.build());
 
@@ -795,7 +811,10 @@ public class Service {
         // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with that
         // that serial calls is the lesser evil
         var location = model.defaultRequestParameters().modelName();
-        return !location.contains("gemini") && !location.contains("o3") && !location.contains("o4-mini");
+        return !location.contains("gemini")
+                && !location.contains("o3")
+                && !location.contains("o4-mini")
+                && !location.contains("gpt-5");
     }
 
     /**
@@ -979,7 +998,7 @@ public class Service {
         }
 
         var requestBuilder = new Request.Builder()
-                .url("https://app.brokk.ai/api/events/feedback")
+                .url(MainProject.getServiceUrl() + "/api/events/feedback")
                 .post(bodyBuilder.build());
 
         try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
@@ -1084,10 +1103,10 @@ public class Service {
             String proxyUrl = MainProject.getProxyUrl();
             String endpoint = proxyUrl + "/audio/transcriptions";
 
-            var authHeader = "Bearer dummy-key"; // Default for non-Brokk
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+            var authHeader = "Bearer dummy-key"; // Default for LOCALHOST (no auth)
+            if (MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST) {
                 var kp = parseKey(MainProject.getBrokkKey());
-                authHeader = "Bearer " + kp.token;
+                authHeader = "Bearer " + kp.token();
             }
 
             Request request = new Request.Builder()

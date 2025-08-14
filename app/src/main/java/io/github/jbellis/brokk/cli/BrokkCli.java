@@ -285,6 +285,7 @@ public final class BrokkCli implements Callable<Integer> {
             var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
             var agent = new ContextAgent(cm, scanModel, goalForScan, true);
             var recommendations = agent.getRecommendations(false);
+            io.systemOutput("Deep Scan token usage: " + recommendations.tokenUsage());
 
             if (recommendations.success()) {
                 io.systemOutput("Deep Scan suggested "

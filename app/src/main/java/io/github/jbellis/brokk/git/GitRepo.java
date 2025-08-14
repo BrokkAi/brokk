@@ -5,23 +5,19 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.NoHeadException;
-import org.eclipse.jgit.revwalk.FollowFilter;
-import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.ProgressMonitor;
+import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
+import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Repository;
-import org.eclipse.jgit.revwalk.RevCommit;
-import org.eclipse.jgit.revwalk.RevTree;
-import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.revwalk.RevTag;
+import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
@@ -34,11 +30,9 @@ import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 import org.eclipse.jgit.treewalk.filter.TreeFilter;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.ByteArrayOutputStream;
-import java.io.Closeable;
-import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -65,6 +59,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Path gitTopLevel; // The actual top-level directory of the git repository
     private final Repository repository;
     private final Git git;
+    private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
     /**
@@ -149,6 +144,9 @@ public class GitRepo implements Closeable, IGitRepo {
             repository = builder.build();
             git = new Git(repository);
 
+            // Check for GPG signing
+            this.gpgPassPhrase = null; // TODO: Fetch from settings, vault, etc.
+
             // For worktrees, we need to find the actual repository root, not the .git/worktrees path
             if (isWorktree()) {
                 // For worktrees, read the commondir file to find the main repository
@@ -192,6 +190,13 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new RuntimeException("Failed to open repository at " + projectRoot, e);
         }
+    }
+
+    /**
+     * @return true if GPG signing is enabled by default for this repository, false if otherwise.
+     */
+    public boolean isGpgSigned() {
+        return gpgPassPhrase != null;
     }
 
     @Override
@@ -416,6 +421,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the current commit ID (HEAD)
      */
+    @Override
     public String getCurrentCommitId() throws GitAPIException {
         var head = resolve("HEAD");
         return head.getName();
@@ -496,6 +502,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Returns a set of uncommitted files with their status (new, modified, deleted).
      */
+    @Override
     public Set<ModifiedFile> getModifiedFiles() throws GitAPIException {
         var statusResult = git.status().call();
         var uncommittedFilesWithStatus = new HashSet<ModifiedFile>();
@@ -540,13 +547,28 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Prepares a Git commit command, handling signing if required.
+     *
+     * @return a properly configured Git commit command.
+     */
+    public CommitCommand commitCommand() {
+        if (!isGpgSigned()) {
+            return git.commit().setSign(false);
+        } else {
+            var signer = new BouncyCastleGpgSignerFactory().create();
+            return git.commit().setSigner(signer).setSign(true);
+        }
+    }
+
+    /**
      * Commit a specific list of RepoFiles.
      *
      * @return The commit ID of the new commit
      */
     public String commitFiles(List<ProjectFile> files, String message) throws GitAPIException {
         add(files);
-        var commitCommand = git.commit().setMessage(message);
+
+        var commitCommand = commitCommand().setMessage(message);
 
         if (!files.isEmpty()) {
             for (var file : files) {
@@ -852,6 +874,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Checkout a specific branch
      */
+    @Override
     public void checkout(String branchName) throws GitAPIException {
         git.checkout().setName(branchName).call();
         invalidateCaches();
@@ -1344,12 +1367,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
     // getStashesAsCommits removed, functionality moved to listStashes
 
-    /**
-     * A record to hold a modified file and its status.
-     */
-    public record ModifiedFile(ProjectFile file, String status) {
-    }
-
     public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {
     }
 
@@ -1631,6 +1648,21 @@ public class GitRepo implements Closeable, IGitRepo {
                         .call();
             }
             return out.toString(StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Apply a diff to the working directory.
+     * @param diff The diff to apply.
+     * @throws GitAPIException if applying the diff fails.
+     */
+    @Override
+    public void applyDiff(String diff) throws GitAPIException {
+        try (var in = new ByteArrayInputStream(diff.getBytes(StandardCharsets.UTF_8))) {
+            git.apply().setPatch(in).call();
+            invalidateCaches();
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -2004,6 +2036,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the URL of the origin remote
      */
+    @Override
     public @Nullable String getRemoteUrl() {
         return getRemoteUrl("origin");
     }
@@ -2249,7 +2282,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public ListWorktreesResult listWorktreesAndInvalid() throws GitAPIException {
         try {
             var command = "git worktree list --porcelain";
-            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
             var worktrees = new ArrayList<WorktreeInfo>();
             var invalidPaths = new ArrayList<Path>();
             var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output); // Split by any newline sequence
@@ -2343,7 +2376,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 // Branch doesn't exist, create a new one
                 command = String.format("git worktree add -b %s %s", branch, absolutePath);
             }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
 
             // Recursively copy .brokk/dependencies from the project root into the new worktree
             var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
@@ -2397,7 +2430,7 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             var absolutePath = path.toAbsolutePath().normalize();
             var command = String.format("git worktree add --detach %s %s", absolutePath, commitId);
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             throw new GitRepoException("Failed to add detached worktree at " + path + " for commit " + commitId + ": " + e.getOutput(), e);
         } catch (InterruptedException e) {
@@ -2425,7 +2458,7 @@ public class GitRepo implements Closeable, IGitRepo {
             } else {
                 command = String.format("git worktree remove %s", absolutePath).trim();
             }
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             String output = e.getOutput();
             // If 'force' was false and the command failed because force is needed, throw WorktreeNeedsForceException
@@ -2452,7 +2485,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public void pruneWorktrees() throws GitAPIException {
         try {
             var command = "git worktree prune";
-            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
         } catch (Environment.SubprocessException e) {
             throw new GitRepoException("Failed to prune worktrees: " + e.getOutput(), e);
         } catch (InterruptedException e) {
@@ -2508,7 +2541,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public boolean supportsWorktrees() {
         try {
             // Try to run a simple git command to check if git executable is available and working
-            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {});
+            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {}, Environment.GIT_TIMEOUT);
             return true;
         } catch (Environment.SubprocessException e) {
             // This typically means git command failed, e.g., not found or permission issue
@@ -2743,10 +2776,20 @@ public class GitRepo implements Closeable, IGitRepo {
 
         logger.debug("Performing merge conflict simulation in temporary worktree: {}", tempWorktreePath);
 
+        // fixme: Temporarily disable signing in the in-memory config until we support signing
+        final var config = git.getRepository().getConfig();
+        final boolean oldSignConfig = config.getBoolean("commit", null, "gpgsign", false);
+        try {
+            config.setBoolean("commit", null, "gpgsign", false);
+            config.save();
+        } catch (IOException e) {
+            logger.warn("Exception encountered while attempting to temporarily disable GPG signing.", e);
+        }
+
         try {
             // Add a detached worktree on the target branch
             var addCommand = String.format("git worktree add --detach %s %s", tempWorktreePath.toAbsolutePath(), targetBranchId.getName());
-            Environment.instance.runShellCommand(addCommand, getGitTopLevel(), out -> {});
+            Environment.instance.runShellCommand(addCommand, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
 
             // Create a GitRepo instance for the temporary worktree to run the simulation
             try (GitRepo tempRepo = new GitRepo(tempWorktreePath)) {
@@ -2779,9 +2822,16 @@ public class GitRepo implements Closeable, IGitRepo {
             // Forcefully remove the temporary worktree and its directory
             try {
                 var removeCommand = String.format("git worktree remove --force %s", tempWorktreePath.toAbsolutePath());
-                Environment.instance.runShellCommand(removeCommand, getGitTopLevel(), out -> {});
+                Environment.instance.runShellCommand(removeCommand, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
             } catch (Exception e) {
                 logger.error("Failed to clean up temporary worktree at {}", tempWorktreePath, e);
+            }
+            // Re-enable old signing setting
+            try {
+                config.setBoolean("commit", null, "gpgsign", oldSignConfig);
+                config.save();
+            }   catch (IOException e) {
+                logger.warn("Exception encountered while attempting to set GPG signing to previous value.", e);
             }
         }
     }

@@ -4,7 +4,7 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
-.idea/
+.idea/**/*
 *.iws
 *.iml
 *.ipr
@@ -59,3 +59,10 @@ project/project/
 ### JOERN'S CONFIGURATION ###
 cpg.bin
 /workspace/
+
+### JDeploy CONFIGURATION ###
+.jdeploy/
+
+### frontend
+/frontend-mop/node_modules/
+

@@ -33,7 +33,6 @@ import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -85,7 +84,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
-                                                   
+
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
@@ -1063,7 +1062,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return executeAskCommand(llm, messages, cm, question);
     }
 
-    public static @NotNull TaskResult executeAskCommand(Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
+    public static TaskResult executeAskCommand(Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
         // Build and send the request to the LLM
         TaskResult.StopDetails stop = null;
         Llm.StreamingResult response = null;
@@ -1173,9 +1172,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             chrome.showOutputSpinner("Executing command...");
             chrome.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+            long timeoutSecs;
+            if (chrome.getProject() instanceof MainProject mainProject) {
+                timeoutSecs = mainProject.getRunCommandTimeoutSeconds();
+            } else {
+                timeoutSecs = Environment.DEFAULT_TIMEOUT.toSeconds();
+            }
             Environment.instance.runShellCommand(input,
                                                  contextManager.getRoot(),
-                                                 line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                                                 line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                                                 java.time.Duration.ofSeconds(timeoutSecs));
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
         } catch (Environment.SubprocessException e) {

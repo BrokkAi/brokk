@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html class="theme-light">
+<head>
+    <meta charset="utf-8">
+    <title>Brokk MOP - Dev Mode</title>
+</head>
+<style>
+    #mop-root {
+        top: 350px !important;
+    }
+
+    #dev-tools {
+        margin: 1em;
+    }
+</style>
+<body>
+<div id="dev-tools">
+    <h1>Brokk MOP - Development Mode</h1>
+    <p>Events from Java will be logged to the console and displayed raw below.</p>
+    <h3>Dev Tools</h3>
+    <button onclick="streamAsk()">Stream "Ask"</button>
+    <button onclick="streamEdit()">Stream "Edit"</button>
+    <button onclick="showAskMd()">Show "ask" MD</button>
+    <button onclick="showEditMd()">Show "edit" MD</button>
+    <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle
+        Theme
+    </button>
+    <button onclick="window.brokk.clear()">Clear Log</button>
+    <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
+        Test Spinner
+    </button>
+    <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
+    <textarea id="md-playground"
+              placeholder="Type Markdown here..."
+              style="width:100%;height:150px;margin:1em 0;box-sizing:border-box;"></textarea>
+
+</div>
+
+<script type="module" src="/src/index.ts"></script>
+<script>
+    // Immediately define brokk with a buffer to catch early events and calls from Java
+    (function () {
+        const buffer = []; // Unified buffer for all calls and events
+        let seq = 0; // Sequence number to maintain order
+
+        window.brokk = new Proxy({
+            _buffer: buffer
+        }, {
+            get(target, prop) {
+                if (prop === '_buffer') {
+                    return target[prop];
+                }
+                return (...args) => {
+                    if (prop === 'onEvent') {
+                        console.log('Buffering early event from Java:', JSON.stringify(args));
+                        buffer.push({type: 'event', payload: args[0], seq: seq++});
+                    } else if (prop === 'hideSpinner') {
+                        console.log('Buffering early call from Java to', prop);
+                        buffer.push({type: 'call', method: prop, args: [], seq: seq++});
+                    } else {
+                        console.log('Buffering early call from Java to', prop);
+                        buffer.push({type: 'call', method: prop, args: args, seq: seq++});
+                    }
+                    return undefined;
+                };
+            }
+        });
+    })();
+    // Mock Java bridge for dev mode
+    window.javaBridge = {
+        onAck: (epoch) => {
+        }
+    };
+
+    function simulateEvent(type, data = {}) {
+        window.brokk.onEvent({type, epoch: Date.now(), ...data});
+    }
+
+
+    const contentUser = `> "npm run dev" should run vite/svelte based on dev.html? \nany idea?`;
+    const contentAi = `
+
+### Here some code you need to load dynamically
+  \`\`\`css
+      /* Basic styling for a button */
+    .button-primary {
+      background-color: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 12px 24px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .button-primary:hover {
+      background-color: #0056b3;
+    }
+  \`\`\`
+
+  \`\`\`csharp
+  using System;
+
+    public class Person
+    {
+        public string Name { get; }
+        public int Age { get; }
+
+        public Person(string name, int age)
+        {
+            Name = name ?? throw new ArgumentNullException(nameof(name));
+            Age = age;
+        }
+
+        public void Greet()
+        {
+            Console.WriteLine($"Hello, my name is {Name} and I'm {Age} years old.");
+        }
+    }
+
+    class Program
+    {
+        static void Main()
+        {
+            var person = new Person("Alice", 30);
+            person.Greet();
+        }
+    }
+  \`\`\`
+
+### Why Vite is showing *index.html* even though you have *dev.html*
+
+1. **Vite’s default entry point**
+   When you execute \`vite\` (or \`vite --port 5173\`) the dev-server looks in the project root for \`index.html\`.
+   Any other HTML files (e.g. \`dev.html\`) are still reachable at \`http://localhost:5173/dev.html\`, but the page that Vite *automatically* opens in the browser (or shows when you visit the bare root \`/\`) is always \`index.html\` unless you change either:
+   - the **root directory**, or
+   - the **page that the browser is told to open**.
+
+  \`\`\`java
+  @Tool("Create a GitHub pull-request for the current branch. "
+          + "If title or body is blank they are auto-generated. "
+          + "This implicitly pushes the branch and sets upstream when needed.")
+    public String createPullRequest(
+            @Nullable @P("PR title (optional)")  String title,
+    @Nullable @P("PR description in Markdown (optional)") String body)
+    {
+      var cursor = messageCursor();
+      io.llmOutput("Creating pull request…", ChatMessageType.CUSTOM, true);
+
+      try {
+        var project = contextManager.getProject();
+        if (!project.hasGit())
+          throw new IllegalStateException("Not a Git repository");
+
+        var repo          = (GitRepo) project.getRepo();
+        var defaultBranch = repo.getDefaultBranch()
+                .orElseThrow(() -> new IllegalStateException("Cannot determine default branch"));
+        var currentBranch = repo.getCurrentBranch();
+        if (Objects.equals(currentBranch, defaultBranch))
+          throw new IllegalStateException("Refusing to open PR from default branch (" + defaultBranch + ')');
+
+        if (!repo.getModifiedFiles().isEmpty())
+          throw new IllegalStateException("Uncommitted changes present; commit first");
+
+        var gws = new GitWorkflowService(contextManager);
+
+        // Auto-generate title/body if blank
+        if (title == null || title.isBlank() || body == null || body.isBlank()) {
+          var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
+          if (title == null || title.isBlank()) title = suggestion.title();
+          if (body  == null || body.isBlank())  body  = suggestion.description();
+        }
+
+        var prUrl = gws.createPullRequest(currentBranch, defaultBranch, title.trim(), body.trim());
+        var msg   = "Opened PR: " + prUrl;
+        io.llmOutput(msg, ChatMessageType.CUSTOM);
+        logger.info(msg);
+
+        // Persist result to history
+        var newMessages = messagesSince(cursor);
+        contextManager.addToHistory(new TaskResult(contextManager,
+                        "Git create PR",
+                        newMessages,
+                        Set.of(),
+                        TaskResult.StopReason.SUCCESS),
+                false);
+        return msg;
+      } catch (Exception e) {
+      var err = "Create PR failed: " + e.getMessage();
+      io.llmOutput(err, ChatMessageType.CUSTOM);
+      logger.error(err, e);
+
+      var newMessages = messagesSince(cursor);
+      contextManager.addToHistory(new TaskResult(contextManager,
+                      "Git create PR",
+                      newMessages,
+                      Set.of(),
+                      TaskResult.StopReason.TOOL_ERROR),
+              false);
+      throw new RuntimeException(err, e);
+    }
+    }
+  \`\`\`
+
+2. **Where your files live**
+   Your tree is:
+
+   \`\`\`
+   frontend-mop/
+     dev.html          ← dev-only page
+     index.html        ← production entry
+     vite.config.mjs
+     src/
+   \`\`\`
+
+   That means:
+   - Production build (\`vite build\`) will read *index.html* (because that is Vite convention when \`root\` is the repo root).
+   - Dev server (\`vite\`) will also treat *index.html* as the “home page”, while *dev.html* is reachable as a secondary route.
+
+---
+
+### Options to make \`npm run dev\` “start with” \`dev.html\`
+
+| Option | What you change | Pros | Cons |
+|--------|-----------------|------|------|
+| 1. Add a query to the \`open\` option | vite.config.mjs<br>\`server: { open: '/dev.html' }\` | Zero CLI changes; auto-opens correct page | Still serves \`index.html\` at \`/\`; not ideal if you *never* want \`index.html\` in dev |
+| 2. Modify the npm script | \`"dev": "vite --open /dev.html"\` | No config file edits | Same caveat as above |
+| 3. Point the dev server at a different **root** | Create \`frontend-mop/dev/\` and move/rename files so *dev.html* becomes \`dev/index.html\` and set \`root: 'dev'\` just for the dev command (e.g. with a second Vite config) | Clean separation of dev vs prod HTML | Requires file moves or a second config file |
+| 4. Symlink or rename | Temporarily rename \`dev.html\` → \`index.html\` when in dev (via a pre-dev script) | Works with zero Vite tweaks | Adds build-step complexity / brittle |
+
+### Minimal, lowest-friction fix
+
+Add a small dev-only section to \`vite.config.mjs\`:
+
+\`\`\`js
+import { defineConfig } from 'vite'
+import { svelte } from '@sveltejs/vite-plugin-svelte'
+
+export default defineConfig(({ command }) => ({
+  plugins: [svelte()],
+  build: {
+    outDir: '../src/main/resources/mop-web',
+    emptyOutDir: true
+  },
+  // Only for \`vite dev\`
+  server: {
+    port: 5173,
+    // Open /dev.html instead of /
+    open: command === 'serve' ? '/dev.html' : undefined
+  }
+}))
+\`\`\`
+
+Or if you prefer not to touch \`vite.config.mjs\`, simply update the npm script:
+
+\`\`\`json
+"scripts": {
+  "dev": "vite --port 5173 --open /dev.html",
+  ...
+}
+\`\`\`
+
+Both approaches:
+
+1. Keep production build logic intact (still builds from \`index.html\`).
+2. Automatically open \`http://localhost:5173/dev.html\` whenever you run \`npm run dev\`.
+3. Still allow visiting \`index.html\` by typing the full URL if ever needed.
+
+### Key takeaway
+
+- Vite always *serves* every HTML file under \`root\`, but it *opens* only one page at start-up.
+- Adjusting \`server.open\` (or the CLI \`--open\`) lets you point dev mode to whichever HTML file you want without disturbing the production build.
+`;
+
+    function streamAsk() {
+        let index = 0;
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true})
+        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+        const interval = setInterval(() => {
+            if (index < chunks.length) {
+                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+                index++;
+            } else {
+                clearInterval(interval);
+                simulateEvent('chunk', {text: "Ask command complete!", msgType: 'CUSTOM', streaming: true, isNew: false});
+            }
+        }, 10);
+    }
+
+    function showAskMd() {
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+        simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false})
+        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
+    }
+
+
+    const ai = `
+
+  Looking at the failed blocks and the current content, I can see the issue. The file is in a broken state where it references \`commitBrowserPanel\` (which doesn't exist) but we need to revert those changes back to use the original table model code.
+
+  Let me fix the specific lines that are causing the build failure:
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.unknown
+          // ============ Commit Browser Panel (center ~80%) ============
+          commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager);
+          JPanel commitBrowserContainer = buildCommitBrowserContainer();
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // ============ Commit Browser Panel (center ~80%) ============
+          JPanel commitBrowserPanel = buildCommitBrowserPanel();
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          constraints.gridx = 1; // commit browser (commits + changes)
+          constraints.weightx = 0.80;
+          logPanel.add(commitBrowserContainer, constraints);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          constraints.gridx = 1; // commit browser (commits + changes)
+          constraints.weightx = 0.80;
+          logPanel.add(commitBrowserPanel, constraints);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                          logger.warn("Could not select any local branch (target: {}, current git: {}). Clearing commits.",
+                                      previouslySelectedBranch, currentGitBranch);
+                          commitBrowserPanel.setCommits(List.of());
+                          pullButton.setEnabled(false);
+                          pushButton.setEnabled(false);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                          logger.warn("Could not select any local branch (target: {}, current git: {}). Clearing commits.",
+                                      previouslySelectedBranch, currentGitBranch);
+                          commitsTableModel.setRowCount(0);
+                          changesRootNode.removeAllChildren();
+                          changesTreeModel.reload();
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                          pullButton.setEnabled(false);
+                          pushButton.setEnabled(false);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      branchTableModel.setRowCount(0);
+                      branchTableModel.addRow(new Object[]{"", "Error fetching branches: " + e.getMessage()});
+                      remoteBranchTableModel.setRowCount(0);
+                      commitBrowserPanel.setCommits(List.of());
+                  });
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      branchTableModel.setRowCount(0);
+                      branchTableModel.addRow(new Object[]{"", "Error fetching branches: " + e.getMessage()});
+                      remoteBranchTableModel.setRowCount(0);
+                      commitsTableModel.setRowCount(0);
+                      changesRootNode.removeAllChildren();
+                      changesTreeModel.reload();
+                      revisionTextLabel.setText("Revision:");
+                      revisionIdTextArea.setText("N/A");
+                  });
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                      if (finalCommits.isEmpty()) {
+                          commitBrowserPanel.setCommits(List.of());
+                          return;
+                      }
+
+                      commitBrowserPanel.setCommits(finalCommits);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                      if (commitRows.isEmpty()) {
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                          return;
+                      }
+
+                      for (Object[] rowData : commitRows) {
+                          commitsTableModel.addRow(rowData);
+                      }
+
+                      // Fit column widths for author and date
+                      TableUtils.fitColumnWidth(commitsTable, 1); // Author column
+                      TableUtils.fitColumnWidth(commitsTable, 2); // Date column
+
+                      if (commitsTableModel.getRowCount() > 0) {
+                          commitsTable.setRowSelectionInterval(0, 0);
+                          // Listener will handle updates to revision display and changes tree
+                      } else {
+                          // Ensure changes area and revision display are cleared if no commits
+                          changesRootNode.removeAllChildren();
+                          changesTreeModel.reload();
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                      }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error fetching commits for branch: " + branchName, e);
+                  SwingUtilities.invokeLater(() -> {
+                      commitBrowserPanel.setCommits(List.of());
+                  });
+              }
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error fetching commits for branch: " + branchName, e);
+                  SwingUtilities.invokeLater(() -> {
+                      commitsTableModel.setRowCount(0);
+                      commitsTableModel.addRow(new Object[]{
+                              "Error fetching commits: " + e.getMessage(), "", "", ""
+                      });
+                      changesRootNode.removeAllChildren();
+                      changesTreeModel.reload();
+                      revisionTextLabel.setText("Revision:");
+                      revisionIdTextArea.setText("N/A");
+                  });
+              }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      if (searchResults.isEmpty()) {
+                          commitBrowserPanel.setCommits(List.of());
+                          chrome.systemOutput("No commits found matching: " + query);
+                          return;
+                      }
+
+                      commitBrowserPanel.setCommits(searchResults.stream().map(c -> (ICommitInfo) c).toList());
+                      chrome.systemOutput("Found " + searchResults.size() + " commits matching: " + query);
+                  });
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      commitsTableModel.setRowCount(0);
+                      changesRootNode.removeAllChildren();
+                      changesTreeModel.reload();
+
+                      if (commitRows.isEmpty()) {
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                          chrome.systemOutput("No commits found matching: " + query);
+                          return;
+                      }
+
+                      for (Object[] rowData : commitRows) {
+                          commitsTableModel.addRow(rowData);
+                      }
+
+                      chrome.systemOutput("Found " + commitRows.size() + " commits matching: " + query);
+                      if (commitsTableModel.getRowCount() > 0) {
+                          // Fit column widths
+                          TableUtils.fitColumnWidth(commitsTable, 1); // Author
+                          TableUtils.fitColumnWidth(commitsTable, 2); // Date
+                          commitsTable.setRowSelectionInterval(0, 0);
+                          // Listener will handle updates to revision display and changes tree
+                      } else {
+                          // Ensure changes area and revision display are cleared if no search results
+                          changesRootNode.removeAllChildren();
+                          changesTreeModel.reload();
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                      }
+                  });
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error searching commits: {}", query, e);
+                  SwingUtilities.invokeLater(() -> {
+                      chrome.toolErrorRaw("Error searching commits: " + e.getMessage());
+                      commitBrowserPanel.setCommits(List.of());
+                  });
+              }
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error searching commits: {}", query, e);
+                  SwingUtilities.invokeLater(() -> {
+                      chrome.toolErrorRaw("Error searching commits: " + e.getMessage());
+                      revisionTextLabel.setText("Revision:");
+                      revisionIdTextArea.setText("N/A");
+                  });
+              }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // Commit browser panel in the center
+          container.add(commitBrowserPanel, BorderLayout.CENTER);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // Commit browser panel in the center
+          container.add(commitBrowserPanel, BorderLayout.CENTER);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      /**
+       * Selects a commit in the commits table by its ID.
+       */
+      public void selectCommitById(String commitId) {
+          commitBrowserPanel.selectCommitById(commitId);
+      }
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      /**
+       * Selects a commit in the commits table by its ID.
+       */
+      public void selectCommitById(String commitId) {
+          for (int i = 0; i < commitsTableModel.getRowCount(); i++) {
+              // Get CommitInfo from hidden column 5
+              ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(i, 5);
+              if (commitId.equals(commitInfo.id())) {
+                  commitsTable.setRowSelectionInterval(i, i);
+                  commitsTable.scrollRectToVisible(commitsTable.getCellRect(i, 0, true));
+                  // Listener will handle updateChangesForCommits and revisionLabel
+                  return;
+              }
+          }
+
+          // If not found in the current view, let the user know
+          chrome.systemOutput("Commit " + commitId.substring(0, 7) + " not found in current branch view");
+      }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+`;
+
+
+    function showEditMd() {
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+        simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false})
+        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
+    }
+
+    function streamEdit() {
+        const contentUser = `fix it`;
+        const contentAi = `I understand the issue with the ordering of buffered events and calls in the JavaScript code, which causes the UI to sometimes clear at the end due to incorrect replay order. The problem stems from having two separate buffers (\`_callQueue\` and \`_eventBuffer\`) and replaying them in the wrong order. I'll fix this by unifying the buffer into a single queue with a sequence number to maintain the correct order of operations during replay.
+
+Here's the plan:
+1. Modify the temporary stub in \`index.html\` to use a single buffer with a sequence number.
+2. Update the replay logic in \`index.ts\` to process this unified buffer in sequence order.
+
+Here are the *SEARCH/REPLACE* blocks to implement these changes:
+
+<<<<<<< SEARCH frontend-mop/index.html
+    // Immediately define brokk with a proxy to buffer all early calls from Java
+    (function() {
+      const callQueue = []; // Stores {method, args} for all calls except onEvent
+      const eventBuffer = []; // Stores payloads for onEvent
+
+      window.brokk = new Proxy({
+        _callQueue: callQueue,
+        _eventBuffer: eventBuffer
+      }, {
+        get(target, prop) {
+          // Allow direct access to internal queues
+          if (prop === '_callQueue' || prop === '_eventBuffer') {
+            return target[prop];
+          }
+          // Return a stub function for any other property access
+          return (...args) => {
+            if (prop === 'onEvent') {
+              console.log('Buffering early event from Java:', JSON.stringify(args));
+              eventBuffer.push(...args);
+            } else {
+              console.log('Buffering early call from Java to', prop);
+              callQueue.push({ method: prop, args });
+            }
+            // Provide default return values for synchronous methods
+            if (prop === 'getSelection') {
+              return '';
+            }
+            return undefined;
+          };
+        }
+      });
+    })();
+=======
+    // Immediately define brokk with a proxy to buffer all early calls from Java
+    (function() {
+      const buffer = []; // Unified buffer for all calls and events
+      let seq = 0; // Sequence number to maintain order
+
+      window.brokk = new Proxy({
+        _buffer: buffer
+      }, {
+        get(target, prop) {
+          // Allow direct access to internal buffer
+          if (prop === '_buffer') {
+            return target[prop];
+          }
+          // Return a stub function for any other property access
+          return (...args) => {
+            if (prop === 'onEvent') {
+              console.log('Buffering early event from Java:', JSON.stringify(args));
+              buffer.push({ type: 'event', payload: args[0], seq: seq++ });
+            } else {
+              console.log('Buffering early call from Java to', prop);
+              buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
+            }
+            // Provide default return values for synchronous methods
+            if (prop === 'getSelection') {
+              return '';
+            }
+            return undefined;
+          };
+        }
+      });
+    })();
+>>>>>>> REPLACE
+
+\`\`\`
+frontend-mop/src/index.ts
+<<<<<<< SEARCH
+// Retrieve buffered calls and events from the early stub
+const pendingCalls = window.brokk._callQueue || [];
+const bufferedEvents = window.brokk._eventBuffer || [];
+
+// Replace the temporary brokk proxy with the real implementation
+window.brokk = {
+  _callQueue: [],
+  _eventBuffer: [],
+  onEvent: (payload) => {
+    console.log('Received event from Java bridge:', JSON.stringify(payload));
+    eventStore.set(payload);
+
+    // ACK after a frame render to ensure UI has updated
+    if (payload.epoch) {
+      requestAnimationFrame(() => {
+        if (window.javaBridge) {
+          window.javaBridge.onAck(payload.epoch);
+        }
+      });
+    }
+  },
+  getSelection: () => {
+    return window.getSelection()?.toString() ?? '';
+  },
+  clear: () => {
+    eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
+  },
+  setTheme: (dark) => {
+    themeStore.set(dark);
+    if (dark) {
+      document.body.classList.add('theme-dark');
+    } else {
+      document.body.classList.remove('theme-dark');
+    }
+  },
+  showSpinner: (message) => {
+    spinnerStore.set(message);
+  }
+};
+
+// Process any buffered events first to maintain temporal order
+if (bufferedEvents.length > 0) {
+  console.log('Replaying', bufferedEvents.length, 'buffered events');
+  bufferedEvents.forEach(event => {
+    window.brokk.onEvent(event);
+  });
+}
+
+// Then replay any other buffered method calls
+if (pendingCalls.length > 0) {
+  console.log('Replaying', pendingCalls.length, 'buffered method calls');
+  pendingCalls.forEach(({ method, args }) => {
+    console.log('Replaying call to', method, 'with args:', args);
+    const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+    if (typeof brokk[method] === 'function') {
+      brokk[method](...args);
+    } else {
+      console.warn('Method', method, 'no longer exists; skipping replay');
+    }
+  });
+}
+=======
+// Retrieve buffered calls and events from the early stub
+const buffer = window.brokk._buffer || [];
+
+// Replace the temporary brokk proxy with the real implementation
+window.brokk = {
+  _buffer: [],
+  onEvent: (payload) => {
+    console.log('Received event from Java bridge:', JSON.stringify(payload));
+    eventStore.set(payload);
+
+    // ACK after a frame render to ensure UI has updated
+    if (payload.epoch) {
+      requestAnimationFrame(() => {
+        if (window.javaBridge) {
+          window.javaBridge.onAck(payload.epoch);
+        }
+      });
+    }
+  },
+  getSelection: () => {
+    return window.getSelection()?.toString() ?? '';
+  },
+  clear: () => {
+    eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
+  },
+  setTheme: (dark) => {
+    themeStore.set(dark);
+    if (dark) {
+      document.body.classList.add('theme-dark');
+    } else {
+      document.body.classList.remove('theme-dark');
+    }
+  },
+  showSpinner: (message) => {
+    spinnerStore.set(message);
+  }
+};
+
+// Replay buffered calls and events in sequence order
+if (buffer.length > 0) {
+  console.log('Replaying', buffer.length, 'buffered items');
+  buffer.sort((a, b) => a.seq - b.seq).forEach(item => {
+    if (item.type === 'event') {
+      console.log('Replaying event with epoch:', item.payload.epoch);
+      window.brokk.onEvent(item.payload);
+    } else {
+      console.log('Replaying call to', item.method, 'with args:', item.args);
+      const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+      if (typeof brokk[item.method] === 'function') {
+        brokk[item.method](...item.args);
+      } else {
+        console.warn('Method', item.method, 'no longer exists; skipping replay');
+      }
+    }
+  });
+}
+>>>>>>> REPLACE
+\`\`\`
+    `;
+        let index = 0;
+        simulateEvent('clear');
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true});
+        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+        const interval = setInterval(() => {
+            if (index < chunks.length) {
+                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+                index++;
+            } else {
+                clearInterval(interval);
+            }
+        }, 10);
+    }
+
+
+    (function () {
+        const mdInput = document.getElementById('md-playground');
+        let rafId = 0;
+
+        mdInput.addEventListener('input', () => {
+            cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                window.brokk.clear();
+                simulateEvent('chunk', {
+                    text: mdInput.value,
+                    msgType: 'AI',
+                    streaming: true
+                });
+            });
+        });
+    })();
+
+</script>
+<div id="mop-root"></div>
+</body>
+</html>

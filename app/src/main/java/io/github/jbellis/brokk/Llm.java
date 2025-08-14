@@ -9,9 +9,9 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
+import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -26,7 +26,6 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
-import io.github.jbellis.brokk.ThinkTagInterceptor;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.util.LogDescription;
@@ -150,6 +149,7 @@ public class Llm {
 
         // Variables to store results from callbacks
         var accumulatedTextBuilder = new StringBuilder();
+        var accumulatedReasoningBuilder = new StringBuilder();
         var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
         var errorRef = new AtomicReference<@Nullable Throwable>();
 
@@ -183,7 +183,7 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
-                    accumulatedTextBuilder.append(reasoningContent);
+                    accumulatedReasoningBuilder.append(reasoningContent);
                     if (echo) {
                         io.llmOutput(reasoningContent, ChatMessageType.AI);
                     }
@@ -201,7 +201,7 @@ public class Llm {
                         }
                         // I think this isn't supposed to happen, but seeing it when litellm throws back a 400.
                         // Fake an exception so the caller can treat it like other errors
-                        var ex = new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)");
+                        var ex = new LitellmException("(no further information, the response was null; check litellm logs)");
                         logger.debug(ex);
                         errorRef.set(ex);
                     } else {
@@ -255,12 +255,13 @@ public class Llm {
         if (error != null) {
             // If no partial text, just return null response
             var partialText = accumulatedTextBuilder.toString();
-            if (partialText.isEmpty()) {
+            var partialReasoning = accumulatedReasoningBuilder.toString();
+            if (partialText.isEmpty() && partialReasoning.isEmpty()) {
                 return new StreamingResult(null, error);
             }
 
             // Construct a ChatResponse from accumulated partial text
-            var partialResponse = new NullSafeResponse(partialText, List.of(), null);
+            var partialResponse = new NullSafeResponse(partialText, partialReasoning, List.of(), null);
             logger.debug("LLM call resulted in error: {}. Partial text captured: {} chars", error.getMessage(), partialText.length());
             return new StreamingResult(partialResponse, error);
         }
@@ -272,6 +273,12 @@ public class Llm {
             io.llmOutput("\n", ChatMessageType.AI);
         }
         return StreamingResult.fromResponse(response, null);
+    }
+
+    private static class LitellmException extends LangChain4jException {
+        public LitellmException(String message) {
+            super(message);
+        }
     }
 
     private static String formatTokensUsage(ChatResponse response) {
@@ -436,12 +443,8 @@ public class Llm {
                 paramsBuilder = paramsBuilder
                         .parallelToolCalls(true);
             }
-            var effort = ((OpenAiChatRequestParameters) model.defaultRequestParameters()).reasoningEffort();
-            if (toolChoice == ToolChoice.REQUIRED && effort == null) {
-                // Anthropic only supports TC.REQUIRED with reasoning off
-                // (and Anthropic is currently the only vendor that runs with native tool calls)
-                paramsBuilder = paramsBuilder
-                        .toolChoice(ToolChoice.REQUIRED);
+            if (toolChoice == ToolChoice.REQUIRED && contextManager.getService().supportsToolChoiceRequired(model)) {
+                paramsBuilder = paramsBuilder.toolChoice(ToolChoice.REQUIRED);
             }
             requestBuilder.parameters(paramsBuilder.build());
         }
@@ -528,8 +531,12 @@ public class Llm {
 
                 if (echo) {
                     // output the LLM's thinking
+                    var reasoning = parseResult.reasoningContent();
+                    if (reasoning != null && !reasoning.isBlank()) {
+                        io.llmOutput(reasoning, ChatMessageType.AI);
+                    }
                     String textToOutput = parseResult.text();
-                    if (!textToOutput.isBlank()) {
+                    if (textToOutput != null && !textToOutput.isBlank()) {
                         io.llmOutput(textToOutput, ChatMessageType.AI);
                     }
                 }
@@ -745,7 +752,7 @@ public class Llm {
         // Simple request builder for JSON output format
         Function<List<ChatMessage>, ChatRequest> requestBuilder = attemptMessages -> ChatRequest.builder()
                 .messages(attemptMessages)
-                .parameters(ChatRequestParameters.builder()
+                .parameters(OpenAiChatRequestParameters.builder()
                                     .responseFormat(ResponseFormat.builder()
                                                             .type(ResponseFormatType.JSON)
                                                             .build())
@@ -816,7 +823,7 @@ public class Llm {
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
         NullSafeResponse cResponse = castNonNull(result.chatResponse());
-        String rawText = cResponse.text();
+        String rawText = requireNonNull(cResponse.text());
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
         JsonNode root;
@@ -902,7 +909,7 @@ public class Llm {
         }
 
         // Pass the original raw response alongside the parsed one
-        return new NullSafeResponse(aiMessageText, toolExecutionRequests, result.originalResponse());
+        return new NullSafeResponse(aiMessageText, cResponse.reasoningContent(), toolExecutionRequests, result.originalResponse());
     }
 
     private static String getInstructions(List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
@@ -1066,22 +1073,27 @@ public class Llm {
     }
 
 
-    public record NullSafeResponse(String text,
+    public record NullSafeResponse(@Nullable String text,
+                                   @Nullable String reasoningContent,
                                    List<ToolExecutionRequest> toolRequests,
                                    @Nullable ChatResponse originalResponse)
     {
         public NullSafeResponse(@Nullable ChatResponse cr) {
-            this(cr == null || cr.aiMessage() == null || cr.aiMessage().text() == null ? "" : cr.aiMessage().text(),
+            this(cr == null || cr.aiMessage() == null ? null : cr.aiMessage().text(),
+                 cr == null || cr.aiMessage() == null ? null : cr.aiMessage().reasoningContent(),
                  cr == null || cr.aiMessage() == null || !cr.aiMessage().hasToolExecutionRequests() ? List.of() : cr.aiMessage().toolExecutionRequests(),
                  cr);
         }
 
         public boolean isEmpty() {
-            return text.isEmpty() && toolRequests.isEmpty();
+            var emptyText = text == null || text.isEmpty();
+            var emptyReasoning = reasoningContent == null || reasoningContent.isEmpty();
+            return emptyText && toolRequests.isEmpty() && emptyReasoning;
         }
 
         public AiMessage aiMessage() {
-            return toolRequests.isEmpty() ? new AiMessage(text) : new AiMessage(text, toolRequests);
+            var messageText = text == null ? "" : text;
+            return new AiMessage(messageText, reasoningContent, toolRequests);
         }
     }
 
@@ -1130,6 +1142,10 @@ public class Llm {
                 return null;
             }
             var usage = (OpenAiTokenUsage) originalResponse().tokenUsage();
+            if (usage == null) {
+                logger.warn("Response is present but tokenUsage is null. Litellm bug?");
+                return null;
+            }
 
             // always present
             int inputTokens       = usage.inputTokenCount();
@@ -1151,7 +1167,11 @@ public class Llm {
         }
 
         public String text() {
-            return chatResponse == null ? "" : chatResponse.text();
+            if (chatResponse == null) {
+                return "";
+            }
+            var text = chatResponse.text();
+            return text == null ? "" : text;
         }
 
         public boolean isEmpty() {
@@ -1232,7 +1252,7 @@ public class Llm {
                         .collect(Collectors.joining(", "));
             }
             var text = cr.text();
-            if (text.isBlank()) {
+            if (text == null || text.isBlank()) {
                 return "[empty response]";
             }
 

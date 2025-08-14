@@ -77,7 +77,7 @@ public class JMDiffNode implements TreeNode
         BufferDocumentIF leftDoc = (nodeLeft != null) ? nodeLeft.getDocument() : EMPTY_DOC;
         BufferDocumentIF rightDoc = (nodeRight != null) ? nodeRight.getDocument() : EMPTY_DOC;
 
-        logger.debug("JMDiffNode.diff() starting for {}: left={}, right={}", name,
+        logger.trace("JMDiffNode.diff() starting for {}: left={}, right={}", name,
                     leftDoc.getName(), rightDoc.getName());
 
         // MEMORY PROTECTION: Check for huge single-line files that would cause memory explosion
@@ -138,7 +138,7 @@ public class JMDiffNode implements TreeNode
                 }
             }
 
-            logger.debug("JMDiffNode: File {} passed memory checks: {} lines, {}KB total",
+            logger.trace("JMDiffNode: File {} passed memory checks: {} lines, {}KB total",
                         doc.getName(), numberOfLines, contentLength / 1024);
 
             return false;
@@ -203,7 +203,7 @@ public class JMDiffNode implements TreeNode
                  return heuristicPatch;
              }
          } catch (Exception e) {
-             logger.debug("Failed to build heuristic diff for {}: {}", name, e.getMessage(), e);
+             logger.trace("Failed to build heuristic diff for {}: {}", name, e.getMessage(), e);
          }
          // identical prefix (likely identical files) or error
          return null;

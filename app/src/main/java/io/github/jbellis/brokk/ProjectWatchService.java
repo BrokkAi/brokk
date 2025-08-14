@@ -14,11 +14,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
-public class ProjectWatchService implements AutoCloseable {
-    public interface Listener {
-        void onFilesChanged(EventBatch batch);
-        void onNoFilesChangedDuringPollInterval();
-    }
+public class ProjectWatchService implements IWatchService {
 
     private final Logger logger = LogManager.getLogger(ProjectWatchService.class);
 
@@ -43,6 +39,7 @@ public class ProjectWatchService implements AutoCloseable {
         this.listener = listener;
     }
 
+    @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
         Thread watcherThread = new Thread(() -> beginWatching(delayNotificationsUntilCompleted), "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
@@ -112,18 +109,6 @@ public class ProjectWatchService implements AutoCloseable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.warn("FileWatchService thread interrupted; shutting down");
-        }
-    }
-
-    /** mutable since we will collect events until they stop arriving */
-    public static class EventBatch {
-        boolean isOverflowed;
-        Set<ProjectFile> files = new HashSet<>();
-
-        @Override
-        public String toString()
-        {
-            return "EventBatch{" + "isOverflowed=" + isOverflowed + ", files=" + files + '}';
         }
     }
 
@@ -205,6 +190,7 @@ public class ProjectWatchService implements AutoCloseable {
     /**
      * Pause the file watching service.
      */
+    @Override
     public synchronized void pause() {
         logger.debug("Pausing file watcher");
         paused = true;
@@ -213,6 +199,7 @@ public class ProjectWatchService implements AutoCloseable {
     /**
      * Resume the file watching service.
      */
+    @Override
     public synchronized void resume() {
         logger.debug("Resuming file watcher");
         paused = false;
