@@ -291,7 +291,7 @@ Both approaches:
 
     function streamAsk() {
         let index = 0;
-        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true})
+        // simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true})
         const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
         const interval = setInterval(() => {
             if (index < chunks.length) {
@@ -536,7 +536,7 @@ Both approaches:
     function showEditMd() {
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
         simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false})
-        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
+        //simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
     }
 
     function streamEdit() {

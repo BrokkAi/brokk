@@ -1385,7 +1385,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Update the LLM output panel directly via Chrome
         chrome.llmOutput(
                 "# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.",
-                ChatMessageType.USER);
+                ChatMessageType.CUSTOM);
         clearCommandInput();
         // Submit the action, calling the private execute method inside the lambda
         submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(searchModel, input));

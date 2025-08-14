@@ -846,6 +846,7 @@ public class HistoryOutputPanel extends JPanel {
             // Create markdown panel with the text
             outputPanel = new MarkdownOutputPanel();
             outputPanel.updateTheme(isDark);
+            outputPanel.setBlocking(isBlockingMode);
             outputPanel.setText(output);
 
             // Create toolbar panel with capture button if not in blocking mode
@@ -870,7 +871,6 @@ public class HistoryOutputPanel extends JPanel {
 
             // Add the content panel to the frame
             add(contentPanel);
-            outputPanel.setBlocking(isBlockingMode);
 
             // Load saved size and position, or use defaults
             var bounds = project.getOutputWindowBounds();

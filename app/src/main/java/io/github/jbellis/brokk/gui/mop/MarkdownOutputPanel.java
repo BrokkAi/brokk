@@ -115,16 +115,12 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void setText(ContextFragment.TaskFragment newOutput) {
-        if (blockClearAndReset) {
-            logger.debug("Ignoring setText() request while blocking is enabled");
-            return;
-        }
         setText(newOutput.messages());
     }
 
     public void setText(List<ChatMessage> newMessages) {
-        if (blockClearAndReset) {
-            logger.debug("Ignoring setText() request while blocking is enabled");
+        if (blockClearAndReset && !messages.isEmpty()) {
+            logger.debug("Ignoring setText() while blocking is enabled and panel already has content");
             return;
         }
         messages.clear();
@@ -139,10 +135,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void setText(TaskEntry taskEntry) {
-        if (blockClearAndReset) {
-            logger.debug("Ignoring setText(TaskEntry) request while blocking is enabled");
-            return;
-        }
         SwingUtilities.invokeLater(() -> {
             if (taskEntry.isCompressed()) {
                 setText(List.of(Messages.customSystem(Objects.toString(taskEntry.summary(), "Summary not available"))));

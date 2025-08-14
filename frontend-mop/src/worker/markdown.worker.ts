@@ -20,6 +20,8 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   switch (m.type) {
     case 'parse':
       try {
+        //set the buffer for the case that later the chunks are appended  (via messages of type 'chunk')
+        buffer = m.text;
         const tree = parseMarkdown(m.seq, m.text, m.fast);
         post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
       } catch (e) {
