@@ -19,6 +19,8 @@
         bubbleId,
     } = $props<EditBlockProperties>();
 
+    const basename = $derived(filename.split(/[\\/]/).pop() ?? filename);
+
     let showDetails = $state(false);
 
     function toggleDetails() {
@@ -36,7 +38,7 @@
     <div class="edit-block-wrapper">
         <header class="edit-block-header" on:click={toggleDetails}>
             <Icon icon="mdi:file-document-edit-outline" class="file-icon"/>
-            <span class="filename">{filename}</span>
+            <span class="filename" title={filename}>{basename}</span>
             <div class="stats">
                 {#if adds > 0}
                     <span class="adds">+{adds}</span>
@@ -91,6 +93,10 @@
     .filename {
         font-weight: 600;
         font-family: monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0; /* Allow shrinking for ellipsis to work in flex */
     }
 
     .stats {
