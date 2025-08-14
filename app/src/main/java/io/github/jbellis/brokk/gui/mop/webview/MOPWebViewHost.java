@@ -6,6 +6,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
@@ -147,17 +148,15 @@ public final class MOPWebViewHost extends JPanel {
                     };
                 })();
                 """); // Install wheel event override for platform-specific scroll speed
-                    view.getEngine()
-                            .executeScript(
-                                    """
+                    var wheelOverrideJs = String.format(
+                            Locale.US,
+                            """
                         (function() {
                             try {
                                 // Platform-specific scroll behavior configuration
                                 var scrollSpeedFactor = %f;         // Platform-specific scroll speed factor
                                 var minScrollThreshold = 0.5;       // Minimum delta to process (prevents jitter)
-                                var smoothingFactor = 0.8;          // Smoothing for very small movements"""
-                                                    .formatted(getPlatformScrollSpeedFactor()) // replace scroll speed
-                                            + """
+                                var smoothingFactor = 0.8;          // Smoothing for very small movements
 
                                 var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
                                 var momentum = new Map();      // Track momentum per element
@@ -239,7 +238,9 @@ public final class MOPWebViewHost extends JPanel {
                                 if (window.javaBridge) window.javaBridge.jsLog('ERROR', 'wheel override failed: ' + e);
                             }
                         })();
-                    """);
+                        """,
+                            getPlatformScrollSpeedFactor());
+                    view.getEngine().executeScript(wheelOverrideJs);
                     // Now that the page is loaded, flush any buffered commands
                     flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
