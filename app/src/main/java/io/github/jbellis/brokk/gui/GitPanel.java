@@ -115,7 +115,7 @@ public class GitPanel extends JPanel {
         }
 
         // Rotate tab captions vertically after all tabs are present
-        applyVerticalTabLabels(tabbedPane);
+        VerticalLabel.applyVerticalTabLabels(tabbedPane);
 
         updateBorderTitle(); // Set initial title with branch name
     }
@@ -309,17 +309,5 @@ public class GitPanel extends JPanel {
     String getFileTabName(String filePath) {
         int lastSlash = filePath.lastIndexOf('/');
         return (lastSlash >= 0) ? filePath.substring(lastSlash + 1) : filePath;
-    }
-
-    /**
-     * Replace each tab title with a vertically-painted label so the text reads sideways when the tabs are placed on the
-     * LEFT.
-     */
-    private static void applyVerticalTabLabels(JTabbedPane pane) {
-        for (int i = 0; i < pane.getTabCount(); i++) {
-            String title = pane.getTitleAt(i);
-            var label = new VerticalLabel(title);
-            pane.setTabComponentAt(i, label);
-        }
     }
 }

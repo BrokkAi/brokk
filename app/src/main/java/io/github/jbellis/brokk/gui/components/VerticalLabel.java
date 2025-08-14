@@ -57,4 +57,16 @@ public final class VerticalLabel extends JLabel {
 
         g2.dispose();
     }
+
+    /**
+     * Replace each tab title with a vertically-painted label so the text reads sideways when the tabs are placed on the
+     * LEFT.
+     */
+    public static void applyVerticalTabLabels(JTabbedPane tabbedPane) {
+        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
+            var title = tabbedPane.getTitleAt(i);
+            var vertLabel = new VerticalLabel(title);
+            tabbedPane.setTabComponentAt(i, vertLabel);
+        }
+    }
 }

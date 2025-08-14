@@ -205,7 +205,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitPanel = null;
         }
         // Rotate tab captions vertically
-        applyVerticalTabLabels(leftTabbedPanel);
+        VerticalLabel.applyVerticalTabLabels(leftTabbedPanel);
 
         /*
          * Desired layout (left→right, top→bottom):
@@ -1321,18 +1321,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         boolean inHistoryTable = historyOutputPanel.getHistoryTable() != null
                 && SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable());
         return inContextPanel || inHistoryTable;
-    }
-
-    /**
-     * Replace each tab title with a vertically-painted label so the text reads sideways when the tabs are placed on the
-     * LEFT.
-     */
-    private static void applyVerticalTabLabels(JTabbedPane tabbedPane) {
-        for (int i = 0; i < tabbedPane.getTabCount(); i++) {
-            var title = tabbedPane.getTitleAt(i);
-            var vertLabel = new VerticalLabel(title);
-            tabbedPane.setTabComponentAt(i, vertLabel);
-        }
     }
 
     // --- Global Undo/Redo Action Classes ---
