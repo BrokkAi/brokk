@@ -460,7 +460,7 @@ public class ContextAgent {
         boolean hasContents = !contentsMap.isEmpty();
         assert (hasFilenames ? 1 : 0) + (hasSummaries ? 1 : 0) + (hasContents ? 1 : 0) == 1
                 : "Exactly one of filenames (%s), summaries (%s), or contentsMap (%s) must be non-empty"
-                .formatted(filenames.size(), summaries.size(), contentsMap.size());
+                        .formatted(filenames.size(), summaries.size(), contentsMap.size());
 
         if (deepScan) {
             return askLlmDeepRecommendContext(summaries, contentsMap, workspaceRepresentation);
@@ -483,7 +483,8 @@ public class ContextAgent {
         return askLlmDeepPruneFilenames(filenames, workspaceRepresentation);
     }
 
-    private @NotNull LlmRecommendation askLlmDeepPruneFilenames(List<String> filenames, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
+    private @NotNull LlmRecommendation askLlmDeepPruneFilenames(
+            List<String> filenames, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
         var systemPrompt =
                 """
                 You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
