@@ -1,17 +1,10 @@
 package io.github.jbellis.brokk.gui.components;
 
 import java.awt.*;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.text.JTextComponent;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * A reusable overlay panel that can be placed over other components to make them appear disabled while optionally
@@ -21,18 +14,12 @@ public class OverlayPanel extends JPanel {
     private static final Color TRANSPARENT = new Color(0, 0, 0, 0); // Fully transparent color
 
     private final Consumer<OverlayPanel> onActivate;
-
-    @Nullable
     private final String tooltipText;
-
     private final Color overlayColor; // Never null
     private final boolean isBlocking;
     private boolean isActive = true;
-    // If true, placeholder text is drawn near the top edge instead of centred.
-    private boolean alignTop = false;
 
-    public OverlayPanel(
-            Consumer<OverlayPanel> onActivate, @Nullable String tooltipText, Color overlayColor, boolean isBlocking) {
+    public OverlayPanel(Consumer<OverlayPanel> onActivate, String tooltipText, Color overlayColor, boolean isBlocking) {
         this.onActivate = onActivate;
         this.tooltipText = tooltipText;
         this.overlayColor = overlayColor;
@@ -42,7 +29,7 @@ public class OverlayPanel extends JPanel {
     }
 
     /** Creates a transparent overlay panel with a click handler. */
-    public OverlayPanel(Consumer<OverlayPanel> onActivate, @Nullable String tooltipText) {
+    public OverlayPanel(Consumer<OverlayPanel> onActivate, String tooltipText) {
         this(onActivate, tooltipText, TRANSPARENT, true);
     }
 
@@ -85,72 +72,10 @@ public class OverlayPanel extends JPanel {
     }
 
     @Override
-    @SuppressWarnings("StringSplitter") // we handle wrapping manually, the warning is benign
     protected void paintComponent(Graphics g) {
         Graphics2D g2d = (Graphics2D) g.create();
         g2d.setColor(overlayColor); // overlayColor is never null
         g2d.fillRect(0, 0, getWidth(), getHeight());
-
-        // Draw placeholder / tooltip text
-        if (isActive && tooltipText != null && !tooltipText.isBlank()) {
-            g2d.setColor(Color.GRAY);
-            FontMetrics fm = g2d.getFontMetrics();
-
-            int lineHeight = fm.getHeight();
-            int x = 5; // left padding
-            int maxWidth = getWidth() - x - 5; // keep 5-px right padding
-
-            /* ------------------------------------------------------------------
-               Build a list of lines to draw, honouring explicit '\n' breaks and
-               wrapping long lines so they fit inside maxWidth.
-            ------------------------------------------------------------------ */
-            java.util.List<String> wrappedLines = new java.util.ArrayList<>();
-
-            // First split on explicit newlines (preserve empty paragraphs)
-            for (String paragraph : Pattern.compile("\\R").split(tooltipText, -1)) {
-                if (paragraph.isEmpty()) {
-                    wrappedLines.add("");
-                    continue;
-                }
-
-                StringBuilder lineBuilder = new StringBuilder();
-                for (String word : Pattern.compile("\\s+").split(paragraph)) {
-                    String candidate = (lineBuilder.length() == 0) ? word : lineBuilder + " " + word;
-
-                    if (fm.stringWidth(candidate) > maxWidth && lineBuilder.length() > 0) {
-                        // Current word would overflow ⇒ commit the line and start anew
-                        wrappedLines.add(lineBuilder.toString());
-                        lineBuilder.setLength(0);
-                        lineBuilder.append(word);
-                    } else {
-                        if (lineBuilder.length() == 0) {
-                            lineBuilder.append(word);
-                        } else {
-                            lineBuilder.append(' ').append(word);
-                        }
-                    }
-                }
-                wrappedLines.add(lineBuilder.toString());
-            }
-
-            /* ------------------------------------------------------------------
-               Vertical positioning: either top-aligned or centred as before.
-            ------------------------------------------------------------------ */
-            int totalBlockHeight = lineHeight * wrappedLines.size();
-            int y;
-            if (alignTop) {
-                y = fm.getAscent() + 2; // small top padding
-            } else {
-                y = (getHeight() - totalBlockHeight) / 2 + fm.getAscent();
-            }
-
-            // Finally draw each prepared line
-            for (String line : wrappedLines) {
-                g2d.drawString(line, x, y);
-                y += lineHeight;
-            }
-        }
-
         g2d.dispose();
         super.paintComponent(g);
     }
@@ -180,76 +105,9 @@ public class OverlayPanel extends JPanel {
         isActive = false;
     }
 
-    /**
-     * Choose where the placeholder text is drawn.
-     *
-     * @param top true ⇒ draw near the top; false ⇒ centre vertically (default)
-     */
-    public void setTextAlignmentTop(boolean top) {
-        this.alignTop = top;
-        repaint();
-    }
-
     @Override
     public boolean contains(int x, int y) {
         // If non-blocking, don't claim to contain any points, allowing events to pass through
         return isBlocking && super.contains(x, y);
-    }
-
-    /**
-     * Convenience helper: wraps a JTextComponent with a placeholder OverlayPanel that automatically shows when the
-     * field is empty and unfocused, and hides on focus/typing.
-     *
-     * @param textComponent the field/area to decorate
-     * @param placeholderTxt text to show when empty
-     * @return a JLayeredPane containing the component and its overlay
-     */
-    public static JLayeredPane wrapTextComponentWithPlaceholder(JTextComponent textComponent, String placeholderTxt) {
-        // Clicking the overlay just gives focus to the text component
-        var overlay = new OverlayPanel(op -> textComponent.requestFocusInWindow(), placeholderTxt);
-
-        var layered = overlay.createLayeredPane(textComponent);
-
-        Runnable updateVisibility = () -> {
-            boolean shouldShow =
-                    !textComponent.isFocusOwner() && textComponent.getText().isBlank();
-            if (shouldShow) overlay.showOverlay();
-            else overlay.hideOverlay();
-        };
-
-        // Focus listener – hide on focus, maybe re-show on lost
-        textComponent.addFocusListener(new FocusAdapter() {
-            @Override
-            public void focusGained(FocusEvent e) {
-                overlay.hideOverlay();
-            }
-
-            @Override
-            public void focusLost(FocusEvent e) {
-                updateVisibility.run();
-            }
-        });
-
-        // Document listener – hide when user types, show if becomes empty and unfocused
-        textComponent.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                updateVisibility.run();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                updateVisibility.run();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                updateVisibility.run();
-            }
-        });
-
-        // Initial state
-        updateVisibility.run();
-        return layered;
     }
 }

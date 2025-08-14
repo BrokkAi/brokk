@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import java.awt.*;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -27,9 +26,6 @@ import org.jetbrains.annotations.Nullable;
 public class ProjectFilesPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(ProjectFilesPanel.class);
 
-    /** Text shown inside the search box when it is otherwise empty. */
-    private static final String PLACEHOLDER_TEXT = "Search";
-
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final IProject project;
@@ -49,8 +45,7 @@ public class ProjectFilesPanel extends JPanel {
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
 
-        var searchFieldPane = OverlayPanel.wrapTextComponentWithPlaceholder(searchField, PLACEHOLDER_TEXT);
-        add(searchFieldPane, BorderLayout.NORTH);
+        add(searchField, BorderLayout.NORTH);
         JScrollPane treeScrollPane = new JScrollPane(projectTree);
         add(treeScrollPane, BorderLayout.CENTER);
     }
