@@ -46,9 +46,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private static final int PR_COL_TITLE = 1;
     private static final int PR_COL_AUTHOR = 2;
     private static final int PR_COL_UPDATED = 3;
-    private static final int PR_COL_BASE = 4;
-    private static final int PR_COL_FORK = 5;
-    private static final int PR_COL_STATUS = 6;
+    private static final int PR_COL_STATUS = 4;
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -288,28 +286,36 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         JPanel prTableAndButtonsPanel = new JPanel(new BorderLayout());
 
         // PR Table
-        prTableModel =
-                new DefaultTableModel(new Object[] {"#", "Title", "Author", "Updated", "Base", "Fork", "Status"}, 0) {
-                    @Override
-                    public boolean isCellEditable(int row, int column) {
-                        return false;
-                    }
+        prTableModel = new DefaultTableModel(new Object[] {"#", "Title", "Author", "Updated", "Status"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
 
-                    @Override
-                    public Class<?> getColumnClass(int columnIndex) {
-                        return String.class;
-                    }
-                };
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return String.class;
+            }
+        };
         prTable = new JTable(prTableModel);
+        prTable.setTableHeader(null); // hide column headers
         prTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        prTable.setRowHeight(18);
-        prTable.getColumnModel().getColumn(PR_COL_NUMBER).setPreferredWidth(50); // #
-        prTable.getColumnModel().getColumn(PR_COL_TITLE).setPreferredWidth(400); // Title
-        prTable.getColumnModel().getColumn(PR_COL_AUTHOR).setPreferredWidth(120); // Author
-        prTable.getColumnModel().getColumn(PR_COL_UPDATED).setPreferredWidth(120); // Updated
-        prTable.getColumnModel().getColumn(PR_COL_BASE).setPreferredWidth(120); // Base
-        prTable.getColumnModel().getColumn(PR_COL_FORK).setPreferredWidth(120); // Fork
-        prTable.getColumnModel().getColumn(PR_COL_STATUS).setPreferredWidth(70); // Status
+        prTable.setRowHeight(48); // give cells more height for secondary label
+        // visible column
+        prTable.getColumnModel().getColumn(PR_COL_TITLE).setPreferredWidth(600); // wide cell
+
+        // helper columns – keep for data but hide
+        int[] helperCols = {PR_COL_NUMBER, PR_COL_AUTHOR, PR_COL_UPDATED, PR_COL_STATUS};
+        for (int c : helperCols) {
+            prTable.getColumnModel().getColumn(c).setMinWidth(0);
+            prTable.getColumnModel().getColumn(c).setMaxWidth(0);
+            prTable.getColumnModel().getColumn(c).setPreferredWidth(0);
+        }
+
+        // custom renderer similar to IssueHeader list style
+        prTable.getColumnModel()
+                .getColumn(PR_COL_TITLE)
+                .setCellRenderer(new io.github.jbellis.brokk.gui.components.PullRequestHeaderCellRenderer());
 
         JScrollPane prTableScrollPane = new JScrollPane(prTable);
 
@@ -922,8 +928,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     ciStatusCache.clear();
                     prCommitsCache.clear();
                     prTableModel.setRowCount(0);
-                    prTableModel.addRow(
-                            new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", "", "", ""});
+                    prTableModel.addRow(new Object[] {"", "Error fetching PRs: " + ex.getMessage(), "", "", ""});
                     disablePrButtonsAndClearCommitsAndMenus();
                     authorChoices.clear();
                     labelChoices.clear();
@@ -1073,7 +1078,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTableModel.setRowCount(0);
         var today = LocalDate.now(java.time.ZoneId.systemDefault());
         if (displayedPrs.isEmpty()) {
-            prTableModel.addRow(new Object[] {"", "No matching PRs found", "", "", "", "", ""});
+            prTableModel.addRow(new Object[] {"", "No matching PRs found", "", "", ""});
             disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
         } else {
             // Sort PRs by update date, newest first
@@ -1090,30 +1095,20 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             for (var pr : displayedPrs) {
                 String author = "";
                 String formattedUpdated = "";
-                String forkInfo = "";
                 try {
                     if (pr.getUser() != null) author = pr.getUser().getLogin();
                     if (pr.getUpdatedAt() != null) {
                         Date date = pr.getUpdatedAt();
                         formattedUpdated = GitUiUtil.formatRelativeDate(date.toInstant(), today);
                     }
-                    var headRepo = pr.getHead().getRepository();
-                    if (headRepo != null && headRepo.isFork()) forkInfo = headRepo.getFullName();
                 } catch (IOException ex) {
                     logger.warn("Could not get metadata for PR #{}", pr.getNumber(), ex);
                 }
 
                 String statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "?");
 
-                prTableModel.addRow(new Object[] {
-                    "#" + pr.getNumber(),
-                    pr.getTitle(),
-                    author,
-                    formattedUpdated,
-                    pr.getBase().getRef(),
-                    forkInfo,
-                    statusValue
-                });
+                prTableModel.addRow(
+                        new Object[] {"#" + pr.getNumber(), pr.getTitle(), author, formattedUpdated, statusValue});
             }
         }
         // Buttons state will be managed by selection listener or if selection is empty
