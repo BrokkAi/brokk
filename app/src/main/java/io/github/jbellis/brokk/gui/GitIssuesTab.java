@@ -6,6 +6,7 @@ import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
+import io.github.jbellis.brokk.gui.components.IssueHeaderCellRenderer;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.Environment;
@@ -19,7 +20,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.URI;
-import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +29,6 @@ import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.table.DefaultTableModel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,21 +37,12 @@ import org.jetbrains.annotations.Nullable;
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
 
-    // Issue Table Column Indices
-    private static final int ISSUE_COL_NUMBER = 0;
-    private static final int ISSUE_COL_TITLE = 1;
-    private static final int ISSUE_COL_AUTHOR = 2;
-    private static final int ISSUE_COL_UPDATED = 3;
-    private static final int ISSUE_COL_LABELS = 4;
-    private static final int ISSUE_COL_ASSIGNEES = 5;
-    private static final int ISSUE_COL_STATUS = 6;
-
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitPanel gitPanel;
 
-    private JTable issueTable;
-    private DefaultTableModel issueTableModel;
+    private JList<IssueHeader> issueList;
+    private DefaultListModel<IssueHeader> issueListModel;
     private JTextPane issueBodyTextPane;
     /** Panel that shows the selected issue’s description; hidden until needed. */
     private final JPanel issueDetailPanel;
@@ -339,34 +329,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueTableAndButtonsPanel.add(searchAndFiltersPanel, BorderLayout.NORTH);
 
         // Issue Table
-        issueTableModel =
-                new DefaultTableModel(
-                        new Object[] {"#", "Title", "Author", "Updated", "Labels", "Assignees", "Status"}, 0) {
-                    @Override
-                    public boolean isCellEditable(int row, int column) {
-                        return false;
-                    }
+        issueListModel = new DefaultListModel<>();
+        issueList = new JList<>(issueListModel);
+        issueList.setCellRenderer(new IssueHeaderCellRenderer());
+        issueList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        issueList.setFixedCellHeight(-1); // variable height
+        issueList.setVisibleRowCount(-1);
 
-                    @Override
-                    public Class<?> getColumnClass(int columnIndex) {
-                        return String.class;
-                    }
-                };
-        issueTable = new JTable(issueTableModel);
-        issueTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        issueTable.setRowHeight(18);
-        issueTable.getColumnModel().getColumn(ISSUE_COL_NUMBER).setPreferredWidth(50); // #
-        issueTable.getColumnModel().getColumn(ISSUE_COL_TITLE).setPreferredWidth(350); // Title
-        issueTable.getColumnModel().getColumn(ISSUE_COL_AUTHOR).setPreferredWidth(100); // Author
-        issueTable.getColumnModel().getColumn(ISSUE_COL_UPDATED).setPreferredWidth(120); // Updated
-        issueTable.getColumnModel().getColumn(ISSUE_COL_LABELS).setPreferredWidth(150); // Labels
-        issueTable.getColumnModel().getColumn(ISSUE_COL_ASSIGNEES).setPreferredWidth(150); // Assignees
-        issueTable.getColumnModel().getColumn(ISSUE_COL_STATUS).setPreferredWidth(70); // Status
+        // Ensure tooltips are enabled for the list
+        ToolTipManager.sharedInstance().registerComponent(issueList);
 
-        // Ensure tooltips are enabled for the table
-        ToolTipManager.sharedInstance().registerComponent(issueTable);
-
-        issueTableAndButtonsPanel.add(new JScrollPane(issueTable), BorderLayout.CENTER);
+        issueTableAndButtonsPanel.add(new JScrollPane(issueList), BorderLayout.CENTER);
 
         // Create shared actions
         copyDescriptionAction = new AbstractAction("Copy Description") {
@@ -493,15 +466,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueContextMenu.add(new JMenuItem(captureAction));
 
         // Add mouse listener for context menu on issue table
-        issueTable.addMouseListener(new MouseAdapter() {
+        issueList.addMouseListener(new MouseAdapter() {
             private void showPopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    int row = issueTable.rowAtPoint(e.getPoint());
-                    if (row >= 0 && row < issueTable.getRowCount()) {
-                        // Select the row under the mouse pointer before showing the context menu.
-                        // This ensures that getSelectedRow() in action listeners returns the correct row,
-                        // and triggers the ListSelectionListener to update enable/disable states.
-                        issueTable.setRowSelectionInterval(row, row);
+                    int index = issueList.locationToIndex(e.getPoint());
+                    if (index >= 0 && index < issueListModel.size()) {
+                        issueList.setSelectedIndex(index);
                         issueContextMenu.show(e.getComponent(), e.getX(), e.getY());
                     }
                 }
@@ -519,49 +489,30 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         });
 
         // Listen for Issue selection changes
-        issueTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting() && issueTable.getSelectedRow() != -1) {
-                int viewRow = issueTable.getSelectedRow();
-                if (viewRow != -1) {
-                    int modelRow = issueTable.convertRowIndexToModel(viewRow);
-                    if (modelRow < 0 || modelRow >= displayedIssues.size()) {
-                        logger.warn(
-                                "Selected row {} (model {}) is out of bounds for displayed issues size {}",
-                                viewRow,
-                                modelRow,
-                                displayedIssues.size());
-                        disableIssueActionsAndClearDetails();
-                        pendingHeaderForDescription = null;
-                        if (descriptionDebounceTimer.isRunning()) {
-                            descriptionDebounceTimer.stop();
-                        }
-                        return;
-                    }
-                    IssueHeader selectedHeader = displayedIssues.get(modelRow);
-
-                    // Enable actions immediately for responsiveness
-                    copyDescriptionAction.setEnabled(true);
-                    openInBrowserAction.setEnabled(true);
-                    captureAction.setEnabled(true);
-                    issueDetailPanel.setVisible(true);
-
-                    // Debounce loading of the issue body
-                    pendingHeaderForDescription = selectedHeader;
-                    descriptionDebounceTimer.restart();
-
-                } else { // No selection or invalid row
+        issueList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                int index = issueList.getSelectedIndex();
+                if (index == -1 || index >= displayedIssues.size()) {
                     disableIssueActionsAndClearDetails();
                     pendingHeaderForDescription = null;
                     if (descriptionDebounceTimer.isRunning()) {
                         descriptionDebounceTimer.stop();
                     }
+                    return;
                 }
-            } else if (issueTable.getSelectedRow() == -1) { // if selection is explicitly cleared
-                disableIssueActionsAndClearDetails();
-                pendingHeaderForDescription = null;
-                if (descriptionDebounceTimer.isRunning()) {
-                    descriptionDebounceTimer.stop();
-                }
+                IssueHeader selectedHeader = displayedIssues.get(index);
+
+                // Enable actions immediately for responsiveness
+                copyDescriptionAction.setEnabled(true);
+                openInBrowserAction.setEnabled(true);
+                captureAction.setEnabled(true);
+                issueDetailPanel.setVisible(true);
+
+                // Debounce loading of the issue body
+                pendingHeaderForDescription = selectedHeader;
+                descriptionDebounceTimer.restart();
+
+                // No selection or invalid row handled above; redundant else removed
             }
         });
 
@@ -831,9 +782,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     SwingUtilities.invokeLater(() -> {
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
-                        issueTableModel.setRowCount(0);
-                        issueTableModel.addRow(
-                                new Object[] {"", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""});
+                        issueListModel.clear();
                         disableIssueActionsAndClearDetails();
                         searchBox.setLoading(false, ""); // Stop loading on error
                     });
@@ -856,9 +805,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private void triggerClientSideFilterUpdate() {
         // This method is called when author, label, or assignee filters change.
         // It re-filters the existing 'allIssuesFromApi' list.
-        if (allIssuesFromApi.isEmpty()
-                && issueTableModel.getRowCount() > 0
-                && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues")) {
+        if (allIssuesFromApi.isEmpty() && issueListModel.isEmpty()) {
             logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
             return;
         }
@@ -945,41 +892,16 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             logger.debug("processAndDisplayWorker (EDT): Set displayedIssues with {} issues.", displayedIssues.size());
 
             // Update table model
-            issueTableModel.setRowCount(0);
-            var today = LocalDate.now(java.time.ZoneId.systemDefault());
+            issueListModel.clear();
             if (displayedIssues.isEmpty()) {
-                issueTableModel.addRow(new Object[] {"", "No matching issues found", "", "", "", "", ""});
                 disableIssueActions();
             } else {
-                for (var header : displayedIssues) {
-                    String formattedUpdated;
-                    formattedUpdated = header.updated() != null
-                            ? GitUiUtil.formatRelativeDate(header.updated().toInstant(), today)
-                            : "";
-                    String labelsStr = String.join(", ", header.labels());
-                    String assigneesStr = String.join(", ", header.assignees());
-
-                    issueTableModel.addRow(new Object[] {
-                        header.id(),
-                        header.title(),
-                        header.author(),
-                        formattedUpdated,
-                        labelsStr,
-                        assigneesStr,
-                        header.status()
-                    });
-                }
+                displayedIssues.forEach(issueListModel::addElement);
             }
-            logger.debug("processAndDisplayWorker (EDT): Table model updated.");
 
             // Manage button states based on selection
-            if (issueTable.getSelectedRow() == -1) {
+            if (issueList.getSelectedIndex() == -1) {
                 disableIssueActions();
-            } else {
-                // Trigger selection listener to update button states correctly for the (potentially new) selection
-                // This ensures that if the selection is still valid, actions are enabled.
-                issueTable.getSelectionModel().setValueIsAdjusting(true);
-                issueTable.getSelectionModel().setValueIsAdjusting(false);
             }
             searchBox.setLoading(false, ""); // Stop loading after UI updates
             logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
@@ -1061,7 +983,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void captureSelectedIssue() {
-        int selectedRow = issueTable.getSelectedRow();
+        int selectedRow = issueList.getSelectedIndex();
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
@@ -1215,7 +1137,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void copySelectedIssueDescription() {
-        int selectedRow = issueTable.getSelectedRow();
+        int selectedRow = issueList.getSelectedIndex();
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
@@ -1242,7 +1164,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void openSelectedIssueInBrowser() {
-        int selectedRow = issueTable.getSelectedRow();
+        int selectedRow = issueList.getSelectedIndex();
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }

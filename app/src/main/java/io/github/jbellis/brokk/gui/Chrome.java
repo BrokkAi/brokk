@@ -13,7 +13,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.components.VerticalLabel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
@@ -194,18 +193,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
-        leftTabbedPanel.addTab("Project Files", projectFilesPanel);
+        leftTabbedPanel.addTab("", SwingUtil.uiIcon("Brokk.folder_code"), projectFilesPanel);
 
         // Add Git tab if available
         if (getProject().hasGit()) {
             gitPanel = new GitPanel(this, contextManager);
-            leftTabbedPanel.addTab("Git", gitPanel);
+            leftTabbedPanel.addTab("", SwingUtil.uiIcon("Brokk.commit"), gitPanel);
             gitPanel.updateRepo();
         } else {
             gitPanel = null;
         }
-        // Rotate tab captions vertically
-        VerticalLabel.applyVerticalTabLabels(leftTabbedPanel);
 
         /*
          * Desired layout (left→right, top→bottom):

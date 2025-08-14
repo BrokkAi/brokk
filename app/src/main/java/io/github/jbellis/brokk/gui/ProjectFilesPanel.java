@@ -40,7 +40,12 @@ public class ProjectFilesPanel extends JPanel {
         this.contextManager = contextManager;
         this.project = contextManager.getProject();
 
-        setBorder(BorderFactory.createEmptyBorder(6, 6, 5, 6));
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Project Files",
+                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
+                javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
