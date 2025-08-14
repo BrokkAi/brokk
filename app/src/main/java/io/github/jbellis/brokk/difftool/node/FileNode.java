@@ -13,6 +13,13 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
     private volatile SoftReference<@Nullable FileDocument> documentRef; // documentRef itself is @NonNull
     private final Object lock = new Object(); // For synchronizing document creation
 
+    /**
+     * Creates a FileNode for representing a real file on disk.
+     *
+     * @param name Display name for the file, typically the absolute path for proper ProjectFile creation, but can be
+     *     customized for display purposes
+     * @param file The actual File object pointing to the file on disk
+     */
     public FileNode(String name, File file) {
         this.name = name;
         this.file = file;

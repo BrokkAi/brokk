@@ -3,10 +3,13 @@ package io.github.jbellis.brokk;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.git.GitDistance;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
@@ -68,26 +71,31 @@ public class AnalyzerUtil {
         return new CodeWithSource(code.toString(), sources);
     }
 
-    public static List<CodeUnit> combinedPagerankFor(IAnalyzer analyzer, Map<String, Double> weightedSeeds) {
-        logger.trace("Computing pagerank for {}", weightedSeeds);
+    public static List<CodeUnit> combinedRankingFor(
+            IAnalyzer analyzer, Path projectRoot, Map<String, Double> weightedSeeds) {
+        logger.trace("Computing relevant code unit ranking for {}", weightedSeeds);
 
-        // do forward and reverse pagerank passes
-        var forwardResults = analyzer.getPagerank(weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, false);
-        var reverseResults = analyzer.getPagerank(weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, true);
+        List<IAnalyzer.CodeUnitRelevance> results;
+        try {
+            results =
+                    GitDistance.getPMI(analyzer, projectRoot, weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, false);
+        } catch (GitAPIException e) {
+            logger.warn("Unable to calculate GitDistance PMI Ranking, falling back on analyzer's default metric.");
+            results = analyzer.getRelevantCodeUnits(weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, false);
+        }
 
         // combine results by summing scores
         var combinedScores = new HashMap<CodeUnit, Double>();
-        forwardResults.forEach(pair -> combinedScores.put(pair.unit(), pair.score()));
-        reverseResults.forEach(pair -> combinedScores.merge(pair.unit(), pair.score(), Double::sum));
+        results.forEach(pair -> combinedScores.put(pair.unit(), pair.score()));
 
         // sort by combined score
         var result = combinedScores.entrySet().stream()
                 .sorted(Map.Entry.<CodeUnit, Double>comparingByValue().reversed())
                 .map(Map.Entry::getKey)
-                // isClassInProject filtering is implicitly handled by getPagerank returning CodeUnits
+                // isClassInProject filtering is implicitly handled by getRelevantCodeUnits returning CodeUnits
                 .toList();
 
-        logger.trace("Pagerank results: {}", result);
+        logger.trace("Code Unit Ranking results: {}", result);
         return result;
     }
 

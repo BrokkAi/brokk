@@ -121,33 +121,32 @@ public final class MOPWebViewHost extends JPanel {
                     view.getEngine()
                             .executeScript(
                                     """
-                        (function() {
-                            var originalLog = console.log;
-                            var originalError = console.error;
-                            var originalWarn = console.warn;
+                    (function() {
+                    var originalLog = console.log;
+                    var originalError = console.error;
+                    var originalWarn = console.warn;
 
-                            function toStringWithStack(arg) {
-                                return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
-                            }
+                    function toStringWithStack(arg) {
+                        return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
+                    }
 
-                            console.log = function() {
-                                var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                                if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
-                                originalLog.apply(console, arguments);
-                            };
-                            console.error = function() {
-                                var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                                if (window.javaBridge) window.javaBridge.jsLog('ERROR', msg);
-                                originalError.apply(console, arguments);
-                            };
-                            console.warn = function() {
-                                var msg = Array.from(arguments).map(toStringWithStack).join(' ');
-                                if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
-                                originalWarn.apply(console, arguments);
-                            };
-                        })();
-                        """);
-                    // Install wheel event override for platform-specific scroll speed
+                    console.log = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
+                        originalLog.apply(console, arguments);
+                    };
+                    console.error = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('ERROR', msg);
+                        originalError.apply(console, arguments);
+                    };
+                    console.warn = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
+                        originalWarn.apply(console, arguments);
+                    };
+                })();
+                """); // Install wheel event override for platform-specific scroll speed
                     view.getEngine()
                             .executeScript(
                                     """

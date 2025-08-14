@@ -84,7 +84,7 @@ public class ASTTraversalUtils {
     }
 
     /**
-     * Extracts text from a TSNode using the file content. Properly handles UTF-8 byte offset to character position
+     * Extracts text from a TSNode using the file content.Properly handles UTF-8 byte offset to character position
      * conversion.
      */
     public static String extractNodeText(@Nullable TSNode node, @Nullable String fileContent) {

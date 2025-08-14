@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
+import io.github.jbellis.brokk.analyzer.IAnalyzer.CodeUnitRelevance
+
 import java.util
 import java.util.{Collections, Optional}
 
@@ -21,11 +23,11 @@ class DisabledAnalyzer extends IAnalyzer {
   override def getDeclarationsInFile(file: ProjectFile): util.Set[CodeUnit] =
     Collections.emptySet()
 
-  override def getPagerank(
+  override def getRelevantCodeUnits(
     seedClassWeights: java.util.Map[String, java.lang.Double],
     k: Int,
     reversed: Boolean = false
-  ): java.util.List[IAnalyzer.PageRankResult] =
+  ): java.util.List[CodeUnitRelevance] =
     Collections.emptyList()
 
   override def getSkeleton(className: String): Optional[String] =

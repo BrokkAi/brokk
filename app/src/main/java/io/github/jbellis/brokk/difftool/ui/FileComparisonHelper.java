@@ -26,17 +26,23 @@ public class FileComparisonHelper {
             BufferSource left, BufferSource right, ContextManager contextManager, boolean isMultipleCommitsContext) {
 
         String leftDocSyntaxHint = left.title();
+        String leftFullPath = left.title(); // Store full path for FileNode
         if (left instanceof BufferSource.StringSource stringSourceLeft && stringSourceLeft.filename() != null) {
             leftDocSyntaxHint = stringSourceLeft.filename();
+            leftFullPath = stringSourceLeft.filename();
         } else if (left instanceof BufferSource.FileSource fileSourceLeft) {
             leftDocSyntaxHint = fileSourceLeft.file().getName();
+            leftFullPath = fileSourceLeft.file().getAbsolutePath(); // Use full path
         }
 
         String rightDocSyntaxHint = right.title();
+        String rightFullPath = right.title(); // Store full path for FileNode
         if (right instanceof BufferSource.StringSource stringSourceRight && stringSourceRight.filename() != null) {
             rightDocSyntaxHint = stringSourceRight.filename();
+            rightFullPath = stringSourceRight.filename();
         } else if (right instanceof BufferSource.FileSource fileSourceRight) {
             rightDocSyntaxHint = fileSourceRight.file().getName();
+            rightFullPath = fileSourceRight.file().getAbsolutePath(); // Use full path
         }
 
         String leftFileDisplay = leftDocSyntaxHint;
@@ -48,14 +54,17 @@ public class FileComparisonHelper {
         }
         var node = new JMDiffNode(nodeTitle, true);
 
+        // Handle real files (FileSource) vs virtual files (StringSource)
+        // FileSource: Real files on disk, use FileNode with absolute paths for proper ProjectFile creation
+        // StringSource: Virtual content from commits/branches, use StringNode with display names
         if (left instanceof BufferSource.FileSource fileSourceLeft) {
-            node.setBufferNodeLeft(new FileNode(leftDocSyntaxHint, fileSourceLeft.file()));
+            node.setBufferNodeLeft(new FileNode(leftFullPath, fileSourceLeft.file()));
         } else if (left instanceof BufferSource.StringSource stringSourceLeft) {
             node.setBufferNodeLeft(new StringNode(leftDocSyntaxHint, stringSourceLeft.content()));
         }
 
         if (right instanceof BufferSource.FileSource fileSourceRight) {
-            node.setBufferNodeRight(new FileNode(rightDocSyntaxHint, fileSourceRight.file()));
+            node.setBufferNodeRight(new FileNode(rightFullPath, fileSourceRight.file()));
         } else if (right instanceof BufferSource.StringSource stringSourceRight) {
             node.setBufferNodeRight(new StringNode(rightDocSyntaxHint, stringSourceRight.content()));
         }

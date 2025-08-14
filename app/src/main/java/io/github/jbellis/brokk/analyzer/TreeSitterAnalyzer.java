@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.git.GitDistance;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -26,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -545,6 +547,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     }
                     return Optional.of(String.join("\n\n", individualMethodSources));
                 });
+    }
+
+    @Override
+    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
+        try {
+            return GitDistance.getPagerank(this, project.getRoot(), seedClassWeights, k, reversed);
+        } catch (GitAPIException e) {
+            log.error("Git-related exception raised while computing page rank, returning empty result.", e);
+            return Collections.emptyList();
+        }
     }
 
     /* ---------- abstract hooks ---------- */
@@ -1726,6 +1738,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error - use safe conversion method
             log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
+
             return ASTTraversalUtils.safeSubstringFromByteOffsets(src, node.getStartByte(), node.getEndByte());
         }
 
@@ -1742,6 +1755,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error - use safe conversion method
             log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
+
             return ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
         }
 
@@ -1792,6 +1806,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             final String snippet = ASTTraversalUtils.safeSubstringFromByteOffsets(
                     src, decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
+
             log.warn(
                     "Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
                     identifierFieldName,

@@ -61,7 +61,7 @@ public class MultiAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<PageRankResult> getPagerank(Map<String, Double> seedClassWeights, int k, boolean reversed) {
+    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
         if (seedClassWeights.isEmpty()) {
             logger.warn("MultiAnalyzer pagerank called with empty seed classes -- sub analyzer will be ~random");
         }
@@ -87,7 +87,7 @@ public class MultiAnalyzer implements IAnalyzer {
             }
 
             if (meetsSeedCriteria) {
-                return analyzer.getPagerank(seedClassWeights, k, reversed);
+                return analyzer.getRelevantCodeUnits(seedClassWeights, k, reversed);
             }
         }
         return List.of(); // No suitable analyzer found
