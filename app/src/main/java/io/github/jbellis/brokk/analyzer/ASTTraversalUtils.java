@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.analyzer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSNode;
 
@@ -11,6 +13,7 @@ import org.treesitter.TSNode;
  * recursive node searching and traversal operations.
  */
 public class ASTTraversalUtils {
+    private static final Logger log = LogManager.getLogger(ASTTraversalUtils.class);
 
     /** Recursively finds the first node matching the given predicate. */
     public static @Nullable TSNode findNodeRecursive(@Nullable TSNode rootNode, Predicate<TSNode> predicate) {
@@ -80,7 +83,10 @@ public class ASTTraversalUtils {
         });
     }
 
-    /** Extracts text from a TSNode using the file content. */
+    /**
+     * Extracts text from a TSNode using the file content.Properly handles UTF-8 byte offset to character position
+     * conversion.
+     */
     public static String extractNodeText(@Nullable TSNode node, @Nullable String fileContent) {
         if (node == null || node.isNull() || fileContent == null) {
             return "";
@@ -89,11 +95,65 @@ public class ASTTraversalUtils {
         int startByte = node.getStartByte();
         int endByte = node.getEndByte();
 
-        if (startByte < 0 || endByte > fileContent.length() || startByte > endByte) {
+        if (startByte < 0 || startByte > endByte) {
             return "";
         }
 
-        return fileContent.substring(startByte, endByte).trim();
+        return safeSubstringFromByteOffsets(fileContent, startByte, endByte).trim();
+    }
+
+    /**
+     * Converts UTF-8 byte offset to Java string character position. This is needed because TreeSitter provides byte
+     * offsets but Java strings use character positions.
+     */
+    public static int byteOffsetToCharPosition(int byteOffset, String source) {
+        if (byteOffset <= 0) return 0;
+
+        byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (byteOffset >= sourceBytes.length) return source.length();
+
+        // Create substring from bytes and get its character length
+        String substring = new String(sourceBytes, 0, byteOffset, java.nio.charset.StandardCharsets.UTF_8);
+        return substring.length();
+    }
+
+    /**
+     * Safely extracts substring using UTF-8 byte offsets converted to character positions. This method should be used
+     * instead of direct String.substring() with byte offsets.
+     */
+    public static String safeSubstringFromByteOffsets(String source, int startByte, int endByte) {
+        if (startByte < 0 || endByte < startByte) {
+            log.warn(
+                    "Requested bytes outside valid range for source text (length: {} bytes): startByte={}, endByte={}",
+                    source.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                    startByte,
+                    endByte);
+            return "";
+        }
+
+        // Handle zero-width nodes (same start and end position) - valid case
+        if (startByte == endByte) {
+            return "";
+        }
+
+        // Validate byte offsets against actual source byte length
+        byte[] sourceBytes = source.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (startByte >= sourceBytes.length) {
+            log.warn("Start byte offset {} exceeds source byte length {}", startByte, sourceBytes.length);
+            return "";
+        }
+        if (endByte > sourceBytes.length) {
+            log.warn("End byte offset {} exceeds source byte length {}, truncating", endByte, sourceBytes.length);
+            endByte = sourceBytes.length;
+        }
+
+        int startChar = byteOffsetToCharPosition(startByte, source);
+        int endChar = byteOffsetToCharPosition(endByte, source);
+
+        if (startChar >= source.length()) return "";
+        if (endChar > source.length()) endChar = source.length();
+
+        return source.substring(startChar, endChar);
     }
 
     /** Finds all nodes of a specific type within the AST. */

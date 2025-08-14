@@ -573,7 +573,10 @@ public class HistoryOutputPanel extends JPanel {
             // Add rows for each context in history
             for (var ctx : contextManager.getContextHistoryList()) {
                 // Add icon for AI responses, null for user actions
-                Icon iconEmoji = (ctx.getParsedOutput() != null) ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
+                boolean hasAiMessages = ctx.getParsedOutput() != null
+                        && ctx.getParsedOutput().messages().stream()
+                                .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
+                Icon iconEmoji = hasAiMessages ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
                 historyModel.addRow(new Object[] {
                     iconEmoji, ctx.getAction(), ctx // We store the actual context object in hidden column
                 });

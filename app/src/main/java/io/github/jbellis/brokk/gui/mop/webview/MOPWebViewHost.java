@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -61,6 +62,19 @@ public final class MOPWebViewHost extends JPanel {
         SwingUtilities.invokeLater(this::initializeFxPanel);
     }
 
+    /**
+     * Determines the appropriate scroll speed factor based on the current platform. Different operating systems have
+     * different scroll sensitivities.
+     */
+    private static double getPlatformScrollSpeedFactor() {
+        if (Environment.isMacOs()) {
+            return 0.3; // macOS trackpads are very sensitive
+        } else {
+            // Windows, Linux, and other platforms
+            return 1.7;
+        }
+    }
+
     private void initializeFxPanel() {
         fxPanel = new JFXPanel();
         fxPanel.setVisible(false); // Start hidden to prevent flicker
@@ -103,12 +117,11 @@ public final class MOPWebViewHost extends JPanel {
                     for (var l : searchListeners) {
                         bridge.addSearchStateListener(l);
                     }
-
                     // Inject JavaScript to intercept console methods and forward to Java bridge with stack traces
                     view.getEngine()
                             .executeScript(
                                     """
-                (function() {
+                    (function() {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
@@ -133,7 +146,100 @@ public final class MOPWebViewHost extends JPanel {
                         originalWarn.apply(console, arguments);
                     };
                 })();
-                """);
+                """); // Install wheel event override for platform-specific scroll speed
+                    view.getEngine()
+                            .executeScript(
+                                    """
+                        (function() {
+                            try {
+                                // Platform-specific scroll behavior configuration
+                                var scrollSpeedFactor = %f;         // Platform-specific scroll speed factor
+                                var minScrollThreshold = 0.5;       // Minimum delta to process (prevents jitter)
+                                var smoothingFactor = 0.8;          // Smoothing for very small movements"""
+                                                    .formatted(getPlatformScrollSpeedFactor()) // replace scroll speed
+                                            + """
+
+                                var smoothScrolls = new Map(); // Track ongoing smooth scrolls per element
+                                var momentum = new Map();      // Track momentum per element
+
+                                function findScrollable(el) {
+                                    while (el && el !== document.body && el !== document.documentElement) {
+                                        var style = getComputedStyle(el);
+                                        var canScrollY = (style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight;
+                                        var canScrollX = (style.overflowX === 'auto' || style.overflowX === 'scroll') && el.scrollWidth > el.clientWidth;
+                                        if (canScrollY || canScrollX) return el;
+                                        el = el.parentElement;
+                                    }
+                                    return document.scrollingElement || document.documentElement || document.body;
+                                }
+
+                                function smoothScroll(element, targetX, targetY, duration) {
+                                    duration = duration || animationDuration;
+                                    var startX = element.scrollLeft;
+                                    var startY = element.scrollTop;
+                                    var deltaX = targetX - startX;
+                                    var deltaY = targetY - startY;
+                                    var startTime = performance.now();
+
+                                    // Cancel any existing smooth scroll for this element
+                                    var existing = smoothScrolls.get(element);
+                                    if (existing) {
+                                        cancelAnimationFrame(existing);
+                                    }
+
+                                    function animate(currentTime) {
+                                        var elapsed = currentTime - startTime;
+                                        var progress = Math.min(elapsed / duration, 1);
+
+                                        // Ease out cubic for smooth deceleration
+                                        var eased = 1 - Math.pow(1 - progress, 3);
+
+                                        element.scrollLeft = startX + deltaX * eased;
+                                        element.scrollTop = startY + deltaY * eased;
+
+                                        if (progress < 1) {
+                                            var animId = requestAnimationFrame(animate);
+                                            smoothScrolls.set(element, animId);
+                                        } else {
+                                            smoothScrolls.delete(element);
+                                        }
+                                    }
+
+                                    var animId = requestAnimationFrame(animate);
+                                    smoothScrolls.set(element, animId);
+                                }
+
+                                window.addEventListener('wheel', function(ev) {
+                                    if (ev.ctrlKey || ev.metaKey) { return; } // let zoom gestures pass
+                                    var target = findScrollable(ev.target);
+                                    if (!target) return;
+
+                                    ev.preventDefault();
+
+                                    var dx = ev.deltaX * scrollSpeedFactor;
+                                    var dy = ev.deltaY * scrollSpeedFactor;
+
+                                    // Filter out very small deltas to prevent jitter
+                                    if (Math.abs(dx) < minScrollThreshold) dx = 0;
+                                    if (Math.abs(dy) < minScrollThreshold) dy = 0;
+
+                                    // Apply scroll immediately with rounding to prevent sub-pixel issues
+                                    if (dx) {
+                                        var newScrollLeft = target.scrollLeft + Math.round(dx);
+                                        var maxScrollLeft = target.scrollWidth - target.clientWidth;
+                                        target.scrollLeft = Math.max(0, Math.min(newScrollLeft, maxScrollLeft));
+                                    }
+                                    if (dy) {
+                                        var newScrollTop = target.scrollTop + Math.round(dy);
+                                        var maxScrollTop = target.scrollHeight - target.clientHeight;
+                                        target.scrollTop = Math.max(0, Math.min(newScrollTop, maxScrollTop));
+                                    }
+                                }, { passive: false, capture: true });
+                            } catch (e) {
+                                if (window.javaBridge) window.javaBridge.jsLog('ERROR', 'wheel override failed: ' + e);
+                            }
+                        })();
+                    """);
                     // Now that the page is loaded, flush any buffered commands
                     flushBufferedCommands();
                     // Show the panel only after the page is fully loaded

@@ -229,49 +229,31 @@ public class FileSelectionPanel extends JPanel {
             return List.of();
         }
 
-        List<String> filenames = config.multiSelect() ? splitQuotedString(inputText) : List.of(inputText);
-        logger.debug("Input strings to resolve: {}", filenames);
+        List<String> tokens = config.multiSelect() ? splitQuotedString(inputText) : List.of(inputText);
+        logger.debug("Input strings to resolve: {}", tokens);
 
-        Map<Path, BrokkFile> uniqueFiles = new HashMap<>();
-        for (String filenameToken : filenames) {
-            if (filenameToken.isBlank()) continue;
+        // De-dup while preserving order
+        Set<BrokkFile> uniques = new LinkedHashSet<>();
 
-            Path potentialPath = Path.of(filenameToken); // Path.of normalizes, good.
+        for (String token : tokens) {
+            if (token.isBlank()) continue;
 
-            if (potentialPath.isAbsolute()) {
-                if (Files.isRegularFile(potentialPath)) { // Must be an actual file for external
-                    if (potentialPath.startsWith(rootPath)) {
-                        Path relPath = rootPath.relativize(potentialPath);
-                        uniqueFiles.put(potentialPath, new ProjectFile(rootPath, relPath));
-                    } else if (config.allowExternalFiles()) {
-                        uniqueFiles.put(potentialPath, new ExternalFile(potentialPath));
-                    } else {
-                        logger.warn(
-                                "Absolute path provided is outside the project and external files are not allowed: {}",
-                                filenameToken);
-                    }
-                } else if (config.allowExternalFiles() && Files.exists(potentialPath)) {
-                    logger.warn("Absolute path provided is not a regular file (e.g. a directory): {}", filenameToken);
+            // Robust, platform-safe expansion for both absolute/relative and glob/exact
+            List<Path> expanded = Completions.expandPatternToPaths(project, token);
+
+            for (Path p : expanded) {
+                var abs = p.toAbsolutePath().normalize();
+                if (abs.startsWith(rootPath)) {
+                    uniques.add(new ProjectFile(rootPath, rootPath.relativize(abs)));
+                } else if (config.allowExternalFiles()) {
+                    uniques.add(new ExternalFile(abs));
                 } else {
-                    logger.warn("Absolute path provided is not a regular file or does not exist: {}", filenameToken);
-                }
-            } else { // Relative path, assume project relative or glob
-                var expanded = Completions.expandPath(project, filenameToken);
-                for (BrokkFile file : expanded) {
-                    uniqueFiles.put(file.absPath(), file);
+                    logger.warn("External file outside project and not allowed: {}", abs);
                 }
             }
         }
 
-        List<BrokkFile> result = new ArrayList<>(uniqueFiles.values());
-
-        // If external files are not allowed, keep only git-tracked project files.
-        if (!config.allowExternalFiles()) {
-            assert true : "project should not be null when external files are disallowed";
-            var tracked = project.getAllFiles();
-            //noinspection SuspiciousMethodCalls
-            result = result.stream().filter(tracked::contains).toList();
-        }
+        List<BrokkFile> result = new ArrayList<>(uniques);
 
         logger.debug("Resolved unique files: {}", result);
         return result;

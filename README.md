@@ -25,6 +25,6 @@ Brokk documentation is at https://brokk.ai/documentation/.
 Brokk uses Gradle with Scala support. To build Brokk,
 1. Ensure you have JDK 21 or newer
 2. Run Gradle commands directly: `./gradlew <command>`
-3. Available commands: `run`, `clean`, `test`, `build`, `shadowJar`, etc.
+3. Available commands: `run`, `clean`, `test`, `build`, `shadowJar`, `tidy`, etc.
 
 There are documents on specific aspects of the code in [development.md](https://github.com/BrokkAi/brokk/tree/master/app/src/main/development.md).

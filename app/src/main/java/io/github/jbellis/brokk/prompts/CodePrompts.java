@@ -56,8 +56,11 @@ public abstract class CodePrompts {
 
     public static final String GPT5_MARKDOWN_REMINDER =
             """
-            Use Markdown **only where semantically correct** (e.g., `inline code`, ```code fences```, lists, tables, headings).
-            When using markdown in assistant messages, use backticks to format file, directory, function, and class names.
+            Use Markdown where appropriate.
+            File, directory, function, and class names should all be formatted as `inline code`.
+            Pseudocode should be formatted in ```code fences```.
+
+            When in doubt, it's better to avoid formatting than to overdo it.
             """
                     .stripIndent();
 
@@ -359,7 +362,8 @@ public abstract class CodePrompts {
                you need to see to answer accurately, do your best to take educated guesses but clarify that
                it IS an educated guess and ask the user to add the relevant code.
 
-               Format your answer with Markdown for readability.
+               Format your answer with Markdown for readability. It's particularly important to signal
+               changes in subject with appropriate headings.
                </instructions>
 
                <question>

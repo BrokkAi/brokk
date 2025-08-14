@@ -585,12 +585,12 @@ public class ArchitectAgent {
                         "Error from LLM while deciding next action: {}",
                         result.error().getMessage());
                 io.systemOutput("Error from LLM while deciding next action (see debug log for details)");
-                return llmErrorResult();
+                return llmErrorResult(result.error().getMessage());
             }
             if (result.isEmpty()) {
                 var msg = "Empty LLM response. Stopping project now";
                 io.systemOutput(msg);
-                return llmErrorResult();
+                return llmErrorResult(null);
             }
             // show thinking
             if (!result.text().isBlank()) {
@@ -742,7 +742,7 @@ public class ArchitectAgent {
                 } catch (FatalLlmException e) {
                     var errorMessage = "Fatal LLM error executing Code Agent: %s".formatted(e.getMessage());
                     io.systemOutput(errorMessage);
-                    return llmErrorResult();
+                    return llmErrorResult(e.getMessage());
                 }
 
                 architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
@@ -794,11 +794,14 @@ public class ArchitectAgent {
         }
     }
 
-    private TaskResult llmErrorResult() {
+    private TaskResult llmErrorResult(@Nullable String message) {
+        if (message == null) {
+            message = "LLM returned an error with no explanation";
+        }
         return new TaskResult(
                 contextManager,
                 "Architect: " + goal,
-                List.of(),
+                List.of(Messages.create(message, ChatMessageType.CUSTOM)),
                 Set.of(),
                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR));
     }

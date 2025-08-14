@@ -467,6 +467,10 @@ public class CodeAgent {
         if (!newFiles.isEmpty()) {
             try {
                 contextManager.getRepo().add(newFiles);
+                // the file watcher that normally does this automatically is paused during task execution.
+                // clear the cache manually so BuildAgent's call to CM::getTestFiles sees the new files as part of the
+                // project.
+                contextManager.getRepo().invalidateCaches();
             } catch (GitAPIException e) {
                 io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }

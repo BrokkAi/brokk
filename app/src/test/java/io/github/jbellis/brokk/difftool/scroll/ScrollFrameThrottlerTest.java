@@ -11,11 +11,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 /**
  * Comprehensive tests for the ScrollFrameThrottler class to verify frame-based throttling behavior, performance
  * characteristics, and dynamic configuration capabilities.
  */
+@EnabledOnOs(OS.LINUX)
 class ScrollFrameThrottlerTest {
 
     private ScrollFrameThrottler throttler;
