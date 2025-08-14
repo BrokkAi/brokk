@@ -193,12 +193,42 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
-        leftTabbedPanel.addTab("", SwingUtil.uiIcon("Brokk.folder_code"), projectFilesPanel);
+        var projectIcon = requireNonNull(SwingUtil.uiIcon("Brokk.folder_code"));
+        leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
+        var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
+        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
+        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
+        projectTabLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                leftTabbedPanel.setSelectedIndex(projectTabIdx);
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                leftTabbedPanel.setSelectedIndex(projectTabIdx);
+            }
+        });
 
         // Add Git tab if available
         if (getProject().hasGit()) {
             gitPanel = new GitPanel(this, contextManager);
-            leftTabbedPanel.addTab("", SwingUtil.uiIcon("Brokk.commit"), gitPanel);
+            var gitIcon = requireNonNull(SwingUtil.uiIcon("Brokk.commit"));
+            leftTabbedPanel.addTab(null, gitIcon, gitPanel);
+            var gitTabIdx = leftTabbedPanel.indexOfComponent(gitPanel);
+            var gitTabLabel = createSquareTabLabel(gitIcon, "Git");
+            leftTabbedPanel.setTabComponentAt(gitTabIdx, gitTabLabel);
+            gitTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(gitTabIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(gitTabIdx);
+                }
+            });
             gitPanel.updateRepo();
         } else {
             gitPanel = null;
@@ -1609,5 +1639,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             componentsWithChatBackground.forEach(c -> c.setBackground(newBackgroundColor));
             SwingUtilities.updateComponentTreeUI(this);
         }
+    }
+
+    /** Builds a JLabel for use as a square tab component, ensuring width == height. */
+    private static JLabel createSquareTabLabel(Icon icon, String tooltip) {
+        var label = new JLabel(icon);
+        int size = Math.max(icon.getIconWidth(), icon.getIconHeight());
+        // add a little padding so the icon isn't flush against the border
+        // tabs are usually a bit width biased, so let's also reduce width a bit
+        label.setPreferredSize(new Dimension(size + 4, size + 8));
+        label.setMinimumSize(label.getPreferredSize());
+        label.setHorizontalAlignment(SwingConstants.CENTER);
+        label.setToolTipText(tooltip);
+        return label;
     }
 }
