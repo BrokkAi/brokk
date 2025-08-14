@@ -254,8 +254,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Container for the actual filters
         JPanel filtersContainer = new JPanel();
-        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
-        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, 0, Constants.H_PAD));
+        // Show filters horizontally
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.X_AXIS));
+        // add bottom padding so the filters are not obscured when the horizontal
+        // scrollbar appears
+        filtersContainer.setBorder(
+                BorderFactory.createEmptyBorder(0, Constants.H_PAD, Constants.V_GAP, Constants.H_PAD));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -311,8 +315,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
         filtersContainer.add(assigneeFilter);
 
-        // Add the filters container to the north of the panel to keep them at the top
-        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
+        // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
+        JScrollPane filtersScrollPane = new JScrollPane(
+                filtersContainer,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        // Add bottom padding so the filters aren’t cramped when the horizontal
+        // scrollbar is visible
+        filtersScrollPane.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        verticalFilterPanel.add(filtersScrollPane, BorderLayout.CENTER);
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
         JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Added V_GAP
