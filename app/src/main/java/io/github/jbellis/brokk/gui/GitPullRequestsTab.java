@@ -63,7 +63,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     // Context Menu Items for prTable
     private JMenuItem checkoutPrMenuItem;
-    private JMenuItem diffPrVsBaseMenuItem;
     private JMenuItem viewPrDiffMenuItem;
     private JMenuItem capturePrDiffMenuItemContextMenu; // Renamed to avoid clash
     private JMenuItem openPrInBrowserMenuItem;
@@ -590,10 +589,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         viewPrDiffMenuItem.addActionListener(e -> viewFullPrDiff());
         contextMenu.add(viewPrDiffMenuItem);
 
-        diffPrVsBaseMenuItem = new JMenuItem("Diff vs Base");
-        diffPrVsBaseMenuItem.addActionListener(e -> diffSelectedPr());
-        contextMenu.add(diffPrVsBaseMenuItem);
-
         checkoutPrMenuItem = new JMenuItem("Check Out");
         checkoutPrMenuItem.addActionListener(e -> checkoutSelectedPr());
         contextMenu.add(checkoutPrMenuItem);
@@ -633,7 +628,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         boolean anyPrSelected = prTable.getSelectedRowCount() > 0;
 
         checkoutPrMenuItem.setEnabled(singlePrSelected);
-        diffPrVsBaseMenuItem.setEnabled(singlePrSelected); // Assuming this also implies single selection from context
         capturePrDiffMenuItemContextMenu.setEnabled(singlePrSelected); // Assuming this also implies single selection
         viewPrDiffMenuItem.setEnabled(singlePrSelected);
         openPrInBrowserMenuItem.setEnabled(
@@ -818,7 +812,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Context menu items for prTable (if initialized)
         checkoutPrMenuItem.setEnabled(false);
-        diffPrVsBaseMenuItem.setEnabled(false);
         viewPrDiffMenuItem.setEnabled(false);
         capturePrDiffMenuItemContextMenu.setEnabled(false);
         openPrInBrowserMenuItem.setEnabled(false);
@@ -1655,76 +1648,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         trackCancellableFuture(future);
     }
 
-    private void diffSelectedPr() {
-        int selectedRow = prTable.getSelectedRow();
-        if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
-            return;
-        }
-        org.kohsuke.github.GHPullRequest pr = displayedPrs.get(selectedRow);
-        logger.info("Generating diff for PR #{} vs base", pr.getNumber());
-        contextManager.submitContextTask("Diff PR #" + pr.getNumber() + " vs base", () -> {
-            try {
-                var repo = getRepo();
-                String baseBranchName = pr.getBase().getRef();
-                String prBaseSha = pr.getBase().getSha();
-                String prHeadSha = pr.getHead().getSha();
-
-                // Ensure PR head ref is fetched
-                String headFetchRef = String.format(
-                        "+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", pr.getNumber(), pr.getNumber());
-                if (!ensureShaIsLocal(repo, prHeadSha, headFetchRef, "origin")) {
-                    throw new IOException("Failed to fetch PR head " + GitUiUtil.shortenCommitId(prHeadSha)
-                            + " for PR #" + pr.getNumber());
-                }
-
-                // Ensure base branch ref is fetched (to make prBaseSha available)
-                String baseRemoteRef = "origin/" + baseBranchName; // Assumes base is on origin
-                String baseLocalFetchSpec =
-                        String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
-                if (!ensureShaIsLocal(repo, prBaseSha, baseLocalFetchSpec, "origin")) {
-                    // This can happen if prBaseSha is an old commit not on the tip of the fetched base branch.
-                    // For diffing, having the exact prBaseSha is crucial.
-                    // A more robust solution might fetch the SHA directly if `refs/pull/N/base` was available or by
-                    // depth.
-                    logger.warn(
-                            "PR #{} base SHA {} still not found locally after fetching branch {}. Diff might be incorrect.",
-                            pr.getNumber(),
-                            GitUiUtil.shortenCommitId(prBaseSha),
-                            baseRemoteRef);
-                    // Attempting to proceed, showDiff might handle it or use a less accurate base.
-                }
-
-                String diff = repo.showDiff(prHeadSha, prBaseSha);
-                if (diff.isEmpty()) {
-                    chrome.systemOutput("No differences found between PR #" + pr.getNumber() + " (head: "
-                            + GitUiUtil.shortenCommitId(prHeadSha) + ") and its base " + baseBranchName + "@("
-                            + GitUiUtil.shortenCommitId(prBaseSha) + ")");
-                    return;
-                }
-
-                String description = "PR #" + pr.getNumber() + " (" + pr.getTitle() + ") diff vs " + baseBranchName
-                        + "@{" + GitUiUtil.shortenCommitId(prBaseSha) + "}";
-
-                // Determine syntax style from changed files in the PR
-                String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
-                try {
-                    var changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, prBaseSha);
-                    if (!changedFiles.isEmpty()) {
-                        syntaxStyle = SyntaxDetector.fromExtension(
-                                changedFiles.getFirst().extension());
-                    }
-                } catch (Exception e) {
-                    logger.warn("Could not determine syntax style for PR diff: {}", e.getMessage());
-                }
-
-                var fragment = new StringFragment(contextManager, diff, description, syntaxStyle);
-                SwingUtilities.invokeLater(() -> chrome.openFragmentPreview(fragment));
-                chrome.systemOutput("Opened diff for PR #" + pr.getNumber() + " in preview panel");
-            } catch (Exception ex) {
-                chrome.toolError("Error generating diff for PR #" + pr.getNumber() + ": " + ex.getMessage());
-            }
-        });
-    }
 
     /**
      * Checkout the currently selected PR branch. This delegates to helper methods based on whether a local branch for
