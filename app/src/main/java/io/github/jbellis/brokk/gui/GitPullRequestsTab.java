@@ -90,6 +90,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
     private JTable prFilesTable;
     private DefaultTableModel prFilesTableModel;
+    /** PR-details panel (commits & changed files); hidden until a PR is selected. */
+    private JPanel prCommitsAndFilesPanel;
 
     @Nullable
     private SwingWorker<Map<Integer, String>, Void> activeCiFetcher;
@@ -211,9 +213,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         this.contextManager = contextManager;
         this.gitPanel = gitPanel;
 
-        // Split panel with PRs on left (larger) and commits on right (smaller)
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setResizeWeight(0.6); // 60% for PR list, 40% for commits
+        // (Old horizontal split-pane removed – details panel now goes below the table)
 
         // --- Left side - Pull Requests table and filters ---
         JPanel mainPrAreaPanel =
@@ -232,8 +232,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         // Vertical Filter Panel
         JPanel verticalFilterPanel = new JPanel(new BorderLayout());
         JPanel filtersContainer = new JPanel();
-        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
-        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, 0, Constants.H_PAD));
+        // Horizontal filter bar with overflow scroller
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.X_AXIS));
+        filtersContainer.setBorder(
+                BorderFactory.createEmptyBorder(0, Constants.H_PAD, Constants.V_GAP, Constants.H_PAD));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -273,8 +275,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         reviewFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
         filtersContainer.add(reviewFilter);
 
-        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
-        centerContentPanel.add(verticalFilterPanel, BorderLayout.WEST);
+        // Wrap filters in a scroll pane so they can overflow cleanly
+        JScrollPane filtersScrollPane = new JScrollPane(
+                filtersContainer,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        filtersScrollPane.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        verticalFilterPanel.add(filtersScrollPane, BorderLayout.CENTER);
+        centerContentPanel.add(verticalFilterPanel, BorderLayout.NORTH);
 
         // Panel for PR Table (CENTER) and PR Buttons (SOUTH)
         JPanel prTableAndButtonsPanel = new JPanel(new BorderLayout());
@@ -303,7 +311,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTable.getColumnModel().getColumn(PR_COL_FORK).setPreferredWidth(120); // Fork
         prTable.getColumnModel().getColumn(PR_COL_STATUS).setPreferredWidth(70); // Status
 
-        prTableAndButtonsPanel.add(new JScrollPane(prTable), BorderLayout.CENTER);
+        JScrollPane prTableScrollPane = new JScrollPane(prTable);
+
+        // vertical split: table (top)  |  PR-details (bottom)
+        prCommitsAndFilesPanel = new JPanel(new BorderLayout());
+        prCommitsAndFilesPanel.setBorder(BorderFactory.createTitledBorder("Pull Request Details"));
+        prCommitsAndFilesPanel.setVisible(false); // hidden until a PR is selected
+        final JSplitPane tableDetailsSplitPane =
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, prTableScrollPane, prCommitsAndFilesPanel);
+        tableDetailsSplitPane.setResizeWeight(1.0); // keep table large until needed
+        tableDetailsSplitPane.setDividerSize(3);
+
+        prTableAndButtonsPanel.add(tableDetailsSplitPane, BorderLayout.CENTER);
 
         // Button panel for PRs
         JPanel prButtonPanel = new JPanel();
@@ -329,11 +348,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER); // Add centerContentPanel to main panel
 
         // Right side - Commits and Files in the selected PR
-        JPanel prCommitsAndFilesPanel = new JPanel(new BorderLayout());
-        prCommitsAndFilesPanel.setBorder(BorderFactory.createTitledBorder("Pull Request Details"));
+        // prCommitsAndFilesPanel is already initialized above and added to the split pane
+        prCommitsAndFilesPanel.setVisible(false); // Hidden until a PR is chosen
 
         // Create vertical split pane for commits (top) and files (bottom)
-        JSplitPane rightSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        JSplitPane rightSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         rightSplitPane.setResizeWeight(0.5); // 50% for commits, 50% for files
 
         // Commits panel
@@ -470,11 +489,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prCommitsAndFilesPanel.add(rightSplitPane, BorderLayout.CENTER);
 
-        // Add the panels to the split pane
-        splitPane.setLeftComponent(mainPrAreaPanel);
-        splitPane.setRightComponent(prCommitsAndFilesPanel);
-
-        add(splitPane, BorderLayout.CENTER);
+        // Main panel now contains table, details and buttons
+        add(mainPrAreaPanel, BorderLayout.CENTER);
 
         // Listen for PR selection changes
         prTable.getSelectionModel().addListSelectionListener(e -> {
@@ -495,6 +511,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     int prNumber = selectedPr.getNumber();
                     updateCommitsForPullRequest(selectedPr);
                     updateFilesForPullRequest(selectedPr);
+                    prCommitsAndFilesPanel.setVisible(true);
+                    // reveal the details panel (≈25 % height)
+                    tableDetailsSplitPane.setDividerLocation(0.75);
 
                     // Button state updates
                     boolean singlePrSelected = prTable.getSelectedRowCount() == 1;
@@ -512,10 +531,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 viewPrDiffButton.setEnabled(prTable.getSelectedRowCount() == 1);
                             }
                         });
-                        return null;
                     });
                 } else { // No selection or invalid row (viewRow == -1)
                     disablePrButtonsAndClearCommitsAndMenus(); // Updated call
+                    prCommitsAndFilesPanel.setVisible(false);
+                    // collapse the details panel completely
+                    tableDetailsSplitPane.setDividerLocation(1.0);
                 }
             }
         });
@@ -783,6 +804,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
     private void disablePrButtonsAndClearCommitsAndMenus() {
+        prCommitsAndFilesPanel.setVisible(false);
         // Panel buttons
         viewPrDiffButton.setEnabled(false);
 
