@@ -9,13 +9,11 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.FrozenFragment;
-import io.github.jbellis.brokk.gui.components.VerticalLabel;
-import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.components.VerticalLabel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
@@ -222,7 +220,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         workspaceInstructionsSplit.setTopComponent(workspacePanel);
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
-        workspaceInstructionsSplit.setResizeWeight(0.5); // even split for now
+        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -231,7 +229,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         outputStackSplit.setTopComponent(historyOutputPanel);
         outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
-        outputStackSplit.setResizeWeight(0.3); // ~30 % to Output
+        outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
 
         // Keep reference so existing persistence logic still works
         mainVerticalSplitPane = outputStackSplit;
@@ -240,7 +238,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         bottomSplitPane.setLeftComponent(leftTabbedPanel);
         bottomSplitPane.setRightComponent(outputStackSplit);
-        bottomSplitPane.setResizeWeight(0.40);   // keep roughly 40% for the left tabs when resizing
+        bottomSplitPane.setResizeWeight(0.40); // keep roughly 40% for the left tabs when resizing
         bottomSplitPane.setDividerLocation(0.40); // initial 40% divider
 
         bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
@@ -1129,7 +1127,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (topSplitPos > 0) {
                 topSplitPane.setDividerLocation(topSplitPos);
             } else {
-                topSplitPane.setDividerLocation(0.3);
+                topSplitPane.setDividerLocation(0.583);
             }
             topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (topSplitPane.isShowing()) {
@@ -1145,7 +1143,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (mainVerticalPos > 0) {
                 mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
             } else {
-                mainVerticalSplitPane.setDividerLocation(0.6);
+                mainVerticalSplitPane.setDividerLocation(0.4);
             }
             mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (mainVerticalSplitPane.isShowing()) {
@@ -1326,11 +1324,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Replace each tab title with a vertically-painted label so the text
-     * reads sideways when the tabs are placed on the LEFT.
+     * Replace each tab title with a vertically-painted label so the text reads sideways when the tabs are placed on the
+     * LEFT.
      */
-    private static void applyVerticalTabLabels(JTabbedPane tabbedPane)
-    {
+    private static void applyVerticalTabLabels(JTabbedPane tabbedPane) {
         for (int i = 0; i < tabbedPane.getTabCount(); i++) {
             var title = tabbedPane.getTitleAt(i);
             var vertLabel = new VerticalLabel(title);

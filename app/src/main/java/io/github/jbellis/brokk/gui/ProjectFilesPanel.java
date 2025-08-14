@@ -4,19 +4,7 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.DefaultCompletionProvider;
-import org.fife.ui.autocomplete.ShorthandCompletion;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -39,8 +27,8 @@ import org.jetbrains.annotations.Nullable;
 public class ProjectFilesPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(ProjectFilesPanel.class);
 
-/** Text shown inside the search box when it is otherwise empty. */
-private static final String PLACEHOLDER_TEXT = "Search";
+    /** Text shown inside the search box when it is otherwise empty. */
+    private static final String PLACEHOLDER_TEXT = "Search";
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -61,8 +49,7 @@ private static final String PLACEHOLDER_TEXT = "Search";
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
 
-        var searchFieldPane =
-                OverlayPanel.wrapTextComponentWithPlaceholder(searchField, PLACEHOLDER_TEXT);
+        var searchFieldPane = OverlayPanel.wrapTextComponentWithPlaceholder(searchField, PLACEHOLDER_TEXT);
         add(searchFieldPane, BorderLayout.NORTH);
         JScrollPane treeScrollPane = new JScrollPane(projectTree);
         add(treeScrollPane, BorderLayout.CENTER);
@@ -75,7 +62,6 @@ private static final String PLACEHOLDER_TEXT = "Search";
     private void setupSearchFieldAndAutocomplete() {
         searchField = new JTextField(20);
         searchField.setToolTipText("Type to search for project files");
-
 
         var provider = new ProjectFileCompletionProvider(project);
         provider.setAutoActivationRules(true, null); // Activate on letters

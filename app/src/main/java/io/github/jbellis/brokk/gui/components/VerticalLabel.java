@@ -1,15 +1,13 @@
 package io.github.jbellis.brokk.gui.components;
 
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
 
 /**
- * JLabel that renders its text vertically (top-to-bottom) by drawing one
- * character per line.  This avoids the clipping problems seen with long
- * captions such as “Project Files”.
+ * JLabel that renders its text vertically (top-to-bottom) by drawing one character per line. This avoids the clipping
+ * problems seen with long captions such as “Project Files”.
  */
-public final class VerticalLabel extends JLabel
-{
+public final class VerticalLabel extends JLabel {
     private static final int PAD_V = 4;
     private static final int PAD_H = 2;
 
@@ -24,14 +22,14 @@ public final class VerticalLabel extends JLabel
     @Override
     public Dimension getPreferredSize() {
         FontMetrics fm = getFontMetrics(getFont());
-        int stringWidth  = fm.stringWidth(getText());
+        int stringWidth = fm.stringWidth(getText());
         int stringHeight = fm.getHeight();
 
         Insets insets = getInsets();
         // After rotation the logical width is the font height; height is the string width
         // Width is font height plus horizontal padding
-        int width  = stringHeight + PAD_H;
-        int height = stringWidth  + insets.top  + insets.bottom;
+        int width = stringHeight + PAD_H;
+        int height = stringWidth + insets.top + insets.bottom;
         return new Dimension(width, height);
     }
 
@@ -44,11 +42,10 @@ public final class VerticalLabel extends JLabel
         }
 
         Graphics2D g2 = (Graphics2D) g.create();
-        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        FontMetrics fm    = g2.getFontMetrics();
-        Insets insets     = getInsets();
+        FontMetrics fm = g2.getFontMetrics();
+        Insets insets = getInsets();
 
         // Rotate 90° counter-clockwise to paint text sideways
         g2.rotate(Math.toRadians(-90));

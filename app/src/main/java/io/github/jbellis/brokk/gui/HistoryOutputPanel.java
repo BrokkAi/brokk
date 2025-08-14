@@ -197,8 +197,8 @@ public class HistoryOutputPanel extends JPanel {
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
         // Container for the combined section
-    var centerContainer = new JPanel(new BorderLayout());
-    centerContainer.add(outputPanel, BorderLayout.CENTER);
+        var centerContainer = new JPanel(new BorderLayout());
+        centerContainer.add(outputPanel, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
 
         return centerContainer;

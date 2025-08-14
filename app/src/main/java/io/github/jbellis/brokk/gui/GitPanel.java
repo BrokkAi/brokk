@@ -5,14 +5,8 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.issues.IssueProviderType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
 import io.github.jbellis.brokk.gui.components.VerticalLabel;
-import javax.swing.border.TitledBorder;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
@@ -318,11 +312,10 @@ public class GitPanel extends JPanel {
     }
 
     /**
-     * Replace each tab title with a vertically-painted label so the text
-     * reads sideways when the tabs are placed on the LEFT.
+     * Replace each tab title with a vertically-painted label so the text reads sideways when the tabs are placed on the
+     * LEFT.
      */
-    private static void applyVerticalTabLabels(JTabbedPane pane)
-    {
+    private static void applyVerticalTabLabels(JTabbedPane pane) {
         for (int i = 0; i < pane.getTabCount(); i++) {
             String title = pane.getTitleAt(i);
             var label = new VerticalLabel(title);
