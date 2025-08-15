@@ -708,7 +708,7 @@ public final class GitUiUtil {
         SwingUtilities.invokeLater(() -> {
             var border = panel.getBorder();
             if (border instanceof TitledBorder titledBorder) {
-                String newTitle = !branchName.isBlank() ? baseTitle + " (" + branchName + ") ▼" : baseTitle + " ▼";
+                String newTitle = !branchName.isBlank() ? baseTitle + " (" + branchName + ")" : baseTitle;
                 titledBorder.setTitle(newTitle);
                 panel.revalidate();
                 panel.repaint();
