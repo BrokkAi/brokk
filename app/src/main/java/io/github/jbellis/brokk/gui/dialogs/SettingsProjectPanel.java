@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;

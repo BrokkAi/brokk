@@ -448,32 +448,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-    /**
-     * Recursively deletes a directory and its contents. Logs errors encountered during deletion.
-     *
-     * @param path The directory path to delete.
-     * @return true if the directory was successfully deleted (or didn't exist), false otherwise.
-     */
-    private boolean deleteDirectoryRecursively(Path path) {
-        assert Files.exists(path);
-        try (var stream = Files.walk(path)) {
-            stream.sorted(Comparator.reverseOrder()) // Ensure contents are deleted before directories
-                    .forEach(p -> {
-                        try {
-                            Files.delete(p);
-                        } catch (IOException e) {
-                            // Log the specific error but allow the walk to continue trying other files/dirs
-                            logger.error("Failed to delete path {} during recursive cleanup of {}", p, path, e);
-                        }
-                    });
-            // Final check after attempting deletion
-            return !Files.exists(path);
-        } catch (IOException e) {
-            logger.error("Failed to walk or initiate deletion for directory: {}", path, e);
-            return false;
-        }
-    }
-
     @Override
     public AbstractProject getProject() {
         return project;
