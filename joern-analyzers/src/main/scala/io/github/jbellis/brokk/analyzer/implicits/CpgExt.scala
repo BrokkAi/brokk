@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer.implicits
 
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.passes.{CpgPassBase, ForkJoinParallelCpgPass}
+import io.shiftleft.passes.{CpgPass, CpgPassBase, ForkJoinParallelCpgPass}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -36,21 +36,30 @@ object CpgExt {
     def createAndApply(pass: CpgPassBase)(using pool: ForkJoinPool): Cpg = {
       implicit val ec: ExecutionContext = ExecutionContext.fromExecutor(pool)
       pass match {
+        case simplePass: CpgPass =>
+          // CpgPass extends ForkJoinParallelCpgPass but implements it serially
+          cpg.applySerialPass(pass)
         case parallelPass: ForkJoinParallelCpgPass[_] =>
           // Manual execution for ForkJoinParallelCpgPass to avoid binary compatibility issues
           cpg.applyParallelPass(parallelPass)
-        case pass =>
-          // For non-parallel passes, use createAndApply() with graceful error handling
-          try {
-            Await.result(Future { pass.createAndApply() }, Duration.Inf)
-          } catch {
-            case ex: NoSuchMethodError =>
-              logger.warn(
-                s"Failed to execute pass ${pass.getClass.getName} due to binary compatibility: ${ex.getMessage}"
-              )
-          }
+        case pass => cpg.applySerialPass(pass)
       }
       cpg
+    }
+
+    private def applySerialPass(pass: CpgPassBase)(using ec: ExecutionContext): Unit = {
+      // For non-parallel passes, use createAndApply() with graceful error handling
+      try {
+        Await.result(
+          Future {
+            pass.createAndApply()
+          },
+          Duration.Inf
+        )
+      } catch {
+        case ex: NoSuchMethodError =>
+          logger.warn(s"Failed to execute pass ${pass.getClass.getName} due to binary compatibility: ${ex.getMessage}")
+      }
     }
 
     private def applyParallelPass[T <: AnyRef](
