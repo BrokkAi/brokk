@@ -717,9 +717,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Register IntelliJ-style shortcuts for switching sidebar panels
         // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
-        int modifier = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-            ? KeyEvent.META_DOWN_MASK
-            : KeyEvent.ALT_DOWN_MASK;
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? KeyEvent.META_DOWN_MASK
+                        : KeyEvent.ALT_DOWN_MASK;
 
         // Alt/Cmd+1 for Project Files
         var switchToProjectFiles = KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);

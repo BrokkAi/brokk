@@ -317,9 +317,11 @@ public class MenuBar {
 
                 // Add IntelliJ-style sidebar panel switching shortcuts
                 // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
-                int modifier = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
-                    ? KeyEvent.META_DOWN_MASK
-                    : KeyEvent.ALT_DOWN_MASK;
+                int modifier = System.getProperty("os.name")
+                                .toLowerCase(java.util.Locale.ROOT)
+                                .contains("mac")
+                        ? KeyEvent.META_DOWN_MASK
+                        : KeyEvent.ALT_DOWN_MASK;
 
                 var projectFilesItem = new JMenuItem("Project Files");
                 projectFilesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
