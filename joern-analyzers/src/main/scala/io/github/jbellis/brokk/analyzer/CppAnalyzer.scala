@@ -852,7 +852,7 @@ object CppAnalyzer {
 
     // Build the CPG. Since we are outside a JoernAnalyzer, we must provide a thread pool
     implicit val pool: ForkJoinPool =
-      ForkJoinPool(Runtime.getRuntime.availableProcessors() - 1, JoernAnalyzer.threadFactory("java"), null, true)
+      ForkJoinPool(Runtime.getRuntime.availableProcessors() - 1, JoernAnalyzer.threadFactory("cpp"), null, true)
     try {
       defaultConfig
         .withInputPath(absPath.toString)

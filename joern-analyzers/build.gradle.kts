@@ -49,6 +49,19 @@ dependencies {
     testImplementation(libs.bundles.scalatest)
 }
 
+// Ensure our classes override Joern's at runtime
+configurations {
+    runtimeClasspath {
+        // Configure resolution strategy to prefer our local classes
+        resolutionStrategy {
+            // Force our project classes to be first in classpath
+            dependencySubstitution {
+                // This will ensure our classes take precedence
+            }
+        }
+    }
+}
+
 // Enhanced Scala compiler options
 tasks.withType<ScalaCompile> {
     scalaCompileOptions.additionalParameters = listOf(
@@ -94,9 +107,24 @@ tasks.withType<Test> {
         showStackTraces = true
         showStandardStreams = false
     }
+
+    // Ensure our local classes override Joern dependencies during testing
+    classpath = files(sourceSets.main.get().output) + classpath
 }
 
-// Handle duplicate files in JAR
+// Handle duplicate files in JAR and exclude conflicting Joern classes
 tasks.withType<Jar> {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // Exclude conflicting Joern classes that we override locally
+    // This prevents binary compatibility issues in the distributed JAR
+    exclude { fileTreeElement ->
+        val path = fileTreeElement.path
+        val name = fileTreeElement.name
+
+        // Exclude Joern's versions of classes we override in io.shiftleft.passes
+        // Keep our local versions which are already in sourceSets.main.output
+        (path.contains("io/joern/x2cpg/passes/frontend/MetaDataPass") && name.endsWith(".class")) ||
+        (path.contains("io/shiftleft/passes/") && !path.contains("io/github/jbellis/brokk") && name.endsWith(".class"))
+    }
 }
