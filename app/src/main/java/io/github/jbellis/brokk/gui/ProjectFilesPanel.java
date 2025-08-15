@@ -4,7 +4,10 @@ import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import java.awt.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -31,7 +34,9 @@ public class ProjectFilesPanel extends JPanel {
     private final IProject project;
 
     private JTextField searchField;
+    private JButton refreshButton;
     private ProjectTree projectTree;
+    private OverlayPanel searchOverlay;
     private AutoCompletion ac;
 
     public ProjectFilesPanel(Chrome chrome, ContextManager contextManager) {
@@ -50,7 +55,18 @@ public class ProjectFilesPanel extends JPanel {
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
 
-        add(searchField, BorderLayout.NORTH);
+        // Search bar with refresh button
+        var searchBarPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        var layeredPane = searchOverlay.createLayeredPane(searchField);
+        searchBarPanel.add(layeredPane, BorderLayout.CENTER);
+
+        refreshButton = new JButton();
+        refreshButton.setIcon(SwingUtil.uiIcon("Brokk.refresh"));
+        refreshButton.setToolTipText("Refresh file list");
+        refreshButton.addActionListener(e -> refreshProjectFiles());
+        searchBarPanel.add(refreshButton, BorderLayout.EAST);
+
+        add(searchBarPanel, BorderLayout.NORTH);
         JScrollPane treeScrollPane = new JScrollPane(projectTree);
         add(treeScrollPane, BorderLayout.CENTER);
     }
@@ -62,6 +78,34 @@ public class ProjectFilesPanel extends JPanel {
     private void setupSearchFieldAndAutocomplete() {
         searchField = new JTextField(20);
         searchField.setToolTipText("Type to search for project files");
+
+        var searchPromptLabel = new JLabel("Search");
+        searchPromptLabel.setForeground(Color.GRAY);
+        searchPromptLabel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
+        // Hide the overlay first so a single click both dismisses it and focuses the field
+        searchOverlay = new OverlayPanel(p -> searchField.requestFocusInWindow(), "");
+        searchOverlay.setLayout(new BorderLayout());
+        searchOverlay.add(searchPromptLabel, BorderLayout.CENTER);
+
+        searchField.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                searchOverlay.hideOverlay();
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (searchField.getText().isEmpty()) {
+                    searchOverlay.showOverlay();
+                }
+            }
+        });
+
+        if (searchField.getText().isEmpty()) {
+            searchOverlay.showOverlay();
+        } else {
+            searchOverlay.hideOverlay();
+        }
 
         var provider = new ProjectFileCompletionProvider(project);
         provider.setAutoActivationRules(true, null); // Activate on letters
@@ -75,11 +119,15 @@ public class ProjectFilesPanel extends JPanel {
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
+                searchOverlay.hideOverlay();
                 handleTextChange();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
+                if (searchField.getText().isEmpty() && !searchField.hasFocus()) {
+                    searchOverlay.showOverlay();
+                }
                 handleTextChange();
             }
 
@@ -192,6 +240,15 @@ public class ProjectFilesPanel extends JPanel {
         if (file != null) {
             projectTree.selectAndExpandToFile(file);
         }
+    }
+
+    /**
+     * Manually refresh the file list displayed in the ProjectTree. Useful when the filesystem watcher misses an event.
+     */
+    private void refreshProjectFiles() {
+        projectTree.onTrackedFilesChanged();
+        // Return focus to the search field for continued typing
+        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
     }
 
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {

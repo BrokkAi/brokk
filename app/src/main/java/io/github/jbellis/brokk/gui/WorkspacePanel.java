@@ -484,7 +484,9 @@ public class WorkspacePanel extends JPanel {
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Create main panel with vertical layout
             JPanel panel = new JPanel();
-            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            // FlowLayout centers components vertically within the row, keeping badges aligned
+            // with the description text.
+            panel.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 0));
             panel.setOpaque(true);
 
             // Set colors based on selection
@@ -509,7 +511,8 @@ public class WorkspacePanel extends JPanel {
             JLabel descLabel = new JLabel(description);
             descLabel.setOpaque(false);
             descLabel.setForeground(panel.getForeground());
-            descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
+            descLabel.setVerticalAlignment(SwingConstants.CENTER); // Center alignment with LOC column
+            descLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
             // Add description to panel
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -517,17 +520,20 @@ public class WorkspacePanel extends JPanel {
 
             // Add file badges if there are any
             if (!fileReferences.isEmpty()) {
-                // Add small vertical gap
-                panel.add(Box.createVerticalStrut(3));
+                // Add small horizontal gap between description and badges
+                panel.add(Box.createHorizontalStrut(3));
 
-                // Calculate available width for badges (table column width minus padding)
-                int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
+                // Calculate available width for badges (table column width minus padding and description width)
+                int availableWidth = table.getColumnModel().getColumn(column).getWidth()
+                        - 20
+                        - descLabel.getPreferredSize().width; // Leave some padding
 
                 // Create adaptive file reference list
                 var badgeList =
                         new TableUtils.FileReferenceList.AdaptiveFileReferenceList(fileReferences, availableWidth, 4);
                 badgeList.setOpaque(false);
                 badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                badgeList.setAlignmentY(Component.CENTER_ALIGNMENT);
 
                 // Set badge colors based on selection
                 badgeList.setSelected(isSelected);
@@ -549,7 +555,7 @@ public class WorkspacePanel extends JPanel {
         private int calculatePreferredHeight(JPanel panel) {
             // Force layout to get accurate measurements
             panel.doLayout();
-            return panel.getPreferredSize().height + 4; // Add small padding
+            return panel.getPreferredSize().height;
         }
     }
 
@@ -707,14 +713,14 @@ public class WorkspacePanel extends JPanel {
                 var fontMetrics = table.getFontMetrics(tableFont);
 
                 // Use a small offset to align with description text baseline (similar to TableUtils approach)
-                int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
+                int baselineOffset = fontMetrics.getLeading();
 
-                setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
+                setBorder(BorderFactory.createEmptyBorder(0, 0, baselineOffset, LOC_COLUMN_RIGHT_PADDING));
                 return c;
             }
         };
         locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
-        locRenderer.setVerticalAlignment(SwingConstants.TOP);
+        locRenderer.setVerticalAlignment(SwingConstants.CENTER);
         contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
         // Remove file references column setup - badges will be in description column

@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import java.awt.*;
@@ -280,7 +281,7 @@ public class GuiTheme {
                                     return false;
                                 }
                                 String name = fileNamePath.toString().toLowerCase(Locale.ROOT);
-                                return name.endsWith(".png") || name.endsWith(".gif");
+                                return name.endsWith(".png") || name.endsWith(".gif") || name.endsWith(".svg");
                             })
                             .forEach(path -> {
                                 String filename = path.getFileName().toString();
@@ -308,7 +309,9 @@ public class GuiTheme {
                                 var filename = entryName
                                         .substring(entryName.lastIndexOf('/') + 1)
                                         .toLowerCase(Locale.ROOT);
-                                if (filename.endsWith(".png") || filename.endsWith(".gif")) {
+                                if (filename.endsWith(".png")
+                                        || filename.endsWith(".gif")
+                                        || filename.endsWith(".svg")) {
                                     iconFiles.add("/" + entryName);
                                 }
                             }
@@ -331,10 +334,19 @@ public class GuiTheme {
      */
     private static void registerIcon(String key, String resourcePath) {
         URL url = GuiTheme.class.getResource(resourcePath);
-        if (url != null) {
-            UIManager.put(key, new ImageIcon(url));
-        } else {
+        if (url == null) {
             logger.warn("Icon resource {} not found for key {}", resourcePath, key);
+            return;
         }
+
+        Icon icon;
+        String lower = resourcePath.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".svg")) {
+            // FlatLaf can render SVG natively
+            icon = new FlatSVGIcon(url);
+        } else {
+            icon = new ImageIcon(url);
+        }
+        UIManager.put(key, icon);
     }
 }
