@@ -315,11 +315,14 @@ public class MenuBar {
             public void menuSelected(MenuEvent e) {
                 windowMenu.removeAll();
 
-                // Add sidebar panel switching shortcuts
+                // Add IntelliJ-style sidebar panel switching shortcuts
+                // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
+                int modifier = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                    ? KeyEvent.META_DOWN_MASK
+                    : KeyEvent.ALT_DOWN_MASK;
+
                 var projectFilesItem = new JMenuItem("Project Files");
-                projectFilesItem.setAccelerator(KeyStroke.getKeyStroke(
-                        KeyEvent.VK_F,
-                        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                projectFilesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier));
                 projectFilesItem.addActionListener(actionEvent -> {
                     chrome.getLeftTabbedPanel().setSelectedIndex(0);
                 });
@@ -327,9 +330,7 @@ public class MenuBar {
 
                 if (chrome.getProject().hasGit()) {
                     var gitItem = new JMenuItem("Git");
-                    gitItem.setAccelerator(KeyStroke.getKeyStroke(
-                            KeyEvent.VK_G,
-                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                    gitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
                     gitItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
@@ -339,9 +340,7 @@ public class MenuBar {
 
                 if (chrome.getProject().isGitHubRepo() && chrome.getGitPanel() != null) {
                     var pullRequestsItem = new JMenuItem("Pull Requests");
-                    pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(
-                            KeyEvent.VK_P,
-                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                    pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
                     pullRequestsItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
@@ -353,9 +352,7 @@ public class MenuBar {
                                 != io.github.jbellis.brokk.issues.IssueProviderType.NONE
                         && chrome.getGitPanel() != null) {
                     var issuesItem = new JMenuItem("Issues");
-                    issuesItem.setAccelerator(KeyStroke.getKeyStroke(
-                            KeyEvent.VK_I,
-                            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+                    issuesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
                     issuesItem.addActionListener(actionEvent -> {
                         var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);

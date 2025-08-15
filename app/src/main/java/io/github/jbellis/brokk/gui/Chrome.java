@@ -715,10 +715,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
 
-        // Register mnemonic shortcuts for switching sidebar panels
-        // Cmd/Ctrl+Shift+F for Project Files
-        var switchToProjectFiles = KeyStroke.getKeyStroke(
-                KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+        // Register IntelliJ-style shortcuts for switching sidebar panels
+        // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
+        int modifier = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+            ? KeyEvent.META_DOWN_MASK
+            : KeyEvent.ALT_DOWN_MASK;
+
+        // Alt/Cmd+1 for Project Files
+        var switchToProjectFiles = KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToProjectFiles, "switchToProjectFiles");
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
@@ -727,10 +731,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Cmd/Ctrl+Shift+G for Git panel (if available)
+        // Alt/Cmd+2 for Git panel (if available)
         if (gitPanel != null) {
-            var switchToGit = KeyStroke.getKeyStroke(
-                    KeyEvent.VK_G, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+            var switchToGit = KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToGit, "switchToGit");
             rootPane.getActionMap().put("switchToGit", new AbstractAction() {
                 @Override
@@ -741,10 +744,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Cmd/Ctrl+Shift+P for Pull Requests panel (if available)
+        // Alt/Cmd+3 for Pull Requests panel (if available)
         if (pullRequestsPanel != null) {
-            var switchToPR = KeyStroke.getKeyStroke(
-                    KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+            var switchToPR = KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
@@ -755,10 +757,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
         }
 
-        // Cmd/Ctrl+Shift+I for Issues panel (if available)
+        // Alt/Cmd+4 for Issues panel (if available)
         if (issuesPanel != null) {
-            var switchToIssues = KeyStroke.getKeyStroke(
-                    KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK);
+            var switchToIssues = KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
             rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
