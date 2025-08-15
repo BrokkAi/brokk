@@ -174,8 +174,9 @@ object IncrementalUtils {
       *   this CPG.
       */
     def removeStaleFiles(fileChanges: Seq[FileChange])(using pool: ForkJoinPool): Cpg = {
-      RemovedFilePass(cpg, fileChanges).createAndApply()
-      cpg
+      // Binary Compatibility fix: Use manual execution instead of createAndApply() so
+      // that we can use the given pool
+      cpg.createAndApply(RemovedFilePass(cpg, fileChanges))
     }
 
     /** Builds the ASTs for new files from a temporary directory.

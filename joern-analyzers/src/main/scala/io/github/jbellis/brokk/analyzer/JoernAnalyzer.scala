@@ -57,9 +57,9 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
   /**
    * A prefix to uniquely name the threads for the thread pools in this analyzer.
    */
-  protected val threadIdentifier: String
+  protected val threadIdentifier: String = "joern"
 
-  private implicit val threadPool: ForkJoinPool =
+  private lazy implicit val threadPool: ForkJoinPool =
     ForkJoinPool(Runtime.getRuntime.availableProcessors() - 1, JoernAnalyzer.threadFactory(threadIdentifier), null, false)
 
 

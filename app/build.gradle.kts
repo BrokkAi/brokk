@@ -376,3 +376,8 @@ tasks.shadowJar {
               System.getenv("CI") == "true" ||
               gradle.startParameter.taskNames.contains("shadowJar")
 }
+
+// When shadowJar is enabled, disable the regular jar task to avoid creating two JARs
+tasks.jar {
+    enabled = !tasks.shadowJar.get().enabled
+}
