@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
 import io.github.jbellis.brokk.gui.dialogs.analyzer.JavaAnalyzerSettingsPanel;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -49,6 +50,8 @@ public final class SharedJdtLspServer extends LspServer {
         final Path configDir = LspFileUtilities.findConfigDir(serverHome);
         final int memoryMB = JavaAnalyzerSettingsPanel.getSavedMemoryValueMb();
         logger.debug("Creating JDT LSP process with a max heap size of {} Mb", memoryMB);
+
+        if (!Files.isDirectory(cache)) Files.createDirectories(cache);
 
         return new ProcessBuilder(
                 "java",
