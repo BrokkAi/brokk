@@ -69,6 +69,13 @@ public class ProjectFilesPanel extends JPanel {
         add(searchBarPanel, BorderLayout.NORTH);
         JScrollPane treeScrollPane = new JScrollPane(projectTree);
         add(treeScrollPane, BorderLayout.CENTER);
+
+        updateBorderTitle(); // Set initial title with branch name
+    }
+
+    private void updateBorderTitle() {
+        var branchName = GitUiUtil.getCurrentBranchName(project);
+        GitUiUtil.updatePanelBorderWithBranch(this, "Project Files", branchName);
     }
 
     private void setupProjectTree() {
@@ -247,8 +254,14 @@ public class ProjectFilesPanel extends JPanel {
      */
     private void refreshProjectFiles() {
         projectTree.onTrackedFilesChanged();
+        updateBorderTitle(); // Refresh title in case branch changed
         // Return focus to the search field for continued typing
         SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+    }
+
+    /** Updates the panel to reflect the current project state, including branch name in title. */
+    public void updatePanel() {
+        refreshProjectFiles();
     }
 
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {
