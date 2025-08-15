@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.builder.languages
 
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
+import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
 import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
 import io.joern.x2cpg.passes.frontend.{JavaConfigFileCreationPass, TypeNodePass}
@@ -23,92 +24,19 @@ object JavaSrcBuilder {
     override def createAst(cpg: Cpg, config: JavaSrcConfig)(using pool: ForkJoinPool): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
 
-      // Binary Compatibility fix: Use direct run() calls instead of createAndApply()
-      // because Joern's passes expect createAndApply(ForkJoinPool) but our local
-      // CpgPassBase interface defines createAndApply() with implicit ForkJoinPool parameter
-
-      val astCreationPass =
-        try {
-          new AstCreationPass(config, cpg)
-        } catch {
-          case ex: java.io.UncheckedIOException if ex.getCause.isInstanceOf[java.nio.charset.MalformedInputException] =>
-            // Handle malformed input files gracefully by creating a config that skips problematic files
-            val filteredConfig = filterMalformedFiles(config)
-            new AstCreationPass(filteredConfig, cpg)
-          case ex: java.nio.charset.MalformedInputException =>
-            // Handle direct MalformedInputException
-            val filteredConfig = filterMalformedFiles(config)
-            new AstCreationPass(filteredConfig, cpg)
-        }
-      val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
-
-      // Manual execution of pass parts since runWithBuilder has binary compatibility issues
-      astCreationPass.init()
-      val parts = astCreationPass.generateParts()
-      for (part <- parts) {
-        astCreationPass.runOnPart(diffBuilder, part)
-      }
-      astCreationPass.finish()
-
-      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
-
+      // Binary Compatibility fix: Use manual execution for Java AstCreationPass
+      val astCreationPass = new AstCreationPass(config, cpg)
+      cpg.createAndApply(astCreationPass)
       astCreationPass.sourceParser.cleanupDelombokOutput()
       astCreationPass.clearJavaParserCaches()
 
-      val outerClassRefPass     = new OuterClassRefPass(cpg)
-      val outerClassDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      List(new OuterClassRefPass(cpg), JavaConfigFileCreationPass(cpg)).foreach(cpg.createAndApply)
+      if !config.skipTypeInfPass then
+        List(
+          TypeNodePass.withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg),
+          new TypeInferencePass(cpg)
+        ).foreach(cpg.createAndApply)
 
-      // Manual execution for binary compatibility
-      outerClassRefPass.init()
-      val outerClassParts = outerClassRefPass.generateParts()
-      for (part <- outerClassParts) {
-        outerClassRefPass.runOnPart(outerClassDiffBuilder, part)
-      }
-      outerClassRefPass.finish()
-
-      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, outerClassDiffBuilder)
-
-      val javaConfigPass        = JavaConfigFileCreationPass(cpg)
-      val javaConfigDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
-
-      // Manual execution for binary compatibility
-      javaConfigPass.init()
-      val javaConfigParts = javaConfigPass.generateParts()
-      for (part <- javaConfigParts) {
-        javaConfigPass.runOnPart(javaConfigDiffBuilder, part)
-      }
-      javaConfigPass.finish()
-
-      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, javaConfigDiffBuilder)
-
-      if (!config.skipTypeInfPass) {
-        val typeNodePass = TypeNodePass
-          .withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg)
-        val typeNodeDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
-
-        // Manual execution for binary compatibility
-        typeNodePass.init()
-        val typeNodeParts = typeNodePass.generateParts()
-        for (part <- typeNodeParts) {
-          typeNodePass.runOnPart(typeNodeDiffBuilder, part)
-        }
-        typeNodePass.finish()
-
-        flatgraph.DiffGraphApplier.applyDiff(cpg.graph, typeNodeDiffBuilder)
-
-        val typeInferencePass        = new TypeInferencePass(cpg)
-        val typeInferenceDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
-
-        // Manual execution for binary compatibility
-        typeInferencePass.init()
-        val typeInferenceParts = typeInferencePass.generateParts()
-        for (part <- typeInferenceParts) {
-          typeInferencePass.runOnPart(typeInferenceDiffBuilder, part)
-        }
-        typeInferencePass.finish()
-
-        flatgraph.DiffGraphApplier.applyDiff(cpg.graph, typeInferenceDiffBuilder)
-      }
       cpg
     }
 

@@ -11,7 +11,7 @@ import io.joern.x2cpg.passes.callgraph.*
 import io.joern.x2cpg.passes.frontend.MetaDataPass
 import io.joern.x2cpg.passes.typerelations.*
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.passes.CpgPassBase
+import io.shiftleft.passes.{CpgPassBase, ForkJoinParallelCpgPass}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -19,6 +19,8 @@ import java.io.IOException
 import java.nio.file.Paths
 import java.util
 import java.util.concurrent.ForkJoinPool
+import scala.concurrent.duration.Duration
+import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.{Try, Using}
 
 /** A trait to be implemented by a language-specific incremental CPG builder.
@@ -46,7 +48,9 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     * @return
     *   the same CPG reference as given.
     */
-  def build(cpg: Cpg, config: R, maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using pool: ForkJoinPool): Cpg = {
+  def build(cpg: Cpg, config: R, maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using
+    pool: ForkJoinPool
+  ): Cpg = {
     if (cpg.metaData.nonEmpty) {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(
@@ -137,7 +141,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
       // because Joern's MetaDataPass expects createAndApply(ForkJoinPool) but our local
       // CpgPassBase interface defines createAndApply() with no parameters
       val metaDataPass = new MetaDataPass(cpg, language, inputPath, None)
-      val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      val diffBuilder  = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
       metaDataPass.run(diffBuilder)
       flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
     }
@@ -172,29 +176,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     // Binary Compatibility fix: Use manual execution for ALL passes to ensure uniformity
     // This avoids the package name detection complexity and potential NoSuchMethodError
     (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg) ++ postProcessingPasses(cpg))
-      .foreach { pass =>
-        pass match {
-          case parallelPass: io.shiftleft.passes.ForkJoinParallelCpgPass[_] =>
-            // Manual execution for ForkJoinParallelCpgPass to avoid binary compatibility issues
-            val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
-            parallelPass.init()
-            val parts = parallelPass.generateParts()
-            for (part <- parts) {
-              parallelPass.asInstanceOf[io.shiftleft.passes.ForkJoinParallelCpgPass[AnyRef]]
-                .runOnPart(diffBuilder, part.asInstanceOf[AnyRef])
-            }
-            parallelPass.finish()
-            flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
-          case _ =>
-            // For non-parallel passes, use createAndApply() with graceful error handling
-            try {
-              pass.createAndApply()
-            } catch {
-              case ex: NoSuchMethodError =>
-                logger.warn(s"Failed to execute pass ${pass.getClass.getName} due to binary compatibility: ${ex.getMessage}")
-            }
-        }
-      }
+      .foreach(cpg.createAndApply)
     cpg
   }
 
