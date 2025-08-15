@@ -174,11 +174,11 @@ object IncrementalUtils {
       *   this CPG.
       */
     def removeStaleFiles(fileChanges: Seq[FileChange])(using pool: ForkJoinPool): Cpg = {
-      // BINARY COMPATIBILITY FIX: Use manual execution instead of createAndApply()
+      // Binary Compatibility fix: Use manual execution instead of createAndApply()
       // because runtime calls expect createAndApply(ForkJoinPool) but our local
       // CpgPassBase interface defines createAndApply() with implicit ForkJoinPool parameter
       val removedFilePass = RemovedFilePass(cpg, fileChanges)
-      val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      val diffBuilder     = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
 
       removedFilePass.init()
       val parts = removedFilePass.generateParts()

@@ -49,7 +49,7 @@ dependencies {
     testImplementation(libs.bundles.scalatest)
 }
 
-// CLASSPATH PRECEDENCE CONFIGURATION: Ensure our classes override Joern's at runtime
+// Ensure our classes override Joern's at runtime
 configurations {
     runtimeClasspath {
         // Configure resolution strategy to prefer our local classes
@@ -81,9 +81,6 @@ tasks.withType<ScalaCompile> {
     // Ensure task only runs when actually needed by providing clear inputs/outputs
     inputs.files(source)
     outputs.dir(destinationDirectory)
-
-    // CLASSPATH PRECEDENCE FIX: The actual precedence is handled at runtime via JAR exclusion
-    // During compilation, Scala naturally uses our local source files over dependencies
 }
 
 tasks.withType<Test> {
@@ -111,7 +108,7 @@ tasks.withType<Test> {
         showStandardStreams = false
     }
 
-    // CLASSPATH PRECEDENCE FIX: Ensure our local classes override Joern dependencies during testing
+    // Ensure our local classes override Joern dependencies during testing
     classpath = files(sourceSets.main.get().output) + classpath
 }
 
@@ -119,7 +116,7 @@ tasks.withType<Test> {
 tasks.withType<Jar> {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
-    // SELECTIVE EXCLUSION: Exclude conflicting Joern classes that we override locally
+    // Exclude conflicting Joern classes that we override locally
     // This prevents binary compatibility issues in the distributed JAR
     exclude { fileTreeElement ->
         val path = fileTreeElement.path

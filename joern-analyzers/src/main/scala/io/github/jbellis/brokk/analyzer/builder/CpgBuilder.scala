@@ -133,7 +133,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     */
   protected def createOrUpdateMetaData(cpg: Cpg, language: String, inputPath: String)(using pool: ForkJoinPool): Cpg = {
     if cpg.metaData.isEmpty then {
-      // BINARY COMPATIBILITY FIX: Use direct run() call instead of createAndApply()
+      // Binary Compatibliity check: Use direct run() call instead of createAndApply()
       // because Joern's MetaDataPass expects createAndApply(ForkJoinPool) but our local
       // CpgPassBase interface defines createAndApply() with no parameters
       val metaDataPass = new MetaDataPass(cpg, language, inputPath, None)
@@ -169,7 +169,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     // in between these at some point in the future. For now, these resemble the default Joern
     // pass ordering and strategy minus CFG.
 
-    // BINARY COMPATIBILITY FIX: Handle mixed Joern library and local passes
+    // Binary Compatibility fix: Handle mixed Joern library and local passes
     // Joern library passes expect createAndApply(ForkJoinPool) but our local CpgPassBase
     // interface defines createAndApply() with implicit ForkJoinPool parameter
     (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg) ++ postProcessingPasses(cpg))

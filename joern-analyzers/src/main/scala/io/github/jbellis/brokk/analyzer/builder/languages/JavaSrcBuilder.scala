@@ -6,7 +6,7 @@ import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
 import io.joern.x2cpg.passes.frontend.{JavaConfigFileCreationPass, TypeNodePass}
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
-import java.nio.charset.{CodingErrorAction, StandardCharsets}
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path, Paths}
 import java.util.concurrent.ForkJoinPool
 import scala.jdk.CollectionConverters.*
@@ -23,22 +23,23 @@ object JavaSrcBuilder {
     override def createAst(cpg: Cpg, config: JavaSrcConfig)(using pool: ForkJoinPool): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
 
-      // BINARY COMPATIBILITY FIX: Use direct run() calls instead of createAndApply()
+      // Binary Compatibility fix: Use direct run() calls instead of createAndApply()
       // because Joern's passes expect createAndApply(ForkJoinPool) but our local
       // CpgPassBase interface defines createAndApply() with implicit ForkJoinPool parameter
 
-      val astCreationPass = try {
-        new AstCreationPass(config, cpg)
-      } catch {
-        case ex: java.io.UncheckedIOException if ex.getCause.isInstanceOf[java.nio.charset.MalformedInputException] =>
-          // Handle malformed input files gracefully by creating a config that skips problematic files
-          val filteredConfig = filterMalformedFiles(config)
-          new AstCreationPass(filteredConfig, cpg)
-        case ex: java.nio.charset.MalformedInputException =>
-          // Handle direct MalformedInputException
-          val filteredConfig = filterMalformedFiles(config)
-          new AstCreationPass(filteredConfig, cpg)
-      }
+      val astCreationPass =
+        try {
+          new AstCreationPass(config, cpg)
+        } catch {
+          case ex: java.io.UncheckedIOException if ex.getCause.isInstanceOf[java.nio.charset.MalformedInputException] =>
+            // Handle malformed input files gracefully by creating a config that skips problematic files
+            val filteredConfig = filterMalformedFiles(config)
+            new AstCreationPass(filteredConfig, cpg)
+          case ex: java.nio.charset.MalformedInputException =>
+            // Handle direct MalformedInputException
+            val filteredConfig = filterMalformedFiles(config)
+            new AstCreationPass(filteredConfig, cpg)
+        }
       val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
 
       // Manual execution of pass parts since runWithBuilder has binary compatibility issues
@@ -54,7 +55,7 @@ object JavaSrcBuilder {
       astCreationPass.sourceParser.cleanupDelombokOutput()
       astCreationPass.clearJavaParserCaches()
 
-      val outerClassRefPass = new OuterClassRefPass(cpg)
+      val outerClassRefPass     = new OuterClassRefPass(cpg)
       val outerClassDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
 
       // Manual execution for binary compatibility
@@ -67,7 +68,7 @@ object JavaSrcBuilder {
 
       flatgraph.DiffGraphApplier.applyDiff(cpg.graph, outerClassDiffBuilder)
 
-      val javaConfigPass = JavaConfigFileCreationPass(cpg)
+      val javaConfigPass        = JavaConfigFileCreationPass(cpg)
       val javaConfigDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
 
       // Manual execution for binary compatibility
@@ -95,7 +96,7 @@ object JavaSrcBuilder {
 
         flatgraph.DiffGraphApplier.applyDiff(cpg.graph, typeNodeDiffBuilder)
 
-        val typeInferencePass = new TypeInferencePass(cpg)
+        val typeInferencePass        = new TypeInferencePass(cpg)
         val typeInferenceDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
 
         // Manual execution for binary compatibility
@@ -114,8 +115,10 @@ object JavaSrcBuilder {
   }
 
   /** Creates a filtered config that excludes files with malformed UTF-8 encoding
-    * @param config original configuration
-    * @return new configuration with problematic files filtered out
+    * @param config
+    *   original configuration
+    * @return
+    *   new configuration with problematic files filtered out
     */
   private def filterMalformedFiles(config: JavaSrcConfig): JavaSrcConfig = {
     val inputPath = Paths.get(config.inputPath)
@@ -125,19 +128,22 @@ object JavaSrcBuilder {
 
     try {
       // Find all Java source files and validate their encoding
-      val validFiles = Files.walk(inputPath)
+      val validFiles = Files
+        .walk(inputPath)
         .filter(Files.isRegularFile(_))
         .filter(path => {
           val name = path.getFileName.toString.toLowerCase
           name.endsWith(".java") || name.endsWith(".kt") || name.endsWith(".scala")
         })
         .filter(isValidUtf8File)
-        .toList.asScala.toList
+        .toList
+        .asScala
+        .toList
 
       // Copy valid files to temp directory maintaining structure
       for (file <- validFiles) {
         val relativePath = inputPath.relativize(file)
-        val targetPath = tempDir.resolve(relativePath)
+        val targetPath   = tempDir.resolve(relativePath)
         Files.createDirectories(targetPath.getParent)
         Files.copy(file, targetPath)
       }
@@ -147,14 +153,18 @@ object JavaSrcBuilder {
     } catch {
       case ex: Exception =>
         // If filtering fails, log and return original config
-        System.err.println(s"Warning: Failed to filter malformed files, proceeding with original config: ${ex.getMessage}")
+        System.err.println(
+          s"Warning: Failed to filter malformed files, proceeding with original config: ${ex.getMessage}"
+        )
         config
     }
   }
 
   /** Checks if a file can be read as valid UTF-8
-    * @param path the file path to check
-    * @return true if the file is valid UTF-8, false otherwise
+    * @param path
+    *   the file path to check
+    * @return
+    *   true if the file is valid UTF-8, false otherwise
     */
   private def isValidUtf8File(path: Path): Boolean = {
     try {
@@ -167,8 +177,8 @@ object JavaSrcBuilder {
       }
     } catch {
       case _: java.nio.charset.MalformedInputException => false
-      case _: java.io.UncheckedIOException => false
-      case _: Exception => false // Other IO issues
+      case _: java.io.UncheckedIOException             => false
+      case _: Exception                                => false // Other IO issues
     }
   }
 
