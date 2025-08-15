@@ -35,8 +35,14 @@ object CBuilder {
       List(
         new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report),
         new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report),
+      ).foreach(cpg.createAndApply)
+      // Types
+      List(
         TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg),
         new TypeDeclNodePass(cpg, config),
+      ).foreach(cpg.createAndApply)
+      // Functions & full names
+      List(
         new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config),
         new FullNameUniquenessPass(cpg)
       ).foreach(cpg.createAndApply)
