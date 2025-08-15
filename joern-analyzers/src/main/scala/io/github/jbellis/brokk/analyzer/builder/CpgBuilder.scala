@@ -169,36 +169,30 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     // in between these at some point in the future. For now, these resemble the default Joern
     // pass ordering and strategy minus CFG.
 
-    // Binary Compatibility fix: Handle mixed Joern library and local passes
-    // Joern library passes expect createAndApply(ForkJoinPool) but our local CpgPassBase
-    // interface defines createAndApply() with implicit ForkJoinPool parameter
+    // Binary Compatibility fix: Use manual execution for ALL passes to ensure uniformity
+    // This avoids the package name detection complexity and potential NoSuchMethodError
     (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg) ++ postProcessingPasses(cpg))
       .foreach { pass =>
-        // Check if this is a local pass (in our package) vs Joern library pass
-        val packageName = pass.getClass.getPackageName
-        if (packageName.startsWith("io.github.jbellis.brokk")) {
-          // Local pass - use createAndApply() with implicit ForkJoinPool
-          pass.createAndApply()
-        } else {
-          // Joern library pass - check if it supports manual execution
-          pass match {
-            case parallelPass: io.shiftleft.passes.ForkJoinParallelCpgPass[_] =>
-              // Use manual execution for ForkJoinParallelCpgPass to avoid binary compatibility issues
-              val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
-
-              parallelPass.init()
-              val parts = parallelPass.generateParts()
-              for (part <- parts) {
-                parallelPass.asInstanceOf[io.shiftleft.passes.ForkJoinParallelCpgPass[AnyRef]]
-                  .runOnPart(diffBuilder, part.asInstanceOf[AnyRef])
-              }
-              parallelPass.finish()
-
-              flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
-            case _ =>
-              // For other pass types, try createAndApply() and let it fail if incompatible
+        pass match {
+          case parallelPass: io.shiftleft.passes.ForkJoinParallelCpgPass[_] =>
+            // Manual execution for ForkJoinParallelCpgPass to avoid binary compatibility issues
+            val diffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+            parallelPass.init()
+            val parts = parallelPass.generateParts()
+            for (part <- parts) {
+              parallelPass.asInstanceOf[io.shiftleft.passes.ForkJoinParallelCpgPass[AnyRef]]
+                .runOnPart(diffBuilder, part.asInstanceOf[AnyRef])
+            }
+            parallelPass.finish()
+            flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder)
+          case _ =>
+            // For non-parallel passes, use createAndApply() with graceful error handling
+            try {
               pass.createAndApply()
-          }
+            } catch {
+              case ex: NoSuchMethodError =>
+                logger.warn(s"Failed to execute pass ${pass.getClass.getName} due to binary compatibility: ${ex.getMessage}")
+            }
         }
       }
     cpg

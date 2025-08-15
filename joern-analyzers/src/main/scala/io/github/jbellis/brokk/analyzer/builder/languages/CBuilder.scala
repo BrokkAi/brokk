@@ -29,10 +29,27 @@ object CBuilder {
       val report            = new Report()
       val global            = new CGlobal()
       val preprocessedFiles = allPreprocessedFiles(config)
-      new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report)
-        .createAndApply()
-      new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report)
-        .createAndApply()
+
+      // Binary Compatibility fix: Use manual execution for C++ AstCreationPass
+      val astCreationPass1 = new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report)
+      val diffBuilder1 = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      astCreationPass1.init()
+      val parts1 = astCreationPass1.generateParts()
+      for (part <- parts1) {
+        astCreationPass1.runOnPart(diffBuilder1, part)
+      }
+      astCreationPass1.finish()
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder1)
+
+      val astCreationPass2 = new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report)
+      val diffBuilder2 = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
+      astCreationPass2.init()
+      val parts2 = astCreationPass2.generateParts()
+      for (part <- parts2) {
+        astCreationPass2.runOnPart(diffBuilder2, part)
+      }
+      astCreationPass2.finish()
+      flatgraph.DiffGraphApplier.applyDiff(cpg.graph, diffBuilder2)
       // Binary Compatibility fix: Use manual execution for potential Joern library passes
       val typeNodePass        = TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg)
       val typeNodeDiffBuilder = io.shiftleft.codepropertygraph.generated.Cpg.newDiffGraphBuilder
