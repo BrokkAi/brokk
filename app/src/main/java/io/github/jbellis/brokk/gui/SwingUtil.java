@@ -96,11 +96,10 @@ public class SwingUtil {
      *
      * @param iconKey The UIManager key for the desired icon (e.g., "FileView.directoryIcon")
      */
-    public static @Nullable Icon uiIcon(String iconKey) {
-        // Try primary icon first
-        var icon = loadUIIcon(iconKey);
-        if (icon != null) {
-            return icon;
+    public static Icon uiIcon(String iconKey) {
+        // Always return a theme-aware proxy so icons refresh automatically
+        if (loadUIIcon(iconKey) != null) {
+            return new ThemedIcon(iconKey);
         }
 
         // Try common fallback icons in order of preference
@@ -113,10 +112,9 @@ public class SwingUtil {
         };
 
         for (var fallbackKey : fallbackKeys) {
-            icon = loadUIIcon(fallbackKey);
-            if (icon != null) {
+            if (loadUIIcon(fallbackKey) != null) {
                 logger.debug("Using fallback icon '{}' for requested key '{}'", fallbackKey, iconKey);
-                return icon;
+                return new ThemedIcon(fallbackKey);
             }
         }
 
@@ -154,5 +152,36 @@ public class SwingUtil {
                 return 16;
             }
         };
+    }
+
+    /**
+     * Icon wrapper that always fetches the current value from UIManager. By delegating on every call we ensure the
+     * image really changes after a theme switch without recreating every component that uses it.
+     */
+    private record ThemedIcon(String uiKey) implements Icon {
+
+        /** Retrieve the up-to-date delegate icon (or a simple fallback). */
+        private Icon delegate() {
+            Object value = UIManager.get(uiKey);
+            if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+                return icon;
+            }
+            return createSimpleFallbackIcon();
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            delegate().paintIcon(c, g, x, y);
+        }
+
+        @Override
+        public int getIconWidth() {
+            return delegate().getIconWidth();
+        }
+
+        @Override
+        public int getIconHeight() {
+            return delegate().getIconHeight();
+        }
     }
 }
