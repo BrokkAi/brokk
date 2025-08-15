@@ -375,7 +375,7 @@ public class SkeletonPrinter {
         return switch (language.internalName()) {
             case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
             case "JavaScript" -> new JavascriptAnalyzer(project);
-            case "Java" -> new JavaAnalyzer(project);
+            case "Java" -> JavaAnalyzer.create(project);
             case "Python" -> new PythonAnalyzer(project);
             case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
             default -> null;

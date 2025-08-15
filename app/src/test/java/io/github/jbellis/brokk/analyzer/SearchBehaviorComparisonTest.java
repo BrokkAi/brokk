@@ -27,7 +27,7 @@ public final class SearchBehaviorComparisonTest {
     @BeforeAll
     static void setup() {
         javaTestProject = createTestProject("", "testcode-java", Language.JAVA);
-        javaAnalyzer = new JavaAnalyzer(javaTestProject);
+        javaAnalyzer = JavaAnalyzer.create(javaTestProject);
         try {
             javaAnalyzer.isAdvancedAnalysisReady().join();
         } catch (Exception e) {
