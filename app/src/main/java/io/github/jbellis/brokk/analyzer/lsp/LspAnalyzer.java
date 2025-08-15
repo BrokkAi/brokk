@@ -405,6 +405,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                     .map(LspAnalyzerHelper::getSourceForSymbol)
                     .flatMap(Optional::stream)
                     .distinct()
+                    .sorted()
                     .findFirst()
                     .orElseGet(() -> {
                         // fallback to the whole file, if any partial matches for parent container are present
@@ -422,14 +423,17 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                     .map(LspAnalyzerHelper::getSourceForSymbol)
                                     .flatMap(Optional::stream)
                                     .distinct()
+                                    .sorted()
                                     .findFirst();
                             if (fallbackExactMatches.isPresent()) {
                                 return fallbackExactMatches.get();
                             } else {
                                 return matches.stream()
+                                        .filter(s -> s.getContainerName().endsWith(parentContainer))
                                         .map(LspAnalyzerHelper::getSourceForSymbol)
                                         .flatMap(Optional::stream)
                                         .distinct()
+                                        .sorted()
                                         .findFirst()
                                         .orElse(null);
                             }
