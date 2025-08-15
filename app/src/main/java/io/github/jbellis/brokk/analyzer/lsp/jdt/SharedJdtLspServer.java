@@ -1,13 +1,16 @@
 package io.github.jbellis.brokk.analyzer.lsp.jdt;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
 import io.github.jbellis.brokk.gui.dialogs.analyzer.JavaAnalyzerSettingsPanel;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import org.eclipse.lsp4j.services.LanguageClient;
@@ -50,11 +53,12 @@ public final class SharedJdtLspServer extends LspServer {
         final Path configDir = LspFileUtilities.findConfigDir(serverHome);
         final int memoryMB = JavaAnalyzerSettingsPanel.getSavedMemoryValueMb();
         logger.debug("Creating JDT LSP process with a max heap size of {} Mb", memoryMB);
+        var javaExec = resolveJavaExecutable();
 
         if (!Files.isDirectory(cache)) Files.createDirectories(cache);
 
         return new ProcessBuilder(
-                "java",
+                javaExec,
                 // Java module system args for compatibility
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
@@ -90,5 +94,41 @@ public final class SharedJdtLspServer extends LspServer {
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.languageClient = new JdtLanguageClient(language, serverReadyLatch, workspaceReadyLatchMap);
         return this.languageClient;
+    }
+
+    /**
+     * Determines the Java executable to use for launching the JDT language server.
+     *
+     * <p>Preference order: 1. {@code JAVA_HOME}/bin/java(.exe) 2. First matching {@code java} (or {@code java.exe})
+     * found on the system PATH
+     *
+     * @return absolute path to a usable Java executable
+     * @throws IOException if no executable can be located
+     */
+    private static String resolveJavaExecutable() throws IOException {
+        var osName = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+        var execName = osName.contains("win") ? "java.exe" : "java";
+
+        var javaHome = System.getenv("JAVA_HOME");
+        if (javaHome != null && !javaHome.isBlank()) {
+            var candidate = Path.of(javaHome, "bin", execName);
+            if (Files.isExecutable(candidate)) {
+                return candidate.toString();
+            }
+        }
+
+        var pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (var dir : Splitter.on(File.pathSeparatorChar).split(pathEnv)) {
+                if (dir.isBlank()) continue;
+                var candidate = Path.of(dir, execName);
+                if (Files.isExecutable(candidate)) {
+                    return candidate.toString();
+                }
+            }
+        }
+
+        throw new IOException(
+                "Unable to locate a Java executable; set JAVA_HOME or ensure 'java' is on the system PATH.");
     }
 }
