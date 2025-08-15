@@ -714,6 +714,62 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
+
+        // Register IntelliJ-style shortcuts for switching sidebar panels
+        // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
+        int modifier =
+                System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("mac")
+                        ? KeyEvent.META_DOWN_MASK
+                        : KeyEvent.ALT_DOWN_MASK;
+
+        // Alt/Cmd+1 for Project Files
+        var switchToProjectFiles = KeyStroke.getKeyStroke(KeyEvent.VK_1, modifier);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToProjectFiles, "switchToProjectFiles");
+        rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                leftTabbedPanel.setSelectedIndex(0); // Project Files is always at index 0
+            }
+        });
+
+        // Alt/Cmd+2 for Git panel (if available)
+        if (gitPanel != null) {
+            var switchToGit = KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToGit, "switchToGit");
+            rootPane.getActionMap().put("switchToGit", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(gitPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Alt/Cmd+3 for Pull Requests panel (if available)
+        if (pullRequestsPanel != null) {
+            var switchToPR = KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToPR, "switchToPullRequests");
+            rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
+
+        // Alt/Cmd+4 for Issues panel (if available)
+        if (issuesPanel != null) {
+            var switchToIssues = KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier);
+            rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(switchToIssues, "switchToIssues");
+            rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                }
+            });
+        }
     }
 
     @Override
@@ -1377,6 +1433,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return gitPanel;
     }
 
+    public JTabbedPane getLeftTabbedPanel() {
+        return leftTabbedPanel;
+    }
+
+    @Nullable
+    public GitPullRequestsTab getPullRequestsPanel() {
+        return pullRequestsPanel;
+    }
+
+    @Nullable
+    public GitIssuesTab getIssuesPanel() {
+        return issuesPanel;
+    }
+
     /** Called by MenuBar after constructing the BlitzForge menu item. */
     public void setBlitzForgeMenuItem(JMenuItem blitzForgeMenuItem) {
         this.blitzForgeMenuItem = requireNonNull(blitzForgeMenuItem);
@@ -1725,7 +1795,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int size = Math.max(icon.getIconWidth(), icon.getIconHeight());
         // add a little padding so the icon isn't flush against the border
         // tabs are usually a bit width biased, so let's also reduce width a bit
-        label.setPreferredSize(new Dimension(size + 4, size + 8));
+        label.setPreferredSize(new Dimension(size, size + 8));
         label.setMinimumSize(label.getPreferredSize());
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);
