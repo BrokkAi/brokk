@@ -550,7 +550,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnitRelevance> getPagerank(Map<String, Double> seedClassWeights, int k, boolean reversed) {
+    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
         try {
             return GitDistance.getPagerank(this, project.getRoot(), seedClassWeights, k, reversed);
         } catch (GitAPIException e) {
@@ -1738,6 +1738,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error - use safe conversion method
             log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
+
             return ASTTraversalUtils.safeSubstringFromByteOffsets(src, node.getStartByte(), node.getEndByte());
         }
 
@@ -1754,6 +1755,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error - use safe conversion method
             log.warn("Error getting bytes from source: {}. Falling back to safe substring conversion", e.getMessage());
+
             return ASTTraversalUtils.safeSubstringFromByteOffsets(src, startByte, endByte);
         }
 
@@ -1804,6 +1806,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             final String snippet = ASTTraversalUtils.safeSubstringFromByteOffsets(
                     src, decl.getStartByte(), Math.min(decl.getEndByte(), decl.getStartByte() + 20));
+
             log.warn(
                     "Error extracting simple name using field '{}' from node type {} for node starting with '{}...': {}",
                     identifierFieldName,

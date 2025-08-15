@@ -128,12 +128,18 @@ public class GitCommitBrowserPanel extends JPanel {
         commitsPanel.setPreferredSize(nominalPreferredSize);
         changesPanel.setPreferredSize(nominalPreferredSize);
 
+        // Commits panel – occupies upper portion
         constraints.gridx = 0;
-        constraints.weightx = 0.65;
+        constraints.gridy = 0;
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.60; // about 60% of height
         add(commitsPanel, constraints);
 
-        constraints.gridx = 1;
-        constraints.weightx = 0.35;
+        // Changes panel – occupies remaining lower portion
+        constraints.gridx = 0;
+        constraints.gridy = 1;
+        constraints.weightx = 1.0;
+        constraints.weighty = 0.40; // about 40% of height
         add(changesPanel, constraints);
     }
 
@@ -171,15 +177,18 @@ public class GitCommitBrowserPanel extends JPanel {
         commitsPanel.add(new JScrollPane(commitsTable), BorderLayout.CENTER);
 
         // Initialize buttons as they are class members and might be accessed by configureButton
-        pullButton = new JButton("Pull");
+        pullButton = new JButton();
+        pullButton.setIcon(SwingUtil.uiIcon("Brokk.download"));
         pullButton.setToolTipText("Pull changes from remote repository");
         pullButton.setEnabled(false);
 
-        pushButton = new JButton("Push");
+        pushButton = new JButton();
+        pushButton.setIcon(SwingUtil.uiIcon("Brokk.publish"));
         pushButton.setToolTipText("Push commits to remote repository");
         pushButton.setEnabled(false);
 
-        createPrButton = new JButton("Create PR");
+        createPrButton = new JButton();
+        createPrButton.setIcon(SwingUtil.uiIcon("Brokk.add_diamond"));
         createPrButton.setToolTipText("Create a pull request for the current branch");
         createPrButton.setEnabled(false);
         createPrButton.addActionListener(e -> {
@@ -201,7 +210,8 @@ public class GitCommitBrowserPanel extends JPanel {
             CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager, branch);
         });
 
-        viewDiffButton = new JButton("View Diff");
+        viewDiffButton = new JButton();
+        viewDiffButton.setIcon(SwingUtil.uiIcon("Brokk.difference"));
         viewDiffButton.setToolTipText("View changes in the selected commit");
         viewDiffButton.setEnabled(false); // Initially disabled, enabled by selection listener
         viewDiffButton.addActionListener(e -> {

@@ -12,7 +12,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
-import io.github.jbellis.brokk.difftool.doc.FileDocument;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
 import io.github.jbellis.brokk.difftool.node.BufferNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
@@ -25,6 +24,7 @@ import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1142,51 +1142,69 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /** Writes out any changed documents to disk. Typically invoked after applying changes or undo/redo. */
     public void doSave() {
-        for (var fp : filePanels.values()) {
-            if (!fp.isDocumentChanged()) continue;
-            var doc = requireNonNull(fp.getBufferDocument());
+        // Pause watcher callbacks while we write files to disk
+        // Note: Heavy history work is scheduled to run after this paused block ends
+        var contextManager = mainPanel.getContextManager();
+        contextManager.withFileChangeNotificationsPaused(() -> {
+            // Capture document state on EDT before writing files
+            // This is needed for both diff changes and manual edits
+            List<ChangedDocumentData> changedDocumentsData = null;
+            Map<String, String> preSaveBaselines = null;
 
-            // Check if document is read-only before attempting to save
-            if (doc.isReadonly()) {
-                continue;
+            if (pendingDiffChanges.isEmpty()) {
+                // For manual edits: capture document state and pre-save baselines before writing
+                changedDocumentsData = captureChangedDocumentsDataOnEdt();
+                preSaveBaselines = capturePreSaveBaselinesFromDisk(changedDocumentsData);
             }
 
-            try {
-                doc.write();
-            } catch (Exception ex) {
-                logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
-                mainPanel
-                        .getConsoleIO()
-                        .systemNotify(
-                                "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
-                                "Problem writing file",
-                                JOptionPane.ERROR_MESSAGE);
+            // Write files to disk
+            for (var fp : filePanels.values()) {
+                if (!fp.isDocumentChanged()) continue;
+                var doc = requireNonNull(fp.getBufferDocument());
+
+                // Check if document is read-only before attempting to save
+                if (doc.isReadonly()) {
+                    continue;
+                }
+
+                try {
+                    doc.write();
+                } catch (Exception ex) {
+                    logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
+                    mainPanel
+                            .getConsoleIO()
+                            .systemNotify(
+                                    "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
+                                    "Problem writing file",
+                                    JOptionPane.ERROR_MESSAGE);
+                }
             }
-        }
 
-        // Generate activity entries for files that had diff changes applied
-        // Move expensive operations to background thread to avoid blocking UI
-        if (!pendingDiffChanges.isEmpty()) {
-            // Capture current state for background processing
-            var diffChangesCopy = new HashMap<>(pendingDiffChanges);
-            var contentBeforeChangesCopy = new HashMap<>(contentBeforeChanges);
+            // After files are written, prepare to generate activity entries in background
+            // Note: This work runs after the watcher pause ends to avoid blocking file writes
+            if (!pendingDiffChanges.isEmpty()) {
+                // Capture current state for background processing on EDT
+                var diffChangesCopy = new HashMap<>(pendingDiffChanges);
+                var contentBeforeChangesCopy = new HashMap<>(contentBeforeChanges);
+                var currentFileDataMap = captureCurrentFileDataOnEdt();
 
-            // Process in background thread
-            CompletableFuture.supplyAsync(() -> {
-                        generateDiffChangeActivityEntriesAsync(diffChangesCopy, contentBeforeChangesCopy);
-                        return null;
-                    })
-                    .exceptionally(ex -> {
-                        logger.error("Failed to generate diff change activity entries in background", ex);
-                        return null;
-                    });
+                // Process in background thread with captured data
+                generateDiffChangeActivityEntriesAsync(diffChangesCopy, contentBeforeChangesCopy, currentFileDataMap);
 
-            // After processing, update baseline content for next save (like PreviewTextPanel)
-            updateBaselineContentAfterSave();
-        }
+                // After processing, update baseline content for next save (like PreviewTextPanel)
+                updateBaselineContentAfterSave();
+            } else {
+                // Generate activity entries for manual edits using pre-captured data
+                // This handles manual edits that weren't tracked as diff changes
+                if (changedDocumentsData != null && preSaveBaselines != null) {
+                    generateActivityEntriesForChangedDocumentsAsync(changedDocumentsData, preSaveBaselines);
+                }
+            }
 
-        // After saving, recalculate dirty status (should be false since undo history is cleared)
-        recalcDirty();
+            // After saving, recalculate dirty status (should be false since undo history is cleared)
+            recalcDirty();
+            return null; // withFileChangeNotificationsPaused expects a return value
+        });
     }
 
     /** The "down arrow" in the toolbar calls doDown(). We step to next delta if possible, or re-scroll from top. */
@@ -1371,6 +1389,16 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     @Override
     public void dispose() {
 
+        // Create history entries for any unsaved changes before disposal
+        if (!pendingDiffChanges.isEmpty()) {
+            var diffChangesCopy = new HashMap<>(pendingDiffChanges);
+            var contentBeforeChangesCopy = new HashMap<>(contentBeforeChanges);
+            var currentFileDataMap = captureCurrentFileDataOnEdt();
+
+            // Create history entries synchronously since we're disposing
+            generateDiffChangeActivityEntries(diffChangesCopy, contentBeforeChangesCopy, currentFileDataMap);
+        }
+
         // Clear tracking maps
         pendingDiffChanges.clear();
         contentBeforeChanges.clear();
@@ -1431,46 +1459,126 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
-    /** Records that a diff operation was applied to a file. */
+    /**
+     * Records that a diff operation was applied to a file. Changes are tracked but history entries are only created on
+     * manual save or panel disposal.
+     */
     private void recordDiffChange(BufferDocumentIF doc) {
-        var filename = doc.getShortName();
+        var filename = doc.getName(); // Use full path instead of short name
 
-        // Capture baseline content before changes (first time or if no changes pending)
-        if (contentBeforeChanges.get(filename) == null || pendingDiffChanges.get(filename) == null) {
+        // Capture baseline content before changes (first time only)
+        if (contentBeforeChanges.get(filename) == null) {
             try {
                 var document = doc.getDocument();
                 var content = document.getText(0, document.getLength());
-
-                // Only update baseline if no changes are pending (start of new change cycle)
-                if (pendingDiffChanges.get(filename) == null) {
-                    contentBeforeChanges.put(filename, content);
-                } else {
-                    // First time seeing this file, use putIfAbsent
-                    contentBeforeChanges.putIfAbsent(filename, content);
-                }
-
-                // Add file to editable context - this preserves original content for undo
-                var contextManager = mainPanel.getContextManager();
-                var projectFile = new ProjectFile(contextManager.getRoot(), filename);
-                contextManager.editFiles(List.of(projectFile));
-
+                contentBeforeChanges.put(filename, content);
             } catch (BadLocationException e) {
                 logger.warn("Failed to capture original content for diff change tracking: {}", filename, e);
             }
         }
 
-        // Thread-safe atomic increment
+        // Track the change but don't create immediate history entry
+        // History entries will be created on save or panel disposal
         pendingDiffChanges.merge(filename, 1, Integer::sum);
     }
 
-    /** Records a manual edit (typing, paste, etc.) on a document for history tracking. */
+    /**
+     * Records a manual edit (typing, paste, etc.) on a document for history tracking. Changes are tracked but history
+     * entries are only created on manual save (Ctrl+S) or panel disposal.
+     */
     public void recordManualEdit(BufferDocumentIF doc) {
         recordDiffChange(doc);
     }
 
-    /** Asynchronous version of generateDiffChangeActivityEntries that can run on background threads. */
-    private void generateDiffChangeActivityEntriesAsync(
-            Map<String, Integer> diffChanges, Map<String, String> contentBefore) {
+    /**
+     * Captures current file data on EDT to pass to background threads. This ensures Swing document access happens only
+     * on EDT.
+     */
+    private Map<String, FileData> captureCurrentFileDataOnEdt() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        var fileDataMap = new HashMap<String, FileData>();
+        for (var fp : filePanels.values()) {
+            var doc = fp.getBufferDocument();
+            if (doc != null) {
+                try {
+                    var document = doc.getDocument();
+                    var currentContent = document.getText(0, document.getLength());
+                    var projectFile = createProjectFile(doc);
+                    fileDataMap.put(doc.getName(), new FileData(currentContent, projectFile));
+                } catch (Exception e) {
+                    logger.warn("Failed to capture current content for file: {}", doc.getName(), e);
+                }
+            }
+        }
+        return fileDataMap;
+    }
+
+    /** Data structure for capturing document state that can be safely passed to background threads. */
+    private record ChangedDocumentData(
+            String filename, String currentContent, String baselineContent, boolean isReadonly) {}
+
+    /**
+     * Captures changed document data on EDT to pass to background threads. This ensures Swing document access happens
+     * only on EDT.
+     */
+    private List<ChangedDocumentData> captureChangedDocumentsDataOnEdt() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        var changedDocs = new ArrayList<ChangedDocumentData>();
+        for (var fp : filePanels.values()) {
+            if (!fp.isDocumentChanged()) continue;
+            var doc = fp.getBufferDocument();
+            if (doc == null || doc.isReadonly()) continue;
+
+            var filename = doc.getName();
+            try {
+                var document = doc.getDocument();
+                var currentContent = document.getText(0, document.getLength());
+                var baselineContent = contentBeforeChanges.get(filename);
+                if (baselineContent == null) {
+                    baselineContent = "";
+                }
+                changedDocs.add(new ChangedDocumentData(filename, currentContent, baselineContent, doc.isReadonly()));
+            } catch (Exception e) {
+                logger.warn("Failed to capture changed document data for {}", filename, e);
+            }
+        }
+        return changedDocs;
+    }
+
+    /**
+     * Captures pre-save baseline content from disk for files that don't have tracked baselines. This must be called
+     * BEFORE writing files to disk to avoid reading post-save content. Safe to call from any thread since it only reads
+     * from disk, not Swing documents.
+     */
+    private Map<String, String> capturePreSaveBaselinesFromDisk(List<ChangedDocumentData> changedDocs) {
+        var preSaveBaselines = new HashMap<String, String>();
+        for (var docData : changedDocs) {
+            // Only capture baseline from disk if we don't already have one tracked
+            if (docData.baselineContent().isEmpty()) {
+                try {
+                    var projectFile = createProjectFileFromPath(docData.filename());
+                    if (projectFile != null && projectFile.absPath().toFile().exists()) {
+                        var diskContent = projectFile.read();
+                        preSaveBaselines.put(docData.filename(), diskContent);
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to capture pre-save baseline for {}: {}", docData.filename(), e.getMessage());
+                }
+            }
+        }
+        return preSaveBaselines;
+    }
+
+    /**
+     * Generates diff change activity entries synchronously from captured data. Safe to call from any thread since it
+     * uses pre-captured data and doesn't access Swing documents.
+     */
+    private void generateDiffChangeActivityEntries(
+            Map<String, Integer> diffChanges,
+            Map<String, String> contentBefore,
+            Map<String, FileData> currentFileDataMap) {
         if (diffChanges.isEmpty()) {
             return;
         }
@@ -1478,10 +1586,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         for (var entry : diffChanges.entrySet()) {
             var filename = entry.getKey();
             var changeCount = entry.getValue();
-
             try {
-                var fileData = findFileData(filename);
+                var fileData = currentFileDataMap.get(filename);
                 if (fileData == null) {
+                    logSimpleMessage(filename, changeCount);
+                    continue;
+                }
+
+                if (fileData.projectFile() == null) {
                     logSimpleMessage(filename, changeCount);
                     continue;
                 }
@@ -1499,61 +1611,39 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
     }
 
+    /** Asynchronous wrapper for generateDiffChangeActivityEntries. Schedules the work to run on a background thread. */
+    private void generateDiffChangeActivityEntriesAsync(
+            Map<String, Integer> diffChanges,
+            Map<String, String> contentBefore,
+            Map<String, FileData> currentFileDataMap) {
+        CompletableFuture.supplyAsync(() -> {
+                    generateDiffChangeActivityEntries(diffChanges, contentBefore, currentFileDataMap);
+                    return null;
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to generate diff change activity entries in background", ex);
+                    return null;
+                });
+    }
+
     private record FileData(String currentContent, @Nullable ProjectFile projectFile) {}
 
     @Nullable
-    private FileData findFileData(String filename) {
-        for (var fp : filePanels.values()) {
-            var doc = fp.getBufferDocument();
-            if (doc != null && filename.equals(doc.getShortName())) {
-                try {
-                    var document = doc.getDocument();
-                    var currentContent = document.getText(0, document.getLength());
-                    var projectFile = createProjectFile(doc, filename);
-                    return new FileData(currentContent, projectFile);
-                } catch (Exception e) {
-                    logger.warn("Failed to get current content for diff change history: {}", filename, e);
-                    break;
-                }
-            }
-        }
-        return null;
-    }
-
-    @Nullable
-    private ProjectFile createProjectFile(BufferDocumentIF doc, String filename) {
+    private ProjectFile createProjectFile(BufferDocumentIF doc) {
         var contextManager = mainPanel.getContextManager();
         var projectRoot = contextManager.getProject().getRoot();
 
         try {
-            if (doc instanceof FileDocument fileDoc) {
-                // Try absolute path first
-                var fullPath = Paths.get(fileDoc.getName());
-                if (fullPath.toFile().exists()) {
-                    var relativePath = projectRoot.relativize(fullPath);
-                    return new ProjectFile(projectRoot, relativePath);
-                }
+            // doc.getName() should now contain the full absolute path
+            var fullPath = Paths.get(doc.getName());
 
-                // If that fails, try resolving against project root
-                var resolvedPath = projectRoot.resolve(fileDoc.getName());
-                if (resolvedPath.toFile().exists()) {
-                    var relativePath = projectRoot.relativize(resolvedPath);
-                    return new ProjectFile(projectRoot, relativePath);
-                }
+            if (fullPath.toFile().exists()) {
+                return createProjectFileFromFullPath(projectRoot, fullPath, doc.getName());
             } else {
-                var filePath = projectRoot.resolve(filename);
-                if (filePath.toFile().exists()) {
-                    return new ProjectFile(projectRoot, Paths.get(filename));
-                }
-
-                var docNamePath = Paths.get(doc.getName());
-                if (docNamePath.toFile().exists()) {
-                    var relativePath = projectRoot.relativize(docNamePath);
-                    return new ProjectFile(projectRoot, relativePath);
-                }
+                logger.warn("File does not exist at path: {}", fullPath);
             }
         } catch (Exception e) {
-            logger.warn("Failed to create ProjectFile for {}: {}", filename, e.getMessage());
+            logger.warn("Failed to create ProjectFile for {}: {}", doc.getName(), e.getMessage());
         }
         return null;
     }
@@ -1607,37 +1697,145 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /**
      * Updates the baseline content after save to track future changes (like PreviewTextPanel). This allows multiple
-     * saves to each create history entries.
+     * saves to each create history entries. Uses the already captured current file data to avoid additional Swing
+     * document access.
      */
     private void updateBaselineContentAfterSave() {
         // Reset counters for next save cycle
         pendingDiffChanges.clear();
 
-        // Update baseline content to current content for each tracked file
-        var updatedBaseline = new HashMap<String, String>();
-        for (var entry : contentBeforeChanges.entrySet()) {
-            var filename = entry.getKey();
-
-            // Find current content for this file
-            for (var fp : filePanels.values()) {
-                var doc = fp.getBufferDocument();
-                if (doc != null && filename.equals(doc.getShortName())) {
-                    try {
-                        var document = doc.getDocument();
-                        var currentContent = document.getText(0, document.getLength());
-                        updatedBaseline.put(filename, currentContent);
-                        break;
-                    } catch (Exception e) {
-                        logger.warn("Failed to update baseline content for {}: {}", filename, e.getMessage());
-                        // Keep old baseline if we can't read current content
-                        updatedBaseline.put(filename, entry.getValue());
-                    }
-                }
-            }
-        }
+        // Capture current content on EDT to update baseline
+        var currentFileDataMap = captureCurrentFileDataOnEdt();
 
         // Replace the baseline with current content
         contentBeforeChanges.clear();
-        contentBeforeChanges.putAll(updatedBaseline);
+        for (var entry : currentFileDataMap.entrySet()) {
+            contentBeforeChanges.put(entry.getKey(), entry.getValue().currentContent());
+        }
+    }
+
+    /**
+     * Generates activity entries for documents that have been changed but weren't tracked as diff changes. This is
+     * similar to PreviewTextPanel's approach for handling manual edits. Safe to call from any thread since it uses
+     * pre-captured data and doesn't access Swing documents.
+     */
+    private void generateActivityEntriesForChangedDocuments(
+            List<ChangedDocumentData> changedDocumentsData, Map<String, String> preSaveBaselines) {
+        for (var docData : changedDocumentsData) {
+            try {
+                var baselineContent = docData.baselineContent();
+                if (baselineContent.isEmpty()) {
+                    // Use pre-captured baseline from disk (captured before file was saved)
+                    baselineContent = preSaveBaselines.getOrDefault(docData.filename(), "");
+                }
+
+                // Only create history entry if content actually changed
+                if (!docData.currentContent().equals(baselineContent)) {
+                    var projectFile = createProjectFileFromPath(docData.filename());
+                    if (projectFile != null) {
+                        var fileData = new FileData(docData.currentContent(), projectFile);
+                        createHistoryEntry(docData.filename(), 1, baselineContent, fileData);
+                        // Update baseline for next save - must be done on EDT
+                        SwingUtilities.invokeLater(() -> {
+                            contentBeforeChanges.put(docData.filename(), docData.currentContent());
+                        });
+                    } else {
+                        logger.warn(
+                                "Could not create history entry for {} - createProjectFileFromPath returned null",
+                                docData.filename());
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Failed to generate activity entry for document {}", docData.filename(), e);
+            }
+        }
+    }
+
+    /**
+     * Asynchronous wrapper for generateActivityEntriesForChangedDocuments. Schedules the work to run on a background
+     * thread.
+     */
+    private void generateActivityEntriesForChangedDocumentsAsync(
+            List<ChangedDocumentData> changedDocumentsData, Map<String, String> preSaveBaselines) {
+        CompletableFuture.supplyAsync(() -> {
+                    generateActivityEntriesForChangedDocuments(changedDocumentsData, preSaveBaselines);
+                    return null;
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to generate activity entries for document changes", ex);
+                    return null;
+                });
+    }
+
+    /**
+     * Creates a ProjectFile from a file path without accessing Swing documents. This is safe to call from background
+     * threads.
+     */
+    @Nullable
+    private ProjectFile createProjectFileFromPath(String filename) {
+        var contextManager = mainPanel.getContextManager();
+        var projectRoot = contextManager.getProject().getRoot();
+
+        try {
+            var fullPath = Paths.get(filename);
+            if (fullPath.toFile().exists()) {
+                return createProjectFileFromFullPath(projectRoot, fullPath, filename);
+            } else {
+                logger.warn("File does not exist at path: {}", fullPath);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to create ProjectFile for {}: {}", filename, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Creates a ProjectFile from a full path with proper Windows cross-drive and outside-project handling. This method
+     * handles the Windows IllegalArgumentException that occurs when trying to relativize paths on different drives
+     * (e.g., C:\ vs D:\) and provides fallback behavior for files outside the project root.
+     */
+    @Nullable
+    private ProjectFile createProjectFileFromFullPath(Path projectRoot, Path fullPath, String displayName) {
+        try {
+            // First check if the path is absolute and starts with the project root
+            if (fullPath.isAbsolute() && fullPath.startsWith(projectRoot)) {
+                // Path is within project - safe to relativize
+                var relativePath = projectRoot.relativize(fullPath);
+                return new ProjectFile(projectRoot, relativePath);
+            }
+
+            // For absolute paths not starting with project root, try relativize with exception handling
+            if (fullPath.isAbsolute()) {
+                try {
+                    var relativePath = projectRoot.relativize(fullPath);
+                    // If we get here, relativize succeeded (path outside project with .. segments)
+                    return new ProjectFile(projectRoot, relativePath);
+                } catch (IllegalArgumentException e) {
+                    // This happens on Windows with cross-drive paths (C:\ vs D:\)
+                    logger.warn(
+                            "Cannot relativize path {} from project root {} - cross-drive or incompatible paths: {}",
+                            fullPath,
+                            projectRoot,
+                            e.getMessage());
+                    return null; // Caller will handle null and use logSimpleMessage fallback
+                }
+            }
+
+            // For relative paths, resolve against project root
+            var resolvedPath = projectRoot.resolve(fullPath);
+            if (resolvedPath.toFile().exists()) {
+                var relativePath = projectRoot.relativize(resolvedPath);
+                return new ProjectFile(projectRoot, relativePath);
+            }
+
+        } catch (Exception e) {
+            logger.warn(
+                    "Unexpected error creating ProjectFile for {} (project root: {}): {}",
+                    displayName,
+                    projectRoot,
+                    e.getMessage());
+        }
+
+        return null;
     }
 }

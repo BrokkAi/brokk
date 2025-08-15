@@ -137,16 +137,25 @@ public abstract class CodePrompts {
             StreamingChatModel model,
             EditBlockParser parser,
             List<ChatMessage> taskMessages,
-            UserMessage request)
+            UserMessage request,
+            Set<ProjectFile> changedFiles)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
+        Context ctx = cm.liveContext();
 
         messages.add(systemMessage(cm, reminder));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
+        if (changedFiles.isEmpty()) {
+            messages.addAll(getWorkspaceContentsMessages(ctx));
+        } else {
+            messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
+        }
         messages.addAll(parser.exampleMessages());
-        messages.addAll(getHistoryMessages(cm.liveContext()));
+        messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
+        if (!changedFiles.isEmpty()) {
+            messages.addAll(getWorkspaceContentsMessages(List.of(), getWorkspaceEditableMessages(ctx)));
+        }
         messages.add(request);
 
         return messages;
@@ -704,6 +713,11 @@ public abstract class CodePrompts {
         var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx);
         var editableMessages = getWorkspaceEditableMessages(ctx);
 
+        return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
+    }
+
+    private List<ChatMessage> getWorkspaceContentsMessages(
+            Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
         // If both are empty and no related classes requested, return empty
         if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
             return List.of();

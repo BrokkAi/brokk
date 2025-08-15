@@ -10,6 +10,8 @@ import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.Objects;
@@ -67,11 +69,34 @@ public class ArchitectOptionsDialog {
 
             // Helper to create checkbox with description
             BiFunction<String, String, JCheckBox> createCheckbox = (text, description) -> {
-                JCheckBox cb =
-                        new JCheckBox("<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>");
-                cb.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0)); // Spacing below checkbox
-                cb.setAlignmentX(Component.LEFT_ALIGNMENT);
-                mainPanel.add(cb);
+                var html = "<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>";
+
+                var cb = new JCheckBox();
+                cb.setAlignmentY(0f);
+
+                var label = new JLabel(html);
+                label.setAlignmentY(0f);
+
+                // Keep label tooltip synced with checkbox tooltip
+                cb.addPropertyChangeListener("toolTipText", evt -> label.setToolTipText((String) evt.getNewValue()));
+
+                // Clicking the label toggles the checkbox
+                label.addMouseListener(new MouseAdapter() {
+                    @Override
+                    public void mouseClicked(MouseEvent e) {
+                        cb.doClick();
+                    }
+                });
+
+                var row = new JPanel();
+                row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+                row.setAlignmentX(Component.LEFT_ALIGNMENT);
+                row.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+                row.add(cb);
+                row.add(Box.createHorizontalStrut(5));
+                row.add(label);
+
+                mainPanel.add(row);
                 return cb;
             };
 
@@ -139,9 +164,8 @@ public class ArchitectOptionsDialog {
             });
 
             // --- Worktree Checkbox ---
-            var worktreeCb = new JCheckBox(
-                    "<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
-            worktreeCb.setAlignmentX(Component.LEFT_ALIGNMENT);
+            var worktreeCb = new JCheckBox();
+            worktreeCb.setAlignmentY(0f);
             worktreeCb.setToolTipText(
                     "Create and run the Architect agent in a new Git worktree based on the current commit.");
             boolean worktreesSupported = gitState.gitAvailable()
@@ -156,7 +180,33 @@ public class ArchitectOptionsDialog {
                 worktreeCb.setToolTipText(
                         "Git worktrees are not supported by your Git version or repository configuration.");
             }
-            mainPanel.add(worktreeCb);
+
+            var worktreeLabel = new JLabel(
+                    "<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
+            worktreeLabel.setAlignmentY(0f);
+            worktreeLabel.setToolTipText(worktreeCb.getToolTipText());
+
+            // Keep label tooltip synced with checkbox tooltip
+            worktreeCb.addPropertyChangeListener(
+                    "toolTipText", evt -> worktreeLabel.setToolTipText((String) evt.getNewValue()));
+
+            // Clicking the label toggles the checkbox
+            worktreeLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    worktreeCb.doClick();
+                }
+            });
+
+            var worktreeRow = new JPanel();
+            worktreeRow.setLayout(new BoxLayout(worktreeRow, BoxLayout.X_AXIS));
+            worktreeRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            worktreeRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+            worktreeRow.add(worktreeCb);
+            worktreeRow.add(Box.createHorizontalStrut(5));
+            worktreeRow.add(worktreeLabel);
+
+            mainPanel.add(worktreeRow);
 
             dialog.add(new JScrollPane(mainPanel), BorderLayout.CENTER); // Add scroll pane
 

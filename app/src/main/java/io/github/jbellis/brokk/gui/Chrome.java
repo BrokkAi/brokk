@@ -92,13 +92,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final List<String> systemMessages = new ArrayList<>();
     private final JPanel bottomPanel;
 
-    private final JSplitPane mainHorizontalSplitPane;
-    private final JSplitPane leftVerticalSplitPane;
+    private final JSplitPane topSplitPane; // Instructions | Workspace
+    private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
 
-    @Nullable
-    private JSplitPane rightVerticalSplitPane; // Can be null if no git
-
+    private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
     private final HistoryOutputPanel historyOutputPanel;
+    /** Horizontal split between left tab stack and right output stack */
+    private JSplitPane bottomSplitPane;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -106,6 +106,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Nullable
     private final GitPanel gitPanel; // Null when no git repo is present
+
+    @Nullable
+    private GitPullRequestsTab pullRequestsPanel;
+
+    @Nullable
+    private GitIssuesTab issuesPanel;
 
     // Reference to Tools ▸ BlitzForge… menu item so we can enable/disable it
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
@@ -138,7 +144,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Create instructions panel and history/output panel
         instructionsPanel = new InstructionsPanel(this);
-        historyOutputPanel = new HistoryOutputPanel(this, this.contextManager, instructionsPanel);
+        historyOutputPanel = new HistoryOutputPanel(this, this.contextManager);
 
         // Bottom Area: Context/Git + Status
         bottomPanel = new JPanel(new BorderLayout());
@@ -189,36 +195,129 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspacePanel = new WorkspacePanel(this, contextManager);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager);
 
-        // Create a vertical split pane for the left side: ProjectFilesPanel on top, WorkspacePanel on bottom
-        leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        leftVerticalSplitPane.setTopComponent(projectFilesPanel);
-        leftVerticalSplitPane.setBottomComponent(workspacePanel);
-        leftVerticalSplitPane.setResizeWeight(0.7); // 70% for project files panel, 30% for workspace
+        // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
+        leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
+        // Allow the divider to move further left by reducing the minimum width
+        leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
+        var projectIcon = requireNonNull(SwingUtil.uiIcon("Brokk.folder_code"));
+        leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
+        var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
+        var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
+        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
+        projectTabLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                leftTabbedPanel.setSelectedIndex(projectTabIdx);
+            }
 
-        // Create main horizontal split pane: leftVerticalSplitPane on left, right side content on right
-        mainHorizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainHorizontalSplitPane.setResizeWeight(0.3); // 30% for the entire left side
-        mainHorizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
+            @Override
+            public void mousePressed(MouseEvent e) {
+                leftTabbedPanel.setSelectedIndex(projectTabIdx);
+            }
+        });
 
-        // Create right side content
+        // Add Git tab if available
         if (getProject().hasGit()) {
             gitPanel = new GitPanel(this, contextManager);
+            var gitIcon = requireNonNull(SwingUtil.uiIcon("Brokk.commit"));
+            leftTabbedPanel.addTab(null, gitIcon, gitPanel);
+            var gitTabIdx = leftTabbedPanel.indexOfComponent(gitPanel);
+            var gitTabLabel = createSquareTabLabel(gitIcon, "Git");
+            leftTabbedPanel.setTabComponentAt(gitTabIdx, gitTabLabel);
+            gitTabLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(gitTabIdx);
+                }
 
-            // Right side has HistoryOutput on top, Git on bottom
-            rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-            rightVerticalSplitPane.setResizeWeight(0.5); // 50% for history output
-            rightVerticalSplitPane.setTopComponent(historyOutputPanel);
-            rightVerticalSplitPane.setBottomComponent(gitPanel);
-
-            mainHorizontalSplitPane.setRightComponent(rightVerticalSplitPane);
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(gitTabIdx);
+                }
+            });
             gitPanel.updateRepo();
         } else {
-            // No Git => only history output on the right
             gitPanel = null;
-            mainHorizontalSplitPane.setRightComponent(historyOutputPanel);
         }
 
-        bottomPanel.add(mainHorizontalSplitPane, BorderLayout.CENTER);
+        // --- New top-level Pull-Requests panel ---------------------------------
+        if (getProject().isGitHubRepo() && gitPanel != null) {
+            pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitPanel);
+            var prIcon = requireNonNull(SwingUtil.uiIcon("Brokk.pull_request"));
+            leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
+            var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
+            var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
+            leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
+            prLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(prIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(prIdx);
+                }
+            });
+        }
+
+        // --- New top-level Issues panel ----------------------------------------
+        if (getProject().getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE
+                && gitPanel != null) {
+            issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
+            var issIcon = requireNonNull(SwingUtil.uiIcon("Brokk.adjust"));
+            leftTabbedPanel.addTab(null, issIcon, issuesPanel);
+            var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
+            var issLabel = createSquareTabLabel(issIcon, "Issues");
+            leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
+            issLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(issIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(issIdx);
+                }
+            });
+        }
+
+        /*
+         * Desired layout (left→right, top→bottom):
+         * ┌────────────────────────────┬──────────────────────────────┐
+         * │ Vert-tabbed (Project/Git)  │  Output (top)               │
+         * │                            │  Workspace (middle)         │
+         * │                            │  Instructions (bottom)      │
+         * └────────────────────────────┴──────────────────────────────┘
+         */
+
+        // 1) Nested split for Workspace (top) / Instructions (bottom)
+        JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        workspaceInstructionsSplit.setTopComponent(workspacePanel);
+        workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
+        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+
+        // Keep reference so existing persistence logic still works
+        topSplitPane = workspaceInstructionsSplit;
+
+        // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
+        JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        outputStackSplit.setTopComponent(historyOutputPanel);
+        outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
+        outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
+
+        // Keep reference so existing persistence logic still works
+        mainVerticalSplitPane = outputStackSplit;
+
+        // 3) Final horizontal split: left tabs | right stack
+        bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        bottomSplitPane.setLeftComponent(leftTabbedPanel);
+        bottomSplitPane.setRightComponent(outputStackSplit);
+        bottomSplitPane.setResizeWeight(0.40); // keep roughly 40% for the left tabs when resizing
+        bottomSplitPane.setDividerLocation(0.40); // initial 40% divider
+
+        bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
@@ -269,6 +368,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.setVisible(true);
         frame.validate();
         frame.repaint();
+
+        // After the frame is visible, (re)apply the 30 % divider if no saved position exists yet
+        SwingUtilities.invokeLater(() -> {
+            if (getProject().getHorizontalSplitPosition() == 0) {
+                bottomSplitPane.setDividerLocation(0.3);
+            }
+        });
 
         // Possibly check if .gitignore is set
         if (getProject().hasGit()) {
@@ -540,6 +646,35 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (gitPanel != null) {
             gitPanel.updateRepo();
         }
+    }
+
+    /** Recreate the top-level Issues panel (e.g. after provider change). */
+    public void recreateIssuesPanel() {
+        SwingUtilities.invokeLater(() -> {
+            if (issuesPanel != null) {
+                var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
+                if (idx != -1) leftTabbedPanel.remove(idx);
+            }
+            if (gitPanel == null) return; // safety
+            issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
+            var icon = requireNonNull(SwingUtil.uiIcon("Brokk.assignment"));
+            leftTabbedPanel.addTab(null, icon, issuesPanel);
+            var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
+            var label = createSquareTabLabel(icon, "Issues");
+            leftTabbedPanel.setTabComponentAt(tabIdx, label);
+            label.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(tabIdx);
+                }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    leftTabbedPanel.setSelectedIndex(tabIdx);
+                }
+            });
+            leftTabbedPanel.setSelectedIndex(tabIdx);
+        });
     }
 
     private void registerGlobalKeyboardShortcuts() {
@@ -1092,56 +1227,56 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         SwingUtilities.invokeLater(() -> {
-            // Load and set main horizontal split position
-            int horizontalPos = project.getHorizontalSplitPosition();
-            if (horizontalPos > 0) {
-                mainHorizontalSplitPane.setDividerLocation(horizontalPos);
+            // Load and set top split position (Instructions | Workspace)
+            int topSplitPos = project.getLeftVerticalSplitPosition(); // Reuse this setting
+            if (topSplitPos > 0) {
+                topSplitPane.setDividerLocation(topSplitPos);
             } else {
-                mainHorizontalSplitPane.setDividerLocation(0.3);
+                topSplitPane.setDividerLocation(0.583);
             }
-            mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (mainHorizontalSplitPane.isShowing()) {
-                    var newPos = mainHorizontalSplitPane.getDividerLocation();
+            topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (topSplitPane.isShowing()) {
+                    var newPos = topSplitPane.getDividerLocation();
+                    if (newPos > 0) {
+                        project.saveLeftVerticalSplitPosition(newPos); // Reuse this setting
+                    }
+                }
+            });
+
+            // Load and set main vertical split position (Top | Bottom tabs)
+            int mainVerticalPos = project.getRightVerticalSplitPosition(); // Reuse this setting
+            if (mainVerticalPos > 0) {
+                mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
+            } else {
+                mainVerticalSplitPane.setDividerLocation(0.4);
+            }
+            mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (mainVerticalSplitPane.isShowing()) {
+                    var newPos = mainVerticalSplitPane.getDividerLocation();
+                    if (newPos > 0) {
+                        project.saveRightVerticalSplitPosition(newPos); // Reuse this setting
+                    }
+                }
+            });
+
+            // Store reference to bottom split pane for position saving
+            JSplitPane bottomSplitPane = (JSplitPane) mainVerticalSplitPane.getBottomComponent();
+
+            // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
+            int bottomHorizPos = project.getHorizontalSplitPosition();
+            if (bottomHorizPos > 0) {
+                bottomSplitPane.setDividerLocation(bottomHorizPos);
+            } else {
+                bottomSplitPane.setDividerLocation(0.3);
+            }
+            bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (bottomSplitPane.isShowing()) {
+                    var newPos = bottomSplitPane.getDividerLocation();
                     if (newPos > 0) {
                         project.saveHorizontalSplitPosition(newPos);
                     }
                 }
             });
-
-            // Load and set left vertical split position (project files on top, workspace on bottom)
-            int leftVerticalPos = project.getLeftVerticalSplitPosition();
-            if (leftVerticalPos > 0) {
-                leftVerticalSplitPane.setDividerLocation(leftVerticalPos);
-            } else {
-                leftVerticalSplitPane.setDividerLocation(0.7);
-            }
-            leftVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (leftVerticalSplitPane.isShowing()) {
-                    var newPos = leftVerticalSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveLeftVerticalSplitPosition(newPos);
-                    }
-                }
-            });
-
-            if (rightVerticalSplitPane != null) {
-                int rightVerticalPos = project.getRightVerticalSplitPosition();
-                if (rightVerticalPos > 0) {
-                    rightVerticalSplitPane.setDividerLocation(rightVerticalPos);
-                } else {
-                    rightVerticalSplitPane.setDividerLocation(0.5);
-                }
-
-                rightVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                    // Add null check before dereferencing
-                    if (rightVerticalSplitPane != null && rightVerticalSplitPane.isShowing()) {
-                        var newPos = rightVerticalSplitPane.getDividerLocation();
-                        if (newPos > 0) {
-                            project.saveRightVerticalSplitPosition(newPos);
-                        }
-                    }
-                });
-            }
         });
     }
 
@@ -1211,20 +1346,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void toggleGitPanel() {
-        if (rightVerticalSplitPane == null) {
+        if (gitPanel == null) {
             return;
         }
 
-        // For collapsing/expanding the Git panel
-        int lastGitPanelDividerLocation = rightVerticalSplitPane.getDividerLocation();
-        var totalHeight = rightVerticalSplitPane.getHeight();
-        var dividerSize = rightVerticalSplitPane.getDividerSize();
-        rightVerticalSplitPane.setDividerLocation(totalHeight - dividerSize - 1);
-
-        logger.debug("Git panel collapsed; stored divider location={}", lastGitPanelDividerLocation);
-
-        rightVerticalSplitPane.revalidate();
-        rightVerticalSplitPane.repaint();
+        // Switch to Git tab in the left vertical-tabbed pane
+        for (int i = 0; i < leftTabbedPanel.getTabCount(); i++) {
+            if ("Git".equals(leftTabbedPanel.getTitleAt(i))) {
+                leftTabbedPanel.setSelectedIndex(i);
+                break;
+            }
+        }
     }
 
     @Override
@@ -1585,5 +1717,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             componentsWithChatBackground.forEach(c -> c.setBackground(newBackgroundColor));
             SwingUtilities.updateComponentTreeUI(this);
         }
+    }
+
+    /** Builds a JLabel for use as a square tab component, ensuring width == height. */
+    private static JLabel createSquareTabLabel(Icon icon, String tooltip) {
+        var label = new JLabel(icon);
+        int size = Math.max(icon.getIconWidth(), icon.getIconHeight());
+        // add a little padding so the icon isn't flush against the border
+        // tabs are usually a bit width biased, so let's also reduce width a bit
+        label.setPreferredSize(new Dimension(size + 4, size + 8));
+        label.setMinimumSize(label.getPreferredSize());
+        label.setHorizontalAlignment(SwingConstants.CENTER);
+        label.setToolTipText(tooltip);
+        return label;
     }
 }

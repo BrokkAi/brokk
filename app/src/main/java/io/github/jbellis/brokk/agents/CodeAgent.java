@@ -127,7 +127,8 @@ public class CodeAgent {
                         model,
                         parser,
                         loopContext.conversationState().taskMessages(),
-                        loopContext.conversationState().nextRequest());
+                        loopContext.conversationState().nextRequest(),
+                        loopContext.editState().changedFiles());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {

@@ -1025,7 +1025,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
   /** Weighted PageRank at the class level. If seedClassWeights is non-empty, seeds are assigned according to those
     * weights. Otherwise, all classes are seeded equally.
     */
-  override def getPagerank(
+  override def getRelevantCodeUnits(
     seedClassWeights: java.util.Map[String, java.lang.Double],
     k: Int,
     reversed: Boolean

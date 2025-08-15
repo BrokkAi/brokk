@@ -1,11 +1,10 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.gui.components.VerticalLabel;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
@@ -31,14 +30,6 @@ public class GitPanel extends JPanel {
 
     // The “Log” tab
     private final GitLogTab gitLogTab;
-
-    // The "Pull Requests" tab - conditionally added
-    @Nullable
-    private GitPullRequestsTab pullRequestsTab;
-
-    // The "Issues" tab - conditionally added
-    @Nullable
-    private GitIssuesTab issuesTab;
 
     // Worktrees tab
     @Nullable
@@ -80,8 +71,8 @@ public class GitPanel extends JPanel {
             }
         });
 
-        // Tabbed pane for commit, log, and file-history tabs
-        tabbedPane = new JTabbedPane();
+        // Tabbed pane for commit, log, and file-history tabs (placed on the LEFT)
+        tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
         add(tabbedPane, BorderLayout.CENTER);
 
         // 1) Changes tab (displays uncommitted changes, uses GitCommitTab internally)
@@ -101,58 +92,18 @@ public class GitPanel extends JPanel {
             tabbedPane.addTab("Worktrees", gitWorktreeTab);
         }
 
-        // 4) Pull Requests tab (conditionally added)
-        if (project.isGitHubRepo()) {
-            pullRequestsTab = new GitPullRequestsTab(chrome, contextManager, this);
-            tabbedPane.addTab("Pull Requests", pullRequestsTab);
-        }
-
-        // 5) Issues tab (conditionally added)
-        if (project.getIssuesProvider().type() != IssueProviderType.NONE) {
-            issuesTab = new GitIssuesTab(chrome, contextManager, this);
-            tabbedPane.addTab("Issues", issuesTab);
-        }
+        // Rotate tab captions vertically after all tabs are present
+        VerticalLabel.applyVerticalTabLabels(tabbedPane);
 
         updateBorderTitle(); // Set initial title with branch name
     }
 
     /**
-     * Recreates the Issues tab, typically after a change in issue provider settings. This ensures the tab uses the
-     * correct IssueService and reflects the new provider.
+     * Called by GitIssuesTab when the provider changes – delegates to Chrome so the top-level Issues panel can be
+     * recreated.
      */
     public void recreateIssuesTab() {
-        SwingUtilities.invokeLater(() -> {
-            var project = contextManager.getProject();
-            int issuesTabIndex = -1;
-            if (issuesTab != null) {
-                issuesTabIndex = tabbedPane.indexOfComponent(issuesTab);
-                if (issuesTabIndex != -1) {
-                    tabbedPane.remove(issuesTabIndex);
-                }
-                MainProject.removeSettingsChangeListener(issuesTab); // Unregister old tab
-                issuesTab = null; // Clear the reference
-            }
-
-            // Re-evaluate condition for showing the issues tab
-            if (project.getIssuesProvider().type() != IssueProviderType.NONE) {
-                issuesTab = new GitIssuesTab(chrome, contextManager, this); // New tab will register itself as listener
-                if (issuesTabIndex != -1) {
-                    tabbedPane.insertTab("Issues", null, issuesTab, "GitHub/Jira Issues", issuesTabIndex);
-                    tabbedPane.setSelectedIndex(issuesTabIndex);
-                } else {
-                    tabbedPane.addTab("Issues", issuesTab);
-                    tabbedPane.setSelectedIndex(tabbedPane.getTabCount() - 1);
-                }
-                logger.info(
-                        "Recreated Issues tab for provider type: {}",
-                        project.getIssuesProvider().type());
-            } else {
-                logger.info(
-                        "Issues tab not recreated as conditions are not met (provider: {}).",
-                        project.getIssuesProvider().type());
-            }
-            // No need to call updateIssueList() here, the new GitIssuesTab constructor does it.
-        });
+        chrome.recreateIssuesPanel();
     }
 
     private String getCurrentBranchName() {

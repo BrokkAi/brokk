@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
+import io.github.jbellis.brokk.gui.components.WrapLayout;
 import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.HtmlUtil;
@@ -19,7 +20,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.URI;
-import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,15 +38,6 @@ import org.jetbrains.annotations.Nullable;
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
 
-    // Issue Table Column Indices
-    private static final int ISSUE_COL_NUMBER = 0;
-    private static final int ISSUE_COL_TITLE = 1;
-    private static final int ISSUE_COL_AUTHOR = 2;
-    private static final int ISSUE_COL_UPDATED = 3;
-    private static final int ISSUE_COL_LABELS = 4;
-    private static final int ISSUE_COL_ASSIGNEES = 5;
-    private static final int ISSUE_COL_STATUS = 6;
-
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitPanel gitPanel;
@@ -54,6 +45,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
     private JTextPane issueBodyTextPane;
+    /** Panel that shows the selected issue’s description; hidden until needed. */
+    private final JPanel issueDetailPanel;
+
     private JButton copyIssueDescriptionButton;
     private JButton openInBrowserButton;
     private JButton captureButton;
@@ -142,9 +136,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         });
         trackCancellableFuture(future);
 
-        // Split panel with Issues on left (larger) and issue description on right (smaller)
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        splitPane.setResizeWeight(0.6); // 60% for Issue list, 40% for details
+        // Issue Description panel will be added below the issues table; no split pane is needed
 
         // --- Left side - Issues table and filters ---
         JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
@@ -167,6 +159,20 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 .asTextField()
                 .setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
+
+        // ── Refresh button ──────────────────────────────────────────────────────
+        // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
+        JButton refreshButton = new JButton(); // Unicode clockwise arrow
+        final Icon refreshIcon = SwingUtil.uiIcon("Brokk.refresh");
+        refreshButton.setIcon(refreshIcon);
+        refreshButton.setText("");
+        refreshButton.setMargin(new Insets(2, 2, 2, 2)); // small padding
+        // Slightly enlarge the glyph so it is more legible than default-size text
+        refreshButton.setFont(
+                refreshButton.getFont().deriveFont(refreshButton.getFont().getSize() * 1.25f));
+        refreshButton.setToolTipText("Refresh");
+        refreshButton.addActionListener(e -> updateIssueList());
+        searchPanel.add(refreshButton, BorderLayout.EAST);
 
         // topContentPanel no longer contains searchPanel
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
@@ -239,8 +245,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Container for the actual filters
         JPanel filtersContainer = new JPanel();
-        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
-        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, 0, Constants.H_PAD));
+        // Show filters horizontally and wrap; WrapLayout grows vertically as needed
+        filtersContainer.setLayout(new WrapLayout(FlowLayout.LEFT, Constants.H_GAP, Constants.V_GAP));
+        // add bottom padding so the filters are not obscured when the horizontal
+        // scrollbar appears
+        filtersContainer.setBorder(
+                BorderFactory.createEmptyBorder(0, Constants.H_PAD, Constants.V_GAP, Constants.H_PAD));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -296,46 +306,97 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
         filtersContainer.add(assigneeFilter);
 
-        // Add the filters container to the north of the panel to keep them at the top
-        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
-
-        filtersAndTablePanel.add(verticalFilterPanel, BorderLayout.WEST);
+        // Put the horizontal filter bar in a scroll pane so it can overflow cleanly
+        // Add bottom padding and attach the container directly; FlowLayout wraps rows automatically
+        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        verticalFilterPanel.add(filtersContainer, BorderLayout.CENTER);
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
         JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Added V_GAP
-        // Add search panel above the table, inside issueTableAndButtonsPanel
-        // The searchPanel will now be constrained by the width of this panel, which is aligned with the table.
-        issueTableAndButtonsPanel.add(searchPanel, BorderLayout.NORTH);
+        // Create a container that stacks the Search bar and the Filters one above
+        // the other so they live in a single vertical column.
+        JPanel searchAndFiltersPanel = new JPanel();
+        searchAndFiltersPanel.setLayout(new BoxLayout(searchAndFiltersPanel, BoxLayout.Y_AXIS));
+        searchAndFiltersPanel.add(searchPanel);
+        searchAndFiltersPanel.add(Box.createVerticalStrut(Constants.V_GAP)); // small gap
+        searchAndFiltersPanel.add(verticalFilterPanel); // contains all filter boxes
 
-        // Issue Table
-        issueTableModel =
-                new DefaultTableModel(
-                        new Object[] {"#", "Title", "Author", "Updated", "Labels", "Assignees", "Status"}, 0) {
-                    @Override
-                    public boolean isCellEditable(int row, int column) {
-                        return false;
-                    }
+        // Position this combined panel at the top of the issues area
+        issueTableAndButtonsPanel.add(searchAndFiltersPanel, BorderLayout.NORTH);
 
-                    @Override
-                    public Class<?> getColumnClass(int columnIndex) {
-                        return String.class;
-                    }
-                };
+        // ── Issue JTable ─────────────────────────────────────────────────────
+        issueTableModel = new DefaultTableModel(new Object[] {"ID", "Title", "Author", "Updated"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return String.class;
+            }
+        };
         issueTable = new JTable(issueTableModel);
+        issueTable.setTableHeader(null); // hide headers
         issueTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        issueTable.setRowHeight(18);
-        issueTable.getColumnModel().getColumn(ISSUE_COL_NUMBER).setPreferredWidth(50); // #
-        issueTable.getColumnModel().getColumn(ISSUE_COL_TITLE).setPreferredWidth(350); // Title
-        issueTable.getColumnModel().getColumn(ISSUE_COL_AUTHOR).setPreferredWidth(100); // Author
-        issueTable.getColumnModel().getColumn(ISSUE_COL_UPDATED).setPreferredWidth(120); // Updated
-        issueTable.getColumnModel().getColumn(ISSUE_COL_LABELS).setPreferredWidth(150); // Labels
-        issueTable.getColumnModel().getColumn(ISSUE_COL_ASSIGNEES).setPreferredWidth(150); // Assignees
-        issueTable.getColumnModel().getColumn(ISSUE_COL_STATUS).setPreferredWidth(70); // Status
+        issueTable.setRowHeight(48); // give breathing room
+        issueTable.setIntercellSpacing(new Dimension(0, Constants.V_GAP));
 
-        // Ensure tooltips are enabled for the table
+        // Hide helper columns (ID, Author, Updated)
+        int[] helperCols = {0, 2, 3};
+        for (int c : helperCols) {
+            issueTable.getColumnModel().getColumn(c).setMinWidth(0);
+            issueTable.getColumnModel().getColumn(c).setMaxWidth(0);
+            issueTable.getColumnModel().getColumn(c).setPreferredWidth(0);
+        }
+
+        // Title renderer
+        issueTable
+                .getColumnModel()
+                .getColumn(1)
+                .setCellRenderer(new io.github.jbellis.brokk.gui.components.IssueHeaderCellRenderer());
+
         ToolTipManager.sharedInstance().registerComponent(issueTable);
 
-        issueTableAndButtonsPanel.add(new JScrollPane(issueTable), BorderLayout.CENTER);
+        // Issue Description panel (initially hidden – shown when a row is selected)
+        this.issueDetailPanel = new JPanel(new BorderLayout()) {
+            @Override
+            public Dimension getPreferredSize() {
+                Dimension pref = super.getPreferredSize();
+                Container parent = getParent();
+                if (parent != null) {
+                    int maxHeight = parent.getHeight() / 3; // ≈ 33 % of parent
+                    if (maxHeight > 0) {
+                        return new Dimension(pref.width, Math.min(pref.height, maxHeight));
+                    }
+                }
+                return pref;
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                Dimension max = super.getMaximumSize();
+                Container parent = getParent();
+                if (parent != null) {
+                    int maxHeight = parent.getHeight() / 3;
+                    if (maxHeight > 0) {
+                        return new Dimension(max.width, maxHeight);
+                    }
+                }
+                return max;
+            }
+        };
+        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
+
+        JScrollPane issueTableScrollPane = new JScrollPane(issueTable);
+
+        // vertical split: issues table (top)  |  description panel (bottom)
+        final JSplitPane tableDetailsSplitPane =
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, issueTableScrollPane, issueDetailPanel);
+        tableDetailsSplitPane.setResizeWeight(1.0); // keep table large until description is shown
+        tableDetailsSplitPane.setDividerSize(3);
+
+        issueTableAndButtonsPanel.add(tableDetailsSplitPane, BorderLayout.CENTER);
 
         // Create shared actions
         copyDescriptionAction = new AbstractAction("Copy Description") {
@@ -366,35 +427,25 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
         captureAction.setEnabled(false);
 
-        // Button panel for Issues
-        JPanel issueButtonPanel = new JPanel();
-        issueButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
-        issueButtonPanel.setLayout(new BoxLayout(issueButtonPanel, BoxLayout.X_AXIS));
+        // No separate bottom-button panel needed after redesign
 
         copyIssueDescriptionButton = new JButton(copyDescriptionAction);
-        issueButtonPanel.add(copyIssueDescriptionButton);
-        issueButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
         openInBrowserButton = new JButton(openInBrowserAction);
-        issueButtonPanel.add(openInBrowserButton);
-        issueButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
         captureButton = new JButton(captureAction);
-        issueButtonPanel.add(captureButton);
 
-        issueButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
+        // ── compact icon-style buttons ───────────────────────────────────────
+        final Icon copyIcon = SwingUtil.uiIcon("Brokk.content_copy");
+        copyIssueDescriptionButton.setIcon(copyIcon);
+        copyIssueDescriptionButton.setText("");
+        copyIssueDescriptionButton.setMargin(new Insets(2, 2, 2, 2));
 
-        JButton refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(e -> updateIssueList());
-        issueButtonPanel.add(refreshButton);
+        final Icon browserIcon = SwingUtil.uiIcon("Brokk.open_in_browser");
+        openInBrowserButton.setIcon(browserIcon);
+        openInBrowserButton.setText("");
+        openInBrowserButton.setMargin(new Insets(2, 2, 2, 2));
 
-        issueTableAndButtonsPanel.add(issueButtonPanel, BorderLayout.SOUTH);
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
-
-        // Right side - Details of the selected issue
-        JPanel issueDetailPanel = new JPanel(new BorderLayout());
-        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
 
         issueBodyTextPane = new JTextPane();
         issueBodyTextPane.setEditorKit(new AutoScalingHtmlPane.ScalingHTMLEditorKit());
@@ -407,11 +458,31 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueBodyScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         issueDetailPanel.add(issueBodyScrollPane, BorderLayout.CENTER);
 
-        // Add the panels to the split pane
-        splitPane.setLeftComponent(mainIssueAreaPanel);
-        splitPane.setRightComponent(issueDetailPanel);
+        // ── Action buttons bar inside the description panel ────────────────────
+        JPanel issueActionPanel = new JPanel();
+        issueActionPanel.setLayout(new BoxLayout(issueActionPanel, BoxLayout.X_AXIS));
+        issueActionPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
+        // Capture on the left, Copy/Open on the right
+        issueActionPanel.add(captureButton);
+        issueActionPanel.add(Box.createHorizontalGlue());
+        issueActionPanel.add(copyIssueDescriptionButton);
+        issueActionPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
+        issueActionPanel.add(openInBrowserButton);
 
-        add(splitPane, BorderLayout.CENTER);
+        JScrollPane actionScrollPane = new JScrollPane(
+                issueActionPanel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        actionScrollPane.setBorder(BorderFactory.createEmptyBorder());
+
+        // place the bar at the bottom of the description area
+        issueDetailPanel.add(actionScrollPane, BorderLayout.SOUTH);
+
+        // Add the Issue-Description panel under the table and hide it until a row is chosen
+        /* issueDetailPanel is now managed by the JSplitPane; no direct add() here */
+        issueDetailPanel.setVisible(false);
+
+        add(mainIssueAreaPanel, BorderLayout.CENTER);
 
         // Initialize context menu and items
         issueContextMenu = new JPopupMenu();
@@ -426,11 +497,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             private void showPopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     int row = issueTable.rowAtPoint(e.getPoint());
-                    if (row >= 0 && row < issueTable.getRowCount()) {
-                        // Select the row under the mouse pointer before showing the context menu.
-                        // This ensures that getSelectedRow() in action listeners returns the correct row,
-                        // and triggers the ListSelectionListener to update enable/disable states.
-                        issueTable.setRowSelectionInterval(row, row);
+                    if (row >= 0) {
+                        if (!issueTable.isRowSelected(row)) {
+                            issueTable.setRowSelectionInterval(row, row);
+                        }
                         issueContextMenu.show(e.getComponent(), e.getX(), e.getY());
                     }
                 }
@@ -449,47 +519,32 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Listen for Issue selection changes
         issueTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting() && issueTable.getSelectedRow() != -1) {
+            if (!e.getValueIsAdjusting()) {
                 int viewRow = issueTable.getSelectedRow();
-                if (viewRow != -1) {
-                    int modelRow = issueTable.convertRowIndexToModel(viewRow);
-                    if (modelRow < 0 || modelRow >= displayedIssues.size()) {
-                        logger.warn(
-                                "Selected row {} (model {}) is out of bounds for displayed issues size {}",
-                                viewRow,
-                                modelRow,
-                                displayedIssues.size());
-                        disableIssueActionsAndClearDetails();
-                        pendingHeaderForDescription = null;
-                        if (descriptionDebounceTimer.isRunning()) {
-                            descriptionDebounceTimer.stop();
-                        }
-                        return;
-                    }
-                    IssueHeader selectedHeader = displayedIssues.get(modelRow);
-
-                    // Enable actions immediately for responsiveness
-                    copyDescriptionAction.setEnabled(true);
-                    openInBrowserAction.setEnabled(true);
-                    captureAction.setEnabled(true);
-
-                    // Debounce loading of the issue body
-                    pendingHeaderForDescription = selectedHeader;
-                    descriptionDebounceTimer.restart();
-
-                } else { // No selection or invalid row
+                int index = viewRow == -1 ? -1 : issueTable.convertRowIndexToModel(viewRow);
+                if (index == -1 || index >= displayedIssues.size()) {
                     disableIssueActionsAndClearDetails();
                     pendingHeaderForDescription = null;
+                    tableDetailsSplitPane.setDividerLocation(1.0); // collapse details
                     if (descriptionDebounceTimer.isRunning()) {
                         descriptionDebounceTimer.stop();
                     }
+                    return;
                 }
-            } else if (issueTable.getSelectedRow() == -1) { // if selection is explicitly cleared
-                disableIssueActionsAndClearDetails();
-                pendingHeaderForDescription = null;
-                if (descriptionDebounceTimer.isRunning()) {
-                    descriptionDebounceTimer.stop();
-                }
+                IssueHeader selectedHeader = displayedIssues.get(index);
+
+                // Enable actions immediately for responsiveness
+                copyDescriptionAction.setEnabled(true);
+                openInBrowserAction.setEnabled(true);
+                captureAction.setEnabled(true);
+                issueDetailPanel.setVisible(true);
+                tableDetailsSplitPane.setDividerLocation(0.75); // reveal details (~25 % height)
+
+                // Debounce loading of the issue body
+                pendingHeaderForDescription = selectedHeader;
+                descriptionDebounceTimer.restart();
+
+                // No selection or invalid row handled above; redundant else removed
             }
         });
 
@@ -629,6 +684,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         captureAction.setEnabled(false);
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
+        issueDetailPanel.setVisible(false);
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
@@ -759,8 +815,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                         allIssuesFromApi.clear();
                         displayedIssues.clear();
                         issueTableModel.setRowCount(0);
-                        issueTableModel.addRow(
-                                new Object[] {"", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""});
                         disableIssueActionsAndClearDetails();
                         searchBox.setLoading(false, ""); // Stop loading on error
                     });
@@ -783,9 +837,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private void triggerClientSideFilterUpdate() {
         // This method is called when author, label, or assignee filters change.
         // It re-filters the existing 'allIssuesFromApi' list.
-        if (allIssuesFromApi.isEmpty()
-                && issueTableModel.getRowCount() > 0
-                && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues")) {
+        if (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() == 0) {
             logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
             return;
         }
@@ -873,40 +925,22 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
             // Update table model
             issueTableModel.setRowCount(0);
-            var today = LocalDate.now(java.time.ZoneId.systemDefault());
             if (displayedIssues.isEmpty()) {
-                issueTableModel.addRow(new Object[] {"", "No matching issues found", "", "", "", "", ""});
                 disableIssueActions();
             } else {
+                var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
                 for (var header : displayedIssues) {
-                    String formattedUpdated;
-                    formattedUpdated = header.updated() != null
-                            ? GitUiUtil.formatRelativeDate(header.updated().toInstant(), today)
-                            : "";
-                    String labelsStr = String.join(", ", header.labels());
-                    String assigneesStr = String.join(", ", header.assignees());
-
-                    issueTableModel.addRow(new Object[] {
-                        header.id(),
-                        header.title(),
-                        header.author(),
-                        formattedUpdated,
-                        labelsStr,
-                        assigneesStr,
-                        header.status()
-                    });
+                    String updated = header.updated() == null
+                            ? ""
+                            : io.github.jbellis.brokk.gui.GitUiUtil.formatRelativeDate(
+                                    header.updated().toInstant(), today);
+                    issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
                 }
             }
-            logger.debug("processAndDisplayWorker (EDT): Table model updated.");
 
             // Manage button states based on selection
             if (issueTable.getSelectedRow() == -1) {
                 disableIssueActions();
-            } else {
-                // Trigger selection listener to update button states correctly for the (potentially new) selection
-                // This ensures that if the selection is still valid, actions are enabled.
-                issueTable.getSelectionModel().setValueIsAdjusting(true);
-                issueTable.getSelectionModel().setValueIsAdjusting(false);
             }
             searchBox.setLoading(false, ""); // Stop loading after UI updates
             logger.debug("processAndDisplayWorker (EDT): UI updates complete.");

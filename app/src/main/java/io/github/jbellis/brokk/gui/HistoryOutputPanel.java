@@ -85,7 +85,6 @@ public class HistoryOutputPanel extends JPanel {
 
     private final JButton copyButton;
 
-    private final InstructionsPanel instructionsPanel;
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
 
     @Nullable
@@ -96,13 +95,11 @@ public class HistoryOutputPanel extends JPanel {
      *
      * @param chrome The parent Chrome instance
      * @param contextManager The context manager
-     * @param instructionsPanel The instructions panel to include below output
      */
-    public HistoryOutputPanel(Chrome chrome, ContextManager contextManager, InstructionsPanel instructionsPanel) {
+    public HistoryOutputPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout()); // Use BorderLayout
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.instructionsPanel = instructionsPanel;
 
         // commandResultLabel initialization removed
 
@@ -199,15 +196,9 @@ public class HistoryOutputPanel extends JPanel {
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Create vertical split pane with Output above and Instructions below
-        var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
-        outputInstructionsSplit.setTopComponent(outputPanel);
-        outputInstructionsSplit.setBottomComponent(instructionsPanel);
-
         // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
+        centerContainer.add(outputPanel, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
 
         return centerContainer;
