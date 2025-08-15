@@ -31,6 +31,7 @@ public class ProjectFilesPanel extends JPanel {
     private final IProject project;
 
     private JTextField searchField;
+    private JButton refreshButton;
     private ProjectTree projectTree;
     private AutoCompletion ac;
 
@@ -50,7 +51,17 @@ public class ProjectFilesPanel extends JPanel {
         setupSearchFieldAndAutocomplete();
         setupProjectTree();
 
-        add(searchField, BorderLayout.NORTH);
+        // Search bar with refresh button
+        var searchBarPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        searchBarPanel.add(searchField, BorderLayout.CENTER);
+
+        refreshButton = new JButton();
+        refreshButton.setIcon(SwingUtil.uiIcon("Brokk.refresh"));
+        refreshButton.setToolTipText("Refresh file list");
+        refreshButton.addActionListener(e -> refreshProjectFiles());
+        searchBarPanel.add(refreshButton, BorderLayout.EAST);
+
+        add(searchBarPanel, BorderLayout.NORTH);
         JScrollPane treeScrollPane = new JScrollPane(projectTree);
         add(treeScrollPane, BorderLayout.CENTER);
     }
@@ -192,6 +203,15 @@ public class ProjectFilesPanel extends JPanel {
         if (file != null) {
             projectTree.selectAndExpandToFile(file);
         }
+    }
+
+    /**
+     * Manually refresh the file list displayed in the ProjectTree. Useful when the filesystem watcher misses an event.
+     */
+    private void refreshProjectFiles() {
+        projectTree.onTrackedFilesChanged();
+        // Return focus to the search field for continued typing
+        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
     }
 
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {
