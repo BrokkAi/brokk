@@ -5,6 +5,7 @@
   import type { SpinnerState } from './types';
   import type { BubbleState } from './stores/bubblesStore';
   import MessageBubble from './components/MessageBubble.svelte';
+  import AIReasoningBubble from './components/AIReasoningBubble.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import { themeStore } from './stores/themeStore';
 
@@ -75,7 +76,11 @@
   id="chat-container"
 >
   {#each $bubblesStore as bubble (bubble.id)}
+    {#if bubble.type === 'AIReasoning'}
+      <AIReasoningBubble {bubble} />
+    {:else}
       <MessageBubble {bubble} />
+    {/if}
   {/each}
   {#if spinner.visible}
     <div id="spinner" class="spinner-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>

@@ -541,6 +541,57 @@ Both approaches:
 
     function streamEdit() {
         const contentUser = `fix it`;
+
+        const contentReasoning = `**Adding AIReasoning Type**
+
+I've been working on implementing the \`AIReasoning\` message type, as we planned.  I've made initial changes in \`frontend-mop/src/types.ts\`, updating the \`BrokkEvent\` and \`Bubble\` types to include it. Next, I'll integrate this with the frontend codebase, ensuring seamless communication of AI-driven reasoning.
+
+
+**Expanding Data Structures**
+
+I've successfully modified \`frontend-mop/src/types.ts\` to include \`'AIReasoning'\` within both \`BrokkEvent['msgType']\` and \`Bubble['type']\`.  The next steps involve implementing the transient nature of \`AIReasoning\` bubbles in the bubbles store and then the frontend styling and rendering. I'll need to define the purple border color and the loading icon display in the respective files next.
+
+
+**Adding Transient AI Reasoning**
+
+I'm now integrating transient logic for \`AIReasoning\` bubbles in the bubbles store, specifically within the \`bubblesStore.update\` method for handling \`chunk\` events. The aim is to automatically remove \`AIReasoning\` bubbles when a new non-\`AIReasoning\` chunk is received. I've formulated the necessary conditional logic to implement this behavior, ensuring that these bubbles appear and then promptly disappear when appropriate.
+
+
+**Defining Transient Behavior**
+
+I'm now focusing on the \`bubblesStore.update\` method, specifically within the 'chunk' case. I'm introducing logic to handle the transient nature of \`AIReasoning\` bubbles. My goal is to automatically remove the last bubble if it's an \`AIReasoning\` bubble and a new non-\`AIReasoning\` chunk arrives, which I believe is an optimal solution. I am formulating the specific conditional logic for this removal to ensure seamless integration and appropriate behavior.
+
+
+**Refining Transient Logic**
+
+I'm currently working on the transient behavior in \`bubblesStore.update\`.  I've refined the logic for removing \`AIReasoning\` bubbles.  The conditional check is now robust and includes optional chaining to prevent errors. I've also incorporated the correct handling of \`msgType\` to determine when to remove the bubble.  Next, I'll move on to implementing the frontend styling for this new bubble type.
+
+
+**Defining AIReasoning Logic**
+
+I've outlined the transient logic for \`AIReasoning\` bubbles in the \`bubblesStore.update\` method. I will add this logic at the top of the chunk case to remove the last bubble if it's an \`AIReasoning\` type and the incoming message is not also of type \`AIReasoning\`. I'll be careful to create new lists to avoid unintended mutations and address the initial check.
+
+
+**Adding AIReasoning Transient Logic**
+
+I'm now implementing the transient logic for \`AIReasoning\` bubbles within \`bubblesStore.update\`. I've added a conditional block to remove the last bubble if it's \`AIReasoning\` and the new chunk is not, ensuring that the bubbles automatically disappear. I've also addressed the edge case of an empty list, ensuring the code functions correctly in all scenarios. I will now integrate the new SEARCH/REPLACE blocks.
+
+
+**Finalizing AIReasoning Implementation**
+
+I'm now completing the implementation. I've written the \`SEARCH/REPLACE\` blocks for \`frontend-mop/src/types.ts\` and \`frontend-mop/src/stores/bubblesStore.ts\`. I'll integrate the new blocks into these files to finish integrating the new AIReasoning bubble type and its transient behavior. Next, I'll style the bubble and its contents.
+
+
+**Integrating Transient Logic**
+
+I've completed the initial structure and tests for adding the new \`AIReasoning\` logic. I've successfully implemented the core transient behavior: automatically removing \`AIReasoning\` bubbles when a new message arrives.  Specifically, I've integrated this new behavior into \`bubblesStore.update\`, ensuring proper handling and removal of these bubbles. The conditional check, which handles different scenarios, is in place to determine when to trigger the removal.
+
+
+**Enhancing AI Bubble Handling**
+
+I've been working on refining the transient behavior of \`AIReasoning\` bubbles. I've successfully implemented the core logic to automatically remove these bubbles under specific conditions, primarily when a new, non-\`AIReasoning\` message arrives. I've also strengthened the conditions to properly manage edge cases and ensure a seamless display. The next steps will involve implementing the styling updates for this new bubble type.
+`;
+
         const contentAi = `I understand the issue with the ordering of buffered events and calls in the JavaScript code, which causes the UI to sometimes clear at the end due to incorrect replay order. The problem stems from having two separate buffers (\`_callQueue\` and \`_eventBuffer\`) and replaying them in the wrong order. I'll fix this by unifying the buffer into a single queue with a sequence number to maintain the correct order of operations during replay.
 
 Here's the plan:
@@ -743,13 +794,23 @@ if (buffer.length > 0) {
         let index = 0;
         simulateEvent('clear');
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true});
-        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-        const interval = setInterval(() => {
-            if (index < chunks.length) {
-                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+        const chunks1 = contentReasoning.match(/[\s\S]{1,10}/g) || [];
+        const interval1 = setInterval(() => {
+            if (index < chunks1.length) {
+                simulateEvent('chunk', {text: chunks1[index], msgType: 'AIReasoning', streaming: true});
                 index++;
             } else {
-                clearInterval(interval);
+                clearInterval(interval1);
+                index = 0;
+                const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+                const interval = setInterval(() => {
+                    if (index < chunks.length) {
+                        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+                        index++;
+                    } else {
+                        clearInterval(interval);
+                    }
+                }, 10);
             }
         }, 10);
     }
