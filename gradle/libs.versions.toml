@@ -58,6 +58,7 @@ dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
 
 # UI
 flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }
+flatlaf-extras = { module = "com.formdev:flatlaf-extras", version.ref = "flatlaf" }
 rsyntaxtextarea = "com.fifesoft:rsyntaxtextarea:3.5.4"
 autocomplete = "com.fifesoft:autocomplete:3.3.2"
 jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
@@ -116,7 +117,7 @@ logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
 scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
-ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
+ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
