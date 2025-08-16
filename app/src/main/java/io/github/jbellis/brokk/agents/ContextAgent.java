@@ -155,6 +155,9 @@ public class ContextAgent {
 
                 if (fileOpt.isPresent()) {
                     var file = fileOpt.get();
+                    if (!file.isText()) {
+                        continue; // Skip binary files for token calculation
+                    }
                     String content;
                     try {
                         content = file.read();
@@ -1010,6 +1013,7 @@ public class ContextAgent {
     private Map<ProjectFile, String> readFileContents(Collection<ProjectFile> files) {
         return files.stream()
                 .parallel()
+                .filter(file -> file.isText()) // Only attempt to read text files
                 .map(file -> {
                     try {
                         return Map.entry(file, file.read());
