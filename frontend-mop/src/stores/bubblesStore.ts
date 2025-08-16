@@ -18,10 +18,10 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 return [];
 
             case 'chunk': {
+                const lastBubble = list.at(-1);
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
-                const lastBubble = list.at(-1);
-                if (lastBubble?.type === 'AIReasoning' && !lastBubble.reasoningComplete && evt.msgType !== 'AIReasoning') {
+                if (lastBubble?.reasoning && !lastBubble.reasoningComplete && !evt.reasoning) {
                     const durationInMs = lastBubble.startTime ? Date.now() - lastBubble.startTime : 0;
                     const updatedBubble: BubbleState = {
                         ...lastBubble,
@@ -37,19 +37,22 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 // Decide if we append or start a new bubble
                 const needNew = evt.isNew ||
                     list.length === 0 ||
-                    evt.msgType !== list.at(-1)?.type;
+                    evt.msgType !== lastBubble?.type ||
+                    evt.reasoning !== (lastBubble?.reasoning ?? false);
+
 
                 let bubble: BubbleState;
                 if (needNew) {
                     nextBubbleId++;
                     bubble = {
                         id: nextBubbleId,
-                        type: evt.msgType!,
+                        type: evt.msgType ?? 'AI',
                         markdown: evt.text ?? '',
                         epoch: evt.epoch,
-                        streaming: isStreaming
+                        streaming: isStreaming,
+                        reasoning: evt.reasoning ?? false,
                     };
-                    if (bubble.type === 'AIReasoning') {
+                    if (bubble.reasoning) {
                         bubble.startTime = Date.now();
                         bubble.reasoningComplete = false;
                         bubble.isCollapsed = false;

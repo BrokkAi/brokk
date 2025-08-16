@@ -574,14 +574,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public String getLlmOutputText() {
-        return castNonNull(SwingUtil.runOnEdt(() -> historyOutputPanel.getLlmOutputText(), ""));
-    }
-
-    @Override
-    public List<ChatMessage> getLlmRawMessages() {
+    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
         if (SwingUtilities.isEventDispatchThread()) {
-            return historyOutputPanel.getLlmRawMessages();
+            return historyOutputPanel.getLlmRawMessages(includeReasoning);
         }
 
         // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw
@@ -592,7 +587,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         while (true) {
             try {
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
-                SwingUtilities.invokeAndWait(() -> future.complete(historyOutputPanel.getLlmRawMessages()));
+                SwingUtilities.invokeAndWait(() -> future.complete(historyOutputPanel.getLlmRawMessages(includeReasoning)));
                 return future.get();
             } catch (InterruptedException e) {
                 // retry
@@ -773,8 +768,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage));
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
     }
 
     @Override
@@ -1360,8 +1355,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void updateCaptureButtons() {
-        String text = historyOutputPanel.getLlmOutputText();
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setCopyButtonEnabled(!text.isBlank()));
+        var messageSize = historyOutputPanel.getLlmRawMessages(true).size();
+        SwingUtilities.invokeLater(() -> historyOutputPanel.setCopyButtonEnabled(messageSize > 0));
     }
 
     public JFrame getFrame() {

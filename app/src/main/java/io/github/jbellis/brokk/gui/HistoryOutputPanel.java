@@ -674,7 +674,8 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
             if (llmStreamArea.isBlocking()) {
-                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
+                // show all = grab all messages, including reasoning for preview window
+                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages(true);
                 var tempFragment =
                         new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
                 String titleHint = lastSpinnerMessage;
@@ -712,13 +713,9 @@ public class HistoryOutputPanel extends JPanel {
 
         return panel;
     }
-    /** Gets the current text from the LLM output area */
-    public String getLlmOutputText() {
-        return llmStreamArea.getText();
-    }
 
-    public List<ChatMessage> getLlmRawMessages() {
-        return llmStreamArea.getRawMessages();
+    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
+        return llmStreamArea.getRawMessages(includeReasoning);
     }
 
     public void setLlmOutput(TaskEntry taskEntry) {
@@ -730,9 +727,10 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /** Appends text to the LLM output area */
-    public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage) {
-        llmStreamArea.append(text, type, isNewMessage);
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().append(text, type, isNewMessage));
+    public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+        llmStreamArea.append(text, type, isNewMessage, isReasoning);
+        activeStreamingWindows.forEach(
+                window -> window.getMarkdownOutputPanel().append(text, type, isNewMessage, isReasoning));
     }
 
     /** Sets the enabled state of the copy text button */

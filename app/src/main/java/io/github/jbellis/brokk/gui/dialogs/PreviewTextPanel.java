@@ -632,7 +632,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
                 appendSystemMessage(token);
             }
 

@@ -76,7 +76,7 @@
   id="chat-container"
 >
   {#each $bubblesStore as bubble (bubble.id)}
-    {#if bubble.type === 'AIReasoning'}
+    {#if bubble.type === 'AI' && bubble.reasoning}
       <AIReasoningBubble {bubble} />
     {:else}
       <MessageBubble {bubble} />

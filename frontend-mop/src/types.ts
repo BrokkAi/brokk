@@ -5,14 +5,15 @@ export type BrokkEvent = {
   text?: string;
   isNew?: boolean;
   streaming?: boolean;
-  msgType?: 'USER' | 'AI' | 'SYSTEM' | 'AIReasoning';
+  msgType?: 'USER' | 'AI' | 'SYSTEM';
+  reasoning?: boolean;
   epoch: number;
   message?: string;
 };
 
 export type Bubble = {
   id: number;
-  type: 'USER' | 'AI' | 'SYSTEM' | 'AIReasoning';
+  type: 'USER' | 'AI' | 'SYSTEM';
   markdown: string;
   title?: string;
   iconId?: string;
@@ -36,7 +37,8 @@ export type BubbleState = Bubble & {
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
 
-  // Properties for AIReasoning bubbles
+  // Properties for Reasoning bubbles
+  reasoning?: boolean;
   startTime?: number;           // ms timestamp when the reasoning started
   reasoningComplete?: boolean;  // true when the reasoning stream ends
   duration?: number;            // calculated duration in seconds

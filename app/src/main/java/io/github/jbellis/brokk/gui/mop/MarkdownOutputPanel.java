@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.mop;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.TaskEntry;
@@ -98,19 +99,30 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void append(String text, ChatMessageType type, boolean isNewMessage) {
+        append(text, type, isNewMessage, false);
+    }
+
+    public void append(String text, ChatMessageType type, boolean isNewMessage, boolean reasoning) {
         if (text.isEmpty()) {
             return;
         }
+
+        var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
         if (isNewMessage
                 || messages.isEmpty()
-                || messages.get(messages.size() - 1).type() != type) {
-            messages.add(Messages.create(text, type));
+                || reasoning != lastMessageIsReasoning
+                || (!reasoning && type != messages.getLast().type())) {
+            // new message
+            messages.add(Messages.create(text, type, reasoning));
         } else {
+            // merge with last message
             var lastIdx = messages.size() - 1;
-            var combined = Messages.getText(messages.get(lastIdx)) + text;
-            messages.set(lastIdx, Messages.create(combined, type));
+            var last = messages.get(lastIdx);
+            var combined = Messages.getText(last) + text;
+            messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
-        webHost.append(text, isNewMessage, type, true);
+
+        webHost.append(text, isNewMessage, type, true, reasoning);
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -131,7 +143,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         webHost.clear();
         for (var message : newMessages) {
-            webHost.append(Messages.getText(message), true, message.type(), false);
+            // reasoning is false atm, only transient via streamed append calls (not persisted)
+            webHost.append(Messages.getText(message), true, message.type(), false, false);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();
@@ -158,7 +171,22 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public List<ChatMessage> getRawMessages() {
-        return List.copyOf(messages);
+        return getRawMessages(false);
+    }
+
+    public List<ChatMessage> getRawMessages(boolean includeReasoning) {
+        if (includeReasoning) {
+            return List.copyOf(messages);
+        }
+        return messages.stream().filter(m -> !isReasoningMessage(m)).toList();
+    }
+
+    public static boolean isReasoningMessage(ChatMessage msg) {
+        if (msg instanceof AiMessage ai) {
+            var reasoning = ai.reasoningContent();
+            return reasoning != null && !reasoning.isEmpty();
+        }
+        return false;
     }
 
     public void addTextChangeListener(Runnable listener) {
@@ -171,10 +199,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public void hideSpinner() {
         webHost.hideSpinner();
-    }
-
-    public List<ChatMessage> getMessages() {
-        return getRawMessages();
     }
 
     public CompletableFuture<Void> flushAsync() {

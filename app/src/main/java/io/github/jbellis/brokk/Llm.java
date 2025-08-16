@@ -189,7 +189,7 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     accumulatedReasoningBuilder.append(reasoningContent);
                     if (echo) {
-                        io.llmOutput(reasoningContent, ChatMessageType.AI);
+                        io.llmOutput(reasoningContent, ChatMessageType.AI, false, true);
                     }
                 });
             }
@@ -544,11 +544,11 @@ public class Llm {
                     // output the LLM's thinking
                     var reasoning = parseResult.reasoningContent();
                     if (reasoning != null && !reasoning.isBlank()) {
-                        io.llmOutput(reasoning, ChatMessageType.AI);
+                        io.llmOutput(reasoning, ChatMessageType.AI, false, true);
                     }
                     String textToOutput = parseResult.text();
                     if (textToOutput != null && !textToOutput.isBlank()) {
-                        io.llmOutput(textToOutput, ChatMessageType.AI);
+                        io.llmOutput(textToOutput, ChatMessageType.AI, false, false);
                     }
                 }
 

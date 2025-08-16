@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.stream.Collectors;
 import javax.swing.*;
 
+import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
+
 /**
  * A lightweight, head-less {@link IConsoleIO} implementation that writes LLM output to {@code System.out} and tool
  * errors to {@code System.err}. All other {@code IConsoleIO} methods inherit their default no-op behaviour, which is
@@ -23,7 +25,7 @@ public final class HeadlessConsole implements IConsoleIO {
     List<ChatMessage> messages = new ArrayList<>();
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (isNewMessage || messages.isEmpty() || messages.getLast().type() != type) {
             System.out.printf("# %s%n%n", type);
             messages.add(createMessage(type, token));
@@ -73,13 +75,11 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public String getLlmOutputText() {
-        return getLlmRawMessages().stream().map(Messages::getText).collect(Collectors.joining("\n"));
-    }
-
-    @Override
-    public List<ChatMessage> getLlmRawMessages() {
-        return List.copyOf(messages);
+    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
+        if (includeReasoning) {
+            return List.copyOf(messages);
+        }
+        return messages.stream().filter(m -> !isReasoningMessage(m)).toList();
     }
 
     @Override

@@ -995,7 +995,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return new TaskResult(
                 cm,
                 "Ask: " + question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
+                List.copyOf(cm.getIo().getLlmRawMessages(false)),
                 Set.of(), // Ask never changes files
                 stop);
     }
@@ -1009,11 +1009,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void maybeAddInterruptedResult(String action, String input) {
-        if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
+        if (chrome.getLlmRawMessages(false).stream().anyMatch(m -> m instanceof AiMessage)) {
             logger.debug(action + " command cancelled with partial results");
             var sessionResult = new TaskResult(
                     "%s (Cancelled): %s".formatted(action, input),
-                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
+                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), input),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
             chrome.getContextManager().addToHistory(sessionResult, false);
@@ -1116,7 +1116,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         final String finalActionMessage = actionMessage; // Effectively final for lambda
         contextManager.pushContext(ctx -> {
             var parsed = new TaskFragment(
-                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
+                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalActionMessage);
             return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
         });
     }
