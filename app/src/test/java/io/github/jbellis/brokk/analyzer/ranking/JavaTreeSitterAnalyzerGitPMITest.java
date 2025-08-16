@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -42,7 +41,7 @@ public class JavaTreeSitterAnalyzerGitPMITest {
 
         testProject = new TestProject(testPath, Language.JAVA);
         logger.debug("Setting up analyzer with test code from {}", testPath);
-        analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new JavaTreeSitterAnalyzer(testProject);
     }
 
     @AfterAll

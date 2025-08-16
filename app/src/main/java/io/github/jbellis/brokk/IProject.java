@@ -265,6 +265,10 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
+    default IConsoleIO getConsoleIO() {
+        throw new UnsupportedOperationException();
+    }
+
     enum CpgRefresh {
         AUTO,
         ON_RESTART,
