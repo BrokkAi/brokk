@@ -506,8 +506,8 @@ public class SearchAgent {
 
         io.llmOutput("\n# Answer\n" + explanation, ChatMessageType.AI);
         var sessionName = "Search: " + goal;
-        var fragment =
-                new ContextFragment.SearchFragment(cm, sessionName, List.copyOf(io.getLlmRawMessages(false)), coalesced);
+        var fragment = new ContextFragment.SearchFragment(
+                cm, sessionName, List.copyOf(io.getLlmRawMessages(false)), coalesced);
         return new TaskResult(
                 sessionName, fragment, Set.of(), new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }

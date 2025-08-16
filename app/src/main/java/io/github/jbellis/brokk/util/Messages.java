@@ -52,7 +52,8 @@ public class Messages {
         return switch (message) {
             case SystemMessage sm -> sm.text();
             case AiMessage am -> {
-                boolean hasReasoning = am.reasoningContent() != null && !am.reasoningContent().isBlank();
+                boolean hasReasoning =
+                        am.reasoningContent() != null && !am.reasoningContent().isBlank();
                 if (hasReasoning) {
                     yield am.reasoningContent();
                 }
@@ -69,8 +70,6 @@ public class Messages {
                 throw new UnsupportedOperationException(message.getClass().toString());
         };
     }
-
-
 
     /** Helper method to create a ChatMessage of the specified type */
     public static ChatMessage create(String text, ChatMessageType type) {

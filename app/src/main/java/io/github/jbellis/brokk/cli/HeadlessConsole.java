@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.cli;
 
+import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
+
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -11,10 +13,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import javax.swing.*;
-
-import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
 
 /**
  * A lightweight, head-less {@link IConsoleIO} implementation that writes LLM output to {@code System.out} and tool

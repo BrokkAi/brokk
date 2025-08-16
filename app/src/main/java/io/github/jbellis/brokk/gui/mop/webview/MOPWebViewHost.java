@@ -270,7 +270,8 @@ public final class MOPWebViewHost extends JPanel {
         });
     }
 
-    public void append(String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    public void append(
+            String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         sendOrQueue(
                 new HostCommand.Append(text, isNewMessage, msgType, streaming, reasoning),
                 bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
@@ -420,7 +421,7 @@ public final class MOPWebViewHost extends JPanel {
             pendingCommands.forEach(command -> {
                 switch (command) {
                     case HostCommand.Append a ->
-                            bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
+                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
                     case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
