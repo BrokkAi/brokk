@@ -11,7 +11,7 @@ import io.joern.x2cpg.passes.callgraph.*
 import io.joern.x2cpg.passes.frontend.MetaDataPass
 import io.joern.x2cpg.passes.typerelations.*
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.passes.{CpgPassBase, ForkJoinParallelCpgPass}
+import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -19,8 +19,6 @@ import java.io.IOException
 import java.nio.file.Paths
 import java.util
 import java.util.concurrent.ForkJoinPool
-import scala.concurrent.duration.Duration
-import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.{Try, Using}
 
 /** A trait to be implemented by a language-specific incremental CPG builder.

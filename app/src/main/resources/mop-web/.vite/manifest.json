@@ -1,6 +1,6 @@
 {
-  "_markdown.worker-BpUnV3cE.mjs": {
-    "file": "markdown.worker-BpUnV3cE.mjs",
+  "_markdown.worker-DWeOyHke.mjs": {
+    "file": "markdown.worker-DWeOyHke.mjs",
     "name": "markdown.worker",
     "dynamicImports": [
       "node_modules/shiki/dist/langs/actionscript-3.mjs",
@@ -130,23 +130,23 @@
     "isDynamicEntry": true
   },
   "node_modules/shiki/dist/langs/handlebars.mjs": {
-    "file": "handlebars-BGXPhDer.mjs",
+    "file": "handlebars-BR7ENOAh.mjs",
     "name": "handlebars",
     "src": "node_modules/shiki/dist/langs/handlebars.mjs",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/shiki/dist/langs/html.mjs",
       "node_modules/shiki/dist/langs/css.mjs",
-      "_markdown.worker-BpUnV3cE.mjs"
+      "_markdown.worker-DWeOyHke.mjs"
     ]
   },
   "node_modules/shiki/dist/langs/html.mjs": {
-    "file": "html-DSd7Asko.mjs",
+    "file": "html-_qDgRpY0.mjs",
     "name": "html",
     "src": "node_modules/shiki/dist/langs/html.mjs",
     "isDynamicEntry": true,
     "imports": [
-      "_markdown.worker-BpUnV3cE.mjs",
+      "_markdown.worker-DWeOyHke.mjs",
       "node_modules/shiki/dist/langs/css.mjs"
     ]
   },
@@ -202,7 +202,7 @@
     "isDynamicEntry": true
   },
   "node_modules/shiki/dist/langs/perl.mjs": {
-    "file": "perl-DlAyeFdh.mjs",
+    "file": "perl-CKHI07-N.mjs",
     "name": "perl",
     "src": "node_modules/shiki/dist/langs/perl.mjs",
     "isDynamicEntry": true,
@@ -210,12 +210,12 @@
       "node_modules/shiki/dist/langs/html.mjs",
       "node_modules/shiki/dist/langs/xml.mjs",
       "node_modules/shiki/dist/langs/css.mjs",
-      "_markdown.worker-BpUnV3cE.mjs",
+      "_markdown.worker-DWeOyHke.mjs",
       "node_modules/shiki/dist/langs/sql.mjs"
     ]
   },
   "node_modules/shiki/dist/langs/php.mjs": {
-    "file": "php-W5GD9fpl.mjs",
+    "file": "php-BtlbOlY3.mjs",
     "name": "php",
     "src": "node_modules/shiki/dist/langs/php.mjs",
     "isDynamicEntry": true,
@@ -223,7 +223,7 @@
       "node_modules/shiki/dist/langs/html.mjs",
       "node_modules/shiki/dist/langs/xml.mjs",
       "node_modules/shiki/dist/langs/sql.mjs",
-      "_markdown.worker-BpUnV3cE.mjs",
+      "_markdown.worker-DWeOyHke.mjs",
       "node_modules/shiki/dist/langs/css.mjs"
     ]
   },
@@ -234,13 +234,13 @@
     "isDynamicEntry": true
   },
   "node_modules/shiki/dist/langs/ruby.mjs": {
-    "file": "ruby-cuxsDqeN.mjs",
+    "file": "ruby-BG2R3lhc.mjs",
     "name": "ruby",
     "src": "node_modules/shiki/dist/langs/ruby.mjs",
     "isDynamicEntry": true,
     "imports": [
       "node_modules/shiki/dist/langs/html.mjs",
-      "_markdown.worker-BpUnV3cE.mjs",
+      "_markdown.worker-DWeOyHke.mjs",
       "node_modules/shiki/dist/langs/css.mjs",
       "node_modules/shiki/dist/langs/xml.mjs",
       "node_modules/shiki/dist/langs/sql.mjs",
@@ -277,12 +277,12 @@
     "isDynamicEntry": true
   },
   "node_modules/shiki/dist/langs/svelte.mjs": {
-    "file": "svelte-DXz44IRr.mjs",
+    "file": "svelte-BGIUJlVw.mjs",
     "name": "svelte",
     "src": "node_modules/shiki/dist/langs/svelte.mjs",
     "isDynamicEntry": true,
     "imports": [
-      "_markdown.worker-BpUnV3cE.mjs",
+      "_markdown.worker-DWeOyHke.mjs",
       "node_modules/shiki/dist/langs/css.mjs"
     ]
   },
@@ -299,12 +299,12 @@
     "isDynamicEntry": true
   },
   "node_modules/shiki/dist/langs/xml.mjs": {
-    "file": "xml-D17mRqOX.mjs",
+    "file": "xml-DRiEAlpO.mjs",
     "name": "xml",
     "src": "node_modules/shiki/dist/langs/xml.mjs",
     "isDynamicEntry": true,
     "imports": [
-      "_markdown.worker-BpUnV3cE.mjs"
+      "_markdown.worker-DWeOyHke.mjs"
     ]
   },
   "src/worker/markdown.worker.ts": {
@@ -313,7 +313,7 @@
     "src": "src/worker/markdown.worker.ts",
     "isEntry": true,
     "imports": [
-      "_markdown.worker-BpUnV3cE.mjs"
+      "_markdown.worker-DWeOyHke.mjs"
     ]
   }
 }

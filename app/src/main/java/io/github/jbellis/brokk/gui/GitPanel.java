@@ -2,16 +2,11 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.components.VerticalLabel;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
 import javax.swing.*;
-import javax.swing.border.TitledBorder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -19,7 +14,6 @@ import org.jetbrains.annotations.Nullable;
  * but the commit tab is now handled by GitCommitTab, and file-history is handled by GitHistoryTab.
  */
 public class GitPanel extends JPanel {
-    private static final Logger logger = LogManager.getLogger(GitPanel.class);
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -46,7 +40,7 @@ public class GitPanel extends JPanel {
 
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
-                "Git ▼",
+                "Git",
                 javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
                 javax.swing.border.TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
@@ -107,27 +101,12 @@ public class GitPanel extends JPanel {
     }
 
     private String getCurrentBranchName() {
-        try {
-            var project = contextManager.getProject();
-            IGitRepo repo = project.getRepo();
-            return ((GitRepo) repo).getCurrentBranch();
-        } catch (Exception e) {
-            logger.warn("Could not get current branch name", e);
-        }
-        return "";
+        return GitUiUtil.getCurrentBranchName(contextManager.getProject());
     }
 
     private void updateBorderTitle() {
         var branchName = getCurrentBranchName();
-        SwingUtilities.invokeLater(() -> {
-            var border = getBorder();
-            if (border instanceof TitledBorder titledBorder) {
-                String newTitle = !branchName.isBlank() ? "Git (" + branchName + ") ▼" : "Git ▼";
-                titledBorder.setTitle(newTitle);
-                revalidate();
-                repaint();
-            }
-        });
+        GitUiUtil.updatePanelBorderWithBranch(this, "Git", branchName);
     }
 
     /** Updates the panel to reflect the current repo state. Refreshes both the log tab and the commit tab. */

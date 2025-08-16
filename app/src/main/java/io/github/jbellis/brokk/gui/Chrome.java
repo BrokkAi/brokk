@@ -236,6 +236,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
             gitPanel.updateRepo();
+            projectFilesPanel.updatePanel();
         } else {
             gitPanel = null;
         }
@@ -640,6 +641,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void updateGitRepo() {
         if (gitPanel != null) {
             gitPanel.updateRepo();
+            projectFilesPanel.updatePanel();
         }
     }
 
