@@ -456,8 +456,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void notifyActionComplete(String notification) {
         SwingUtilities.invokeLater(() -> {
             // 'frame' is the JFrame member of Chrome
+            logger.debug(
+                    "notifyActionComplete called: frame.isShowing()={}, frame.isActive()={}, notification={}",
+                    frame.isShowing(),
+                    frame.isActive(),
+                    notification);
             if (frame.isShowing() && !frame.isActive()) {
+                logger.info("Sending notification because window is showing but not active");
                 Environment.instance.sendNotificationAsync(notification);
+            } else {
+                logger.debug("Not sending notification - window active or not showing");
             }
         });
     }

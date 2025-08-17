@@ -19,6 +19,17 @@ import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import javafx.application.Platform;
+import javafx.embed.swing.JFXPanel;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.Label;
+import javafx.scene.layout.StackPane;
+import javafx.stage.Screen;
+import javafx.stage.Stage;
+import javafx.stage.StageStyle;
+import javafx.animation.Timeline;
+import javafx.animation.KeyFrame;
 
 public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
@@ -51,6 +62,8 @@ public class Environment {
 
     @Nullable
     private TrayIcon brokkTrayIcon = null;
+
+    private static boolean javaFxInitialized = false;
 
     private Environment() {}
 
@@ -427,12 +440,20 @@ public class Environment {
      * @param message The message body of the notification.
      */
     public void sendNotificationAsync(String message) {
+        logger.debug("sendNotificationAsync called with message: {}", message);
         CompletableFuture.runAsync(() -> {
             try {
                 String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
+                logger.debug("Operating system detected: {}, isMacOs: {}", os, isMacOs());
+
                 if (isSystemTrayNotificationSupported()) {
+                    logger.debug("Using SystemTray notification");
                     sendSystemTrayNotification(message);
+                } else if (isMacOs()) {
+                    logger.debug("Detected macOS, sending notification");
+                    sendMacOsNotification(message);
                 } else if (os.contains("linux")) {
+                    logger.debug("Using Linux notification");
                     sendLinuxNotification(message);
                 } else {
                     logger.info("Desktop notifications not supported on this platform ({})", os);
@@ -449,6 +470,96 @@ public class Environment {
 
     private void sendLinuxNotification(String message) throws IOException {
         runCommandFireAndForget("notify-send", "--category", "Brokk", message);
+    }
+
+    private void sendMacOsNotification(String message) throws IOException {
+        logger.info("Sending macOS notification: {}", message);
+
+        try {
+            sendJavaFxNotification(message);
+            logger.info("macOS notification sent via JavaFX");
+        } catch (Exception e) {
+            logger.warn("JavaFX notification failed, falling back to osascript: {}", e.getMessage());
+            sendOsascriptNotification(message);
+        }
+    }
+
+    private void sendJavaFxNotification(String message) {
+        if (!javaFxInitialized) {
+            try {
+                SwingUtilities.invokeLater(() -> {
+                    new JFXPanel();
+                });
+                Thread.sleep(100);
+                javaFxInitialized = true;
+                logger.debug("JavaFX initialized");
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to initialize JavaFX", e);
+            }
+        }
+
+        Platform.runLater(() -> {
+            try {
+                var stage = new Stage();
+                stage.initStyle(StageStyle.UTILITY);
+                stage.setAlwaysOnTop(true);
+                stage.setResizable(false);
+
+                var label = new Label(message);
+                label.setStyle("-fx-font-size: 14px; -fx-text-fill: white; -fx-padding: 10px;");
+
+                var root = new StackPane(label);
+                root.setStyle("-fx-background-color: rgba(0, 0, 0, 0.8); -fx-background-radius: 8px;");
+                root.setAlignment(Pos.CENTER);
+
+                var scene = new Scene(root, 300, 80);
+                scene.setFill(null);
+                stage.setScene(scene);
+
+                var screenBounds = Screen.getPrimary().getVisualBounds();
+                stage.setX(screenBounds.getMaxX() - 320);
+                stage.setY(screenBounds.getMinY() + 20);
+
+                stage.show();
+
+                var timeline = new Timeline(
+                    new KeyFrame(
+                        javafx.util.Duration.seconds(3),
+                        e -> stage.close()
+                    )
+                );
+                timeline.play();
+
+                logger.debug("JavaFX notification displayed");
+            } catch (Exception e) {
+                logger.error("Failed to show JavaFX notification", e);
+                Platform.runLater(() -> sendOsascriptNotificationFallback(message));
+            }
+        });
+    }
+
+    private void sendOsascriptNotification(String message) throws IOException {
+        String script = String.format(
+                "display notification \"%s\" with title \"Brokk\" sound name \"default\"",
+                escapeForAppleScript(message));
+
+        runCommandFireAndForget("osascript", "-e", script);
+        logger.info("macOS notification sent via osascript");
+    }
+
+    private void sendOsascriptNotificationFallback(String message) {
+        try {
+            sendOsascriptNotification(message);
+        } catch (IOException e) {
+            logger.error("Failed to send fallback osascript notification", e);
+        }
+    }
+
+    private static String escapeForAppleScript(String text) {
+        return text.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r");
     }
 
     private synchronized void sendSystemTrayNotification(String message) {

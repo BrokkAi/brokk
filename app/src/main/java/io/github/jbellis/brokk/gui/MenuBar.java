@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
@@ -298,7 +299,18 @@ public class MenuBar {
         upgradeAgentItem.setEnabled(true);
         toolsMenu.add(upgradeAgentItem);
 
-        // Let Chrome manage this item’s enabled state during long-running actions
+        // Dev mode only: Add notification test menu item
+        if (Boolean.getBoolean("brokk.devmode")) {
+            toolsMenu.addSeparator();
+            var testNotificationItem = new JMenuItem("Test Notification");
+            testNotificationItem.addActionListener(e -> {
+                Environment.instance.sendNotificationAsync("Test notification from Brokk dev menu");
+                chrome.systemOutput("Test notification sent");
+            });
+            toolsMenu.add(testNotificationItem);
+        }
+
+        // Let Chrome manage this item's enabled state during long-running actions
         chrome.setBlitzForgeMenuItem(upgradeAgentItem);
         if (toolsMenu.getItemCount() > 0) {
             menuBar.add(toolsMenu);
