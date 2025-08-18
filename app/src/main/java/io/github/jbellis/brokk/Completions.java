@@ -25,6 +25,8 @@ public class Completions {
         // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
         List<CodeUnit> allDefs;
         try {
+            // fixme: This will have terrible performance implications for large projects. Should this
+            //   fuzzy search rather not be for the analyzers themselves?
             allDefs = analyzer.searchDefinitions(".*").stream().limit(5000).toList();
         } catch (Exception e) {
             // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
