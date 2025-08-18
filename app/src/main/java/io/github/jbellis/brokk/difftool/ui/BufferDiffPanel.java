@@ -646,7 +646,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Auto-scroll to the first difference when a diff is opened. Centers the first difference on both panels for
      * optimal user experience.
      */
-    private void scrollToFirstDifference() {
+    protected void scrollToFirstDifference() {
         if (selectedDelta == null || scrollSynchronizer == null) {
             return;
         }

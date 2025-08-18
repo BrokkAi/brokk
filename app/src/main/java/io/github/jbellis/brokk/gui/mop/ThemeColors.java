@@ -139,6 +139,17 @@ public class ThemeColors {
     }
 
     /**
+     * Gets all colors for the specified theme.
+     *
+     * @param isDarkTheme true for dark theme, false for light theme
+     * @return a copy of the color map for the specified theme
+     */
+    public static Map<String, Color> getAllColors(boolean isDarkTheme) {
+        // Return an immutable view; callers shouldn’t be able to mutate our theme state
+        return Map.copyOf(isDarkTheme ? DARK_COLORS : LIGHT_COLORS);
+    }
+
+    /**
      * Adds or updates a color in the theme maps.
      *
      * @param key the color key
