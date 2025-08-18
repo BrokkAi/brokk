@@ -140,7 +140,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.clear();
         for (var message : newMessages) {
             // reasoning is false atm, only transient via streamed append calls (not persisted)
-            webHost.append(Messages.getText(message), true, message.type(), false, false);
+            var isReasoning = isReasoningMessage(message);
+            webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();
@@ -160,10 +161,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public String getText() {
         return messages.stream().map(Messages::getRepr).collect(java.util.stream.Collectors.joining("\n\n"));
-    }
-
-    public List<ChatMessage> getRawMessages() {
-        return getRawMessages(false);
     }
 
     public List<ChatMessage> getRawMessages(boolean includeReasoning) {

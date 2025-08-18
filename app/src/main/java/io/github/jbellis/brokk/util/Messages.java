@@ -95,7 +95,7 @@ public class Messages {
             case SystemMessage sm -> sm.text();
             case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             case AiMessage am -> {
-                var raw = am.text() == null ? "" : am.text();
+                var raw = getText(am);
                 if (!am.hasToolExecutionRequests()) {
                     yield raw;
                 }
