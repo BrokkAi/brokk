@@ -10,6 +10,12 @@
   const hlVar = '--message-border-ai-reasoning';
   const bgVar = '--message-background';
 
+  // Round to 1 decimal as the UI displays
+  $: displayDuration = bubble.duration != null ? Number(bubble.duration.toFixed(1)) : 0;
+
+  // Show "Thoughts" when the rounded display is 0.0
+  $: showThoughtsLabel = bubble.reasoningComplete && displayDuration === 0;
+
   function toggleCollapse() {
     // Only allow toggling when reasoning is complete.
     if (bubble.reasoningComplete) {
@@ -23,7 +29,11 @@
     {#if bubble.reasoningComplete}
       <Icon icon={bubble.isCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'} style="color: var(--ai-reasoning-header-foreground); margin-right: 0.35em;" />
       <span class="title" style="color: var(--ai-reasoning-header-foreground);">
-        Thought for {bubble.duration?.toFixed(1) ?? 0} seconds
+        {#if showThoughtsLabel}
+          Thoughts
+        {:else}
+          Thought for {displayDuration} seconds
+        {/if}
       </span>
     {:else}
       <Icon icon="mdi:loading" class="spin-icon" style="color: var({hlVar}); margin-right: 0.35em;" />
