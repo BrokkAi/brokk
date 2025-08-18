@@ -827,16 +827,18 @@ public class Service {
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
-        // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with
-        // that
-        // that serial calls is the lesser evil
-        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can
-        // do parallel calls
         var location = model.defaultRequestParameters().modelName();
-        return !location.contains("gemini")
-                && !location.contains("o3")
-                && !location.contains("o4-mini")
-                && !location.contains("gpt-5");
+        var info = getModelInfo(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming no parallel tool call support.", location);
+            return false;
+        }
+
+        // Check if "parallel_tool_calls" is in the list of supported_openai_params
+        return switch (info.get("supported_openai_params")) {
+            case List<?> list -> list.stream().map(Object::toString).anyMatch("parallel_tool_calls"::equals);
+            case null, default -> false;
+        };
     }
 
     /**
