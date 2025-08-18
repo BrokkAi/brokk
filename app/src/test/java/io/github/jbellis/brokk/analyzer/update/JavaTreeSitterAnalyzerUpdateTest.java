@@ -1,0 +1,106 @@
+package io.github.jbellis.brokk.analyzer.update;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.testutil.TestProject;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Set;
+import org.junit.jupiter.api.*;
+
+class JavaTreeSitterAnalyzerUpdateTest {
+
+    private TestProject project;
+    private JavaTreeSitterAnalyzer analyzer;
+
+    @BeforeEach
+    void setUp() throws IOException {
+        var rootDir = UpdateTestUtil.newTempDir();
+        // initial Java source
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+        public class A {
+          public int method1() { return 1; }
+        }
+        """);
+
+        project = UpdateTestUtil.newTestProject(rootDir, Language.JAVA);
+        analyzer = new JavaTreeSitterAnalyzer(project, new HashSet<>());
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (project != null) project.close();
+    }
+
+    @Test
+    void explicitUpdateWithProvidedSet() throws IOException {
+        // verify initial state
+        assertTrue(analyzer.getDefinition("A.method1").isPresent());
+        assertTrue(analyzer.getDefinition("A.method2").isEmpty());
+
+        // mutate source – add method2
+        UpdateTestUtil.writeFile(
+                project.getRoot(),
+                "A.java",
+                """
+        public class A {
+          public int method1() { return 1; }
+          public int method2() { return 2; }
+        }
+        """);
+
+        // before update the analyzer still returns old view
+        assertTrue(analyzer.getDefinition("A.method2").isEmpty());
+
+        // update ONLY this file
+        var maybeFile = analyzer.getFileFor("A");
+        assertTrue(maybeFile.isPresent());
+        analyzer.update(Set.of(maybeFile.get()));
+
+        // method2 should now be visible
+        assertTrue(analyzer.getDefinition("A.method2").isPresent());
+
+        // change again but don't include file in explicit set
+        UpdateTestUtil.writeFile(
+                project.getRoot(),
+                "A.java",
+                """
+        public class A {
+          public int method1() { return 1; }
+          public int method2() { return 2; }
+          public int method3() { return 3; }
+        }
+        """);
+        // call update with empty set – no change expected
+        analyzer.update(Set.of());
+        assertTrue(analyzer.getDefinition("A.method3").isEmpty());
+    }
+
+    @Test
+    void automaticUpdateDetection() throws IOException {
+        // add new method then rely on hash detection
+        UpdateTestUtil.writeFile(
+                project.getRoot(),
+                "A.java",
+                """
+        public class A {
+          public int method1() { return 1; }
+          public int method4() { return 4; }
+        }
+        """);
+        analyzer.update(); // no-arg detection
+        assertTrue(analyzer.getDefinition("A.method4").isPresent());
+
+        // delete file – analyzer should drop symbols
+        var maybeFile = analyzer.getFileFor("A");
+        assertTrue(maybeFile.isPresent());
+        java.nio.file.Files.deleteIfExists(maybeFile.get().absPath());
+
+        analyzer.update();
+        assertTrue(analyzer.getDefinition("A").isEmpty());
+    }
+}
