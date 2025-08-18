@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 

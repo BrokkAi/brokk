@@ -17,10 +17,7 @@ class RustAnalyzerUpdateTest {
     @BeforeEach
     void setUp() throws IOException {
         var rootDir = UpdateTestUtil.newTempDir();
-        UpdateTestUtil.writeFile(
-                rootDir,
-                "lib.rs",
-                """
+        UpdateTestUtil.writeFile(rootDir, "lib.rs", """
                 pub fn foo() -> i32 { 1 }
                 """);
         project = UpdateTestUtil.newTestProject(rootDir, Language.RUST);

@@ -5,7 +5,6 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Assertions;
 
 /** Small helpers shared by update-tests to create temp projects and edit files. */

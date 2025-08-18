@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.*;
