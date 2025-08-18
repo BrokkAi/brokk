@@ -56,17 +56,17 @@ public class CompletionsTest {
         @Override
         public List<CodeUnit> searchDefinitions(String pattern) {
             if (".*".equals(pattern)) {
-                return Stream.concat(allClasses.stream(),
-                                     methodsMap.values().stream().flatMap(List::stream))
+                return Stream.concat(
+                                allClasses.stream(),
+                                methodsMap.values().stream().flatMap(List::stream))
                         .toList();
             }
 
             var regex = "^(?i)" + pattern + "$";
 
             // Find matching classes
-            var matchingClasses = allClasses.stream()
-                    .filter(cu -> cu.fqName().matches(regex))
-                    .toList();
+            var matchingClasses =
+                    allClasses.stream().filter(cu -> cu.fqName().matches(regex)).toList();
 
             // Find matching methods
             var matchingMethods = methodsMap.entrySet().stream()

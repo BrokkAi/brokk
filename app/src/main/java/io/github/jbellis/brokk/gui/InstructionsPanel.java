@@ -12,12 +12,11 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
@@ -37,32 +36,13 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
-import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.DefaultCompletionProvider;
-import org.fife.ui.autocomplete.ShorthandCompletion;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
-import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.TitledBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.event.PopupMenuEvent;
-import javax.swing.event.PopupMenuListener;
-import javax.swing.text.*;
-import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -77,6 +57,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
+import javax.swing.text.*;
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -85,6 +66,10 @@ import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -307,7 +292,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionCompletionProvider = new InstructionsCompletionProvider();
         instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
         instructionAutoCompletion.setAutoActivationEnabled(false);
-        instructionAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        instructionAutoCompletion.setTriggerKey(
+                KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, java.awt.event.InputEvent.CTRL_DOWN_MASK));
         instructionAutoCompletion.install(instructionsArea);
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
@@ -1877,12 +1863,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             List<Completion> completions;
             if (text.contains("/") || text.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
-                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(text,
-                                                                                          allFiles,
-                                                                                          ProjectFile::getFileName,
-                                                                                          ProjectFile::toString,
-                                                                                          f -> 0,
-                                                                                          f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
+                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
+                        text,
+                        allFiles,
+                        ProjectFile::getFileName,
+                        ProjectFile::toString,
+                        f -> 0,
+                        f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
                 completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();

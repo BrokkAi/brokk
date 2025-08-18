@@ -1,10 +1,6 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.fife.ui.autocomplete.ShorthandCompletion;
-
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -13,6 +9,8 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
