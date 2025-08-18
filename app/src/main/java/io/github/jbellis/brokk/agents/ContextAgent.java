@@ -71,7 +71,7 @@ public class ContextAgent {
         this.skipPruningBudget = min(32_000, maxInputTokens / 4);
 
         // non-openai models often use more tokens than our estimation so cap this conservatively
-        int outputTokens = model.defaultRequestParameters().maxCompletionTokens(); // TODO override this when we can
+        int outputTokens = model.defaultRequestParameters().maxOutputTokens(); // TODO override this when we can
         int actualInputTokens = contextManager.getService().getMaxInputTokens(model) - outputTokens;
         // god, our estimation is so bad (yes we do observe the ratio being this far off)
         this.budgetPruning = (int) (actualInputTokens * 0.65);
