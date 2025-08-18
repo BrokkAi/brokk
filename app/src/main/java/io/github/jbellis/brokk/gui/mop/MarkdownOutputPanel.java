@@ -5,6 +5,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -22,6 +24,7 @@ import java.util.function.Consumer;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
@@ -34,6 +37,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private boolean blockClearAndReset = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable Runnable symbolLookupRefreshCallback;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -247,8 +252,51 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
+    public void setProject(IProject project) {
+        webHost.setProject(project);
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        // Unregister old callback if we had a previous context manager
+        if (this.contextManager != null && symbolLookupRefreshCallback != null) {
+            this.contextManager.removeSymbolLookupRefreshCallback(symbolLookupRefreshCallback);
+        }
+
+        this.contextManager = contextManager;
+        webHost.setContextManager(contextManager);
+
+        // Register new callback for symbol lookup refresh
+        if (contextManager != null) {
+            symbolLookupRefreshCallback = this::refreshSymbolLookup;
+            contextManager.addSymbolLookupRefreshCallback(symbolLookupRefreshCallback);
+
+            // If analyzer is already ready, trigger an immediate symbol refresh
+            // Use a background task to avoid blocking the EDT
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    var analyzerWrapper = contextManager.getAnalyzerWrapper();
+                    if (analyzerWrapper.isReady()) {
+                        logger.debug("Analyzer already ready, triggering immediate symbol refresh");
+                        refreshSymbolLookup();
+                    }
+                } catch (Exception e) {
+                    logger.debug("Could not check analyzer status for immediate refresh: {}", e.getMessage());
+                }
+            });
+        }
+    }
+
+    private void refreshSymbolLookup() {
+        logger.debug("Triggering symbol lookup refresh");
+        webHost.refreshSymbolLookup();
+    }
+
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
+        // Unregister callback before disposing
+        if (contextManager != null && symbolLookupRefreshCallback != null) {
+            contextManager.removeSymbolLookupRefreshCallback(symbolLookupRefreshCallback);
+        }
         webHost.dispose();
     }
 }

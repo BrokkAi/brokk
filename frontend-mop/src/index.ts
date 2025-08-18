@@ -5,6 +5,8 @@ import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
+import {reparseAll} from './stores/bubblesStore';
+import {log} from './lib/logging';
 
 let searchCtrl: SearchController | null = null;
 
@@ -49,7 +51,10 @@ function setupBrokkInterface(): any[] {
         nextMatch: () => searchCtrl?.next(),
         prevMatch: () => searchCtrl?.prev(),
         scrollToCurrent: () => searchCtrl?.scrollCurrent(),
-        getSearchState: () => searchCtrl?.getState()
+        getSearchState: () => searchCtrl?.getState(),
+
+        // Symbol lookup refresh API
+        refreshSymbolLookup: refreshSymbolLookup()
     };
     return buffer;
 }
@@ -87,6 +92,11 @@ function showSpinnerMessage(message = ''): void {
 
 function hideSpinnerMessage(): void {
     spinnerStore.set({visible: false, message: ''});
+}
+
+function refreshSymbolLookup(): void {
+    log.debugLog('[symbol-lookup] Refreshing symbol lookup for all content');
+    reparseAll();
 }
 
 function replayBufferedItems(buffer: any[]): void {

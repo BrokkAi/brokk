@@ -1,13 +1,18 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,6 +22,7 @@ import javafx.scene.web.WebEngine;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public final class MOPBridge {
     private static final Logger logger = LogManager.getLogger(MOPBridge.class);
@@ -31,6 +37,7 @@ public final class MOPBridge {
     private final AtomicInteger epoch = new AtomicInteger();
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
+    private volatile @Nullable IContextManager contextManager;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -108,6 +115,10 @@ public final class MOPBridge {
 
     public void clear() {
         Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
+    }
+
+    public void refreshSymbolLookup() {
+        Platform.runLater(() -> engine.executeScript("window.brokk.refreshSymbolLookup()"));
     }
 
     private void scheduleSend() {
@@ -220,7 +231,44 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            default -> logger.trace("JS: {}", message);
+            default ->
+                logger.debug("JS: {}", message);
+        }
+    }
+
+    public void setProject(IProject project) {
+        // Deprecated: use setContextManager instead
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        this.contextManager = contextManager;
+    }
+
+    public void debugLog(String message) {
+        System.out.println(" ------- [JS-DEBUG] " + message);
+    }
+
+    public String lookupSymbols(String symbolNamesJson) {
+        logger.debug("Symbol lookup requested with JSON: {}", symbolNamesJson);
+        logger.debug("ContextManager available: {}", contextManager != null);
+
+        if (contextManager != null) {
+            var project = contextManager.getProject();
+            logger.debug("Project: {}", project != null ? project.getRoot() : "null");
+        }
+
+        try {
+            var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
+            logger.debug("Parsed {} symbol names for lookup", symbolNames.size());
+
+            var results = SymbolLookupService.lookupSymbols(symbolNames, contextManager);
+            var jsonResult = MAPPER.writeValueAsString(results);
+
+            logger.debug("Symbol lookup completed, returning {} results", results.size());
+            return jsonResult;
+        } catch (Exception e) {
+            logger.warn("Error in symbol lookup", e);
+            return "{}";
         }
     }
 

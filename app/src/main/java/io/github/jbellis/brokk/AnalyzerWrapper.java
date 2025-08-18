@@ -51,6 +51,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     private volatile boolean externalRebuildRequested =
             false; // TODO allow requesting either incremental or full rebuild
     private volatile boolean rebuildPending = false;
+    private volatile boolean wasReady = false;
 
     public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener) {
         this.project = project;
@@ -239,12 +240,25 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
+            logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
             // always refresh workspace in case there was a race and we shut down
             // after saving a new analyzer but before refreshing the workspace
             runner.submit("Refreshing Workspace", () -> {
+                // Check if analyzer became ready (transition from not-ready to ready)
+                boolean isNowReady = isReady();
+                logger.debug("Checking analyzer ready transition: wasReady={}, isNowReady={}", wasReady, isNowReady);
+                if (!wasReady && isNowReady) {
+                    logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
+                    listener.onAnalyzerReady();
+                } else {
+                    logger.debug("No analyzer ready transition detected");
+                }
                 listener.afterEachBuild(false);
+                wasReady = isNowReady;
                 return null;
             });
+        } else {
+            logger.debug("AnalyzerWrapper has no listener - skipping notification");
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
@@ -417,7 +431,17 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 currentAnalyzer = supplier.get();
                 logger.debug("Analyzer refresh completed.");
                 if (listener != null) {
+                    boolean isNowReady = isReady();
+                    logger.debug(
+                            "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
+                            wasReady,
+                            isNowReady);
+                    if (!wasReady && isNowReady) {
+                        logger.debug("Analyzer became ready, notifying listeners");
+                        listener.onAnalyzerReady();
+                    }
                     listener.afterEachBuild(externalRebuildRequested);
+                    wasReady = isNowReady;
                 }
                 return currentAnalyzer;
             } finally {

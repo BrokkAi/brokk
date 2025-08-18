@@ -4,8 +4,21 @@
   import { rendererPlugins } from '../lib/renderer-plugins';
   import type { BubbleState } from '../stores/bubblesStore';
   import type {Bubble} from "@/types";
+  import { createLogger } from '../lib/logging';
 
   export let bubble: Bubble;
+
+  const log = createLogger('symbol-click');
+
+  function handleSymbolClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'CODE' && target.classList.contains('symbol-exists')) {
+      const symbolName = target.getAttribute('data-symbol');
+      const symbolExists = target.getAttribute('data-symbol-exists');
+
+      log.info(`Clicked symbol: ${symbolName}, exists: ${symbolExists}`);
+    }
+  }
 
   /* Map bubble type to CSS variable names for highlight and background colors */
   const hlVar = {
@@ -40,6 +53,7 @@
       border-left: 4px solid var({hlVar});
       color: var(--chat-text);
     "
+    on:click={handleSymbolClick}
   >
     {#if bubble.hast}
       <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />

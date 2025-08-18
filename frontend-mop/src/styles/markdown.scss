@@ -95,6 +95,16 @@ li > p {
   font-size: 0.8em;
 }
 
+/* Symbol lookup styling for inline code that exists in project */
+:not(pre) > code.symbol-exists {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+:not(pre) > code.symbol-exists:hover {
+  background-color: rgba(103, 140, 177, 0.1);
+}
+
 pre > code {
   font-size: 0.9em;
 }

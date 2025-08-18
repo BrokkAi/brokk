@@ -1,10 +1,27 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
 import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
+import { createLogger } from '../lib/logging';
 
+console.log('MAIN: Creating worker with URL:', __WORKER_URL__);
 const worker = new Worker(__WORKER_URL__, { type: 'module' });
+console.log('MAIN: Worker created successfully');
+
+const log = createLogger('worker-bridge');
+
+// Add worker error handling
+worker.onerror = (error) => {
+  console.error('MAIN: Worker error:', error);
+  log.error('Worker error:', error);
+};
+
+worker.onmessageerror = (error) => {
+  console.error('MAIN: Worker message error:', error);
+  log.error('Worker message error:', error);
+};
 
 /* outbound ---------------------------------------------------------- */
 export function pushChunk(text: string, seq: number) {
+  // log.debugLog(`Sending chunk message to worker, seq: ${seq}`); // Too noisy
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
@@ -28,6 +45,55 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
   });
 }
 
+/* symbol lookup handler ------------------------------------------- */
+async function handleSymbolLookupRequest(symbols: string[], seq: number) {
+  try {
+    // Access JavaBridge from main window context
+    const javaBridge = (window as any).javaBridge;
+    if (!javaBridge || typeof javaBridge.lookupSymbols !== 'function') {
+      log.warn('JavaBridge not available for symbol lookup');
+      return;
+    }
+
+    // Log the lookup request
+    log.info(`Processing ${symbols.length} symbols: ${symbols.join(', ')}`);
+
+    // Call JavaBridge to lookup symbols
+    const jsonInput = JSON.stringify(symbols);
+    log.debugLog(`[SYMBOL-LOOKUP] About to call javaBridge.lookupSymbols with: ${jsonInput}`);
+    const resultsJson = javaBridge.lookupSymbols(jsonInput);
+    log.debugLog(`[SYMBOL-LOOKUP] JavaBridge call completed`);
+
+    // Log the results
+    log.debugLog(`[SYMBOL-LOOKUP] Received results from JavaBridge: ${resultsJson}`);
+    log.debugLog(`[SYMBOL-LOOKUP] Results type: ${typeof resultsJson}, length: ${resultsJson?.length}`);
+
+    if (resultsJson) {
+      log.debugLog(`[SYMBOL-LOOKUP] Parsing JSON results...`);
+      const results = JSON.parse(resultsJson);
+      log.debugLog(`[SYMBOL-LOOKUP] JSON parsed successfully, creating message...`);
+
+      // Send results back to worker
+      const message = <InboundToWorker>{
+        type: 'symbol-lookup-response',
+        results: results,
+        seq: seq
+      };
+      log.debugLog(`[SYMBOL-LOOKUP] About to send message to worker: ${JSON.stringify(message)}`);
+      try {
+        worker.postMessage(message);
+        log.debugLog(`[SYMBOL-LOOKUP] Sent symbol lookup response to worker for seq: ${seq}`);
+      } catch (postError) {
+        log.error(`[SYMBOL-LOOKUP] Error sending message to worker:`, postError);
+      }
+    } else {
+      log.warn('No results received from JavaBridge');
+    }
+  } catch (e) {
+    log.error('Error in symbol lookup:', e);
+  }
+}
+
 /* inbound ----------------------------------------------------------- */
 worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
   const msg = e.data;
@@ -37,10 +103,19 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       reparseAll();
       break;
     case 'result':
+      log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);
       onWorkerResult(msg);
       break;
     case 'error':
-      console.error('[md-worker]', msg.message + '\n' + msg.stack);
+      log.error('md-worker:', msg.message + '\n' + msg.stack);
+      break;
+    case 'symbol-lookup-request':
+      //log.debugLog("++++++++ symbol");
+      handleSymbolLookupRequest(msg.symbols, msg.seq);
+      break;
+    case 'worker-log':
+      console.log(`[WORKER->${msg.level.toUpperCase()}] ${msg.message}`);
+      log[msg.level](`[WORKER] ${msg.message}`);
       break;
   }
 };

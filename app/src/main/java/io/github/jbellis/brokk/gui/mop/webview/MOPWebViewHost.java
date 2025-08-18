@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
@@ -32,6 +34,8 @@ public final class MOPWebViewHost extends JPanel {
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile boolean darkTheme = true; // Default to dark theme
+    private volatile @Nullable IProject project;
+    private volatile @Nullable IContextManager contextManager;
 
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
@@ -55,6 +59,8 @@ public final class MOPWebViewHost extends JPanel {
         record HideSpinner() implements HostCommand {}
 
         record Clear() implements HostCommand {}
+
+        record RefreshSymbolLookup() implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -91,6 +97,12 @@ public final class MOPWebViewHost extends JPanel {
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
             var bridge = new MOPBridge(view.getEngine());
+            if (project != null) {
+                bridge.setProject(project);
+            }
+            if (contextManager != null) {
+                bridge.setContextManager(contextManager);
+            }
             bridgeRef.set(bridge);
 
             // Add JavaScript error handling
@@ -319,6 +331,10 @@ public final class MOPWebViewHost extends JPanel {
         sendOrQueue(new HostCommand.Clear(), MOPBridge::clear);
     }
 
+    public void refreshSymbolLookup() {
+        sendOrQueue(new HostCommand.RefreshSymbolLookup(), MOPBridge::refreshSymbolLookup);
+    }
+
     public void showSpinner(String message) {
         sendOrQueue(new HostCommand.ShowSpinner(message), bridge -> bridge.showSpinner(message));
     }
@@ -426,9 +442,26 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
+                    case HostCommand.RefreshSymbolLookup ignored -> bridge.refreshSymbolLookup();
                 }
             });
             pendingCommands.clear();
+        }
+    }
+
+    public void setProject(IProject project) {
+        this.project = project;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setProject(project);
+        }
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        this.contextManager = contextManager;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setContextManager(contextManager);
         }
     }
 

@@ -25,7 +25,13 @@ export interface ExpandDiffMsg {
     bubbleId: number;  // owning bubble
 }
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg;
+export interface SymbolLookupResponseMsg {
+    type: 'symbol-lookup-response';
+    results: Record<string, {exists: boolean}>;
+    seq: Seq;
+}
+
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
@@ -47,7 +53,19 @@ export interface ShikiLangsReadyMsg {
     type: 'shiki-langs-ready';
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg;
+export interface SymbolLookupRequestMsg {
+    type: 'symbol-lookup-request';
+    symbols: string[];
+    seq: Seq;
+}
+
+export interface WorkerLogMsg {
+    type: 'worker-log';
+    level: 'info' | 'warn' | 'error' | 'debug';
+    message: string;
+}
+
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg;
 
 // shared by both
 

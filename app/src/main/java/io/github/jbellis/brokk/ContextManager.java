@@ -69,6 +69,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             createLoggingExecutorService(Executors.newSingleThreadExecutor());
     private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); // _FIX_
 
+    // Symbol lookup refresh callbacks
+    private final List<Runnable> symbolLookupRefreshCallbacks = new CopyOnWriteArrayList<>();
+
     // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
     // when it appears as its own path segment or at a camel-case boundary.
     static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*" + // anything before
@@ -386,7 +389,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     chrome.notifyActionComplete("Analyzer rebuild completed");
                 }
             }
+
+            @Override
+            public void onAnalyzerReady() {
+                logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                triggerSymbolLookupRefresh();
+            }
         };
+    }
+
+    /**
+     * Adds a callback to be executed when the analyzer becomes ready. This is used to trigger symbol lookup refresh in
+     * UI components.
+     */
+    @Override
+    public void addSymbolLookupRefreshCallback(Runnable callback) {
+        symbolLookupRefreshCallbacks.add(callback);
+        logger.debug("Added symbol lookup refresh callback, total count: {}", symbolLookupRefreshCallbacks.size());
+    }
+
+    /** Removes a symbol lookup refresh callback. */
+    @Override
+    public void removeSymbolLookupRefreshCallback(Runnable callback) {
+        symbolLookupRefreshCallbacks.remove(callback);
+        logger.debug("Removed symbol lookup refresh callback, total count: {}", symbolLookupRefreshCallbacks.size());
+    }
+
+    /** Triggers all registered symbol lookup refresh callbacks when the analyzer becomes ready. */
+    private void triggerSymbolLookupRefresh() {
+        logger.debug("Triggering symbol lookup refresh for {} callbacks", symbolLookupRefreshCallbacks.size());
+        System.out.println("Triggering symbol lookup refresh for " + symbolLookupRefreshCallbacks.size());
+        for (var callback : symbolLookupRefreshCallbacks) {
+            logger.debug(
+                    "Executing symbol lookup refresh callback: {}",
+                    callback.getClass().getSimpleName());
+            try {
+                callback.run();
+            } catch (Exception e) {
+                logger.warn("Error executing symbol lookup refresh callback", e);
+            }
+        }
+        logger.debug("Completed symbol lookup refresh for all callbacks");
     }
 
     /** Submits a background task to clean up old LLM session history directories. */
