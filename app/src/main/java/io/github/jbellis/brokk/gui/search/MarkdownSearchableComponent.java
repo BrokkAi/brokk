@@ -71,12 +71,22 @@ public class MarkdownSearchableComponent implements SearchableComponent {
     @Override
     public void highlightAll(String searchText, boolean caseSensitive) {
         var q = searchText.trim();
-        if (q.isEmpty()) {
-            clearHighlights();
-            callback.onSearchComplete(0, 0);
+
+        // Skip if neither query nor case-sensitivity actually changed
+        if (!hasSearchChanged(q, caseSensitive)) {
             return;
         }
+
+        // Empty query -> just clear and exit (clearHighlights triggers callback)
+        if (q.isEmpty()) {
+            clearHighlights();
+            return;
+        }
+
+        // Notify listeners and prepare web view for a fresh search
         callback.onSearchStart();
+        panel.clearSearch();
+
         currentQuery = q;
         currentCaseSensitive = caseSensitive;
         panel.setSearch(q, caseSensitive);
