@@ -744,7 +744,7 @@ public class Service {
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
-        params = params.maxCompletionTokens(getMaxOutputTokens(location));
+        params = params.maxOutputTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             // Non-Brokk proxy
