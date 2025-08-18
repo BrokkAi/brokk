@@ -22,7 +22,7 @@ class PythonTreeSitterAnalyzerUpdateTest {
             return 1
         """);
         project = UpdateTestUtil.newTestProject(rootDir, Language.PYTHON);
-        analyzer = new PythonAnalyzer(project, new HashSet<>());
+        analyzer = new PythonAnalyzer(project);
     }
 
     @AfterEach
@@ -32,8 +32,8 @@ class PythonTreeSitterAnalyzerUpdateTest {
 
     @Test
     void explicitUpdate() throws IOException {
-        assertTrue(analyzer.getDefinition("foo").isPresent());
-        assertTrue(analyzer.getDefinition("bar").isEmpty());
+        assertTrue(analyzer.getDefinition("mod.foo").isPresent());
+        assertTrue(analyzer.getDefinition("mod.bar").isEmpty());
 
         // change: add bar()
         UpdateTestUtil.writeFile(
@@ -47,10 +47,10 @@ class PythonTreeSitterAnalyzerUpdateTest {
             return 2
         """);
 
-        var maybeFile = analyzer.getFileFor("foo");
+        var maybeFile = analyzer.getFileFor("mod.foo");
         assertTrue(maybeFile.isPresent());
         analyzer.update(Set.of(maybeFile.get()));
-        assertTrue(analyzer.getDefinition("bar").isPresent());
+        assertTrue(analyzer.getDefinition("mod.bar").isPresent());
     }
 
     @Test
@@ -63,12 +63,12 @@ class PythonTreeSitterAnalyzerUpdateTest {
         analyzer.update();
         // There is no separate fqName namespace for functions in a module-less python file,
         // the simple name remains 'foo', verify it's still present
-        assertTrue(analyzer.getDefinition("foo").isPresent());
+        assertTrue(analyzer.getDefinition("mod.foo").isPresent());
 
         // delete file – symbols should disappear
-        var pyFile = analyzer.getFileFor("foo").orElseThrow();
+        var pyFile = analyzer.getFileFor("mod.foo").orElseThrow();
         java.nio.file.Files.deleteIfExists(pyFile.absPath());
         analyzer.update();
-        assertTrue(analyzer.getDefinition("foo").isEmpty());
+        assertTrue(analyzer.getDefinition("mod.foo").isEmpty());
     }
 }

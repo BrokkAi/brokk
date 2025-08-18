@@ -10,12 +10,11 @@ import org.junit.jupiter.api.Assertions;
 
 /** Small helpers shared by update-tests to create temp projects and edit files. */
 public final class UpdateTestUtil {
-    private static final AtomicInteger TMP_COUNTER = new AtomicInteger();
 
     private UpdateTestUtil() {}
 
     public static Path newTempDir() throws IOException {
-        Path dir = Files.createTempDirectory("brokk_update_" + TMP_COUNTER.incrementAndGet());
+        Path dir = Files.createTempDirectory("brokk-update-");
         dir.toFile().deleteOnExit();
         return dir;
     }
