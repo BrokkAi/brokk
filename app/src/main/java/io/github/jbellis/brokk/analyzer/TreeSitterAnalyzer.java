@@ -9,6 +9,8 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque; // Added import
 import java.util.ArrayList;
 import java.util.Collection;
@@ -24,6 +26,8 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -52,8 +56,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     final Map<CodeUnit, List<CodeUnit>> childrenByParent = new ConcurrentHashMap<>(); // package-private for testing
     final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
+    // SHA-1 hash of each analysed file, used to detect modifications
+    private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
     protected final Map<ProjectFile, TSTree> parsedTreeCache =
             new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
+    // Ensures reads see a consistent view while updates mutate internal maps atomically
+    private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
+
     private final IProject project;
     private final Language language;
     protected final Set<Path> normalizedExcludedPaths;
@@ -690,6 +699,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
+
+        // record (or refresh) the file content hash
+        fileHashes.put(file, sha1Hex(fileBytes));
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
@@ -1776,6 +1788,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /* ---------- helpers ---------- */
 
     /**
+     * Compute SHA-1 of the provided data and return it as lowercase hex. SHA-1 is guaranteed to be available on every
+     * JVM.
+     */
+    private static String sha1Hex(byte[] data) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] digest = md.digest(data);
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-1 algorithm unavailable", e);
+        }
+    }
+
+    /**
      * Fallback to extract a simple name from a declaration node when an explicit `.name` capture isn't found. Tries
      * finding a child node with field name specified in LanguageSyntaxProfile. Needs the source string `src` for
      * substring extraction.
@@ -1849,5 +1879,141 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     @Override
     public List<CodeUnit> directChildren(CodeUnit cu) {
         return childrenByParent.getOrDefault(cu, List.of());
+    }
+
+    /* ---------- incremental updates ---------- */
+
+    @Override
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) {
+            return this;
+        }
+
+        var writeLock = stateRwLock.writeLock();
+        writeLock.lock();
+        try {
+            for (var file : changedFiles) {
+                // -------- cleanup ----------
+                parsedTreeCache.remove(file);
+                topLevelDeclarations.remove(file);
+                fileHashes.remove(file);
+
+                Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
+
+                childrenByParent.keySet().removeIf(fromFile);
+                signatures.keySet().removeIf(fromFile);
+                sourceRanges.keySet().removeIf(fromFile);
+
+                // remove children entries pointing to CodeUnits from the changed file
+                childrenByParent.replaceAll((parent, kids) -> {
+                    var filtered = kids.stream().filter(fromFile.negate()).toList();
+                    return filtered.equals(kids) ? kids : List.copyOf(filtered);
+                });
+
+                // -------- re-analyse (if file still exists) ----------
+                if (Files.exists(file.absPath())) {
+                    try {
+                        var localParser = new TSParser();
+                        if (!localParser.setLanguage(getTSLanguage())) {
+                            log.error("Cannot set TSLanguage for {}", file);
+                            continue;
+                        }
+                        var analysisResult = analyzeFileDeclarations(file, localParser);
+                        ingestAnalysisResult(file, analysisResult);
+                    } catch (IOException e) {
+                        log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                    } catch (RuntimeException e) {
+                        log.error("Runtime error re-analysing {}: {}", file, e.getMessage(), e);
+                    }
+                } else {
+                    log.debug("File {} deleted; state cleaned.", file);
+                }
+            }
+        } finally {
+            writeLock.unlock();
+        }
+        return this;
+    }
+
+    /**
+     * Full-project incremental update: detect created/modified/deleted files by comparing on-disk SHA-1 hashes to the
+     * cached ones, then delegate to {@link #update(Set)}.
+     */
+    @Override
+    public IAnalyzer update() {
+        // files currently on disk that this analyser is interested in
+        Set<ProjectFile> currentFiles = project.getAllFiles().stream()
+                .filter(pf -> {
+                    Path abs = pf.absPath().toAbsolutePath().normalize();
+                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) return false;
+                    String p = abs.toString();
+                    return language.getExtensions().stream().anyMatch(p::endsWith);
+                })
+                .collect(Collectors.toSet());
+
+        Set<ProjectFile> changed = new HashSet<>();
+
+        // deleted or no-longer-relevant files
+        for (ProjectFile known : new HashSet<>(fileHashes.keySet())) {
+            if (!currentFiles.contains(known) || !Files.exists(known.absPath())) {
+                changed.add(known);
+            }
+        }
+
+        // new or modified files
+        for (ProjectFile pf : currentFiles) {
+            try {
+                byte[] bytes = Files.readAllBytes(pf.absPath());
+                String newHash = sha1Hex(bytes);
+                String oldHash = fileHashes.get(pf);
+                if (!newHash.equals(oldHash)) {
+                    changed.add(pf);
+                }
+            } catch (IOException e) {
+                log.warn("Could not hash {}: {}", pf, e.getMessage());
+                changed.add(pf); // treat as changed; will retry next time
+            }
+        }
+
+        // reuse the existing incremental logic
+        return update(changed);
+    }
+
+    private void ingestAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
+        if (analysisResult.topLevelCUs().isEmpty()
+                && analysisResult.signatures().isEmpty()
+                && analysisResult.sourceRanges().isEmpty()) {
+            return;
+        }
+
+        topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
+
+        analysisResult
+                .children()
+                .forEach((parent, newKids) ->
+                        childrenByParent.compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
+                            if (existing == null) return newKids;
+                            var merged = new ArrayList<>(existing);
+                            newKids.stream().filter(k -> !merged.contains(k)).forEach(merged::add);
+                            return List.copyOf(merged);
+                        }));
+
+        analysisResult
+                .signatures()
+                .forEach((cu, newSigs) -> signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
+                    if (existing == null) return List.copyOf(newSigs);
+                    var merged = new ArrayList<>(existing);
+                    newSigs.stream().filter(s -> !merged.contains(s)).forEach(merged::add);
+                    return List.copyOf(merged);
+                }));
+
+        analysisResult
+                .sourceRanges()
+                .forEach((cu, newRanges) -> sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
+                    if (existing == null) return List.copyOf(newRanges);
+                    var merged = new ArrayList<>(existing);
+                    merged.addAll(newRanges);
+                    return List.copyOf(merged);
+                }));
     }
 }
