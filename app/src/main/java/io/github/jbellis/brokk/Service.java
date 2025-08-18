@@ -771,7 +771,7 @@ public class Service {
         if (config.tier != ProcessingTier.DEFAULT) {
             builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
         }
-        params = params.maxCompletionTokens(getMaxOutputTokens(location));
+        params = params.maxOutputTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
             // Non-Brokk proxy
