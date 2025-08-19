@@ -103,7 +103,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         tabbedPane = new JTabbedPane();
 
         // Initialize file tree panel
-        fileTreePanel = new FileTreePanel(this.fileComparisons);
+        fileTreePanel = new FileTreePanel(
+                this.fileComparisons, contextManager.getProject().getRoot());
 
         // Create split pane with file tree on left and tabs on right
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
