@@ -36,7 +36,8 @@ public final class PythonAnalyzerTest {
         var classA_CU = CodeUnit.cls(fileA, "a", "A");
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
-        var topLevelDeclsInA = ana.topLevelDeclarations.get(fileA); // Accessing internal for test validation
+        var topLevelDeclsInA =
+                ana.withTopLevelDeclarations(tld -> tld.get(fileA)); // Accessing internal for test validation
         assertNotNull(topLevelDeclsInA, "Top level declarations for file A should exist.");
 
         var funcA_CU = CodeUnit.fn(fileA, "a", "A.funcA");
@@ -125,7 +126,7 @@ public final class PythonAnalyzerTest {
         assertFalse(exportLikeCU.isClass(), "export_like CU should not be a class.");
 
         // Verify that getTopLevelDeclarations includes these fields
-        var topLevelDecls = ((TreeSitterAnalyzer) analyzer).topLevelDeclarations.get(varsPyFile);
+        var topLevelDecls = analyzer.withTopLevelDeclarations(tld -> tld.get(varsPyFile));
         assertNotNull(topLevelDecls, "Top level declarations for vars.py should exist.");
         assertTrue(topLevelDecls.contains(topValueCU), "Top-level declarations should include TOP_VALUE.");
         assertTrue(topLevelDecls.contains(exportLikeCU), "Top-level declarations should include export_like.");

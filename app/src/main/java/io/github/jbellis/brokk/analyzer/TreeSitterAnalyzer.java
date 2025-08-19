@@ -27,7 +27,9 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -51,14 +53,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
     private final ThreadLocal<TSQuery> query;
-    final Map<ProjectFile, List<CodeUnit>> topLevelDeclarations =
+    private final Map<ProjectFile, List<CodeUnit>> topLevelDeclarations =
             new ConcurrentHashMap<>(); // package-private for testing
-    final Map<CodeUnit, List<CodeUnit>> childrenByParent = new ConcurrentHashMap<>(); // package-private for testing
-    final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
+    private final Map<CodeUnit, List<CodeUnit>> childrenByParent =
+            new ConcurrentHashMap<>(); // package-private for testing
+    private final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
     // SHA-1 hash of each analysed file, used to detect modifications
     private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
-    protected final Map<ProjectFile, TSTree> parsedTreeCache =
+    private final Map<ProjectFile, TSTree> parsedTreeCache =
             new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
     // Ensures reads see a consistent view while updates mutate internal maps atomically
     private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
@@ -66,6 +69,67 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private final IProject project;
     private final Language language;
     protected final Set<Path> normalizedExcludedPaths;
+
+    /** Frees memory from the parsed AST cache. */
+    public void clearCaches() {
+        withReadLock(parsedTreeCache::clear);
+    }
+
+    /** The number of cached AST entries. */
+    public int cacheSize() {
+        return withReadLock(parsedTreeCache::size);
+    }
+
+    /* ------------ read-lock helpers ------------ */
+
+    /** Execute {@code supplier} under the read lock and return its result. */
+    private <T> T withReadLock(Supplier<T> supplier) {
+        var rl = stateRwLock.readLock();
+        rl.lock();
+        try {
+            return supplier.get();
+        } finally {
+            rl.unlock();
+        }
+    }
+
+    /** Execute {@code runnable} under the read lock. */
+    private void withReadLock(Runnable runnable) {
+        var rl = stateRwLock.readLock();
+        rl.lock();
+        try {
+            runnable.run();
+        } finally {
+            rl.unlock();
+        }
+    }
+
+    /**
+     * A thread-safe way to interact with the "signatures" field.
+     *
+     * @param function the callback.
+     */
+    protected <R> R withSignatures(Function<Map<CodeUnit, List<String>>, R> function) {
+        return withReadLock(() -> function.apply(signatures));
+    }
+
+    /**
+     * A thread-safe way to interact with the "childrenByParent" field.
+     *
+     * @param function the callback.
+     */
+    protected <R> R withChildrenByParent(Function<Map<CodeUnit, List<CodeUnit>>, R> function) {
+        return withReadLock(() -> function.apply(childrenByParent));
+    }
+
+    /**
+     * A thread-safe way to interact with the "topLevelDeclarations" field.
+     *
+     * @param function the callback.
+     */
+    public <R> R withTopLevelDeclarations(Function<Map<ProjectFile, List<CodeUnit>>, R> function) {
+        return withReadLock(() -> function.apply(topLevelDeclarations));
+    }
 
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
@@ -290,16 +354,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     /** De-duplicate and materialise into a List once. */
     private List<CodeUnit> uniqueCodeUnitList() {
-        return allCodeUnits().distinct().toList();
+        return withReadLock(() -> allCodeUnits().distinct().toList());
     }
 
     /* ---------- IAnalyzer ---------- */
     @Override
     public boolean isEmpty() {
-        return topLevelDeclarations.isEmpty()
+        return withReadLock(() -> topLevelDeclarations.isEmpty()
                 && signatures.isEmpty()
                 && childrenByParent.isEmpty()
-                && sourceRanges.isEmpty();
+                && sourceRanges.isEmpty());
     }
 
     @Override
@@ -309,7 +373,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     @Override
     public Optional<String> getSkeletonHeader(String fqName) {
-        return getSkeletonImpl(fqName, true);
+        return withReadLock(() -> getSkeletonImpl(fqName, true));
     }
 
     @Override
@@ -474,16 +538,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
-        Optional<CodeUnit> cuOpt = signatures.keySet().stream()
-                .filter(c -> c.fqName().equals(fqName))
-                .findFirst();
-        if (cuOpt.isPresent()) {
-            String skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
-            log.trace("getSkeleton: fqName='{}', found=true", fqName);
-            return Optional.of(skeleton);
-        }
-        log.trace("getSkeleton: fqName='{}', found=false", fqName);
-        return Optional.empty();
+        return withReadLock(() -> {
+            Optional<CodeUnit> cuOpt = signatures.keySet().stream()
+                    .filter(c -> c.fqName().equals(fqName))
+                    .findFirst();
+            if (cuOpt.isPresent()) {
+                String skeleton = reconstructFullSkeleton(cuOpt.get(), headerOnly);
+                log.trace("getSkeleton: fqName='{}', found=true", fqName);
+                return Optional.of(skeleton);
+            }
+            log.trace("getSkeleton: fqName='{}', found=false", fqName);
+            return Optional.empty();
+        });
     }
 
     @Override
@@ -1878,7 +1944,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      */
     @Override
     public List<CodeUnit> directChildren(CodeUnit cu) {
-        return childrenByParent.getOrDefault(cu, List.of());
+        return withReadLock(() -> childrenByParent.getOrDefault(cu, List.of()));
     }
 
     /* ---------- incremental updates ---------- */

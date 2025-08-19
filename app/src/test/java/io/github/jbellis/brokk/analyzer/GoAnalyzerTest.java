@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
 import org.junit.jupiter.api.BeforeAll;
@@ -145,9 +146,10 @@ public class GoAnalyzerTest {
         // Check if the analyzer processed the file at all. If topLevelDeclarations doesn't contain the file,
         // it means it might have been filtered out or an error occurred during its initial processing.
         assertTrue(
-                analyzer.topLevelDeclarations.containsKey(declarationsGoFile),
+                analyzer.withTopLevelDeclarations(tld -> tld.containsKey(declarationsGoFile))
+                        .booleanValue(),
                 "Analyzer's topLevelDeclarations should contain declarations.go. Current keys: "
-                        + analyzer.topLevelDeclarations.keySet());
+                        + analyzer.withTopLevelDeclarations(Map::keySet));
         assertFalse(
                 declarations.isEmpty(),
                 "Declarations set should not be empty for declarations.go. Check query and createCodeUnit logic. Actual declarations: "
