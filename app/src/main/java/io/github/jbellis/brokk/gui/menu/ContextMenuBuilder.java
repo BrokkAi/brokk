@@ -36,8 +36,12 @@ public class ContextMenuBuilder {
 
     /** Creates a context menu for symbols */
     public static ContextMenuBuilder forSymbol(
-            String symbolName, boolean symbolExists, Chrome chrome, ContextManager contextManager) {
-        var context = new SymbolMenuContext(symbolName, symbolExists, chrome, contextManager);
+            String symbolName,
+            boolean symbolExists,
+            @Nullable String fqn,
+            Chrome chrome,
+            ContextManager contextManager) {
+        var context = new SymbolMenuContext(symbolName, symbolExists, fqn, chrome, contextManager);
         var builder = new ContextMenuBuilder(context);
         builder.buildSymbolMenu();
         return builder;
@@ -164,24 +168,40 @@ public class ContextMenuBuilder {
         }
 
         var symbolName = context.symbolName();
+        var fqn = context.fqn() != null ? context.fqn() : symbolName;
         context.contextManager().submitContextTask("Go to definition for " + symbolName, () -> {
             var analyzer = context.contextManager().getAnalyzerUninterrupted();
 
-            // First try exact FQN match
-            var definition = analyzer.getDefinition(symbolName);
-            if (definition.isPresent()) {
-                navigateToSymbol(definition.get(), context);
+            try {
+                // First try exact FQN match
+                var definition = analyzer.getDefinition(fqn);
+                if (definition.isPresent()) {
+                    navigateToSymbol(definition.get(), context);
+                    return;
+                }
+            } catch (Exception e) {
+                logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
+                SwingUtilities.invokeLater(() -> context.chrome()
+                        .toolError("Failed to find definition: " + e.getMessage(), "Go to Definition Error"));
                 return;
             }
 
             // Fallback: search for candidates with the symbol name
-            var candidates = analyzer.searchDefinitions(symbolName);
-            if (candidates.isEmpty()) {
-                SwingUtilities.invokeLater(() -> context.chrome()
-                        .systemNotify(
-                                "Definition not found for: " + symbolName,
-                                "Go to Definition",
-                                JOptionPane.WARNING_MESSAGE));
+            List<CodeUnit> candidates;
+            try {
+                candidates = analyzer.searchDefinitions(symbolName);
+                if (candidates.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> context.chrome()
+                            .systemNotify(
+                                    "Definition not found for: " + symbolName,
+                                    "Go to Definition",
+                                    JOptionPane.WARNING_MESSAGE));
+                    return;
+                }
+            } catch (Exception e) {
+                logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
+                SwingUtilities.invokeLater(
+                        () -> context.chrome().toolError("Search failed: " + e.getMessage(), "Go to Definition Error"));
                 return;
             }
 
@@ -215,64 +235,91 @@ public class ContextMenuBuilder {
         }
 
         var symbolName = context.symbolName();
+        var fqn = context.fqn() != null ? context.fqn() : symbolName;
         context.contextManager().submitContextTask("Find references for " + symbolName, () -> {
             var analyzer = context.contextManager().getAnalyzerUninterrupted();
 
-            // First try exact FQN match for uses
-            var uses = analyzer.getUses(symbolName);
-            if (!uses.isEmpty()) {
-                addUsagesToContext(uses, symbolName, context);
-                SwingUtilities.invokeLater(() -> context.chrome()
-                        .systemNotify(
-                                String.format("Found %d references for %s", uses.size(), symbolName),
-                                "Find References",
-                                JOptionPane.INFORMATION_MESSAGE));
-                return;
-            }
-
-            // If no direct uses found, try to find the symbol first, then get its uses
-            var definition = analyzer.getDefinition(symbolName);
-            if (definition.isPresent()) {
-                var symbolFqName = definition.get().fqName();
-                var definitionUses = analyzer.getUses(symbolFqName);
-                if (!definitionUses.isEmpty()) {
-                    addUsagesToContext(definitionUses, symbolFqName, context);
+            try {
+                // First try exact FQN match for uses
+                var uses = analyzer.getUses(fqn);
+                if (!uses.isEmpty()) {
+                    addUsagesToContext(uses, symbolName, context);
                     SwingUtilities.invokeLater(() -> context.chrome()
                             .systemNotify(
-                                    String.format("Found %d references for %s", definitionUses.size(), symbolFqName),
+                                    String.format("Found %d references for %s", uses.size(), symbolName),
                                     "Find References",
                                     JOptionPane.INFORMATION_MESSAGE));
                     return;
                 }
+            } catch (Exception e) {
+                logger.warn("Error during FQN reference lookup for '{}': {}", fqn, e.getMessage());
+                SwingUtilities.invokeLater(() -> context.chrome()
+                        .toolError("Failed to find references: " + e.getMessage(), "Find References Error"));
+                return;
+            }
+
+            // If no direct uses found, try to find the symbol first, then get its uses
+            try {
+                var definition = analyzer.getDefinition(fqn);
+                if (definition.isPresent()) {
+                    var symbolFqName = definition.get().fqName();
+                    var definitionUses = analyzer.getUses(symbolFqName);
+                    if (!definitionUses.isEmpty()) {
+                        addUsagesToContext(definitionUses, symbolFqName, context);
+                        SwingUtilities.invokeLater(() -> context.chrome()
+                                .systemNotify(
+                                        String.format(
+                                                "Found %d references for %s", definitionUses.size(), symbolFqName),
+                                        "Find References",
+                                        JOptionPane.INFORMATION_MESSAGE));
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Error during definition-based reference lookup for '{}': {}", fqn, e.getMessage());
             }
 
             // Fallback: search for symbol candidates and let user choose
-            var candidates = analyzer.searchDefinitions(symbolName);
-            if (candidates.isEmpty()) {
+            List<CodeUnit> candidates;
+            try {
+                candidates = analyzer.searchDefinitions(symbolName);
+                if (candidates.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> context.chrome()
+                            .systemNotify(
+                                    "No references found for: " + symbolName,
+                                    "Find References",
+                                    JOptionPane.WARNING_MESSAGE));
+                    return;
+                }
+            } catch (Exception e) {
+                logger.warn("Error during fallback search for references for '{}': {}", symbolName, e.getMessage());
                 SwingUtilities.invokeLater(() -> context.chrome()
-                        .systemNotify(
-                                "No references found for: " + symbolName,
-                                "Find References",
-                                JOptionPane.WARNING_MESSAGE));
+                        .toolError("Reference search failed: " + e.getMessage(), "Find References Error"));
                 return;
             }
 
             if (candidates.size() == 1) {
                 var symbolFqName = candidates.get(0).fqName();
-                var candidateUses = analyzer.getUses(symbolFqName);
-                if (!candidateUses.isEmpty()) {
-                    addUsagesToContext(candidateUses, symbolFqName, context);
+                try {
+                    var candidateUses = analyzer.getUses(symbolFqName);
+                    if (!candidateUses.isEmpty()) {
+                        addUsagesToContext(candidateUses, symbolFqName, context);
+                        SwingUtilities.invokeLater(() -> context.chrome()
+                                .systemNotify(
+                                        String.format("Found %d references for %s", candidateUses.size(), symbolFqName),
+                                        "Find References",
+                                        JOptionPane.INFORMATION_MESSAGE));
+                    } else {
+                        SwingUtilities.invokeLater(() -> context.chrome()
+                                .systemNotify(
+                                        "No references found for: " + symbolFqName,
+                                        "Find References",
+                                        JOptionPane.WARNING_MESSAGE));
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error getting uses for single candidate '{}': {}", symbolFqName, e.getMessage());
                     SwingUtilities.invokeLater(() -> context.chrome()
-                            .systemNotify(
-                                    String.format("Found %d references for %s", candidateUses.size(), symbolFqName),
-                                    "Find References",
-                                    JOptionPane.INFORMATION_MESSAGE));
-                } else {
-                    SwingUtilities.invokeLater(() -> context.chrome()
-                            .systemNotify(
-                                    "No references found for: " + symbolFqName,
-                                    "Find References",
-                                    JOptionPane.WARNING_MESSAGE));
+                            .toolError("Failed to get references: " + e.getMessage(), "Find References Error"));
                 }
             } else {
                 // Multiple matches - show disambiguation dialog on EDT
@@ -282,22 +329,33 @@ public class ContextMenuBuilder {
                         // Continue processing in background thread
                         context.contextManager().submitContextTask("Find references for " + selected.fqName(), () -> {
                             var symbolFqName = selected.fqName();
-                            var selectedUses = analyzer.getUses(symbolFqName);
-                            if (!selectedUses.isEmpty()) {
-                                addUsagesToContext(selectedUses, symbolFqName, context);
+                            try {
+                                var selectedUses = analyzer.getUses(symbolFqName);
+                                if (!selectedUses.isEmpty()) {
+                                    addUsagesToContext(selectedUses, symbolFqName, context);
+                                    SwingUtilities.invokeLater(() -> context.chrome()
+                                            .systemNotify(
+                                                    String.format(
+                                                            "Found %d references for %s",
+                                                            selectedUses.size(), symbolFqName),
+                                                    "Find References",
+                                                    JOptionPane.INFORMATION_MESSAGE));
+                                } else {
+                                    SwingUtilities.invokeLater(() -> context.chrome()
+                                            .systemNotify(
+                                                    "No references found for: " + symbolFqName,
+                                                    "Find References",
+                                                    JOptionPane.WARNING_MESSAGE));
+                                }
+                            } catch (Exception e) {
+                                logger.warn(
+                                        "Error getting uses for selected candidate '{}': {}",
+                                        symbolFqName,
+                                        e.getMessage());
                                 SwingUtilities.invokeLater(() -> context.chrome()
-                                        .systemNotify(
-                                                String.format(
-                                                        "Found %d references for %s",
-                                                        selectedUses.size(), symbolFqName),
-                                                "Find References",
-                                                JOptionPane.INFORMATION_MESSAGE));
-                            } else {
-                                SwingUtilities.invokeLater(() -> context.chrome()
-                                        .systemNotify(
-                                                "No references found for: " + symbolFqName,
-                                                "Find References",
-                                                JOptionPane.WARNING_MESSAGE));
+                                        .toolError(
+                                                "Failed to get references: " + e.getMessage(),
+                                                "Find References Error"));
                             }
                         });
                     }

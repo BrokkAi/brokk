@@ -12,7 +12,9 @@ import org.slf4j.LoggerFactory;
 public class SymbolLookupService {
     private static final Logger logger = LoggerFactory.getLogger(SymbolLookupService.class);
 
-    public record SymbolLookupResult(String symbolName, boolean exists) {}
+    public record SymbolLookupResult(String symbolName, boolean exists, @Nullable String fqn) {}
+
+    private record SymbolInfo(boolean exists, @Nullable String fqn) {}
 
     public static Map<String, SymbolLookupResult> lookupSymbols(
             Set<String> symbolNames, @Nullable IContextManager contextManager) {
@@ -27,7 +29,7 @@ public class SymbolLookupService {
 
         if (contextManager == null) {
             logger.debug("No context manager available for symbol lookup");
-            symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false)));
+            symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
             return results;
         }
 
@@ -48,7 +50,7 @@ public class SymbolLookupService {
 
             if (!analyzerWrapper.isReady()) {
                 logger.debug("Analyzer not ready, returning false for all symbols");
-                symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false)));
+                symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
                 return results;
             }
 
@@ -62,7 +64,7 @@ public class SymbolLookupService {
 
             if (analyzer == null || analyzer.isEmpty()) {
                 logger.debug("No analyzer available for symbol lookup");
-                symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false)));
+                symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
                 return results;
             }
 
@@ -70,23 +72,23 @@ public class SymbolLookupService {
 
             for (var symbolName : symbolNames) {
                 logger.debug("Checking symbol: '{}'", symbolName);
-                var exists = checkSymbolExists(analyzer, symbolName);
-                logger.debug("Symbol '{}' exists: {}", symbolName, exists);
-                results.put(symbolName, new SymbolLookupResult(symbolName, exists));
+                var symbolInfo = checkSymbolExists(analyzer, symbolName);
+                logger.debug("Symbol '{}' exists: {}, FQN: {}", symbolName, symbolInfo.exists(), symbolInfo.fqn());
+                results.put(symbolName, new SymbolLookupResult(symbolName, symbolInfo.exists(), symbolInfo.fqn()));
             }
 
         } catch (Exception e) {
             logger.warn("Error during symbol lookup", e);
-            symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false)));
+            symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
         }
 
         logger.debug("Symbol lookup completed with {} results", results.size());
         return results;
     }
 
-    private static boolean checkSymbolExists(IAnalyzer analyzer, String symbolName) {
+    private static SymbolInfo checkSymbolExists(IAnalyzer analyzer, String symbolName) {
         if (symbolName.trim().isEmpty()) {
-            return false;
+            return new SymbolInfo(false, null);
         }
 
         var trimmed = symbolName.trim();
@@ -98,7 +100,7 @@ public class SymbolLookupService {
             logger.debug(
                     "getDefinition('{}') result: {}", trimmed, definition.isPresent() ? definition.get() : "not found");
             if (definition.isPresent()) {
-                return true;
+                return new SymbolInfo(true, definition.get().fqName());
             }
 
             // Then try pattern search
@@ -111,7 +113,8 @@ public class SymbolLookupService {
                         "Search results for '{}': {}",
                         trimmed,
                         searchResults.stream().limit(5).map(cu -> cu.fqName()).toList());
-                return true;
+                // Return the first match's FQN
+                return new SymbolInfo(true, searchResults.get(0).fqName());
             }
 
             // Debug: Sample some FQN names from analyzer to see what's available
@@ -132,11 +135,11 @@ public class SymbolLookupService {
                 logger.debug("FQN names containing 'TreeSitter': {}", treeSitterMatches);
             }
 
-            return false;
+            return new SymbolInfo(false, null);
 
         } catch (Exception e) {
             logger.debug("Error checking symbol existence for '{}': {}", trimmed, e.getMessage());
-            return false;
+            return new SymbolInfo(false, null);
         }
     }
 }

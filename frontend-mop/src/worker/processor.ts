@@ -164,7 +164,7 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
     }
 }
 
-export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean}>): void {
+export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>): void {
     workerLog('info', `symbol-lookup-response processing: ${Object.keys(results).length} symbols`);
     const pending = pendingSymbolLookups.get(seq);
     if (pending) {
