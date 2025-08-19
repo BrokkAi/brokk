@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
  */
 class BufferDiffPanelAutoScrollTest {
 
-
     @Test
     @DisplayName("Auto-scroll logic correctly identifies first difference in patch")
     void testFirstDifferenceSelection() throws Exception {

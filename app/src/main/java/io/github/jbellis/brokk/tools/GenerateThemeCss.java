@@ -59,14 +59,9 @@ public final class GenerateThemeCss {
             // Convert color to hex format
             String hexColor = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
             // Convert camelCase or snake_case to kebab-case for CSS variables
-            String cssVarName = key.replaceAll("([a-z])([A-Z])", "$1-$2")
-                    .replace('_', '-')
-                    .toLowerCase(Locale.ROOT);
-            sb.append("  --")
-                    .append(cssVarName)
-                    .append(": ")
-                    .append(hexColor)
-                    .append(";\n");
+            String cssVarName =
+                    key.replaceAll("([a-z])([A-Z])", "$1-$2").replace('_', '-').toLowerCase(Locale.ROOT);
+            sb.append("  --").append(cssVarName).append(": ").append(hexColor).append(";\n");
         }
 
         sb.append("}");
