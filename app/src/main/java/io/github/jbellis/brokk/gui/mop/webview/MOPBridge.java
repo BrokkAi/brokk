@@ -232,7 +232,17 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            default -> logger.debug("JS: {}", message);
+            case "INFO" -> logger.info("JS: {}", message);
+            case "DEBUG" -> logger.debug("JS: {}", message);
+            default -> {
+                if (message.contains("[WORKER-ERROR]") || message.contains("[WORKER-REJECTION]")) {
+                    logger.error("JS: {}", message);
+                } else if (message.contains("ERROR") || message.contains("Error") || message.contains("error")) {
+                    logger.warn("JS: {}", message);
+                } else {
+                    logger.debug("JS: {}", message);
+                }
+            }
         }
     }
 

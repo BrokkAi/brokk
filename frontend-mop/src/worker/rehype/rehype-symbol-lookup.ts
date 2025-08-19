@@ -9,7 +9,7 @@ import {visit} from 'unist-util-visit';
 
 // Symbol validation utilities (moved from processor.ts)
 function cleanSymbolName(raw: string): string {
-    // Remove parentheses, brackets, and other non-identifier characters but keep dots for FQN
+    // Remove parentheses, brackets, and other non-identifier characters
     return raw.replace(/[()[\]{}<>]/g, '').trim();
 }
 

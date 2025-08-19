@@ -7,6 +7,7 @@ import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log} from './lib/logging';
+import {testWorkerError} from './worker/worker-bridge';
 
 let searchCtrl: SearchController | null = null;
 
@@ -31,6 +32,29 @@ function initializeApp(): void {
         target: document.getElementById('mop-root')!,
         props: {bubblesStore, spinnerStore}
     } as any);
+
+    // Test worker error handling after initialization
+    // setTimeout(() => {
+    //     log.info('Running initial worker error handling test...');
+    //
+    //     // Test each error type with delays between them
+    //     setTimeout(() => {
+    //         log.info('Testing uncaught error...');
+    //         testWorkerError('uncaughtError');
+    //     }, 1000);
+    //
+    //     setTimeout(() => {
+    //         log.info('Testing promise rejection...');
+    //         testWorkerError('promiseRejection');
+    //     }, 2000);
+    //
+    //     setTimeout(() => {
+    //         log.info('Testing syntax error...');
+    //         testWorkerError('syntaxError');
+    //     }, 3000);
+    //
+    //     log.info('Worker error tests scheduled');
+    // }, 5000); // Wait 5 seconds for worker to be fully ready
 }
 
 function setupBrokkInterface(): any[] {
@@ -54,7 +78,10 @@ function setupBrokkInterface(): any[] {
         getSearchState: () => searchCtrl?.getState(),
 
         // Symbol lookup refresh API
-        refreshSymbolLookup: refreshSymbolLookup
+        refreshSymbolLookup: refreshSymbolLookup,
+
+        // Test worker error handling (for debugging)
+        testWorkerError: testWorkerError
     };
     return buffer;
 }

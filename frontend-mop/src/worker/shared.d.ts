@@ -31,7 +31,12 @@ export interface SymbolLookupResponseMsg {
     seq: Seq;
 }
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg;
+export interface TestErrorMsg {
+    type: 'test-error';
+    errorType: 'uncaughtError' | 'promiseRejection' | 'syntaxError';
+}
+
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | TestErrorMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
