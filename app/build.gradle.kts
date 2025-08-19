@@ -125,18 +125,19 @@ buildConfig {
 }
 
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
-    description = "Install frontend dependencies"
-    group = "frontend"
     args.set(listOf("install"))
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
     outputs.dir("${project.rootDir}/frontend-mop/node_modules")
+    outputs.cacheIf { true }
 }
 
 tasks.register("frontendPatch") {
-    description = "Patch svelte-exmarkdown package.json export paths"
-    group = "frontend"
     dependsOn("frontendInstall")
+
+    inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
+    inputs.dir("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown").optional(true)
+    outputs.file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json").optional(true)
 
     doLast {
         val packageJsonFile = file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json")
@@ -145,7 +146,6 @@ tasks.register("frontendPatch") {
             content = content.replace("\"./dist/contexts.d.ts\"", "\"./dist/contexts.svelte.d.ts\"")
             content = content.replace("\"./dist/contexts.js\"", "\"./dist/contexts.svelte.js\"")
             packageJsonFile.writeText(content)
-            println("✅ Patched svelte-exmarkdown package.json export paths")
         }
     }
 }
@@ -157,10 +157,12 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
     args.set(listOf("run", "build"))
 
     inputs.dir("${project.rootDir}/frontend-mop/src")
+    inputs.dir("${project.rootDir}/frontend-mop/public")
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/vite.config.mjs")
     inputs.file("${project.rootDir}/frontend-mop/vite.worker.config.mjs")
     inputs.file("${project.rootDir}/frontend-mop/tsconfig.json")
+    inputs.file("${project.rootDir}/frontend-mop/tsconfig.node.json")
     inputs.file("${project.rootDir}/frontend-mop/index.html")
     inputs.file("${project.rootDir}/frontend-mop/dev.html")
 
