@@ -107,6 +107,7 @@ public class HistoryOutputPanel extends JPanel {
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.setProject(contextManager.getProject());
         this.llmStreamArea.setContextManager(contextManager);
+        this.llmStreamArea.setSymbolRightClickHandler(chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new JButton("Copy");
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
@@ -847,6 +848,7 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel = new MarkdownOutputPanel();
             outputPanel.setProject(project);
             outputPanel.setContextManager(parentPanel.contextManager);
+            outputPanel.setSymbolRightClickHandler(parentPanel.chrome);
             outputPanel.updateTheme(isDark);
             outputPanel.setBlocking(isBlockingMode);
             outputPanel.setText(output);

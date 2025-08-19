@@ -465,6 +465,13 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setSymbolRightClickHandler(chrome);
+        }
+    }
+
     public void dispose() {
         var bridge = bridgeRef.getAndSet(null);
         if (bridge != null) {
