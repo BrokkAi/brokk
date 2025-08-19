@@ -157,7 +157,6 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
     args.set(listOf("run", "build"))
 
     inputs.dir("${project.rootDir}/frontend-mop/src")
-    inputs.dir("${project.rootDir}/frontend-mop/public").optional(true)
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/vite.config.mjs")
     inputs.file("${project.rootDir}/frontend-mop/vite.worker.config.mjs")
