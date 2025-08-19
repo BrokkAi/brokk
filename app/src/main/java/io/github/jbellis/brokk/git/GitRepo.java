@@ -2045,7 +2045,7 @@ public class GitRepo implements Closeable, IGitRepo {
             var email = author.getEmailAddress();
 
             boolean match;
-            if (regexValid) {
+            if (regexValid && pattern != null) {
                 match = pattern.matcher(msg).find()
                         || pattern.matcher(name).find()
                         || pattern.matcher(email).find();
