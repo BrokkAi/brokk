@@ -2031,12 +2031,19 @@ public class GitRepo implements Closeable, IGitRepo {
         Pattern pattern = null;
         boolean regexValid = true;
         try {
-            pattern = Pattern.compile(query, Pattern.CASE_INSENSITIVE);
+            // Prepare case-insensitive regex pattern
+            var preparedPattern = query.contains(".*") ? query : ".*" + query + ".*";
+            pattern = Pattern.compile("(?i)" + preparedPattern, Pattern.CASE_INSENSITIVE);
         } catch (PatternSyntaxException e) {
-            // Fall back to simple substring search (case-insensitive)
-            regexValid = false;
+            if (query.startsWith("(?i).*")) {
+                // Fall back to simple substring search (case-insensitive)
+                regexValid = false;
+            } else {
+                // Try again with pattern escaping from the start
+                return searchCommits(".*" + Pattern.quote(query) + ".*");
+            }
         }
-        final String queryLower = query.toLowerCase(Locale.ROOT);
+        final String fallbackPattern = query.toLowerCase(Locale.ROOT);
 
         for (var commit : git.log().call()) {
             var msg = commit.getFullMessage();
@@ -2050,9 +2057,9 @@ public class GitRepo implements Closeable, IGitRepo {
                         || pattern.matcher(name).find()
                         || pattern.matcher(email).find();
             } else {
-                match = msg.toLowerCase(Locale.ROOT).contains(queryLower)
-                        || name.toLowerCase(Locale.ROOT).contains(queryLower)
-                        || email.toLowerCase(Locale.ROOT).contains(queryLower);
+                match = msg.toLowerCase(Locale.ROOT).contains(fallbackPattern)
+                        || name.toLowerCase(Locale.ROOT).contains(fallbackPattern)
+                        || email.toLowerCase(Locale.ROOT).contains(fallbackPattern);
             }
 
             if (match) {
