@@ -117,11 +117,6 @@ public final class MOPWebViewHost extends JPanel {
                 }
             });
 
-            // Add listener for resource loading errors
-            view.getEngine().setOnError(errorEvent -> {
-                logger.error("WebView Resource Load Error: {}", errorEvent.getMessage());
-            });
-
             // Expose Java object to JS after the page loads
             view.getEngine().getLoadWorker().stateProperty().addListener((obs, oldState, newState) -> {
                 if (newState == javafx.concurrent.Worker.State.SUCCEEDED) {

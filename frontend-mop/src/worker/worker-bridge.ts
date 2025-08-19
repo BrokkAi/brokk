@@ -34,7 +34,7 @@ export function clear(seq: number) {
 }
 
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
-  // 1. Ask worker to mark this block as “expanded”
+  // 1. Ask worker to mark this block as "expanded"
   worker.postMessage(<InboundToWorker>{ type: 'expand-diff', bubbleId, blockId });
   // 2. Immediately trigger a slow parse for this single bubble
   worker.postMessage(<InboundToWorker>{
@@ -43,6 +43,12 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
     text: markdown,
     fast: false
   });
+}
+
+/* test error handling ------------------------------------------------ */
+export function testWorkerError(errorType: 'uncaughtError' | 'promiseRejection' | 'syntaxError') {
+  log.info(`Testing worker error: ${errorType}`);
+  worker.postMessage(<InboundToWorker>{ type: 'test-error', errorType });
 }
 
 /* symbol lookup handler ------------------------------------------- */
@@ -114,8 +120,24 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       handleSymbolLookupRequest(msg.symbols, msg.seq);
       break;
     case 'worker-log':
-      console.log(`[WORKER->${msg.level.toUpperCase()}] ${msg.message}`);
-      log[msg.level](`[WORKER] ${msg.message}`);
+      // Use appropriate console method based on level for JavaFX WebView interception
+      const workerMsg = `${msg.message}`;
+      switch (msg.level.toLowerCase()) {
+        case 'error':
+          log.debugLog(`[bridge] Received error from worker ${workerMsg}`);
+          console.error(workerMsg);
+          break;
+        case 'warn':
+          console.warn(workerMsg);
+          break;
+        case 'info':
+          console.info(workerMsg);
+          break;
+        case 'debug':
+        default:
+          console.log(workerMsg);
+          break;
+      }
       break;
   }
 };
