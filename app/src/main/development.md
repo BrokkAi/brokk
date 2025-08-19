@@ -50,13 +50,40 @@ Dependencies:
 
 ### Quick Start
 - `./gradlew run` - Run the application (from app)
-- `./gradlew build` - Full build (compile, test, check) - all modules
-- `./gradlew assemble` - Build without tests - all modules
+- `./gradlew build` - Full build (compile, test, check) - all modules + frontend
+- `./gradlew assemble` - Build without tests - all modules + frontend
 
 ### Development Workflow - All Projects
-- `./gradlew clean` - Clean build artifacts for all modules
+- `./gradlew clean` - Clean build artifacts for all modules + frontend
 - `./gradlew classes` - Compile all main sources (fastest for development)
 - `./gradlew shadowJar` - Create fat JAR for distribution (explicit only)
+
+### Frontend Build Tasks
+
+#### Gradle Tasks (Recommended)
+- `./gradlew frontendBuild` - Build frontend with Vite (includes npm install)
+- `./gradlew frontendClean` - Clean frontend build artifacts and node_modules
+
+#### Direct npm Commands (Development)
+For frontend-only development, you can work directly in the `frontend-mop/` directory:
+
+```bash
+cd frontend-mop/
+
+# Install dependencies
+npm install
+
+# Development server with hot reload
+npm run dev
+
+# Production build (outputs to app/src/main/resources/mop-web/)
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+**Note**: The npm `build` script runs both worker and main builds via Vite. Gradle automatically handles npm commands during the main build process.
 
 ### Development Workflow - Individual Projects
 - `./gradlew :analyzer-api:compileJava` - Compile API interfaces only
@@ -107,10 +134,11 @@ After running tests, detailed reports are automatically generated:
 
 #### Java Code (app, analyzer-api)
 - `./gradlew tidy` - Format all Java code. (Alias for `./gradlew spotlessApply`)
+- `./gradlew spotlessCheck` - Check if code formatting is correct (CI-friendly)
+- `./gradlew spotlessInstallGitPrePushHook` - Install pre-push hook for automatic formatting checks
 
 #### Scala Code (joern-analyzers)
 - `./gradlew :joern-analyzers:scalafmt` - Format Scala code
-- `./gradlew scalafmt` - Format all Scala code in project
 
 ### Dependency Management
 
@@ -158,12 +186,14 @@ The build system uses aggressive multi-level caching for optimal performance:
 - Configuration cache automatically optimizes repeated builds
 - Compiler uses 2GB heap with G1GC for faster compilation
 - File system watching enabled for better incremental builds
+- Frontend build uses Gradle cache and incremental compilation for faster rebuilds
 
 ### JAR Creation
 - **Development builds** (`build`, `assemble`) skip JAR creation for speed
 - **Explicit JAR creation**: `./gradlew shadowJar` when needed
 - **CI/Release builds**: `CI=true ./gradlew build` includes JAR automatically
 - **Force JAR in build**: `./gradlew -PenableShadowJar build`
+- **Frontend assets**: Automatically included in JAR under `mop-web/` resources
 
 ## Versioning
 
