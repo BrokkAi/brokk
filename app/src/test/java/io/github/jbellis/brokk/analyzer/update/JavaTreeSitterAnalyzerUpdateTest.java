@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 
@@ -28,7 +27,7 @@ class JavaTreeSitterAnalyzerUpdateTest {
         """);
 
         project = UpdateTestUtil.newTestProject(rootDir, Language.JAVA);
-        analyzer = new JavaTreeSitterAnalyzer(project, new HashSet<>());
+        analyzer = new JavaTreeSitterAnalyzer(project);
     }
 
     @AfterEach

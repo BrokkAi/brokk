@@ -179,7 +179,8 @@ public class Service {
     public static KeyParts parseKey(String key) {
         var parts = Splitter.on(Pattern.compile("\\+")).splitToList(key);
         if (parts.size() != 3 || !"brk".equals(parts.get(0))) {
-            throw new IllegalArgumentException("Key must have format 'brk+<userId>+<token>'");
+            throw new IllegalArgumentException(
+                    "Key must have format `brk+<userId>+<token>`; found `%s`".formatted(key));
         }
 
         java.util.UUID userId;
