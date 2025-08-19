@@ -232,8 +232,7 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            default ->
-                logger.debug("JS: {}", message);
+            default -> logger.debug("JS: {}", message);
         }
     }
 
@@ -281,19 +280,20 @@ public final class MOPBridge {
         logger.debug("Symbol right-clicked: {}, exists: {} at ({}, {})", symbolName, symbolExists, x, y);
 
         SwingUtilities.invokeLater(() -> {
-            var component = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+            var component = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                    .getFocusOwner();
             if (component != null && contextManager != null) {
                 if (chrome != null) {
-                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder
-                        .forSymbol(symbolName, symbolExists, chrome, (io.github.jbellis.brokk.ContextManager) contextManager)
-                        .show(component, x, y);
+                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
+                                    symbolName, symbolExists, chrome, (io.github.jbellis.brokk.ContextManager)
+                                            contextManager)
+                            .show(component, x, y);
                 } else {
                     logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
                 }
             }
         });
     }
-
 
     private static String toJson(Object obj) {
         try {

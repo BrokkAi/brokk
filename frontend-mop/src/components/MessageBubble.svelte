@@ -14,9 +14,20 @@
     const target = event.target as HTMLElement;
     if (target.tagName === 'CODE' && target.classList.contains('symbol-exists')) {
       const symbolName = target.getAttribute('data-symbol');
-      const symbolExists = target.getAttribute('data-symbol-exists');
+      const symbolExists = target.getAttribute('data-symbol-exists') === 'true';
 
-      log.info(`Clicked symbol: ${symbolName}, exists: ${symbolExists}`);
+      if (event.button === 2) { // Right click
+        event.preventDefault();
+        log.info(`Right-clicked symbol: ${symbolName}, exists: ${symbolExists}`);
+
+        // Call Java bridge for right-click with coordinates
+        if (window.javaBridge && window.javaBridge.onSymbolRightClick) {
+          window.javaBridge.onSymbolRightClick(symbolName, symbolExists, event.clientX, event.clientY);
+        }
+      } else if (event.button === 0) { // Left click
+        log.info(`Left-clicked symbol: ${symbolName}, exists: ${symbolExists}`);
+        // Left click behavior can be added here later
+      }
     }
   }
 
@@ -53,7 +64,8 @@
       border-left: 4px solid var({hlVar});
       color: var(--chat-text);
     "
-    on:click={handleSymbolClick}
+    on:mousedown={handleSymbolClick}
+    on:contextmenu={(e) => e.preventDefault()}
   >
     {#if bubble.hast}
       <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />

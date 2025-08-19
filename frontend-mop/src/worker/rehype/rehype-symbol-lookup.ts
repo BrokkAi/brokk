@@ -9,7 +9,7 @@ import {visit} from 'unist-util-visit';
 
 // Symbol validation utilities (moved from processor.ts)
 function cleanSymbolName(raw: string): string {
-    // Remove parentheses, brackets, and other non-identifier characters
+    // Remove parentheses, brackets, and other non-identifier characters but keep dots for FQN
     return raw.replace(/[()[\]{}<>]/g, '').trim();
 }
 
@@ -18,13 +18,19 @@ function isValidSymbolName(name: string): boolean {
         return false;
     }
 
-    // Basic check for valid identifier pattern (Java/Python/etc style)
-    // Starts with letter or underscore, followed by letters, numbers, underscores
+    // Support both simple identifiers and qualified names (with dots)
+    // Each segment should be a valid identifier
+    const segments = name.split('.');
     const identifierPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-    const matchesPattern = identifierPattern.test(name);
+
+    // All segments must be valid identifiers
+    const allSegmentsValid = segments.every(segment =>
+        segment.length > 0 && identifierPattern.test(segment)
+    );
+
     const isLongEnough = name.length > 1;
 
-    return matchesPattern && isLongEnough; // Avoid single letters
+    return allSegmentsValid && isLongEnough;
 }
 
 /**
@@ -90,9 +96,6 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
                     // Add CSS class for symbols that exist
                     if (!node.properties.className) node.properties.className = [];
                     node.properties.className.push('symbol-exists');
-
-                    // Also set as 'class' property for proper HTML rendering
-                    node.properties.class = node.properties.className;
 
                     // Add data attributes for click handling
                     node.properties['data-symbol'] = symbolCandidate;

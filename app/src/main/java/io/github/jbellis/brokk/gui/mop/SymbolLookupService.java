@@ -95,7 +95,8 @@ public class SymbolLookupService {
         try {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
-            logger.debug("getDefinition('{}') result: {}", trimmed, definition.isPresent() ? definition.get() : "not found");
+            logger.debug(
+                    "getDefinition('{}') result: {}", trimmed, definition.isPresent() ? definition.get() : "not found");
             if (definition.isPresent()) {
                 return true;
             }
@@ -106,8 +107,10 @@ public class SymbolLookupService {
             logger.debug("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
 
             if (!searchResults.isEmpty()) {
-                logger.debug("Search results for '{}': {}", trimmed,
-                    searchResults.stream().limit(5).map(cu -> cu.fqName()).toList());
+                logger.debug(
+                        "Search results for '{}': {}",
+                        trimmed,
+                        searchResults.stream().limit(5).map(cu -> cu.fqName()).toList());
                 return true;
             }
 
@@ -116,16 +119,16 @@ public class SymbolLookupService {
             logger.debug("Total declarations in analyzer: {}", allDeclarations.size());
             if (!allDeclarations.isEmpty()) {
                 var sampleFqNames = allDeclarations.stream()
-                    .limit(10)
-                    .map(cu -> cu.fqName())
-                    .toList();
+                        .limit(10)
+                        .map(cu -> cu.fqName())
+                        .toList();
                 logger.debug("Sample FQN names in analyzer: {}", sampleFqNames);
 
                 // Specifically check for TreeSitterAnalyzer
                 var treeSitterMatches = allDeclarations.stream()
-                    .filter(cu -> cu.fqName().contains("TreeSitter"))
-                    .map(cu -> cu.fqName())
-                    .toList();
+                        .filter(cu -> cu.fqName().contains("TreeSitter"))
+                        .map(cu -> cu.fqName())
+                        .toList();
                 logger.debug("FQN names containing 'TreeSitter': {}", treeSitterMatches);
             }
 

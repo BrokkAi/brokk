@@ -54,7 +54,7 @@ function setupBrokkInterface(): any[] {
         getSearchState: () => searchCtrl?.getState(),
 
         // Symbol lookup refresh API
-        refreshSymbolLookup: refreshSymbolLookup()
+        refreshSymbolLookup: refreshSymbolLookup
     };
     return buffer;
 }
