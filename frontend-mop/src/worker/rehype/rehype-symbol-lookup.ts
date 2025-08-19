@@ -40,10 +40,16 @@ export function rehypeSymbolLookup() {
         let totalCodeElements = 0;
         let validSymbols = 0;
 
+        workerLog('info', '[REHYPE-SYMBOL] rehypeSymbolLookup function called!');
         workerLog('info', '[SYMBOL-DETECT] Starting symbol detection...');
 
-        // Visit all inlineCode elements in the HAST (HTML AST)
+        // Visit all elements in the HAST (HTML AST) and log all code-related elements
         visit(tree, 'element', (node: any) => {
+            // Log all code-related elements for debugging
+            if (node.tagName === 'code') {
+                workerLog('info', `[CODE-ENTRY] Found <code> element: tagName="${node.tagName}", children=${node.children?.length || 0}, properties=${JSON.stringify(node.properties || {})}`);
+            }
+
             if (node.tagName === 'code' && node.children && node.children.length > 0) {
                 totalCodeElements++;
                 const textNode = node.children[0];
@@ -51,7 +57,8 @@ export function rehypeSymbolLookup() {
                     const rawValue = textNode.value;
                     const cleaned = cleanSymbolName(rawValue);
 
-                    workerLog('info', `[SYMBOL-DETECT] Found code element: "${rawValue}" -> cleaned: "${cleaned}"`);
+                    // Log every code element found
+                    workerLog('info', `[CODE-ENTRY] Found code element: "${rawValue}" -> cleaned: "${cleaned}"`);
 
                     if (isValidSymbolName(cleaned)) {
                         validSymbols++;
@@ -65,6 +72,9 @@ export function rehypeSymbolLookup() {
                     } else {
                         workerLog('info', `[SYMBOL-DETECT] Invalid symbol (too short or bad pattern): "${cleaned}"`);
                     }
+                } else {
+                    // Log code elements that don't have text content
+                    workerLog('info', `[CODE-ENTRY] Code element without text content: ${JSON.stringify(node)}`);
                 }
             }
         });

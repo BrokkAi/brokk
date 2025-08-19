@@ -6,6 +6,7 @@ import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
 import { rehypeSymbolLookup, enhanceSymbolCandidates } from './rehype/rehype-symbol-lookup';
+import { rehypeCodeLogger } from './rehype/rehype-code-logger';
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -42,6 +43,7 @@ export function createBaseProcessor(): Processor {
         .use(remarkBreaks)
         // .use(remarkRehype, {allowDangerousHtml: true}) as any;
         .use(remarkRehype, {allowDangerousHtml: true})
+        .use(rehypeCodeLogger)
         .use(rehypeSymbolLookup) as any;
 }
 // processors
@@ -68,6 +70,7 @@ export function initProcessor() {
                 .use(pluginFn, shikiHighlighter, opts)
                 // .use(rehypeEditDiff, shikiHighlighter) as any;
                 .use(rehypeEditDiff, shikiHighlighter)
+                .use(rehypeCodeLogger)
                 .use(rehypeSymbolLookup) as any;
             currentProcessor = shikiProcessor;
             console.log('[shiki] loaded!');

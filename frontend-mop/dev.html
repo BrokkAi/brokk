@@ -122,14 +122,18 @@
             'handler', 'callback', 'iterator', 'stream', 'buffer'
         ]),
 
-        // Symbol lookup implementation
+        // Symbol lookup implementation - Updated for FQN support
         lookupSymbols: function(jsonInput) {
             console.log('[Mock JavaBridge] Looking up symbols:', jsonInput);
             const symbols = JSON.parse(jsonInput);
             const results = {};
 
             symbols.forEach(symbol => {
-                results[symbol] = { exists: this._mockSymbols.has(symbol) };
+                const exists = this._mockSymbols.has(symbol);
+                results[symbol] = {
+                    exists: exists,
+                    fqn: exists ? `com.example.mock.${symbol}` : null
+                };
             });
 
             console.log('[Mock JavaBridge] Symbol lookup results:', results);

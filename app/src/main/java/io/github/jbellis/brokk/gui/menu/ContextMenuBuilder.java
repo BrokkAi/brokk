@@ -92,7 +92,7 @@ public class ContextMenuBuilder {
             menu.addSeparator();
         }
 
-        // Copy Symbol Name
+        // Copy Symbol Name (FQN if available)
         var copyItem = new JMenuItem("Copy Symbol Name");
         copyItem.addActionListener(e -> copySymbolName(symbolContext));
         menu.add(copyItem);
@@ -366,9 +366,11 @@ public class ContextMenuBuilder {
 
     private void copySymbolName(SymbolMenuContext context) {
         var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        var selection = new StringSelection(context.symbolName());
+        // Use FQN if available, otherwise fall back to simple name
+        var nameToClipboard = context.fqn() != null ? context.fqn() : context.symbolName();
+        var selection = new StringSelection(nameToClipboard);
         clipboard.setContents(selection, null);
-        logger.debug("Copied symbol name to clipboard: {}", context.symbolName());
+        logger.debug("Copied symbol name to clipboard: {}", nameToClipboard);
     }
 
     // File actions
