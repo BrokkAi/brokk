@@ -286,6 +286,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
     }
 
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        webHost.setSymbolRightClickHandler(chrome);
+    }
+
     private void refreshSymbolLookup() {
         logger.debug("Triggering symbol lookup refresh");
         webHost.refreshSymbolLookup();

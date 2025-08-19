@@ -38,6 +38,7 @@ public final class MOPBridge {
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
     private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -231,8 +232,7 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            default ->
-                logger.debug("JS: {}", message);
+            default -> logger.debug("JS: {}", message);
         }
     }
 
@@ -242,6 +242,10 @@ public final class MOPBridge {
 
     public void setContextManager(@Nullable IContextManager contextManager) {
         this.contextManager = contextManager;
+    }
+
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        this.chrome = chrome;
     }
 
     public void debugLog(String message) {
@@ -270,6 +274,25 @@ public final class MOPBridge {
             logger.warn("Error in symbol lookup", e);
             return "{}";
         }
+    }
+
+    public void onSymbolRightClick(String symbolName, boolean symbolExists, int x, int y) {
+        logger.debug("Symbol right-clicked: {}, exists: {} at ({}, {})", symbolName, symbolExists, x, y);
+
+        SwingUtilities.invokeLater(() -> {
+            var component = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                    .getFocusOwner();
+            if (component != null && contextManager != null) {
+                if (chrome != null) {
+                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
+                                    symbolName, symbolExists, chrome, (io.github.jbellis.brokk.ContextManager)
+                                            contextManager)
+                            .show(component, x, y);
+                } else {
+                    logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
+                }
+            }
+        });
     }
 
     private static String toJson(Object obj) {

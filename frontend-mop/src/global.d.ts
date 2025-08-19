@@ -25,7 +25,7 @@ declare global {
       onAck: (epoch: number) => void;
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
+      onSymbolRightClick: (symbolName: string, symbolExists: boolean, x: number, y: number) => void;
     };
   }
 }
-

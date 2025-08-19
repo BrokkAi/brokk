@@ -9243,7 +9243,7 @@ function X9(e, n) {
     const i = (s = r.properties) == null ? void 0 : s["data-symbol-candidate"];
     if (i && (t++, n[i])) {
       const o = n[i];
-      ut("info", `[ENHANCE] Processing symbol: ${i}, exists: ${o.exists}`), o.exists && (a++, r.properties.className || (r.properties.className = []), r.properties.className.push("symbol-exists"), r.properties.class = r.properties.className, r.properties["data-symbol"] = i, r.properties["data-symbol-exists"] = "true", ut("info", `[ENHANCE] Enhanced symbol: ${i}, className: ${r.properties.className}`), ut("info", `[ENHANCE] Full node after enhancement: ${JSON.stringify({
+      ut("info", `[ENHANCE] Processing symbol: ${i}, exists: ${o.exists}`), o.exists && (a++, r.properties.className || (r.properties.className = []), r.properties.className.push("symbol-exists"), r.properties["data-symbol"] = i, r.properties["data-symbol-exists"] = "true", ut("info", `[ENHANCE] Enhanced symbol: ${i}, className: ${r.properties.className}`), ut("info", `[ENHANCE] Full node after enhancement: ${JSON.stringify({
         tagName: r.tagName,
         properties: r.properties,
         children: r.children
@@ -10959,8 +10959,8 @@ const j3 = {
   f90: () => import("./f90-DPIT_jbP.mjs"),
   go: () => import("./go-DG0xfxoJ.mjs"),
   groovy: () => import("./groovy-CJQTphOW.mjs"),
-  handlebars: () => import("./handlebars-CPgxbmpm.mjs"),
-  html: () => import("./html-DcgbhrgV.mjs"),
+  handlebars: () => import("./handlebars-Dgudr4zf.mjs"),
+  html: () => import("./html-ApVQzg-y.mjs"),
   ini: () => import("./properties-BjojwTZS.mjs").then((e) => e.i),
   json: () => Promise.resolve().then(() => dq),
   jsonc: () => import("./jsonc-CHjZD8gR.mjs"),
@@ -10971,19 +10971,19 @@ const j3 = {
   lua: () => import("./lua-CG3yDRXR.mjs"),
   makefile: () => import("./makefile-CsMclxtr.mjs"),
   markdown: () => Promise.resolve().then(() => gq),
-  perl: () => import("./perl-BrGckRLy.mjs"),
-  php: () => import("./php-lCRBFmV9.mjs"),
+  perl: () => import("./perl-PwIBWNSA.mjs"),
+  php: () => import("./php-CV7ZI9_7.mjs"),
   proto: () => import("./proto-MmCPeFAD.mjs"),
   properties: () => import("./properties-BjojwTZS.mjs").then((e) => e.p),
-  ruby: () => import("./ruby-CNeBWd32.mjs"),
+  ruby: () => import("./ruby-Bl3t6Bzu.mjs"),
   rust: () => import("./rust-CLzF9zIN.mjs"),
   sas: () => import("./sas-BHuu9VN6.mjs"),
   scala: () => import("./scala-D4grkFkl.mjs"),
   sql: () => import("./sql-D4zFzHkM.mjs"),
-  svelte: () => import("./svelte-DoUZlD2J.mjs"),
+  svelte: () => import("./svelte-F_McSiXI.mjs"),
   tcl: () => import("./tcl-DN7buRTF.mjs"),
   vb: () => import("./vb-D8_c5-KN.mjs"),
-  xml: () => import("./xml-CmbNnz6D.mjs"),
+  xml: () => import("./xml-EKfLMPZk.mjs"),
   yaml: () => Promise.resolve().then(() => wq)
 }, ya = /* @__PURE__ */ new Set(), ka = /* @__PURE__ */ new Set(), _a = /* @__PURE__ */ new Map();
 async function S3(e) {
@@ -19788,4 +19788,4 @@ export {
   ql as t,
   Rl as y
 };
-//# sourceMappingURL=markdown.worker-BWmJsR_v.mjs.map
+//# sourceMappingURL=markdown.worker-CtNtTizJ.mjs.map

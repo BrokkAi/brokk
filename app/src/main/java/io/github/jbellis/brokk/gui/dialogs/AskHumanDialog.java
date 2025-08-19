@@ -30,6 +30,7 @@ public final class AskHumanDialog {
 
                     /* --------- Question (Markdown) ---------------------------------- */
                     var questionPanel = new MarkdownOutputPanel(true);
+                    questionPanel.setSymbolRightClickHandler(chrome);
                     var fragment = new ContextFragment.TaskFragment(
                             chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
                     questionPanel.setText(fragment);
