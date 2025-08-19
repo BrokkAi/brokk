@@ -6,6 +6,7 @@ import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
 import { rehypeSymbolLookup, enhanceSymbolCandidates } from './rehype/rehype-symbol-lookup';
+import { rehypeCodeLogger } from './rehype/rehype-code-logger';
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -42,6 +43,7 @@ export function createBaseProcessor(): Processor {
         .use(remarkBreaks)
         // .use(remarkRehype, {allowDangerousHtml: true}) as any;
         .use(remarkRehype, {allowDangerousHtml: true})
+        .use(rehypeCodeLogger)
         .use(rehypeSymbolLookup) as any;
 }
 // processors
@@ -68,6 +70,7 @@ export function initProcessor() {
                 .use(pluginFn, shikiHighlighter, opts)
                 // .use(rehypeEditDiff, shikiHighlighter) as any;
                 .use(rehypeEditDiff, shikiHighlighter)
+                .use(rehypeCodeLogger)
                 .use(rehypeSymbolLookup) as any;
             currentProcessor = shikiProcessor;
             console.log('[shiki] loaded!');
@@ -102,6 +105,15 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? baseProcessor : currentProcessor;
+
+    // Log which processor is being used
+    const processorType = fast ? 'baseProcessor' : (currentProcessor === shikiProcessor ? 'shikiProcessor' : 'baseProcessor');
+    workerLog('info', `[markdown-worker] Using ${processorType} for parsing (fast=${fast})`);
+
+    // Log if the source contains code elements
+    const hasInlineCode = src.includes('`');
+    const hasCodeBlock = src.includes('```');
+    workerLog('info', `[markdown-worker] Source contains: ${hasInlineCode ? 'inline code' : 'no inline'}, ${hasCodeBlock ? 'code blocks' : 'no blocks'}`);
     let tree: HastRoot = null;
     let mdastTree: Root = null;
     try {
@@ -164,7 +176,7 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
     }
 }
 
-export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean}>): void {
+export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>): void {
     workerLog('info', `symbol-lookup-response processing: ${Object.keys(results).length} symbols`);
     const pending = pendingSymbolLookups.get(seq);
     if (pending) {

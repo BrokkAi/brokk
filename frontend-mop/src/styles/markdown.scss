@@ -107,6 +107,25 @@ li > p {
   font-weight: bold;
 }
 
+/* Dev mode tooltips for symbol FQNs (CSS-only implementation) */
+body:not(.production) :not(pre) > code.symbol-exists[data-symbol-fqn]:hover::after {
+  content: attr(data-symbol-fqn);
+  position: absolute;
+  background-color: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: "Fira Code Retina", monospace;
+  white-space: nowrap;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transform: translateY(-100%);
+  margin-top: -8px;
+  margin-left: 0;
+}
+
 pre > code {
   font-size: 0.9em;
 }

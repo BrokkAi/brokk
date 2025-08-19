@@ -73,24 +73,56 @@ public final class MOPBridge {
     }
 
     public void setSearch(String query, boolean caseSensitive) {
-        var js = "window.brokk.setSearch(" + toJson(query) + ", " + caseSensitive + ")";
-        Platform.runLater(() -> engine.executeScript(js));
+        var js = "if (window.brokk && window.brokk.setSearch) { window.brokk.setSearch(" + toJson(query) + ", "
+                + caseSensitive + "); }";
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript(js);
+            } catch (Exception e) {
+                logger.debug("setSearch failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void clearSearch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.clearSearch()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }");
+            } catch (Exception e) {
+                logger.debug("clearSearch failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void nextMatch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.nextMatch()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }");
+            } catch (Exception e) {
+                logger.debug("nextMatch failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void prevMatch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.prevMatch()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }");
+            } catch (Exception e) {
+                logger.debug("prevMatch failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void scrollToCurrent() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.scrollToCurrent()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript(
+                        "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }");
+            } catch (Exception e) {
+                logger.debug("scrollToCurrent failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
@@ -102,25 +134,58 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark) {
-        Platform.runLater(() -> engine.executeScript("window.brokk.setTheme(" + isDark + ")"));
+    public void setTheme(boolean isDark, boolean isDevMode) {
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark
+                        + ", " + isDevMode + "); }");
+            } catch (Exception e) {
+                logger.debug("setTheme failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
-        Platform.runLater(() -> engine.executeScript("window.brokk.showSpinner(" + jsonMessage + ")"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner("
+                        + jsonMessage + "); }");
+            } catch (Exception e) {
+                logger.debug("showSpinner failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void hideSpinner() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.hideSpinner()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); }");
+            } catch (Exception e) {
+                logger.debug("hideSpinner failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void clear() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript("if (window.brokk && window.brokk.clear) { window.brokk.clear(); }");
+            } catch (Exception e) {
+                logger.debug("clear failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     public void refreshSymbolLookup() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.refreshSymbolLookup()"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript(
+                        "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup(); }");
+            } catch (Exception e) {
+                logger.debug("refreshSymbolLookup failed (page not ready): {}", e.getMessage());
+            }
+        });
     }
 
     private void scheduleSend() {
@@ -188,7 +253,14 @@ public final class MOPBridge {
             awaiting.put(e, new CompletableFuture<>());
         }
         var json = toJson(event);
-        Platform.runLater(() -> engine.executeScript("window.brokk.onEvent(" + json + ")"));
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript(
+                        "if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); }");
+            } catch (Exception ex) {
+                logger.debug("sendEvent failed (page not ready): {}", ex.getMessage());
+            }
+        });
     }
 
     public void onAck(int e) {
@@ -202,10 +274,11 @@ public final class MOPBridge {
         var future = new CompletableFuture<String>();
         Platform.runLater(() -> {
             try {
-                Object result = engine.executeScript("window.brokk.getSelection()");
+                Object result = engine.executeScript(
+                        "window.brokk && window.brokk.getSelection ? window.brokk.getSelection() : ''");
                 future.complete(result != null ? result.toString() : "");
             } catch (Exception ex) {
-                logger.error("Failed to get selection from WebView", ex);
+                logger.debug("Failed to get selection from WebView (page not ready): {}", ex.getMessage());
                 future.complete("");
             }
         });
@@ -233,11 +306,18 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            case "INFO" -> logger.info("JS: {}", message);
+            case "INFO" -> {
+                logger.info("JS: {}", message);
+                if (message.contains("CODE-LOGGER") ) {
+                  System.out.println("////// " + message);
+                }
+            }
             case "DEBUG" -> logger.debug("JS: {}", message);
             default -> {
                 if (message.contains("[WORKER-ERROR]") || message.contains("[WORKER-REJECTION]")) {
                     logger.error("JS: {}", message);
+                } else if (message.contains("CODE-LOGGER") ) {
+                  System.out.println("////// " + message);
                 } else if (message.contains("ERROR") || message.contains("Error") || message.contains("error")) {
                     logger.warn("JS: {}", message);
                 } else {
@@ -291,17 +371,19 @@ public final class MOPBridge {
         }
     }
 
-    public void onSymbolRightClick(String symbolName, boolean symbolExists, int x, int y) {
-        logger.debug("Symbol right-clicked: {}, exists: {} at ({}, {})", symbolName, symbolExists, x, y);
+    public void onSymbolRightClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
+        logger.debug("Symbol right-clicked: {}, exists: {}, fqn: {} at ({}, {})", symbolName, symbolExists, fqn, x, y);
 
         SwingUtilities.invokeLater(() -> {
-            var component = hostComponent != null ? hostComponent
-                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+            var component = hostComponent != null
+                    ? hostComponent
+                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                            .getFocusOwner();
 
             if (component != null && contextManager != null) {
                 if (chrome != null) {
                     io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
-                                    symbolName, symbolExists, chrome, (io.github.jbellis.brokk.ContextManager)
+                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
                                             contextManager)
                             .show(component, x, y);
                 } else {

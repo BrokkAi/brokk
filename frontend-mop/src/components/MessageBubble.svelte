@@ -10,19 +10,21 @@
 
   const log = createLogger('symbol-click');
 
+
   function handleSymbolClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
     if (target.tagName === 'CODE' && target.classList.contains('symbol-exists')) {
       const symbolName = target.getAttribute('data-symbol');
       const symbolExists = target.getAttribute('data-symbol-exists') === 'true';
+      const symbolFqn = target.getAttribute('data-symbol-fqn');
 
       if (event.button === 2) { // Right click
         event.preventDefault();
-        log.info(`Right-clicked symbol: ${symbolName}, exists: ${symbolExists}`);
+        log.info(`Right-clicked symbol: ${symbolName}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
 
         // Call Java bridge for right-click with coordinates
         if (window.javaBridge && window.javaBridge.onSymbolRightClick) {
-          window.javaBridge.onSymbolRightClick(symbolName, symbolExists, event.clientX, event.clientY);
+          window.javaBridge.onSymbolRightClick(symbolName, symbolExists, symbolFqn, event.clientX, event.clientY);
         }
       } else if (event.button === 0) { // Left click
         log.info(`Left-clicked symbol: ${symbolName}, exists: ${symbolExists}`);
@@ -73,6 +75,7 @@
   </div>
 </div>
 
+
 <style>
   .message-wrapper {
     display: flex;
@@ -96,4 +99,5 @@
     font-weight: 600;
     font-size: 0.95rem;
   }
+
 </style>

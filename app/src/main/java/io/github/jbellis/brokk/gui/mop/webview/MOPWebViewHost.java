@@ -53,7 +53,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
@@ -139,6 +139,7 @@ public final class MOPWebViewHost extends JPanel {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
+                    var originalInfo = console.info;
 
                     function toStringWithStack(arg) {
                         return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
@@ -158,6 +159,11 @@ public final class MOPWebViewHost extends JPanel {
                         var msg = Array.from(arguments).map(toStringWithStack).join(' ');
                         if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
                         originalWarn.apply(console, arguments);
+                    };
+                    console.info = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
+                        originalInfo.apply(console, arguments);
                     };
                 })();
                 """); // Install wheel event override for platform-specific scroll speed
@@ -276,8 +282,11 @@ public final class MOPWebViewHost extends JPanel {
                 logger.info("Loading WebView content from embedded server: {}", url);
                 view.getEngine().load(url);
             }
-            // Apply initial theme
+            // Apply initial theme and send theme to JavaScript
             applyTheme(Theme.create(darkTheme));
+            // Queue initial theme command to be sent to JavaScript when bridge is ready
+            boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+            sendOrQueue(new HostCommand.SetTheme(darkTheme, isDevMode), b -> b.setTheme(darkTheme, isDevMode));
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -289,9 +298,9 @@ public final class MOPWebViewHost extends JPanel {
                 bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
     }
 
-    public void setTheme(boolean isDark) {
+    public void setTheme(boolean isDark, boolean isDevMode) {
         darkTheme = isDark; // Remember the last requested theme
-        sendOrQueue(new HostCommand.SetTheme(isDark), bridge -> bridge.setTheme(isDark));
+        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
         applyTheme(Theme.create(isDark));
     }
 
@@ -438,7 +447,7 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();

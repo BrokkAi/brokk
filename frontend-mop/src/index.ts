@@ -33,6 +33,10 @@ function initializeApp(): void {
         props: {bubblesStore, spinnerStore}
     } as any);
 
+    // Set initial production class on body for dev mode detection
+    const isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
+    document.body.classList.toggle('production', isProduction);
+
     // Test worker error handling after initialization
     // setTimeout(() => {
     //     log.info('Running initial worker error handling test...');
@@ -105,12 +109,24 @@ function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
 }
 
-function setAppTheme(dark: boolean): void {
+function setAppTheme(dark: boolean, isDevMode?: boolean): void {
     themeStore.set(dark);
     const html = document.querySelector('html')!;
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
+    log.debugLog(`info`, `set theme dark: ${dark} dev mode: ${isDevMode}`);
+    let isProduction: boolean;
+    if (isDevMode !== undefined) {
+        // Java explicitly told us dev mode status
+        isProduction = !isDevMode;
+    } else {
+        // Fall back to frontend-only detection (for compatibility)
+        isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
+    }
+    document.body.classList.toggle('production', isProduction);
 }
 
 function showSpinnerMessage(message = ''): void {

@@ -1,4 +1,4 @@
-import type {Root} from 'hast';
+import type {Root, Parent} from 'hast';
 import {visit} from 'unist-util-visit';
 
 /**
@@ -37,20 +37,30 @@ export function rehypeSymbolLookup() {
         // Note: We're in a Web Worker context, so no direct JavaBridge access
         // Debug output will come from the main thread when symbols are processed
         const symbols = new Set<string>();
+        let totalCodeElements = 0;
+        let validSymbols = 0;
 
-        // Visit all inlineCode elements in the HAST (HTML AST)
-        visit(tree, 'element', (node: any) => {
-            if (node.tagName === 'code' && node.children && node.children.length > 0) {
+        workerLog('debug', '[SYMBOL-DETECT] Starting symbol detection...');
+
+        // Visit all elements in the HAST (HTML AST) - only process inline code, not code fences
+        visit(tree, 'element', (node: any, index: number | undefined, parent: Parent | undefined) => {
+            // Only process <code> elements that are NOT inside <pre> (i.e., inline code, not code fences)
+            if (node.tagName === 'code' && parent?.tagName !== 'pre' && node.children && node.children.length > 0) {
+                totalCodeElements++;
                 const textNode = node.children[0];
                 if (textNode && textNode.type === 'text' && textNode.value) {
-                    const cleaned = cleanSymbolName(textNode.value);
+                    const rawValue = textNode.value;
+                    const cleaned = cleanSymbolName(rawValue);
 
                     if (isValidSymbolName(cleaned)) {
+                        validSymbols++;
                         symbols.add(cleaned);
 
                         // Mark the node for potential symbol enhancement
                         if (!node.properties) node.properties = {};
                         node.properties['data-symbol-candidate'] = cleaned;
+
+                        workerLog('debug', `[SYMBOL-DETECT] Valid inline code symbol: "${cleaned}"`);
                     }
                 }
             }
@@ -60,6 +70,7 @@ export function rehypeSymbolLookup() {
         if (symbols.size > 0) {
             tree.data = tree.data || {};
             (tree.data as any).symbolCandidates = symbols;
+            workerLog('info', `[SYMBOL-DETECT] Found ${symbols.size} inline code symbols for lookup`);
         }
     };
 }
@@ -73,9 +84,11 @@ function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) 
  * Post-processing function to enhance symbol candidates with lookup results.
  * This runs after the rehype plugin and can access the tree with marked symbols.
  */
-export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string, {exists: boolean}>): void {
+export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string, {exists: boolean, fqn?: string | null}>): void {
     let candidatesFound = 0;
     let symbolsEnhanced = 0;
+
+    workerLog('debug', `[ENHANCE] Starting enhancement with ${Object.keys(symbolResults).length} symbol results`);
 
     visit(tree, 'element', (node: any) => {
         const symbolCandidate = node.properties?.['data-symbol-candidate'];
@@ -83,7 +96,6 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
             candidatesFound++;
             if (symbolResults[symbolCandidate]) {
                 const result = symbolResults[symbolCandidate];
-                workerLog('info', `[ENHANCE] Processing symbol: ${symbolCandidate}, exists: ${result.exists}`);
 
                 if (result.exists) {
                     symbolsEnhanced++;
@@ -97,13 +109,12 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
                     // Add data attributes for click handling
                     node.properties['data-symbol'] = symbolCandidate;
                     node.properties['data-symbol-exists'] = 'true';
+                    // Store FQN if available
+                    if (result.fqn) {
+                        node.properties['data-symbol-fqn'] = result.fqn;
+                    }
 
-                    workerLog('info', `[ENHANCE] Enhanced symbol: ${symbolCandidate}, className: ${node.properties.className}`);
-                    workerLog('info', `[ENHANCE] Full node after enhancement: ${JSON.stringify({
-                        tagName: node.tagName,
-                        properties: node.properties,
-                        children: node.children
-                    })}`);
+                    workerLog('debug', `[ENHANCE] Enhanced symbol: ${symbolCandidate}`);
                 }
 
                 // Clean up the candidate marker
@@ -112,5 +123,5 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
         }
     });
 
-    workerLog('info', `[ENHANCE] Found ${candidatesFound} candidates, enhanced ${symbolsEnhanced} symbols`);
+    workerLog('info', `[ENHANCE] Enhancement complete: Found ${candidatesFound} candidates, enhanced ${symbolsEnhanced} symbols`);
 }
