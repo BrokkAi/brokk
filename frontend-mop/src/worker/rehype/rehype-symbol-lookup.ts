@@ -18,19 +18,13 @@ function isValidSymbolName(name: string): boolean {
         return false;
     }
 
-    // Support both simple identifiers and qualified names (with dots)
-    // Each segment should be a valid identifier
-    const segments = name.split('.');
+    // Basic check for valid identifier pattern (Java/Python/etc style)
+    // Starts with letter or underscore, followed by letters, numbers, underscores
     const identifierPattern = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
-
-    // All segments must be valid identifiers
-    const allSegmentsValid = segments.every(segment =>
-        segment.length > 0 && identifierPattern.test(segment)
-    );
-
+    const matchesPattern = identifierPattern.test(name);
     const isLongEnough = name.length > 1;
 
-    return allSegmentsValid && isLongEnough;
+    return matchesPattern && isLongEnough; // Avoid single letters
 }
 
 /**
@@ -96,6 +90,9 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
                     // Add CSS class for symbols that exist
                     if (!node.properties.className) node.properties.className = [];
                     node.properties.className.push('symbol-exists');
+
+                    // Also set as 'class' property for proper HTML rendering
+                    node.properties.class = node.properties.className;
 
                     // Add data attributes for click handling
                     node.properties['data-symbol'] = symbolCandidate;

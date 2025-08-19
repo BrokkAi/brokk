@@ -39,6 +39,7 @@ public final class MOPBridge {
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
     private volatile @Nullable IContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+    private volatile @Nullable java.awt.Component hostComponent;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -258,6 +259,10 @@ public final class MOPBridge {
         this.chrome = chrome;
     }
 
+    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+        this.hostComponent = hostComponent;
+    }
+
     public void debugLog(String message) {
         System.out.println(" ------- [JS-DEBUG] " + message);
     }
@@ -290,8 +295,9 @@ public final class MOPBridge {
         logger.debug("Symbol right-clicked: {}, exists: {} at ({}, {})", symbolName, symbolExists, x, y);
 
         SwingUtilities.invokeLater(() -> {
-            var component = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                    .getFocusOwner();
+            var component = hostComponent != null ? hostComponent
+                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+
             if (component != null && contextManager != null) {
                 if (chrome != null) {
                     io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
