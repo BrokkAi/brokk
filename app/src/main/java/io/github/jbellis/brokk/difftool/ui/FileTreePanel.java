@@ -30,11 +30,16 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private boolean suppressSelectionEvents = false;
 
     public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot) {
+        this(fileComparisons, projectRoot, null);
+    }
+
+    public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
         this.projectRoot = projectRoot;
 
-        rootNode = new DefaultMutableTreeNode(projectRoot.getFileName().toString());
+        String displayTitle = rootTitle != null ? rootTitle : projectRoot.getFileName().toString();
+        rootNode = new DefaultMutableTreeNode(displayTitle);
         treeModel = new DefaultTreeModel(rootNode);
         fileTree = new JTree(treeModel);
 

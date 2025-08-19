@@ -104,7 +104,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Initialize file tree panel
         fileTreePanel = new FileTreePanel(
-                this.fileComparisons, contextManager.getProject().getRoot());
+                this.fileComparisons, contextManager.getProject().getRoot(), builder.rootTitle);
 
         // Create split pane with file tree on left and tabs on right
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -147,6 +147,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         private boolean isMultipleCommitsContext = false;
 
         @Nullable
+        private String rootTitle;
+
+        @Nullable
         private BufferSource leftSource;
 
         @Nullable
@@ -180,6 +183,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         public Builder setMultipleCommitsContext(boolean isMultipleCommitsContext) {
             this.isMultipleCommitsContext = isMultipleCommitsContext;
+            return this;
+        }
+
+        public Builder setRootTitle(String rootTitle) {
+            this.rootTitle = rootTitle;
             return this;
         }
 
