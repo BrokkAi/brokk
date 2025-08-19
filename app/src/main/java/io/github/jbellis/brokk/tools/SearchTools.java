@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -523,7 +524,7 @@ public class SearchTools {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
 
-        List<io.github.jbellis.brokk.git.CommitInfo> matchingCommits;
+        List<CommitInfo> matchingCommits;
         try (var gitRepo = new GitRepo(projectRoot)) {
             try {
                 matchingCommits = gitRepo.searchCommits(pattern);

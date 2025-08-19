@@ -1151,8 +1151,11 @@ public class GitRepoTest {
         results = repo.searchCommits("nonexistent");
         assertTrue(results.isEmpty());
 
-        // Invalid regex should throw
-        assertThrows(GitRepo.GitRepoException.class, () -> repo.searchCommits("[["));
+        // Invalid regex should fall back to substring search
+        createCommit("file_invalid.txt", "invalid content", "Commit with [[ pattern");
+        results = repo.searchCommits("[[");
+        assertEquals(1, results.size());
+        assertEquals("Commit with [[ pattern", results.getFirst().message());
     }
 
     @Test

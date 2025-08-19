@@ -12,6 +12,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -2026,12 +2027,16 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
         var matches = new ArrayList<CommitInfo>();
-        Pattern pattern;
+
+        Pattern pattern = null;
+        boolean regexValid = true;
         try {
             pattern = Pattern.compile(query, Pattern.CASE_INSENSITIVE);
-        } catch (java.util.regex.PatternSyntaxException e) {
-            throw new GitRepoException("Invalid regular expression: " + e.getMessage(), e);
+        } catch (PatternSyntaxException e) {
+            // Fall back to simple substring search (case-insensitive)
+            regexValid = false;
         }
+        final String queryLower = query.toLowerCase(Locale.ROOT);
 
         for (var commit : git.log().call()) {
             var msg = commit.getFullMessage();
@@ -2039,9 +2044,18 @@ public class GitRepo implements Closeable, IGitRepo {
             var name = author.getName();
             var email = author.getEmailAddress();
 
-            if (pattern.matcher(msg).find()
-                    || pattern.matcher(name).find()
-                    || pattern.matcher(email).find()) {
+            boolean match;
+            if (regexValid) {
+                match = pattern.matcher(msg).find()
+                        || pattern.matcher(name).find()
+                        || pattern.matcher(email).find();
+            } else {
+                match = msg.toLowerCase(Locale.ROOT).contains(queryLower)
+                        || name.toLowerCase(Locale.ROOT).contains(queryLower)
+                        || email.toLowerCase(Locale.ROOT).contains(queryLower);
+            }
+
+            if (match) {
                 matches.add(this.fromRevCommit(commit));
             }
         }
