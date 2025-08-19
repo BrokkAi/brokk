@@ -917,6 +917,10 @@ public interface ContextFragment {
         public String toString() {
             return "PasteFragment('%s')".formatted(description());
         }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
     }
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
