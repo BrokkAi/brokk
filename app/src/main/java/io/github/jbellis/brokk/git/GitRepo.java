@@ -2036,11 +2036,15 @@ public class GitRepo implements Closeable, IGitRepo {
             pattern = Pattern.compile("(?i)" + preparedPattern, Pattern.CASE_INSENSITIVE);
         } catch (PatternSyntaxException e) {
             if (query.startsWith("(?i).*")) {
-                // Fall back to simple substring search (case-insensitive)
-                regexValid = false;
+                // Propagate exception to indicate we should try a fallback pattern
+                throw e;
             } else {
                 // Try again with pattern escaping from the start
-                return searchCommits(".*" + Pattern.quote(query) + ".*");
+                try {
+                    return searchCommits(".*" + Pattern.quote(query) + ".*");
+                } catch (PatternSyntaxException rethrownException) {
+                    regexValid = false;
+                }
             }
         }
         final String fallbackPattern = query.toLowerCase(Locale.ROOT);
