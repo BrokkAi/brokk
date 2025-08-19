@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.buildconfig)
     alias(libs.plugins.spotless)
     alias(libs.plugins.javafx)
+    alias(libs.plugins.node)
 }
 
 group = "io.github.jbellis"
@@ -31,6 +32,15 @@ application {
 javafx {
     version = libs.versions.javafx.get()
     modules = listOf("javafx.controls", "javafx.fxml", "javafx.swing", "javafx.web")
+}
+
+node {
+    version.set("22.13.1")
+    npmVersion.set("10.9.2")
+    download.set(true)
+    workDir.set(file("${project.rootDir}/frontend-mop/.gradle/nodejs"))
+    npmWorkDir.set(file("${project.rootDir}/frontend-mop/.gradle/npm"))
+    nodeProjectDir.set(file("${project.rootDir}/frontend-mop"))
 }
 
 repositories {
@@ -108,6 +118,64 @@ buildConfig {
     buildConfigField("String", "version", "\"${project.version}\"")
     packageName("io.github.jbellis.brokk")
     className("BuildInfo")
+}
+
+tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
+    description = "Install frontend dependencies"
+    group = "frontend"
+    args.set(listOf("install"))
+    inputs.file("${project.rootDir}/frontend-mop/package.json")
+    inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
+    outputs.dir("${project.rootDir}/frontend-mop/node_modules")
+}
+
+tasks.register("frontendPatch") {
+    description = "Patch svelte-exmarkdown package.json export paths"
+    group = "frontend"
+    dependsOn("frontendInstall")
+
+    doLast {
+        val packageJsonFile = file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json")
+        if (packageJsonFile.exists()) {
+            var content = packageJsonFile.readText()
+            content = content.replace("\"./dist/contexts.d.ts\"", "\"./dist/contexts.svelte.d.ts\"")
+            content = content.replace("\"./dist/contexts.js\"", "\"./dist/contexts.svelte.js\"")
+            packageJsonFile.writeText(content)
+            println("✅ Patched svelte-exmarkdown package.json export paths")
+        }
+    }
+}
+
+tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
+    description = "Build frontend with Vite"
+    group = "frontend"
+    dependsOn("frontendInstall", "frontendPatch")
+    args.set(listOf("run", "build"))
+
+    inputs.dir("${project.rootDir}/frontend-mop/src")
+    inputs.file("${project.rootDir}/frontend-mop/package.json")
+    inputs.file("${project.rootDir}/frontend-mop/vite.config.mjs")
+    inputs.file("${project.rootDir}/frontend-mop/vite.worker.config.mjs")
+    inputs.file("${project.rootDir}/frontend-mop/tsconfig.json")
+    inputs.file("${project.rootDir}/frontend-mop/index.html")
+    inputs.file("${project.rootDir}/frontend-mop/dev.html")
+
+    outputs.dir("${project.projectDir}/src/main/resources/mop-web")
+}
+
+tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendDev") {
+    description = "Start frontend development server"
+    group = "frontend"
+    dependsOn("frontendInstall")
+    args.set(listOf("run", "dev"))
+}
+
+tasks.register<Delete>("frontendClean") {
+    description = "Clean frontend build artifacts"
+    group = "frontend"
+    delete("${project.projectDir}/src/main/resources/mop-web")
+    delete("${project.rootDir}/frontend-mop/node_modules")
+    delete("${project.rootDir}/frontend-mop/.gradle")
 }
 
 // Handle duplicate files in JAR
@@ -337,6 +405,14 @@ tasks.shadowJar {
 
 tasks.named("compileJava") {
     dependsOn("generateBuildConfig")
+}
+
+tasks.named("processResources") {
+    dependsOn("frontendBuild")
+}
+
+tasks.named("clean") {
+    dependsOn("frontendClean")
 }
 
 // Disable script and distribution generation since we don't need them
