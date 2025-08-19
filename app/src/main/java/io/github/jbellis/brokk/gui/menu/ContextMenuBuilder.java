@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -68,14 +69,19 @@ public class ContextMenuBuilder {
         menu.add(headerItem);
         menu.addSeparator();
 
+        boolean analyzerReady =
+                symbolContext.contextManager().getAnalyzerWrapper().isReady();
+
         if (symbolContext.symbolExists()) {
             // Go to Definition
             var goToDefItem = new JMenuItem("Go to Definition");
+            goToDefItem.setEnabled(analyzerReady);
             goToDefItem.addActionListener(e -> goToDefinition(symbolContext));
             menu.add(goToDefItem);
 
             // Find References
             var findRefsItem = new JMenuItem("Find References");
+            findRefsItem.setEnabled(analyzerReady);
             findRefsItem.addActionListener(e -> findReferences(symbolContext));
             menu.add(findRefsItem);
 
@@ -86,11 +92,6 @@ public class ContextMenuBuilder {
         var copyItem = new JMenuItem("Copy Symbol Name");
         copyItem.addActionListener(e -> copySymbolName(symbolContext));
         menu.add(copyItem);
-
-        // Search for Symbol
-        var searchItem = new JMenuItem("Search for Symbol");
-        searchItem.addActionListener(e -> searchForSymbol(symbolContext));
-        menu.add(searchItem);
     }
 
     private void buildFileMenu() {
@@ -130,6 +131,9 @@ public class ContextMenuBuilder {
 
         // Summarize
         var summarizeItem = new JMenuItem(files.size() == 1 ? "Summarize" : "Summarize All");
+        boolean analyzerReady =
+                fileContext.contextManager().getAnalyzerWrapper().isReady();
+        summarizeItem.setEnabled(analyzerReady);
         summarizeItem.addActionListener(e -> summarizeFiles(fileContext));
         menu.add(summarizeItem);
 
@@ -150,118 +154,156 @@ public class ContextMenuBuilder {
     private void goToDefinition(SymbolMenuContext context) {
         logger.info("Go to definition for symbol: {}", context.symbolName());
 
-        var analyzer = context.contextManager().getAnalyzerUninterrupted();
-        var symbolName = context.symbolName();
-
-        // First try exact FQN match
-        var definition = analyzer.getDefinition(symbolName);
-        if (definition.isPresent()) {
-            navigateToSymbol(definition.get(), context);
-            return;
-        }
-
-        // Fallback: search for candidates with the symbol name
-        var candidates = analyzer.searchDefinitions(symbolName);
-        if (candidates.isEmpty()) {
+        if (!context.contextManager().getAnalyzerWrapper().isReady()) {
             context.chrome()
                     .systemNotify(
-                            "Definition not found for: " + symbolName, "Go to Definition", JOptionPane.WARNING_MESSAGE);
+                            AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                            AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                            JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        if (candidates.size() == 1) {
-            navigateToSymbol(candidates.get(0), context);
-        } else {
-            // Multiple matches - show disambiguation dialog
-            var selected = showSymbolDisambiguationDialog(candidates, symbolName, "Go to Definition");
-            if (selected != null) {
-                navigateToSymbol(selected, context);
+        var symbolName = context.symbolName();
+        context.contextManager().submitContextTask("Go to definition for " + symbolName, () -> {
+            var analyzer = context.contextManager().getAnalyzerUninterrupted();
+
+            // First try exact FQN match
+            var definition = analyzer.getDefinition(symbolName);
+            if (definition.isPresent()) {
+                navigateToSymbol(definition.get(), context);
+                return;
             }
-        }
+
+            // Fallback: search for candidates with the symbol name
+            var candidates = analyzer.searchDefinitions(symbolName);
+            if (candidates.isEmpty()) {
+                SwingUtilities.invokeLater(() -> context.chrome()
+                        .systemNotify(
+                                "Definition not found for: " + symbolName,
+                                "Go to Definition",
+                                JOptionPane.WARNING_MESSAGE));
+                return;
+            }
+
+            if (candidates.size() == 1) {
+                navigateToSymbol(candidates.get(0), context);
+            } else {
+                // Multiple matches - show disambiguation dialog on EDT
+                SwingUtilities.invokeLater(() -> {
+                    var selected = showSymbolDisambiguationDialog(candidates, symbolName, "Go to Definition");
+                    if (selected != null) {
+                        // Navigate back in background thread
+                        context.contextManager().submitContextTask("Navigate to " + selected.fqName(), () -> {
+                            navigateToSymbol(selected, context);
+                        });
+                    }
+                });
+            }
+        });
     }
 
     private void findReferences(SymbolMenuContext context) {
         logger.info("Find references for symbol: {}", context.symbolName());
 
-        var analyzer = context.contextManager().getAnalyzerUninterrupted();
-        var symbolName = context.symbolName();
-
-        // First try exact FQN match for uses
-        var uses = analyzer.getUses(symbolName);
-        if (!uses.isEmpty()) {
-            addUsagesToContext(uses, symbolName, context);
+        if (!context.contextManager().getAnalyzerWrapper().isReady()) {
             context.chrome()
                     .systemNotify(
-                            String.format("Found %d references for %s", uses.size(), symbolName),
-                            "Find References",
+                            AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                            AnalyzerWrapper.ANALYZER_BUSY_TITLE,
                             JOptionPane.INFORMATION_MESSAGE);
             return;
         }
 
-        // If no direct uses found, try to find the symbol first, then get its uses
-        var definition = analyzer.getDefinition(symbolName);
-        if (definition.isPresent()) {
-            var symbolFqName = definition.get().fqName();
-            uses = analyzer.getUses(symbolFqName);
+        var symbolName = context.symbolName();
+        context.contextManager().submitContextTask("Find references for " + symbolName, () -> {
+            var analyzer = context.contextManager().getAnalyzerUninterrupted();
+
+            // First try exact FQN match for uses
+            var uses = analyzer.getUses(symbolName);
             if (!uses.isEmpty()) {
-                addUsagesToContext(uses, symbolFqName, context);
-                context.chrome()
+                addUsagesToContext(uses, symbolName, context);
+                SwingUtilities.invokeLater(() -> context.chrome()
                         .systemNotify(
-                                String.format("Found %d references for %s", uses.size(), symbolFqName),
+                                String.format("Found %d references for %s", uses.size(), symbolName),
                                 "Find References",
-                                JOptionPane.INFORMATION_MESSAGE);
+                                JOptionPane.INFORMATION_MESSAGE));
                 return;
             }
-        }
 
-        // Fallback: search for symbol candidates and let user choose
-        var candidates = analyzer.searchDefinitions(symbolName);
-        if (candidates.isEmpty()) {
-            context.chrome()
-                    .systemNotify(
-                            "No references found for: " + symbolName, "Find References", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        if (candidates.size() == 1) {
-            var symbolFqName = candidates.get(0).fqName();
-            uses = analyzer.getUses(symbolFqName);
-            if (!uses.isEmpty()) {
-                addUsagesToContext(uses, symbolFqName, context);
-                context.chrome()
-                        .systemNotify(
-                                String.format("Found %d references for %s", uses.size(), symbolFqName),
-                                "Find References",
-                                JOptionPane.INFORMATION_MESSAGE);
-            } else {
-                context.chrome()
-                        .systemNotify(
-                                "No references found for: " + symbolFqName,
-                                "Find References",
-                                JOptionPane.WARNING_MESSAGE);
-            }
-        } else {
-            // Multiple matches - show disambiguation dialog
-            var selected = showSymbolDisambiguationDialog(candidates, symbolName, "Find References");
-            if (selected != null) {
-                var symbolFqName = selected.fqName();
-                uses = analyzer.getUses(symbolFqName);
-                if (!uses.isEmpty()) {
-                    addUsagesToContext(uses, symbolFqName, context);
-                    context.chrome()
+            // If no direct uses found, try to find the symbol first, then get its uses
+            var definition = analyzer.getDefinition(symbolName);
+            if (definition.isPresent()) {
+                var symbolFqName = definition.get().fqName();
+                var definitionUses = analyzer.getUses(symbolFqName);
+                if (!definitionUses.isEmpty()) {
+                    addUsagesToContext(definitionUses, symbolFqName, context);
+                    SwingUtilities.invokeLater(() -> context.chrome()
                             .systemNotify(
-                                    String.format("Found %d references for %s", uses.size(), symbolFqName),
+                                    String.format("Found %d references for %s", definitionUses.size(), symbolFqName),
                                     "Find References",
-                                    JOptionPane.INFORMATION_MESSAGE);
+                                    JOptionPane.INFORMATION_MESSAGE));
+                    return;
+                }
+            }
+
+            // Fallback: search for symbol candidates and let user choose
+            var candidates = analyzer.searchDefinitions(symbolName);
+            if (candidates.isEmpty()) {
+                SwingUtilities.invokeLater(() -> context.chrome()
+                        .systemNotify(
+                                "No references found for: " + symbolName,
+                                "Find References",
+                                JOptionPane.WARNING_MESSAGE));
+                return;
+            }
+
+            if (candidates.size() == 1) {
+                var symbolFqName = candidates.get(0).fqName();
+                var candidateUses = analyzer.getUses(symbolFqName);
+                if (!candidateUses.isEmpty()) {
+                    addUsagesToContext(candidateUses, symbolFqName, context);
+                    SwingUtilities.invokeLater(() -> context.chrome()
+                            .systemNotify(
+                                    String.format("Found %d references for %s", candidateUses.size(), symbolFqName),
+                                    "Find References",
+                                    JOptionPane.INFORMATION_MESSAGE));
                 } else {
-                    context.chrome()
+                    SwingUtilities.invokeLater(() -> context.chrome()
                             .systemNotify(
                                     "No references found for: " + symbolFqName,
                                     "Find References",
-                                    JOptionPane.WARNING_MESSAGE);
+                                    JOptionPane.WARNING_MESSAGE));
                 }
+            } else {
+                // Multiple matches - show disambiguation dialog on EDT
+                SwingUtilities.invokeLater(() -> {
+                    var selected = showSymbolDisambiguationDialog(candidates, symbolName, "Find References");
+                    if (selected != null) {
+                        // Continue processing in background thread
+                        context.contextManager().submitContextTask("Find references for " + selected.fqName(), () -> {
+                            var symbolFqName = selected.fqName();
+                            var selectedUses = analyzer.getUses(symbolFqName);
+                            if (!selectedUses.isEmpty()) {
+                                addUsagesToContext(selectedUses, symbolFqName, context);
+                                SwingUtilities.invokeLater(() -> context.chrome()
+                                        .systemNotify(
+                                                String.format(
+                                                        "Found %d references for %s",
+                                                        selectedUses.size(), symbolFqName),
+                                                "Find References",
+                                                JOptionPane.INFORMATION_MESSAGE));
+                            } else {
+                                SwingUtilities.invokeLater(() -> context.chrome()
+                                        .systemNotify(
+                                                "No references found for: " + symbolFqName,
+                                                "Find References",
+                                                JOptionPane.WARNING_MESSAGE));
+                            }
+                        });
+                    }
+                });
             }
-        }
+        });
     }
 
     private void copySymbolName(SymbolMenuContext context) {
@@ -269,14 +311,6 @@ public class ContextMenuBuilder {
         var selection = new StringSelection(context.symbolName());
         clipboard.setContents(selection, null);
         logger.debug("Copied symbol name to clipboard: {}", context.symbolName());
-    }
-
-    private void searchForSymbol(SymbolMenuContext context) {
-        logger.info("Search for symbol: {}", context.symbolName());
-        // TODO: Integrate with search functionality
-        context.chrome()
-                .systemNotify(
-                        "Search for symbol not yet implemented", "Symbol Action", JOptionPane.INFORMATION_MESSAGE);
     }
 
     // File actions

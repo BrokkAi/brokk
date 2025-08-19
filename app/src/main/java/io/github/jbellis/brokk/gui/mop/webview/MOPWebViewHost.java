@@ -36,6 +36,7 @@ public final class MOPWebViewHost extends JPanel {
     private volatile boolean darkTheme = true; // Default to dark theme
     private volatile @Nullable IProject project;
     private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
 
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
@@ -103,6 +104,10 @@ public final class MOPWebViewHost extends JPanel {
             if (contextManager != null) {
                 bridge.setContextManager(contextManager);
             }
+            if (chrome != null) {
+                bridge.setSymbolRightClickHandler(chrome);
+            }
+            bridge.setHostComponent(fxPanel);
             bridgeRef.set(bridge);
 
             // Add JavaScript error handling
@@ -461,9 +466,17 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        this.chrome = chrome;
         var bridge = bridgeRef.get();
         if (bridge != null) {
             bridge.setSymbolRightClickHandler(chrome);
+        }
+    }
+
+    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setHostComponent(hostComponent);
         }
     }
 
