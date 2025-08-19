@@ -96,13 +96,15 @@ li > p {
 }
 
 /* Symbol lookup styling for inline code that exists in project */
-:not(pre) > code.symbol-exists {
+ :not(pre) > code.symbol-exists {
   text-decoration: underline;
   cursor: pointer;
 }
 
 :not(pre) > code.symbol-exists:hover {
-  background-color: rgba(103, 140, 177, 0.1);
+  background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
 }
 
 pre > code {

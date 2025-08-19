@@ -91,6 +91,9 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
                     if (!node.properties.className) node.properties.className = [];
                     node.properties.className.push('symbol-exists');
 
+                    // Also set as 'class' property for proper HTML rendering
+                    node.properties.class = node.properties.className;
+
                     // Add data attributes for click handling
                     node.properties['data-symbol'] = symbolCandidate;
                     node.properties['data-symbol-exists'] = 'true';
