@@ -1,23 +1,15 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
-  import { fade } from 'svelte/transition';
+  import { onDestroy } from 'svelte';
   import type { Writable } from 'svelte/store';
-  import type { SpinnerState } from './types';
   import type { BubbleState } from './stores/bubblesStore';
   import MessageBubble from './components/MessageBubble.svelte';
   import AIReasoningBubble from './components/AIReasoningBubble.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
-  import { themeStore } from './stores/themeStore';
+  import Spinner from './components/Spinner.svelte';
 
   export let bubblesStore: Writable<BubbleState[]>;
-  export let spinnerStore: Writable<SpinnerState>;
 
-  let spinner: SpinnerState = { visible: false, message: '' };
   let stopAutoScroll: (() => void) | null = null;
-
-  const spinnerUnsubscribe = spinnerStore.subscribe(state => {
-    spinner = state;
-  });
 
   const bubblesUnsubscribe = bubblesStore.subscribe(list => {
     const last: BubbleState | undefined = list.at(-1);
@@ -44,7 +36,6 @@
       stopAutoScroll = null;
     }
     bubblesUnsubscribe();
-    spinnerUnsubscribe();
   });
 </script>
 
@@ -64,11 +55,6 @@
     overflow-y: auto;
     overflow-x: hidden;
   }
-  .spinner-msg {
-    align-self: center;
-    color: #888;
-    padding: 0.5em 1em;
-  }
 </style>
 
 <div
@@ -82,9 +68,5 @@
       <MessageBubble {bubble} />
     {/if}
   {/each}
-  {#if spinner.visible}
-    <div id="spinner" class="spinner-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
-      {spinner.message}
-    </div>
-  {/if}
+  <Spinner />
 </div>
