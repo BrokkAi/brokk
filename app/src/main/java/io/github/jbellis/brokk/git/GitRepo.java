@@ -2015,24 +2015,37 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Search commits by text in message/author/email */
+    /**
+     * Search commits whose full message, author name, or author e-mail match the supplied regular expression
+     * (case-insensitive).
+     *
+     * @param query a Java regular-expression pattern
+     * @return matching commits, newest first (same order as {@code git log})
+     * @throws GitAPIException on git errors
+     * @throws GitRepoException if the regex is invalid
+     */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
-        var commits = new ArrayList<CommitInfo>();
-        var lowerQuery = query.toLowerCase(Locale.ROOT);
+        var matches = new ArrayList<CommitInfo>();
+        Pattern pattern;
+        try {
+            pattern = Pattern.compile(query, Pattern.CASE_INSENSITIVE);
+        } catch (java.util.regex.PatternSyntaxException e) {
+            throw new GitRepoException("Invalid regular expression: " + e.getMessage(), e);
+        }
 
         for (var commit : git.log().call()) {
-            var cMessage = commit.getFullMessage().toLowerCase(Locale.ROOT);
-            var cAuthorName = commit.getAuthorIdent().getName().toLowerCase(Locale.ROOT);
-            var cAuthorEmail = commit.getAuthorIdent().getEmailAddress().toLowerCase(Locale.ROOT);
+            var msg = commit.getFullMessage();
+            var author = commit.getAuthorIdent();
+            var name = author.getName();
+            var email = author.getEmailAddress();
 
-            if (cMessage.contains(lowerQuery)
-                    || cAuthorName.contains(lowerQuery)
-                    || cAuthorEmail.contains(lowerQuery)) {
-                // Use factory method
-                commits.add(this.fromRevCommit(commit));
+            if (pattern.matcher(msg).find()
+                    || pattern.matcher(name).find()
+                    || pattern.matcher(email).find()) {
+                matches.add(this.fromRevCommit(commit));
             }
         }
-        return commits;
+        return matches;
     }
 
     @Override

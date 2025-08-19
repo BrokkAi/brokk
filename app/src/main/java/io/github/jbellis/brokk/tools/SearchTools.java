@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
@@ -15,6 +16,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
 /**
  * Contains tool implementations related to code analysis and searching, designed to be registered with the
@@ -497,6 +499,78 @@ public class SearchTools {
             return "No calls out made by method: " + methodName;
         }
         return result;
+    }
+
+    @Tool(
+            value =
+                    """
+    Search git commit messages using a Java regular expression.
+    Returns matching commits with their message and list of changed files.
+    """)
+    public String searchGitCommitMessages(
+            @P("Java-style regex pattern to search for within commit messages.") String pattern,
+            @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
+                    String reasoning) {
+        if (pattern.isBlank()) {
+            throw new IllegalArgumentException("Cannot search commit messages: pattern is empty");
+        }
+        if (reasoning.isBlank()) {
+            logger.warn("Missing reasoning for searchGitCommitMessages call");
+        }
+
+        var projectRoot = contextManager.getProject().getRoot();
+        if (!GitRepo.hasGitRepo(projectRoot)) {
+            return "Cannot search commit messages: Git repository not found for this project.";
+        }
+
+        List<io.github.jbellis.brokk.git.CommitInfo> matchingCommits;
+        try (var gitRepo = new GitRepo(projectRoot)) {
+            try {
+                matchingCommits = gitRepo.searchCommits(pattern);
+            } catch (GitAPIException e) {
+                logger.error("Error searching commit messages", e);
+                return "Error searching commit messages: " + e.getMessage();
+            }
+        }
+
+        if (matchingCommits.isEmpty()) {
+            return "No commit messages found matching pattern: " + pattern;
+        }
+
+        StringBuilder resultBuilder = new StringBuilder();
+        for (var commit : matchingCommits) {
+            resultBuilder.append("<commit id=\"").append(commit.id()).append("\">\n");
+            try {
+                // Ensure we always close <message>
+                resultBuilder.append("<message>\n");
+                try {
+                    resultBuilder.append(commit.message().stripIndent()).append("\n");
+                } finally {
+                    resultBuilder.append("</message>\n");
+                }
+
+                // Ensure we always close <edited_files>
+                resultBuilder.append("<edited_files>\n");
+                try {
+                    List<ProjectFile> changedFilesList;
+                    try {
+                        changedFilesList = commit.changedFiles();
+                    } catch (GitAPIException e) {
+                        logger.error("Error retrieving changed files for commit {}", commit.id(), e);
+                        changedFilesList = List.of();
+                    }
+                    var changedFiles =
+                            changedFilesList.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
+                    resultBuilder.append(changedFiles).append("\n");
+                } finally {
+                    resultBuilder.append("</edited_files>\n");
+                }
+            } finally {
+                resultBuilder.append("</commit>\n");
+            }
+        }
+
+        return resultBuilder.toString();
     }
 
     // --- Text search tools
