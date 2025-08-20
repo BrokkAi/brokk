@@ -13,7 +13,9 @@ import io.github.jbellis.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -141,6 +143,27 @@ public class SearchTools {
         return "%s: [Common package prefix: '%s'. IMPORTANT: you MUST use full symbol names including this prefix for subsequent tool calls] %s"
                 .formatted(
                         label, commonPrefix, compressedSymbols.stream().sorted().collect(Collectors.joining(", ")));
+    }
+
+    /**
+     * Build predicates for each supplied pattern. • If the pattern is a valid regex, the predicate performs
+     * {@code matcher.find()}. • If the pattern is an invalid regex, the predicate falls back to
+     * {@code String.contains()}.
+     */
+    private static List<Predicate<String>> compilePatternsWithFallback(List<String> patterns) {
+        List<Predicate<String>> predicates = new ArrayList<>();
+        for (String pat : patterns) {
+            if (pat == null || pat.isBlank()) {
+                continue;
+            }
+            try {
+                Pattern regex = Pattern.compile(pat);
+                predicates.add(s -> regex.matcher(s).find());
+            } catch (PatternSyntaxException ex) {
+                predicates.add(s -> s.contains(pat));
+            }
+        }
+        return predicates;
     }
 
     @Tool(
@@ -597,12 +620,8 @@ public class SearchTools {
 
         logger.debug("Searching file contents for patterns: {}", patterns);
 
-        List<Pattern> compiledPatterns = patterns.stream()
-                .filter(p -> !p.isBlank())
-                .map(Pattern::compile)
-                .toList();
-
-        if (compiledPatterns.isEmpty()) {
+        List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
+        if (predicates.isEmpty()) {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
@@ -614,8 +633,8 @@ public class SearchTools {
                         }
                         String fileContents = file.read(); // Use ProjectFile.read()
 
-                        for (Pattern compiledPattern : compiledPatterns) {
-                            if (compiledPattern.matcher(fileContents).find()) {
+                        for (Predicate<String> predicate : predicates) {
+                            if (predicate.test(fileContents)) {
                                 return file;
                             }
                         }
@@ -657,20 +676,16 @@ public class SearchTools {
 
         logger.debug("Searching filenames for patterns: {}", patterns);
 
-        List<Pattern> compiledPatterns = patterns.stream()
-                .filter(p -> !p.isBlank())
-                .map(Pattern::compile)
-                .toList();
-
-        if (compiledPatterns.isEmpty()) {
+        List<Predicate<String>> predicates = compilePatternsWithFallback(patterns);
+        if (predicates.isEmpty()) {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
         var matchingFiles = contextManager.getProject().getAllFiles().stream()
                 .map(ProjectFile::toString) // Use relative path from ProjectFile
                 .filter(filePath -> {
-                    for (Pattern compiledPattern : compiledPatterns) {
-                        if (compiledPattern.matcher(filePath).find()) {
+                    for (Predicate<String> predicate : predicates) {
+                        if (predicate.test(filePath)) {
                             return true;
                         }
                     }
