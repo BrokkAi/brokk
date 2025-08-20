@@ -38,7 +38,9 @@ import scala.util.{Failure, Success, Try, Using}
   */
 abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, private[brokk] var cpg: Cpg)
     extends IAnalyzer
-    with Closeable {
+    with Closeable
+    with SkeletonProvider
+    with SourceCodeProvider {
 
   // Logger instance for this class
   protected val logger: Logger = LoggerFactory.getLogger(getClass)

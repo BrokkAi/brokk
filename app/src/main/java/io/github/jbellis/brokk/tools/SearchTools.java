@@ -5,9 +5,7 @@ import dev.langchain4j.agent.tool.Tool;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
@@ -140,6 +138,15 @@ public class SearchTools {
                         label, commonPrefix, compressedSymbols.stream().sorted().collect(Collectors.joining(", ")));
     }
 
+    private static void assertAdvancedCapabilities(IAnalyzer analyzer, String failureMessagePrefix) {
+        final var suffix = ": Code Intelligence is not available.";
+        if (analyzer instanceof HasDelayedCapabilities advancedAnalyzer) {
+            assert advancedAnalyzer.isAdvancedAnalysisReady().getNow(false) : failureMessagePrefix + suffix;
+        } else {
+            assert analyzer.isCpg() : failureMessagePrefix + suffix;
+        }
+    }
+
     @Tool(
             value =
                     """
@@ -152,7 +159,7 @@ public class SearchTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
                     List<String> filePaths) {
-        assert getAnalyzer().isCpg() : "Cannot get summaries: Code Intelligence is not available.";
+        assertAdvancedCapabilities(getAnalyzer(), "Cannot get summaries");
         if (filePaths.isEmpty()) {
             return "Cannot get summaries: file paths list is empty";
         }
@@ -210,7 +217,7 @@ public class SearchTools {
                     List<String> patterns,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert getAnalyzer().isCpg() : "Cannot search definitions: CPG analyzer is not available.";
+        assertAdvancedCapabilities(getAnalyzer(), "Cannot search definitions");
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -252,7 +259,7 @@ public class SearchTools {
                     List<String> symbols,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert getAnalyzer().isCpg() : "Cannot search usages: CPG analyzer is not available.";
+        assertAdvancedCapabilities(getAnalyzer(), "Cannot search usages");
         // Sanitize symbols: remove potential `(params)` suffix from LLM.
         symbols = stripParams(symbols);
         if (symbols.isEmpty()) {
@@ -286,7 +293,7 @@ public class SearchTools {
     public String getRelatedClasses(
             @P("List of fully qualified class names to use as seeds for finding related classes.")
                     List<String> classNames) {
-        assert getAnalyzer().isCpg() : "Cannot find related classes: CPG analyzer is not available.";
+        assertAdvancedCapabilities(getAnalyzer(), "Cannot find related classes");
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -333,7 +340,9 @@ public class SearchTools {
     """)
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
-        assert getAnalyzer().isCpg() : "Cannot get skeletons: Code Intelligence is not available.";
+
+        assert (getAnalyzer() instanceof SkeletonProvider)
+                : "Cannot get skeletons: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -365,7 +374,8 @@ public class SearchTools {
             @P("Fully qualified class names to retrieve the full source code for") List<String> classNames,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")
                     String reasoning) {
-        assert getAnalyzer().isCpg() : "Cannot get class sources: CPG analyzer is not available.";
+        assert (getAnalyzer() instanceof SourceCodeProvider)
+                : "Cannot get class sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -417,7 +427,8 @@ public class SearchTools {
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
                     List<String> methodNames) {
-        assert getAnalyzer().isCpg() : "Cannot get method sources: CPG analyzer is not available.";
+        assert (getAnalyzer() instanceof SourceCodeProvider)
+                : "Cannot get method sources: Current Code Intelligence does not have necessary capabilities.";
         // Sanitize methodNames: remove potential `(params)` suffix from LLM.
         methodNames = stripParams(methodNames);
         if (methodNames.isEmpty()) {
@@ -460,7 +471,7 @@ public class SearchTools {
     public String getCallGraphTo(
             @P("Fully qualified method name (package name, class name, method name) to find callers for")
                     String methodName) {
-        assert getAnalyzer().isCpg() : "Cannot get call graph: CPG analyzer is not available.";
+        assertAdvancedCapabilities(getAnalyzer(), "Cannot get call graph");
         // Sanitize methodName: remove potential `(params)` suffix from LLM.
         methodName = stripParams(methodName);
         if (methodName.isBlank()) {
@@ -484,7 +495,7 @@ public class SearchTools {
     public String getCallGraphFrom(
             @P("Fully qualified method name (package name, class name, method name) to find callees for")
                     String methodName) {
-        assert getAnalyzer().isCpg() : "Cannot get call graph: CPG analyzer is not available.";
+        assertAdvancedCapabilities(getAnalyzer(), "Cannot get call graph");
         // Sanitize methodName: remove potential `(params)` suffix from LLM.
         methodName = stripParams(methodName);
         if (methodName.isBlank()) {
