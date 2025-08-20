@@ -109,10 +109,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Create split pane with file tree on left and tabs on right (only if multiple files)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         if (fileComparisons.size() > 1) {
+            fileTreePanel.setMinimumSize(new Dimension(200, 0)); // Prevent file tree from becoming too small
             mainSplitPane.setLeftComponent(fileTreePanel);
             mainSplitPane.setRightComponent(tabbedPane);
             mainSplitPane.setDividerLocation(250); // 250px for file tree
-            mainSplitPane.setResizeWeight(0.0); // Keep file tree fixed size
+            mainSplitPane.setResizeWeight(0.25); // Give file tree 25% of resize space
         } else {
             // For single file, only show the tabs without the file tree
             mainSplitPane.setRightComponent(tabbedPane);
@@ -1182,10 +1183,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * BorderLayout relationships to restore proper resize behavior.
      */
     private void resetLayoutHierarchy(BufferDiffPanel currentPanel) {
-        // Remove and re-add tabbedPane to reset BorderLayout relationships
-        remove(getTabbedPane());
+        // Remove and re-add mainSplitPane to reset BorderLayout relationships
+        remove(mainSplitPane);
         invalidate();
-        add(getTabbedPane(), java.awt.BorderLayout.CENTER);
+        add(mainSplitPane, java.awt.BorderLayout.CENTER);
         revalidate();
 
         // Ensure child components are properly updated

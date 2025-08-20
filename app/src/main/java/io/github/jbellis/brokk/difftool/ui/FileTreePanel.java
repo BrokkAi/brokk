@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
 import java.nio.file.Path;
 import java.util.*;
@@ -21,6 +22,9 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private final Path projectRoot;
     private final JScrollPane scrollPane;
 
+    @Nullable
+    private GuiTheme currentTheme;
+
     public interface FileSelectionListener {
         void onFileSelected(int fileIndex);
     }
@@ -39,6 +43,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
         this.projectRoot = projectRoot;
+        this.currentTheme = null; // Initialize to null, will be set via applyTheme
 
         String displayTitle =
                 rootTitle != null ? rootTitle : projectRoot.getFileName().toString();
@@ -57,7 +62,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         fileTree.setRootVisible(true);
         fileTree.setShowsRootHandles(true);
-        fileTree.setCellRenderer(new FileTreeCellRenderer());
+        fileTree.setCellRenderer(new FileTreeCellRenderer(this));
 
         fileTree.addTreeSelectionListener(new TreeSelectionListener() {
             @Override
@@ -454,14 +459,25 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return null;
     }
 
+    @Nullable
+    public GuiTheme getCurrentTheme() {
+        return currentTheme;
+    }
+
     @Override
     public void applyTheme(GuiTheme theme) {
+        this.currentTheme = theme;
         SwingUtilities.updateComponentTreeUI(this);
         revalidate();
         repaint();
     }
 
     private static class FileTreeCellRenderer extends DefaultTreeCellRenderer {
+        private final FileTreePanel parentPanel;
+
+        public FileTreeCellRenderer(FileTreePanel parentPanel) {
+            this.parentPanel = parentPanel;
+        }
 
         @Override
         public Component getTreeCellRendererComponent(
@@ -473,7 +489,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
             if (userObject instanceof FileInfo fileInfo) {
                 setText(fileInfo.name());
-                setIcon(getDiffStatusIcon(fileInfo.status()));
+                setIcon(getDiffStatusIcon(fileInfo.status(), parentPanel.getCurrentTheme()));
                 setToolTipText(fileInfo.name() + " (" + getStatusText(fileInfo.status()) + ")");
             } else if (node instanceof CollapsedDirectoryNode collapsedNode) {
                 setText(collapsedNode.getDisplayName());
@@ -500,12 +516,14 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             return this;
         }
 
-        private static Icon getDiffStatusIcon(DiffStatus status) {
+        private static Icon getDiffStatusIcon(DiffStatus status, @Nullable GuiTheme theme) {
+            // Use theme-aware git status colors for consistency, fallback to dark theme if null
+            boolean isDark = theme == null || theme.isDarkTheme();
             return switch (status) {
-                case ADDED -> createStatusIcon(new Color(40, 167, 69)); // Green for added
-                case DELETED -> createStatusIcon(new Color(220, 53, 69)); // Red for deleted
-                case MODIFIED -> createStatusIcon(new Color(255, 193, 7)); // Yellow for modified
-                case UNCHANGED -> createStatusIcon(new Color(108, 117, 125)); // Gray for unchanged
+                case ADDED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_added"));
+                case DELETED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_deleted"));
+                case MODIFIED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_modified"));
+                case UNCHANGED -> createStatusIcon(ThemeColors.getColor(isDark, "git_status_unknown"));
             };
         }
 
