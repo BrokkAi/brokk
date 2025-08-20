@@ -486,7 +486,7 @@ public class WorkspacePanel extends JPanel {
             JPanel panel = new JPanel();
             // FlowLayout centers components vertically within the row, keeping badges aligned
             // with the description text.
-            panel.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 2));
+            panel.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 0));
             panel.setOpaque(true);
 
             // Set colors based on selection
@@ -507,12 +507,23 @@ public class WorkspacePanel extends JPanel {
             String description = data.description();
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
 
-            // Create description label
-            JLabel descLabel = new JLabel(description);
+            // Calculate available width for description after reserving space for badges
+            int colWidth = table.getColumnModel().getColumn(column).getWidth();
+            int reservedWidth = fileReferences.isEmpty() ? 0 : 130; // room for visible/overflow badges + gap
+            var fm = table.getFontMetrics(table.getFont());
+            String clipped = ellipsize(description, fm, Math.max(colWidth - reservedWidth, 30));
+
+            // Create description label (possibly clipped with …)
+            JLabel descLabel = new JLabel(clipped);
             descLabel.setOpaque(false);
             descLabel.setForeground(panel.getForeground());
             descLabel.setVerticalAlignment(SwingConstants.CENTER); // Center alignment with LOC column
             descLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+            // If we clipped the text, show the full description in a tooltip
+            if (!clipped.equals(description)) {
+                descLabel.setToolTipText(description);
+            }
 
             // Add description to panel
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -523,71 +534,67 @@ public class WorkspacePanel extends JPanel {
                 // Add small horizontal gap between description and badges
                 panel.add(Box.createHorizontalStrut(3));
 
-                // Create badges directly on the main panel so FlowLayout can wrap them.
-                var badgeFactory = new TableUtils.FileReferenceList(); // factory for styled badges
-                badgeFactory.setSelected(isSelected);
+                // Calculate available width for badges (table column width minus padding and description width)
+                int availableWidth = table.getColumnModel().getColumn(column).getWidth()
+                        - 20
+                        - descLabel.getPreferredSize().width; // Leave some padding
 
-                for (var ref : fileReferences) {
-                    JLabel badge = badgeFactory.createBadgeLabel(ref.getFileName());
-                    badge.setOpaque(false);
-                    badge.setToolTipText(ref.getFullPath());
-                    ref.setBadgeLabel(badge);
-                    panel.add(badge);
-                }
+                // Create adaptive file reference list
+                var badgeList =
+                        new TableUtils.FileReferenceList.AdaptiveFileReferenceList(fileReferences, availableWidth, 4);
+                badgeList.setOpaque(false);
+                badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                badgeList.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+                // Set badge colors based on selection
+                badgeList.setSelected(isSelected);
+
+                panel.add(badgeList);
             }
 
-            // Calculate preferred height based on current column width.
-                // Clamp to the viewport width so we don't over-estimate and miss a wrap.
-                int colWidth = table.getColumnModel().getColumn(column).getWidth();
-                if (table.getParent() instanceof javax.swing.JViewport viewport) {
-                    int viewportWidth = viewport.getExtentSize().width;
-                    colWidth = Math.min(colWidth, viewportWidth);
-                }
-            int preferredHeight = calculatePreferredHeight(panel, colWidth);
+            // Calculate preferred height
+            int preferredHeight = calculatePreferredHeight(panel);
 
             // Set row height if different from current
             if (table.getRowHeight(row) != preferredHeight) {
-                table.setRowHeight(row, preferredHeight);
+                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
             }
 
             return panel;
         }
 
-        private int calculatePreferredHeight(JPanel panel, int width) {
-            // Manually compute how many rows the FlowLayout will need
-            var layout = (FlowLayout) panel.getLayout();
-            int hgap = layout.getHgap();
-            int vgap = layout.getVgap();
+        private int calculatePreferredHeight(JPanel panel) {
+            // Force layout to get accurate measurements
+            panel.doLayout();
+            return panel.getPreferredSize().height;
+        }
 
-            int rowWidth = 0;
-            int rowHeight = Constants.V_GAP;
-            int maxCompHeightInRow = 0;
-
-            for (Component comp : panel.getComponents()) {
-                if (!comp.isVisible()) continue;
-
-                Dimension d = comp.getPreferredSize();
-                // First component in a new row
-                if (rowWidth == 0) {
-                    rowWidth = d.width;
-                    maxCompHeightInRow = d.height;
-                } else if (rowWidth + hgap + d.width <= width) {
-                    // Fits in current row
-                    rowWidth += hgap + d.width;
-                    maxCompHeightInRow = Math.max(maxCompHeightInRow, d.height);
-                } else {
-                    // Wrap to next row
-                    rowHeight += maxCompHeightInRow + vgap;
-                    rowWidth = d.width;
-                    maxCompHeightInRow = d.height;
-                }
+        /** Return a possibly-truncated version of {@code text} that fits within {@code maxWidth}. */
+        private static String ellipsize(String text, FontMetrics fm, int maxWidth) {
+            if (fm.stringWidth(text) <= maxWidth) {
+                return text;
             }
 
-            // Add height for the last row
-            rowHeight += maxCompHeightInRow;
+            String ellipsis = "...";
+            int ellipsisWidth = fm.stringWidth(ellipsis);
+            if (ellipsisWidth >= maxWidth) { // not even room for the ellipsis
+                return ellipsis;
+            }
 
-            Insets insets = panel.getInsets();
-            return rowHeight + insets.top + insets.bottom;
+            int low = 0;
+            int high = text.length();
+            while (low < high) {
+                int mid = (low + high) >>> 1;
+                String candidate = text.substring(0, mid) + ellipsis;
+                int w = fm.stringWidth(candidate);
+                if (w > maxWidth) {
+                    high = mid;
+                } else {
+                    low = mid + 1;
+                }
+            }
+            // low is first index that does NOT fit; use low-1
+            return text.substring(0, Math.max(0, low - 1)) + ellipsis;
         }
     }
 
