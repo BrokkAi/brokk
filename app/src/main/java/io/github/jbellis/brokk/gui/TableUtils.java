@@ -369,6 +369,7 @@ public final class TableUtils {
             private List<FileReferenceData> visibleFiles = List.of();
             private List<FileReferenceData> hiddenFiles = List.of();
             private boolean hasOverflow = false;
+            private transient @Nullable JLabel overflowBadge = null;
 
             /**
              * Creates a new AdaptiveFileReferenceList with the given files and width constraints.
@@ -399,8 +400,15 @@ public final class TableUtils {
                 return hasOverflow;
             }
 
+            /** Returns the JLabel used for the overflow badge, or null if none. */
+            @Nullable
+            public JLabel getOverflowBadge() {
+                return overflowBadge;
+            }
+
             @Override
             public void setFileReferences(List<FileReferenceData> fileReferences) {
+                this.overflowBadge = null; // reset
                 if (fileReferences.isEmpty()) {
                     this.visibleFiles = List.of();
                     this.hiddenFiles = List.of();
@@ -474,6 +482,7 @@ public final class TableUtils {
 
                     // Create overflow badge with updated text
                     JLabel overflow = this.createBadgeLabel(overflowText);
+                    this.overflowBadge = overflow;
                     overflow.setToolTipText("Show all " + fileReferences.size() + " files");
 
                     // Always add overflow badge - even if no space, it will wrap to next line
@@ -692,8 +701,9 @@ public final class TableUtils {
             return null;
         }
 
-        // Search for a FileReferenceList inside the renderer hierarchy
-        FileReferenceList fileReferenceList = findFileReferenceList(container);
+        // Search for an AdaptiveFileReferenceList inside the renderer hierarchy
+        FileReferenceList.AdaptiveFileReferenceList fileReferenceList =
+                (FileReferenceList.AdaptiveFileReferenceList) findFileReferenceList(container);
         if (fileReferenceList == null) {
             return null;
         }
@@ -718,10 +728,7 @@ public final class TableUtils {
         }
 
         // Map the clicked JLabel back to its FileReferenceData
-        List<FileReferenceList.FileReferenceData> refs =
-                (fileReferenceList instanceof FileReferenceList.AdaptiveFileReferenceList afl)
-                        ? afl.getVisibleFiles()
-                        : fileReferenceList.fileReferences;
+        List<FileReferenceList.FileReferenceData> refs = fileReferenceList.getVisibleFiles();
 
         for (var ref : refs) {
             if (ref.getBadgeLabel() == clickedLabel) {
@@ -733,7 +740,7 @@ public final class TableUtils {
 
     /** Recursively searches a component hierarchy for a FileReferenceList instance. */
     @Nullable
-    private static FileReferenceList findFileReferenceList(Container container) {
+    static FileReferenceList findFileReferenceList(Container container) {
         for (Component comp : container.getComponents()) {
             if (comp instanceof FileReferenceList frl) {
                 return frl;
@@ -749,63 +756,44 @@ public final class TableUtils {
     }
 
     /**
-     * Checks if the click is likely on the overflow badge area. This is used when findClickedReference returns null but
-     * we have overflow.
+     * Checks if the click is on the overflow badge by hit-testing the component. This is used when findClickedReference
+     * returns null but an overflow badge is present.
      */
-    public static boolean isClickOnOverflowBadge(
-            Point pointInTableCoords,
-            int row,
-            int column,
-            JTable table,
-            List<TableUtils.FileReferenceList.FileReferenceData> visibleReferences,
-            boolean hasOverflow) {
-        if (!hasOverflow || visibleReferences.isEmpty()) {
+    public static boolean isClickOnOverflowBadge(Point pointInTableCoords, int row, int column, JTable table) {
+        // Retrieve the renderer component for the clicked cell
+        Component cellComponent = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
+        if (!(cellComponent instanceof Container container)) {
             return false;
         }
 
-        // Convert to cell-local coordinates
+        // Search for an AdaptiveFileReferenceList inside the renderer hierarchy
+        FileReferenceList.AdaptiveFileReferenceList afl =
+                (FileReferenceList.AdaptiveFileReferenceList) findFileReferenceList(container);
+        if (afl == null || !afl.hasOverflow()) {
+            return false;
+        }
+
+        // This is the overflow badge we are looking for
+        var overflowBadge = afl.getOverflowBadge();
+        if (overflowBadge == null) {
+            // This can happen if the component hasn't been fully constructed yet
+            return false;
+        }
+
+        // Ensure the renderer hierarchy is laid out so child components have valid bounds.
         Rectangle cellRect = table.getCellRect(row, column, false);
-        int xInCell = pointInTableCoords.x - cellRect.x;
-        int yInCell = pointInTableCoords.y - cellRect.y;
-        if (xInCell < 0 || yInCell < 0) return false;
+        container.setBounds(0, 0, cellRect.width, cellRect.height);
+        container.doLayout();
+        afl.doLayout();
 
-        // For WorkspacePanel's new layout where badges are below description text
-        if (column == WorkspacePanel.DESCRIPTION_COLUMN) {
-            var baseFont = table.getFont();
-            var descriptionHeight = table.getFontMetrics(baseFont).getHeight() + 3;
-            if (yInCell < descriptionHeight) {
-                return false;
-            }
-            yInCell -= descriptionHeight;
-        }
+        // Translate the click into the FileReferenceList’s coordinate space
+        Point pointInCell = new Point(pointInTableCoords.x - cellRect.x, pointInTableCoords.y - cellRect.y);
+        Point pointInList = SwingUtilities.convertPoint(cellComponent, pointInCell, afl);
 
-        // Calculate where the overflow badge would be positioned
-        final int hgap = 4;
+        // Identify the child component that was clicked
+        Component clickedComponent = afl.getComponentAt(pointInList);
 
-        // Get the actual renderer component to use its font metrics
-        Component renderer = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
-
-        Font componentFont = renderer.getFont();
-        if (componentFont == null) {
-            componentFont = table.getFont(); // Fallback to table font
-        }
-        var badgeFont = componentFont.deriveFont(Font.PLAIN, componentFont.getSize() * 0.85f);
-        var fm = renderer.getFontMetrics(badgeFont);
-
-        int borderStrokeInset = (int) Math.ceil(FileReferenceList.BORDER_THICKNESS);
-        int textPaddingHorizontal = 6;
-        int totalInsetsPerSide = borderStrokeInset + textPaddingHorizontal;
-
-        // Calculate position after all visible badges
-        int currentX = 0;
-        for (var ref : visibleReferences) {
-            int textWidth = fm.stringWidth(ref.getFileName());
-            int labelWidth = textWidth + (2 * totalInsetsPerSide);
-            currentX += labelWidth + hgap;
-        }
-
-        // The overflow badge starts at currentX
-        // We'll be generous and consider any click past the last visible badge as overflow click
-        return xInCell >= currentX - hgap; // -hgap to be more forgiving
+        // Check if the clicked component is the overflow badge
+        return clickedComponent == overflowBadge;
     }
 }

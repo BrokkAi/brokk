@@ -743,11 +743,6 @@ public class WorkspacePanel extends JPanel {
                 maybeHandleFileRefClick(e);
             }
 
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                maybeHandleFileRefClick(e);
-            }
-
             private void maybeHandleFileRefClick(MouseEvent e) {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
                 if (!e.isPopupTrigger()) {
@@ -765,14 +760,35 @@ public class WorkspacePanel extends JPanel {
                                 var clickedRef = TableUtils.findClickedReference(
                                         e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
 
-                                if (clickedRef != null) {
-                                    // Use ContextMenuUtils directly now that we have the proper data structure
+                                if (clickedRef != null && clickedRef.getRepoFile() != null) {
+                                    // Direct badge click: delegate to central handler
                                     ContextMenuUtils.handleFileReferenceClick(
                                             e,
                                             contextTable,
                                             chrome,
-                                            () -> {}, // Workspace doesn't need to refresh suggestions
+                                            () -> {}, // Workspace doesn’t need to refresh suggestions
                                             DESCRIPTION_COLUMN);
+                                } else {
+                                    // Check for overflow “+ N more” badge click
+                                    boolean isOverflowClick = TableUtils.isClickOnOverflowBadge(
+                                            e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
+                                    if (isOverflowClick) {
+                                        // Obtain the renderer component to fetch hidden files list
+                                        Component rendererComp = contextTable.prepareRenderer(
+                                                contextTable.getCellRenderer(row, DESCRIPTION_COLUMN),
+                                                row,
+                                                DESCRIPTION_COLUMN);
+
+                                        var afl = (TableUtils.FileReferenceList.AdaptiveFileReferenceList)
+                                                TableUtils.findFileReferenceList((Container) rendererComp);
+
+                                        java.util.List<TableUtils.FileReferenceList.FileReferenceData> hiddenFiles =
+                                                afl != null ? afl.getHiddenFiles() : java.util.List.of();
+
+                                        TableUtils.showOverflowPopup(
+                                                chrome, contextTable, row, DESCRIPTION_COLUMN, hiddenFiles);
+                                        e.consume(); // Stop further processing
+                                    }
                                 }
                             }
                         }

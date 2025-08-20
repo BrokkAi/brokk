@@ -158,8 +158,7 @@ public final class ContextMenuUtils {
             // If no visible badge was clicked, check if it was an overflow badge click
             if (targetRef == null && hasOverflow) {
                 // Check if the click is actually on the overflow badge area
-                boolean isOverflowClick =
-                        TableUtils.isClickOnOverflowBadge(p, row, columnIndex, table, visibleFiles, hasOverflow);
+                boolean isOverflowClick = TableUtils.isClickOnOverflowBadge(p, row, columnIndex, table);
                 logger.debug("Overflow badge click check - isOverflowClick={}", isOverflowClick);
                 if (isOverflowClick) {
                     // Show the overflow popup with only the hidden files
