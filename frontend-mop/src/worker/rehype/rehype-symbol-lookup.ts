@@ -1,4 +1,4 @@
-import type {Root} from 'hast';
+import type {Root, Parent} from 'hast';
 import {visit} from 'unist-util-visit';
 
 /**
@@ -40,25 +40,17 @@ export function rehypeSymbolLookup() {
         let totalCodeElements = 0;
         let validSymbols = 0;
 
-        workerLog('info', '[REHYPE-SYMBOL] rehypeSymbolLookup function called!');
-        workerLog('info', '[SYMBOL-DETECT] Starting symbol detection...');
+        workerLog('debug', '[SYMBOL-DETECT] Starting symbol detection...');
 
-        // Visit all elements in the HAST (HTML AST) and log all code-related elements
-        visit(tree, 'element', (node: any) => {
-            // Log all code-related elements for debugging
-            if (node.tagName === 'code') {
-                workerLog('info', `[CODE-ENTRY] Found <code> element: tagName="${node.tagName}", children=${node.children?.length || 0}, properties=${JSON.stringify(node.properties || {})}`);
-            }
-
-            if (node.tagName === 'code' && node.children && node.children.length > 0) {
+        // Visit all elements in the HAST (HTML AST) - only process inline code, not code fences
+        visit(tree, 'element', (node: any, index: number | undefined, parent: Parent | undefined) => {
+            // Only process <code> elements that are NOT inside <pre> (i.e., inline code, not code fences)
+            if (node.tagName === 'code' && parent?.tagName !== 'pre' && node.children && node.children.length > 0) {
                 totalCodeElements++;
                 const textNode = node.children[0];
                 if (textNode && textNode.type === 'text' && textNode.value) {
                     const rawValue = textNode.value;
                     const cleaned = cleanSymbolName(rawValue);
-
-                    // Log every code element found
-                    workerLog('info', `[CODE-ENTRY] Found code element: "${rawValue}" -> cleaned: "${cleaned}"`);
 
                     if (isValidSymbolName(cleaned)) {
                         validSymbols++;
@@ -68,29 +60,17 @@ export function rehypeSymbolLookup() {
                         if (!node.properties) node.properties = {};
                         node.properties['data-symbol-candidate'] = cleaned;
 
-                        workerLog('info', `[SYMBOL-DETECT] Valid symbol candidate: "${cleaned}"`);
-                    } else {
-                        workerLog('info', `[SYMBOL-DETECT] Invalid symbol (too short or bad pattern): "${cleaned}"`);
+                        workerLog('debug', `[SYMBOL-DETECT] Valid inline code symbol: "${cleaned}"`);
                     }
-                } else {
-                    // Log code elements that don't have text content
-                    workerLog('info', `[CODE-ENTRY] Code element without text content: ${JSON.stringify(node)}`);
                 }
             }
         });
-
-        workerLog('info', `[SYMBOL-DETECT] Detection complete: ${totalCodeElements} code elements, ${validSymbols} valid symbols, ${symbols.size} unique symbols`);
-        if (symbols.size > 0) {
-            workerLog('info', `[SYMBOL-DETECT] Symbol candidates: ${Array.from(symbols).join(', ')}`);
-        }
 
         // Store symbols in tree data for post-processing
         if (symbols.size > 0) {
             tree.data = tree.data || {};
             (tree.data as any).symbolCandidates = symbols;
-            workerLog('info', `[SYMBOL-DETECT] Stored ${symbols.size} symbol candidates in tree data`);
-        } else {
-            workerLog('info', '[SYMBOL-DETECT] No symbol candidates found');
+            workerLog('info', `[SYMBOL-DETECT] Found ${symbols.size} inline code symbols for lookup`);
         }
     };
 }
@@ -108,18 +88,14 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
     let candidatesFound = 0;
     let symbolsEnhanced = 0;
 
-    workerLog('info', `[ENHANCE] Starting enhancement with ${Object.keys(symbolResults).length} symbol results`);
-    workerLog('info', `[ENHANCE] Symbol results: ${JSON.stringify(symbolResults)}`);
+    workerLog('debug', `[ENHANCE] Starting enhancement with ${Object.keys(symbolResults).length} symbol results`);
 
     visit(tree, 'element', (node: any) => {
         const symbolCandidate = node.properties?.['data-symbol-candidate'];
         if (symbolCandidate) {
             candidatesFound++;
-            workerLog('info', `[ENHANCE] Found candidate: ${symbolCandidate}`);
-
             if (symbolResults[symbolCandidate]) {
                 const result = symbolResults[symbolCandidate];
-                workerLog('info', `[ENHANCE] Processing symbol: ${symbolCandidate}, exists: ${result.exists}, fqn: ${result.fqn || 'null'}`);
 
                 if (result.exists) {
                     symbolsEnhanced++;
@@ -138,16 +114,11 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
                         node.properties['data-symbol-fqn'] = result.fqn;
                     }
 
-                    workerLog('info', `[ENHANCE] Enhanced symbol: ${symbolCandidate}, className: ${node.properties.className}`);
-                    workerLog('info', `[ENHANCE] Node properties after enhancement: ${JSON.stringify(node.properties)}`);
-                } else {
-                    workerLog('info', `[ENHANCE] Symbol ${symbolCandidate} does not exist`);
+                    workerLog('debug', `[ENHANCE] Enhanced symbol: ${symbolCandidate}`);
                 }
 
                 // Clean up the candidate marker
                 delete node.properties['data-symbol-candidate'];
-            } else {
-                workerLog('warn', `[ENHANCE] No result found for candidate: ${symbolCandidate}`);
             }
         }
     });

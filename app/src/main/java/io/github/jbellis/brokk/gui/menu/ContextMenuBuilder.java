@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.menu;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -13,6 +14,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
+import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
@@ -77,17 +79,50 @@ public class ContextMenuBuilder {
                 symbolContext.contextManager().getAnalyzerWrapper().isReady();
 
         if (symbolContext.symbolExists()) {
-            // Go to Definition
-            var goToDefItem = new JMenuItem("Go to Definition");
-            goToDefItem.setEnabled(analyzerReady);
-            goToDefItem.addActionListener(e -> goToDefinition(symbolContext));
-            menu.add(goToDefItem);
+            // Check if we have multiple FQNs (comma-separated)
+            var fqn = symbolContext.fqn();
+            if (fqn != null && fqn.contains(",")) {
+                // Multiple matches - create submenus
+                var fqns = Splitter.on(',').split(fqn);
+                for (String currentFqn : fqns) {
+                    var submenu = new JMenu(currentFqn.trim());
 
-            // Find References
-            var findRefsItem = new JMenuItem("Find References");
-            findRefsItem.setEnabled(analyzerReady);
-            findRefsItem.addActionListener(e -> findReferences(symbolContext));
-            menu.add(findRefsItem);
+                    // Create a context for this specific FQN
+                    var specificContext = new SymbolMenuContext(
+                            symbolContext.symbolName(),
+                            true,
+                            currentFqn.trim(),
+                            symbolContext.chrome(),
+                            symbolContext.contextManager());
+
+                    // Go to Definition for this specific FQN
+                    var goToDefItem = new JMenuItem("Go to Definition");
+                    goToDefItem.setEnabled(analyzerReady);
+                    goToDefItem.addActionListener(e -> goToDefinition(specificContext));
+                    submenu.add(goToDefItem);
+
+                    // Find References for this specific FQN
+                    var findRefsItem = new JMenuItem("Find References");
+                    findRefsItem.setEnabled(analyzerReady);
+                    findRefsItem.addActionListener(e -> findReferences(specificContext));
+                    submenu.add(findRefsItem);
+
+                    menu.add(submenu);
+                }
+            } else {
+                // Single match - use existing logic
+                // Go to Definition
+                var goToDefItem = new JMenuItem("Go to Definition");
+                goToDefItem.setEnabled(analyzerReady);
+                goToDefItem.addActionListener(e -> goToDefinition(symbolContext));
+                menu.add(goToDefItem);
+
+                // Find References
+                var findRefsItem = new JMenuItem("Find References");
+                findRefsItem.setEnabled(analyzerReady);
+                findRefsItem.addActionListener(e -> findReferences(symbolContext));
+                menu.add(findRefsItem);
+            }
 
             menu.addSeparator();
         }

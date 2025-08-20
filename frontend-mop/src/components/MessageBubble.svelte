@@ -10,6 +10,7 @@
 
   const log = createLogger('symbol-click');
 
+
   function handleSymbolClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
     if (target.tagName === 'CODE' && target.classList.contains('symbol-exists')) {
@@ -74,6 +75,7 @@
   </div>
 </div>
 
+
 <style>
   .message-wrapper {
     display: flex;
@@ -97,4 +99,5 @@
     font-weight: 600;
     font-size: 0.95rem;
   }
+
 </style>

@@ -82,7 +82,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void updateTheme(boolean isDark) {
-        webHost.setTheme(isDark);
+        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+        webHost.setTheme(isDark, isDevMode);
     }
 
     public void setBlocking(boolean blocked) {

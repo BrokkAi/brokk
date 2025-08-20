@@ -134,11 +134,11 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark) {
+    public void setTheme(boolean isDark, boolean isDevMode) {
         Platform.runLater(() -> {
             try {
-                engine.executeScript(
-                        "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + "); }");
+                engine.executeScript("if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark
+                        + ", " + isDevMode + "); }");
             } catch (Exception e) {
                 logger.debug("setTheme failed (page not ready): {}", e.getMessage());
             }
