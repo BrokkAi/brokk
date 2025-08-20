@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.WorkspacePanel.DescriptionWithReferences;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
@@ -695,42 +696,44 @@ public final class TableUtils {
     public static TableUtils.FileReferenceList.FileReferenceData findClickedReference(
             Point pointInTableCoords, int row, int column, JTable table) {
 
-        // Retrieve the renderer component for the clicked cell
+        // Get the renderer component for the cell
         Component cellComponent = table.prepareRenderer(table.getCellRenderer(row, column), row, column);
         if (!(cellComponent instanceof Container container)) {
             return null;
         }
 
-        // Search for an AdaptiveFileReferenceList inside the renderer hierarchy
-        FileReferenceList.AdaptiveFileReferenceList fileReferenceList =
-                (FileReferenceList.AdaptiveFileReferenceList) findFileReferenceList(container);
-        if (fileReferenceList == null) {
+        // Retrieve file references directly from the table model
+        Object cellValue = table.getModel().getValueAt(row, column);
+        List<FileReferenceList.FileReferenceData> fileReferences = switch (cellValue) {
+            case DescriptionWithReferences dwr -> dwr.fileReferences();
+            case List<?> list
+                    when !list.isEmpty() && list.getFirst() instanceof FileReferenceList.FileReferenceData -> {
+                // Safe unchecked cast – enforced by the guard above
+                @SuppressWarnings("unchecked")
+                var casted = (List<FileReferenceList.FileReferenceData>) list;
+                yield casted;
+            }
+            default -> List.of();
+        };
+
+        if (fileReferences.isEmpty()) {
             return null;
         }
 
-        // Compute the cell rectangle (needed for size/layout adjustments)
+        // Layout the renderer so children have real bounds
         Rectangle cellRect = table.getCellRect(row, column, false);
-
-        // Ensure the renderer hierarchy is laid out so child components have valid bounds.
-        // Without this, components may report (0,0) size which breaks hit detection.
         container.setBounds(0, 0, cellRect.width, cellRect.height);
         container.doLayout();
-        fileReferenceList.doLayout();
 
-        // Translate the click into the FileReferenceList’s coordinate space
+        // Translate click to cell-relative coordinates
         Point pointInCell = new Point(pointInTableCoords.x - cellRect.x, pointInTableCoords.y - cellRect.y);
-        Point pointInList = SwingUtilities.convertPoint(cellComponent, pointInCell, fileReferenceList);
-
-        // Identify the child component that was clicked
-        Component clickedComponent = fileReferenceList.getComponentAt(pointInList);
+        Component clickedComponent = container.getComponentAt(pointInCell);
         if (!(clickedComponent instanceof JLabel clickedLabel)) {
             return null;
         }
 
-        // Map the clicked JLabel back to its FileReferenceData
-        List<FileReferenceList.FileReferenceData> refs = fileReferenceList.getVisibleFiles();
-
-        for (var ref : refs) {
+        // Match the clicked label to its FileReferenceData
+        for (var ref : fileReferences) {
             if (ref.getBadgeLabel() == clickedLabel) {
                 return ref;
             }

@@ -486,7 +486,7 @@ public class WorkspacePanel extends JPanel {
             JPanel panel = new JPanel();
             // FlowLayout centers components vertically within the row, keeping badges aligned
             // with the description text.
-            panel.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 0));
+            panel.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 2));
             panel.setOpaque(true);
 
             // Set colors based on selection
@@ -523,39 +523,71 @@ public class WorkspacePanel extends JPanel {
                 // Add small horizontal gap between description and badges
                 panel.add(Box.createHorizontalStrut(3));
 
-                // Calculate available width for badges (table column width minus padding and description width)
-                int availableWidth = table.getColumnModel().getColumn(column).getWidth()
-                        - 20
-                        - descLabel.getPreferredSize().width; // Leave some padding
+                // Create badges directly on the main panel so FlowLayout can wrap them.
+                var badgeFactory = new TableUtils.FileReferenceList(); // factory for styled badges
+                badgeFactory.setSelected(isSelected);
 
-                // Create adaptive file reference list
-                var badgeList =
-                        new TableUtils.FileReferenceList.AdaptiveFileReferenceList(fileReferences, availableWidth, 4);
-                badgeList.setOpaque(false);
-                badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
-                badgeList.setAlignmentY(Component.CENTER_ALIGNMENT);
-
-                // Set badge colors based on selection
-                badgeList.setSelected(isSelected);
-
-                panel.add(badgeList);
+                for (var ref : fileReferences) {
+                    JLabel badge = badgeFactory.createBadgeLabel(ref.getFileName());
+                    badge.setOpaque(false);
+                    badge.setToolTipText(ref.getFullPath());
+                    ref.setBadgeLabel(badge);
+                    panel.add(badge);
+                }
             }
 
-            // Calculate preferred height
-            int preferredHeight = calculatePreferredHeight(panel);
+            // Calculate preferred height based on current column width.
+                // Clamp to the viewport width so we don't over-estimate and miss a wrap.
+                int colWidth = table.getColumnModel().getColumn(column).getWidth();
+                if (table.getParent() instanceof javax.swing.JViewport viewport) {
+                    int viewportWidth = viewport.getExtentSize().width;
+                    colWidth = Math.min(colWidth, viewportWidth);
+                }
+            int preferredHeight = calculatePreferredHeight(panel, colWidth);
 
             // Set row height if different from current
             if (table.getRowHeight(row) != preferredHeight) {
-                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
+                table.setRowHeight(row, preferredHeight);
             }
 
             return panel;
         }
 
-        private int calculatePreferredHeight(JPanel panel) {
-            // Force layout to get accurate measurements
-            panel.doLayout();
-            return panel.getPreferredSize().height;
+        private int calculatePreferredHeight(JPanel panel, int width) {
+            // Manually compute how many rows the FlowLayout will need
+            var layout = (FlowLayout) panel.getLayout();
+            int hgap = layout.getHgap();
+            int vgap = layout.getVgap();
+
+            int rowWidth = 0;
+            int rowHeight = Constants.V_GAP;
+            int maxCompHeightInRow = 0;
+
+            for (Component comp : panel.getComponents()) {
+                if (!comp.isVisible()) continue;
+
+                Dimension d = comp.getPreferredSize();
+                // First component in a new row
+                if (rowWidth == 0) {
+                    rowWidth = d.width;
+                    maxCompHeightInRow = d.height;
+                } else if (rowWidth + hgap + d.width <= width) {
+                    // Fits in current row
+                    rowWidth += hgap + d.width;
+                    maxCompHeightInRow = Math.max(maxCompHeightInRow, d.height);
+                } else {
+                    // Wrap to next row
+                    rowHeight += maxCompHeightInRow + vgap;
+                    rowWidth = d.width;
+                    maxCompHeightInRow = d.height;
+                }
+            }
+
+            // Add height for the last row
+            rowHeight += maxCompHeightInRow;
+
+            Insets insets = panel.getInsets();
+            return rowHeight + insets.top + insets.bottom;
         }
     }
 
