@@ -4,17 +4,26 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import java.awt.*;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.*;
 import javax.swing.tree.DefaultTreeCellRenderer;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 public class FileTreePanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(FileTreePanel.class);
+
     private final JTree fileTree;
     private final DefaultTreeModel treeModel;
     private DefaultMutableTreeNode rootNode;
@@ -32,7 +41,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     @Nullable
     private FileSelectionListener selectionListener;
 
-    private boolean suppressSelectionEvents = false;
+    private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
 
     public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot) {
         this(fileComparisons, projectRoot, null);
@@ -53,7 +62,6 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         scrollPane = new JScrollPane(fileTree);
 
         setupTree();
-        buildTree();
 
         add(scrollPane, BorderLayout.CENTER);
     }
@@ -62,12 +70,12 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         fileTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
         fileTree.setRootVisible(true);
         fileTree.setShowsRootHandles(true);
-        fileTree.setCellRenderer(new FileTreeCellRenderer(this));
+        fileTree.setCellRenderer(new FileTreeCellRenderer(() -> this.currentTheme));
 
         fileTree.addTreeSelectionListener(new TreeSelectionListener() {
             @Override
             public void valueChanged(TreeSelectionEvent e) {
-                if (suppressSelectionEvents || selectionListener == null) {
+                if (suppressSelectionEvents.get() || selectionListener == null) {
                     return;
                 }
 
@@ -85,48 +93,80 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         });
     }
 
+    public void initializeTree() {
+        buildTree();
+    }
+
     private void buildTree() {
         rootNode.removeAllChildren();
 
-        // Collect all files with their complete paths
-        var allFiles = new ArrayList<FileWithPath>();
-        for (int i = 0; i < fileComparisons.size(); i++) {
-            var comparison = fileComparisons.get(i);
-            var filePath = extractFilePath(comparison);
-            if (filePath != null) {
-                var path = Path.of(filePath);
-                var status = determineDiffStatus(comparison);
-                allFiles.add(new FileWithPath(path, i, status));
+        // Show loading state immediately
+        var loadingNode = new DefaultMutableTreeNode("Loading files...");
+        rootNode.add(loadingNode);
+        treeModel.reload();
+
+        // Perform file operations in background thread
+        new SwingWorker<List<FileWithPath>, Void>() {
+            @Override
+            protected List<FileWithPath> doInBackground() throws Exception {
+                assert !SwingUtilities.isEventDispatchThread() : "Background work should not run on EDT";
+
+                // Collect all files with their complete paths and determine status
+                var allFiles = IntStream.range(0, fileComparisons.size())
+                        .mapToObj(i -> {
+                            var comparison = fileComparisons.get(i);
+                            var filePath = extractFilePath(comparison);
+                            if (filePath != null) {
+                                var path = Path.of(filePath);
+                                var status = determineDiffStatus(comparison); // File I/O happens in background
+                                return new FileWithPath(path, i, status);
+                            }
+                            return null;
+                        })
+                        .filter(Objects::nonNull)
+                        .sorted(Comparator.comparing(f -> f.path.toString()))
+                        .collect(Collectors.toCollection(ArrayList::new));
+
+                return allFiles;
             }
-        }
 
-        // Sort files by their full path to ensure consistent ordering
-        allFiles.sort(Comparator.comparing(f -> f.path.toString()));
+            @Override
+            protected void done() {
+                assert SwingUtilities.isEventDispatchThread() : "UI updates must run on EDT";
 
-        // Build the complete directory structure and place files
-        for (var fileWithPath : allFiles) {
-            var path = fileWithPath.path;
-            var fileName = path.getFileName().toString();
-            var parentPath = path.getParent();
+                try {
+                    var allFiles = get();
 
-            // Find or create the parent directory node
-            var parentNode = parentPath == null ? rootNode : findOrCreateDirectoryNode(rootNode, parentPath);
+                    // Clear loading state and build the complete directory structure
+                    rootNode.removeAllChildren();
+                    allFiles.forEach(fileWithPath -> {
+                        var path = fileWithPath.path;
+                        var fileName = path.getFileName().toString();
+                        var parentPath = path.getParent();
 
-            // Create and add the file node
-            var fileInfo = new FileInfo(fileName, fileWithPath.index, fileWithPath.status);
-            var fileNode = new DefaultMutableTreeNode(fileInfo);
-            parentNode.add(fileNode);
-        }
+                        // Find or create the parent directory node
+                        var parentNode =
+                                parentPath == null ? rootNode : findOrCreateDirectoryNode(rootNode, parentPath);
 
-        SwingUtilities.invokeLater(() -> {
-            treeModel.reload();
-            expandAllNodes();
-            // Ensure tree is properly sized and scroll to top-left
-            fileTree.revalidate();
-            SwingUtilities.invokeLater(() -> {
-                scrollPane.getViewport().setViewPosition(new Point(0, 0));
-            });
-        });
+                        // Create and add the file node
+                        var fileInfo = new FileInfo(fileName, fileWithPath.index, fileWithPath.status);
+                        var fileNode = new DefaultMutableTreeNode(fileInfo);
+                        parentNode.add(fileNode);
+                    });
+
+                    // Update UI components
+                    treeModel.reload();
+                    expandAllNodes();
+                    fileTree.revalidate();
+                    SwingUtilities.invokeLater(() -> {
+                        scrollPane.getViewport().setViewPosition(new Point(0, 0));
+                    });
+                } catch (Exception e) {
+                    // Handle file I/O errors gracefully
+                    logger.error("Error building file tree", e);
+                }
+            }
+        }.execute();
     }
 
     private DefaultMutableTreeNode findOrCreateDirectoryNode(DefaultMutableTreeNode root, Path dirPath) {
@@ -309,8 +349,13 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             } else if (rightPath != null && Path.of(rightPath).isAbsolute()) {
                 selectedPath = rightPath;
             }
-        } catch (Exception e) {
-            // If path parsing fails, continue with directory structure check
+        } catch (InvalidPathException e) {
+            logger.warn(
+                    "Invalid path encountered during absolute path check - leftPath: '{}', rightPath: '{}'",
+                    leftPath,
+                    rightPath,
+                    e);
+            // Continue with directory structure check
         }
 
         // If no absolute path found, prefer paths with directory structure
@@ -346,8 +391,9 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                 var relativePath = projectRoot.relativize(path);
                 return relativePath.toString();
             }
-        } catch (Exception e) {
-            // If path parsing fails, return original path
+        } catch (InvalidPathException e) {
+            logger.warn("Invalid path encountered while stripping project root: '{}'", filePath, e);
+            // Return original path for further processing
         }
 
         return filePath;
@@ -366,37 +412,27 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private DiffStatus determineDiffStatus(BrokkDiffPanel.FileComparisonInfo comparison) {
-        var leftContent = getSourceContent(comparison.leftSource);
-        var rightContent = getSourceContent(comparison.rightSource);
+        boolean leftExists = hasContent(comparison.leftSource);
+        boolean rightExists = hasContent(comparison.rightSource);
 
-        // Check for deleted files: left has content, right is null or empty
-        if (leftContent != null && !leftContent.isEmpty() && (rightContent == null || rightContent.isEmpty())) {
+        if (leftExists && !rightExists) {
             return DiffStatus.DELETED;
-        }
-        // Check for added files: right has content, left is null or empty
-        else if (rightContent != null && !rightContent.isEmpty() && (leftContent == null || leftContent.isEmpty())) {
+        } else if (!leftExists && rightExists) {
             return DiffStatus.ADDED;
-        }
-        // Both have content - compare for changes
-        else if (leftContent != null && rightContent != null) {
-            return leftContent.equals(rightContent) ? DiffStatus.UNCHANGED : DiffStatus.MODIFIED;
+        } else if (leftExists && rightExists) {
+            return DiffStatus.MODIFIED;
         }
 
         return DiffStatus.UNCHANGED;
     }
 
-    @Nullable
-    private String getSourceContent(BufferSource source) {
+    private boolean hasContent(BufferSource source) {
         if (source instanceof BufferSource.StringSource ss) {
-            return ss.content();
+            return !ss.content().isEmpty();
         } else if (source instanceof BufferSource.FileSource fs) {
-            try {
-                return java.nio.file.Files.readString(fs.file().toPath());
-            } catch (Exception e) {
-                return null;
-            }
+            return fs.file().exists() && fs.file().length() > 0;
         }
-        return null;
+        return false;
     }
 
     private void expandAllNodes() {
@@ -421,10 +457,11 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
     public void selectFile(int fileIndex) {
         if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
+            logger.warn("Invalid file index: {} (valid range: 0-{})", fileIndex, fileComparisons.size() - 1);
             return;
         }
 
-        suppressSelectionEvents = true;
+        suppressSelectionEvents.set(true);
         try {
             var targetPath = findPathForFileIndex(fileIndex);
             if (targetPath != null) {
@@ -432,7 +469,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                 fileTree.scrollPathToVisible(targetPath);
             }
         } finally {
-            suppressSelectionEvents = false;
+            suppressSelectionEvents.set(false);
         }
     }
 
@@ -473,10 +510,10 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private static class FileTreeCellRenderer extends DefaultTreeCellRenderer {
-        private final FileTreePanel parentPanel;
+        private final Supplier<GuiTheme> themeProvider;
 
-        public FileTreeCellRenderer(FileTreePanel parentPanel) {
-            this.parentPanel = parentPanel;
+        public FileTreeCellRenderer(Supplier<GuiTheme> themeProvider) {
+            this.themeProvider = themeProvider;
         }
 
         @Override
@@ -489,7 +526,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
             if (userObject instanceof FileInfo fileInfo) {
                 setText(fileInfo.name());
-                setIcon(getDiffStatusIcon(fileInfo.status(), parentPanel.getCurrentTheme()));
+                setIcon(getDiffStatusIcon(fileInfo.status(), themeProvider.get()));
                 setToolTipText(fileInfo.name() + " (" + getStatusText(fileInfo.status()) + ")");
             } else if (node instanceof CollapsedDirectoryNode collapsedNode) {
                 setText(collapsedNode.getDisplayName());
