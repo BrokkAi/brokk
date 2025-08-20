@@ -139,6 +139,7 @@ public final class MOPWebViewHost extends JPanel {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
+                    var originalInfo = console.info;
 
                     function toStringWithStack(arg) {
                         return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
@@ -158,6 +159,11 @@ public final class MOPWebViewHost extends JPanel {
                         var msg = Array.from(arguments).map(toStringWithStack).join(' ');
                         if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
                         originalWarn.apply(console, arguments);
+                    };
+                    console.info = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
+                        originalInfo.apply(console, arguments);
                     };
                 })();
                 """); // Install wheel event override for platform-specific scroll speed

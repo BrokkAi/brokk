@@ -105,6 +105,15 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? baseProcessor : currentProcessor;
+
+    // Log which processor is being used
+    const processorType = fast ? 'baseProcessor' : (currentProcessor === shikiProcessor ? 'shikiProcessor' : 'baseProcessor');
+    workerLog('info', `[markdown-worker] Using ${processorType} for parsing (fast=${fast})`);
+
+    // Log if the source contains code elements
+    const hasInlineCode = src.includes('`');
+    const hasCodeBlock = src.includes('```');
+    workerLog('info', `[markdown-worker] Source contains: ${hasInlineCode ? 'inline code' : 'no inline'}, ${hasCodeBlock ? 'code blocks' : 'no blocks'}`);
     let tree: HastRoot = null;
     let mdastTree: Root = null;
     try {
