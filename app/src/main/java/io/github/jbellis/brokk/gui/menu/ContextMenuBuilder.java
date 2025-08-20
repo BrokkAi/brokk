@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.RunTestsService;
 import java.awt.Component;
+import java.awt.Container;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 import java.util.Collections;
@@ -95,33 +96,14 @@ public class ContextMenuBuilder {
                             symbolContext.chrome(),
                             symbolContext.contextManager());
 
-                    // Go to Definition for this specific FQN
-                    var goToDefItem = new JMenuItem("Go to Definition");
-                    goToDefItem.setEnabled(analyzerReady);
-                    goToDefItem.addActionListener(e -> goToDefinition(specificContext));
-                    submenu.add(goToDefItem);
-
-                    // Find References for this specific FQN
-                    var findRefsItem = new JMenuItem("Find References");
-                    findRefsItem.setEnabled(analyzerReady);
-                    findRefsItem.addActionListener(e -> findReferences(specificContext));
-                    submenu.add(findRefsItem);
+                    // Add symbol actions to this submenu
+                    addSymbolActions(submenu, specificContext, analyzerReady);
 
                     menu.add(submenu);
                 }
             } else {
-                // Single match - use existing logic
-                // Go to Definition
-                var goToDefItem = new JMenuItem("Go to Definition");
-                goToDefItem.setEnabled(analyzerReady);
-                goToDefItem.addActionListener(e -> goToDefinition(symbolContext));
-                menu.add(goToDefItem);
-
-                // Find References
-                var findRefsItem = new JMenuItem("Find References");
-                findRefsItem.setEnabled(analyzerReady);
-                findRefsItem.addActionListener(e -> findReferences(symbolContext));
-                menu.add(findRefsItem);
+                // Single match - add symbol actions directly to main menu
+                addSymbolActions(menu, symbolContext, analyzerReady);
             }
 
             menu.addSeparator();
@@ -131,6 +113,21 @@ public class ContextMenuBuilder {
         var copyItem = new JMenuItem("Copy Symbol Name");
         copyItem.addActionListener(e -> copySymbolName(symbolContext));
         menu.add(copyItem);
+    }
+
+    /** Helper method to add symbol actions (Go to Definition, Find References) to a container */
+    private void addSymbolActions(Container parent, SymbolMenuContext context, boolean analyzerReady) {
+        // Go to Definition
+        var goToDefItem = new JMenuItem("Go to Definition");
+        goToDefItem.setEnabled(analyzerReady);
+        goToDefItem.addActionListener(e -> goToDefinition(context));
+        parent.add(goToDefItem);
+
+        // Find References
+        var findRefsItem = new JMenuItem("Find References");
+        findRefsItem.setEnabled(analyzerReady);
+        findRefsItem.addActionListener(e -> findReferences(context));
+        parent.add(findRefsItem);
     }
 
     private void buildFileMenu() {
