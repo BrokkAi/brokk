@@ -5,6 +5,9 @@ import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.difftool.utils.ColorUtil;
+import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
@@ -15,15 +18,22 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.Path2D;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
+import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
@@ -42,6 +52,7 @@ public class SessionsDialog extends JDialog {
     // Activity history components
     private JTable activityTable;
     private DefaultTableModel activityTableModel;
+    private ResetArrowLayerUI arrowLayerUI;
 
     // Preview components
     private WorkspacePanel workspacePanel;
@@ -120,39 +131,9 @@ public class SessionsDialog extends JDialog {
         activityTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         activityTable.setTableHeader(null);
 
-        // Set up tooltip renderer for activity description column
-        activityTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label =
-                        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                label.setToolTipText(value.toString());
-                return label;
-            }
-        });
-
-        // Set up icon renderer for first column of activity table
-        activityTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(
-                    JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                JLabel label =
-                        (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-
-                // Set icon and center-align
-                if (value instanceof Icon icon) {
-                    label.setIcon(icon);
-                    label.setText("");
-                } else {
-                    label.setIcon(null);
-                    label.setText(value != null ? value.toString() : "");
-                }
-                label.setHorizontalAlignment(JLabel.CENTER);
-
-                return label;
-            }
-        });
+        // Set up custom renderers for activity table columns
+        activityTable.getColumnModel().getColumn(0).setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
+        activityTable.getColumnModel().getColumn(1).setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
 
         // Adjust activity table column widths
         activityTable.getColumnModel().getColumn(0).setPreferredWidth(30);
@@ -174,6 +155,9 @@ public class SessionsDialog extends JDialog {
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
+        // Initialize arrow layer UI for activity table
+        this.arrowLayerUI = new ResetArrowLayerUI(this.activityTable, this.activityTableModel);
+
         // Initialize buttons
         closeButton = new JButton("Close");
     }
@@ -191,7 +175,9 @@ public class SessionsDialog extends JDialog {
         JPanel activityPanel = new JPanel(new BorderLayout());
         activityPanel.setBorder(BorderFactory.createTitledBorder("Activity"));
         JScrollPane activityScrollPane = new JScrollPane(activityTable);
-        activityPanel.add(activityScrollPane, BorderLayout.CENTER);
+        var layer = new JLayer<>(activityScrollPane, arrowLayerUI);
+        activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
+        activityPanel.add(layer, BorderLayout.CENTER);
 
         // Create workspace panel without additional border (workspacePanel already has its own border)
         JPanel workspacePanelContainer = new JPanel(new BorderLayout());
@@ -334,6 +320,7 @@ public class SessionsDialog extends JDialog {
         activityTableModel.setRowCount(0);
 
         if (history.getHistory().isEmpty()) {
+            arrowLayerUI.setResetEdges(List.of());
             return;
         }
 
@@ -345,6 +332,10 @@ public class SessionsDialog extends JDialog {
                     new Object[] {iconEmoji, ctx.getAction(), ctx // Store the actual context object in hidden column
                     });
         }
+
+        // Update reset edges for arrow painter
+        var resetEdges = history.getResetEdges();
+        arrowLayerUI.setResetEdges(resetEdges);
 
         // Select the most recent item (last row) if available
         SwingUtilities.invokeLater(() -> {
@@ -512,6 +503,156 @@ public class SessionsDialog extends JDialog {
         // Clean up MOP resources
         markdownOutputPanel.dispose();
         super.dispose();
+    }
+
+    /** A LayerUI that paints reset-from-history arrows over the history table. */
+    private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
+        private final JTable table;
+        private final DefaultTableModel model;
+        private List<ContextHistory.ResetEdge> resetEdges = List.of();
+        private final Map<ContextHistory.ResetEdge, Integer> edgePaletteIndices = new HashMap<>();
+        private int nextPaletteIndex = 0;
+
+        public ResetArrowLayerUI(JTable table, DefaultTableModel model) {
+            this.table = table;
+            this.model = model;
+        }
+
+        public void setResetEdges(List<ContextHistory.ResetEdge> edges) {
+            this.resetEdges = edges;
+            // remove color mappings for edges that no longer exist
+            edgePaletteIndices.keySet().retainAll(new HashSet<>(edges));
+            firePropertyChange("resetEdges", null, edges); // Triggers repaint for the JLayer
+        }
+
+        private record Arrow(ContextHistory.ResetEdge edge, int sourceRow, int targetRow, int length) {}
+
+        private Color colorFor(ContextHistory.ResetEdge edge, boolean isDark) {
+            int paletteIndex = edgePaletteIndices.computeIfAbsent(edge, e -> {
+                int i = nextPaletteIndex;
+                nextPaletteIndex = (nextPaletteIndex + 1) % 4; // Cycle through 4 colors
+                return i;
+            });
+
+            // For light mode, we want darker lines for better contrast against a light background.
+            // For dark mode, we want brighter lines.
+            var palette = List.of(
+                    isDark ? Color.LIGHT_GRAY : Color.DARK_GRAY,
+                    isDark
+                            ? ColorUtil.brighter(Colors.getAdded(true), 0.4f)
+                            : ColorUtil.brighter(Colors.getAdded(false), -0.4f),
+                    isDark
+                            ? ColorUtil.brighter(Colors.getChanged(true), 0.6f)
+                            : ColorUtil.brighter(Colors.getChanged(false), -0.4f),
+                    isDark
+                            ? ColorUtil.brighter(Colors.getDeleted(true), 1.2f)
+                            : ColorUtil.brighter(Colors.getDeleted(false), -0.4f));
+            return palette.get(paletteIndex);
+        }
+
+        @Override
+        public void paint(Graphics g, JComponent c) {
+            super.paint(g, c);
+            if (resetEdges.isEmpty()) {
+                return;
+            }
+
+            Map<UUID, Integer> contextIdToRow = new HashMap<>();
+            for (int i = 0; i < model.getRowCount(); i++) {
+                Context ctx = (Context) model.getValueAt(i, 2);
+                if (ctx != null) {
+                    contextIdToRow.put(ctx.id(), i);
+                }
+            }
+
+            // 1. Build list of all possible arrows with their geometry
+            List<Arrow> arrows = new ArrayList<>();
+            for (var edge : resetEdges) {
+                Integer sourceRow = contextIdToRow.get(edge.sourceId());
+                Integer targetRow = contextIdToRow.get(edge.targetId());
+                if (sourceRow != null && targetRow != null) {
+                    var sourceRect = table.getCellRect(sourceRow, 0, true);
+                    var targetRect = table.getCellRect(targetRow, 0, true);
+                    int y1 = sourceRect.y + sourceRect.height / 2;
+                    int y2 = targetRect.y + targetRect.height / 2;
+                    arrows.add(new Arrow(edge, sourceRow, targetRow, Math.abs(y1 - y2)));
+                }
+            }
+
+            // 2. Draw arrows, longest first to prevent shorter arrows from being hidden
+            arrows.sort(Comparator.comparingInt((Arrow a) -> a.length).reversed());
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                float lineWidth = (float)
+                        (c.getGraphicsConfiguration().getDefaultTransform().getScaleX() >= 2 ? 0.75 : 1.0);
+                g2.setStroke(new BasicStroke(lineWidth));
+
+                boolean isDark = chrome.getTheme().isDarkTheme();
+                for (var arrow : arrows) {
+                    g2.setColor(colorFor(arrow.edge(), isDark));
+                    drawArrow(g2, c, arrow.sourceRow(), arrow.targetRow());
+                }
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private void drawArrow(Graphics2D g2, JComponent c, int sourceRow, int targetRow) {
+            Rectangle sourceRect = table.getCellRect(sourceRow, 0, true);
+            Rectangle targetRect = table.getCellRect(targetRow, 0, true);
+
+            // Convert cell rectangles to the JLayer's coordinate system
+            Point sourcePoint = SwingUtilities.convertPoint(
+                    table, new Point(sourceRect.x, sourceRect.y + sourceRect.height / 2), c);
+            Point targetPoint = SwingUtilities.convertPoint(
+                    table, new Point(targetRect.x, targetRect.y + targetRect.height / 2), c);
+
+            // Don't draw if either point is outside the visible viewport
+            if (!c.getVisibleRect().contains(sourcePoint) && !c.getVisibleRect().contains(targetPoint)) {
+                // a bit of a hack -- if just one is visible, we still want to draw part of the arrow
+                if (c.getVisibleRect().contains(sourcePoint)
+                        || c.getVisibleRect().contains(targetPoint)) {
+                    // one is visible, fall through
+                } else {
+                    return;
+                }
+            }
+
+            int iconColWidth = table.getColumnModel().getColumn(0).getWidth();
+            int arrowHeadLength = 5;
+            int arrowLeadIn = 1; // length of the line segment before the arrowhead
+            int arrowRightMargin = -2; // margin from the right edge of the column
+
+            int tipX = sourcePoint.x + iconColWidth - arrowRightMargin;
+            int baseX = tipX - arrowHeadLength;
+            int verticalLineX = baseX - arrowLeadIn;
+
+            // Define the path for the arrow shaft
+            Path2D.Double path = new Path2D.Double();
+            path.moveTo(tipX, sourcePoint.y); // Start at source, aligned with the eventual arrowhead tip
+            path.lineTo(verticalLineX, sourcePoint.y); // Horizontal segment at source row
+            path.lineTo(verticalLineX, targetPoint.y); // Vertical segment connecting rows
+            path.lineTo(baseX, targetPoint.y); // Horizontal segment leading to arrowhead base
+            g2.draw(path);
+
+            // Draw the arrowhead at the target, pointing left-to-right
+            drawArrowHead(g2, new Point(tipX, targetPoint.y), arrowHeadLength);
+        }
+
+        private void drawArrowHead(Graphics2D g2, Point to, int size) {
+            // The arrow is always horizontal, left-to-right. Build an isosceles triangle.
+            int tipX = to.x;
+            int midY = to.y;
+            int baseX = to.x - size;
+            int halfHeight = (int) Math.round(size * 0.6); // Make it slightly wider than it is long
+
+            var head = new Polygon(
+                    new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
+            g2.fill(head);
+        }
     }
 
     // ---------- Static helpers for other UI components ----------
