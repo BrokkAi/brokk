@@ -24,7 +24,7 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (type == ChatMessageType.AI) {
             if (isNewMessage && streamingAiMessage.length() > 0) {
                 llmRawMessages.add(new AiMessage(streamingAiMessage.toString()));
@@ -52,7 +52,7 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public List<ChatMessage> getLlmRawMessages() {
+    public List<ChatMessage> getLlmRawMessages(boolean includeStreaming) {
         finishStreamingAiMessage();
         return llmRawMessages;
     }

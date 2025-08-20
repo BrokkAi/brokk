@@ -8,5 +8,5 @@ public class NoOpConsoleIO implements IConsoleIO {
     public void toolError(String msg, String title) {}
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {}
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {}
 }

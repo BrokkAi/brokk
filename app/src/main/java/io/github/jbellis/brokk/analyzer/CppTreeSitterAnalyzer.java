@@ -298,14 +298,14 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
             resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, fileContent);
             resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, fileContent);
-            resultSkeletons = namespaceProcessor.mergeNamespaceBlocks(
-                    resultSkeletons,
+            final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
+            resultSkeletons = withSignatures(signatures -> namespaceProcessor.mergeNamespaceBlocks(
+                    tempSkeletons,
                     signatures,
                     file,
                     rootNode,
                     fileContent,
-                    namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
-
+                    namespaceName -> getOrCreateCodeUnit(file, CodeUnitType.MODULE, "", namespaceName)));
             if (isHeaderFile(file)) {
                 resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
             }
@@ -433,12 +433,13 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         return codeUnitRegistry;
     }
 
+    @Override
     @SuppressWarnings("RedundantNullCheck")
     public void clearCaches() {
+        super.clearCaches(); // Clear cached trees to free memory
         fileContentCache.clear();
         skeletonGenerator.clearCache();
         namespaceProcessor.clearCache();
-        parsedTreeCache.clear(); // Clear cached trees to free memory
         if (codeUnitRegistry != null) {
             codeUnitRegistry.clear();
         }
@@ -498,7 +499,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         return String.format(
                 "FileContent: %d, ParsedTrees: %d, SkeletonGen: %d, NamespaceProc: %d",
                 fileContentCache.size(),
-                parsedTreeCache.size(),
+                super.cacheSize(),
                 skeletonGenerator.getCacheSize(),
                 namespaceProcessor.getCacheSize());
     }

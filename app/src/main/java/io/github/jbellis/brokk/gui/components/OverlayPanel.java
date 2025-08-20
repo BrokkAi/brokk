@@ -63,6 +63,13 @@ public class OverlayPanel extends JPanel {
                         onActivate.accept(OverlayPanel.this);
                     }
                 }
+
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    if (isActive) {
+                        onActivate.accept(OverlayPanel.this);
+                    }
+                }
             });
         } else {
             // If non-blocking, don't handle clicks, just make sure mouse events pass through

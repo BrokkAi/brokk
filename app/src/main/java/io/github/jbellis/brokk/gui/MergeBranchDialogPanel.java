@@ -118,7 +118,7 @@ public class MergeBranchDialogPanel extends JDialog {
      */
     public MergeDialogResult showDialog(GitRepo gitRepo, ContextManager contextManager) {
         // Set up merge mode from last-used, and persist changes
-        var mainProject = (MainProject) contextManager.getProject().getParent();
+        var mainProject = contextManager.getProject().getMainProject();
         var lastMergeMode = mainProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
         mergeModeComboBox.setSelectedItem(lastMergeMode);
 

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -60,12 +61,11 @@ public final class CSharpAnalyzerTest {
                 normalize.apply(expectedClassASkeleton), normalize.apply(classASkeleton), "Class A skeleton mismatch.");
 
         // Check that attribute_list capture does not result in top-level CodeUnits or signatures
-        boolean hasAnnotationSignature = ((TreeSitterAnalyzer) analyzer)
-                .signatures.keySet().stream()
-                        .filter(cu -> cu.source().equals(fileA))
-                        .anyMatch(cu -> "annotation".equals(cu.shortName())
-                                || (cu.packageName() != null && cu.packageName().equals("annotation"))
-                                || cu.identifier().startsWith("annotation"));
+        boolean hasAnnotationSignature = analyzer.withSignatures(Map::keySet).stream()
+                .filter(cu -> cu.source().equals(fileA))
+                .anyMatch(cu -> "annotation".equals(cu.shortName())
+                        || (cu.packageName() != null && cu.packageName().equals("annotation"))
+                        || cu.identifier().startsWith("annotation"));
         assertFalse(hasAnnotationSignature, "No signatures from 'annotation' captures expected.");
 
         Set<CodeUnit> declarationsInA_Cs = analyzer.getDeclarationsInFile(fileA);

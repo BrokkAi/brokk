@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer.builder.languages
 
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.builder.passes.cpp.PointerTypesPass
+import io.github.jbellis.brokk.analyzer.implicits.CpgExt.createAndApply
 import io.joern.c2cpg.Config as CConfig
 import io.joern.c2cpg.astcreation.CGlobal
 import io.joern.c2cpg.parser.FileDefaults
@@ -29,14 +30,23 @@ object CBuilder {
       val report            = new Report()
       val global            = new CGlobal()
       val preprocessedFiles = allPreprocessedFiles(config)
-      new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report)
-        .createAndApply()
-      new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report)
-        .createAndApply()
-      TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg).createAndApply()
-      new TypeDeclNodePass(cpg, config).createAndApply()
-      new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config).createAndApply()
-      new FullNameUniquenessPass(cpg).createAndApply()
+
+      // Binary Compatibility fix: Use manual execution for C++ AstCreationPass
+      List(
+        new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report),
+        new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report),
+      ).foreach(cpg.createAndApply)
+      // Types
+      List(
+        TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg),
+        new TypeDeclNodePass(cpg, config),
+      ).foreach(cpg.createAndApply)
+      // Functions & full names
+      List(
+        new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config),
+        new FullNameUniquenessPass(cpg)
+      ).foreach(cpg.createAndApply)
+
       report.print()
       cpg
     }

@@ -6,7 +6,6 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -36,7 +35,7 @@ public class JavaTreeSitterAnalyzerTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
-        analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new JavaTreeSitterAnalyzer(testProject);
     }
 
     @AfterAll

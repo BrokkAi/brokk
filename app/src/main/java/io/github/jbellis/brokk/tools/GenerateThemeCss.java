@@ -1,10 +1,12 @@
 package io.github.jbellis.brokk.tools;
 
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import java.awt.Color;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Tiny CLI that dumps both theme blocks into a single SCSS file. It is intentionally dependency-free; everything lives
@@ -49,30 +51,17 @@ public final class GenerateThemeCss {
         sb.append(":root").append(isDarkTheme ? ".theme-dark" : ".theme-light").append(" {\n");
 
         // Get the appropriate color map
-        java.lang.reflect.Field field;
-        try {
-            field = ThemeColors.class.getDeclaredField(isDarkTheme ? "DARK_COLORS" : "LIGHT_COLORS");
-            field.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.Map<String, java.awt.Color> colors = (java.util.Map<String, java.awt.Color>) field.get(null);
+        Map<String, Color> colors = ThemeColors.getAllColors(isDarkTheme);
 
-            for (java.util.Map.Entry<String, java.awt.Color> entry : colors.entrySet()) {
-                String key = entry.getKey();
-                java.awt.Color color = entry.getValue();
-                // Convert color to hex format
-                String hexColor = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
-                // Convert camelCase or snake_case to kebab-case for CSS variables
-                String cssVarName = key.replaceAll("([a-z])([A-Z])", "$1-$2")
-                        .replace('_', '-')
-                        .toLowerCase(Locale.ROOT);
-                sb.append("  --")
-                        .append(cssVarName)
-                        .append(": ")
-                        .append(hexColor)
-                        .append(";\n");
-            }
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            System.err.println("Error accessing color map: " + e.getMessage());
+        for (var entry : colors.entrySet()) {
+            String key = entry.getKey();
+            Color color = entry.getValue();
+            // Convert color to hex format
+            String hexColor = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+            // Convert camelCase or snake_case to kebab-case for CSS variables
+            String cssVarName =
+                    key.replaceAll("([a-z])([A-Z])", "$1-$2").replace('_', '-').toLowerCase(Locale.ROOT);
+            sb.append("  --").append(cssVarName).append(": ").append(hexColor).append(";\n");
         }
 
         sb.append("}");

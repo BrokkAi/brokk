@@ -679,7 +679,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
             llmOutput.append(token);
             long newLines = token.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {
@@ -704,7 +704,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         }
 
         @Override
-        public List<ChatMessage> getLlmRawMessages() {
+        public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
             return List.of();
         }
     }

@@ -44,6 +44,9 @@ public class GitCommitTab extends JPanel {
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
+    // Thread-safe cached count for badge updates
+    private volatile int cachedModifiedFileCount = 0;
+
     public GitCommitTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -184,7 +187,7 @@ public class GitCommitTab extends JPanel {
         });
 
         // FileStatusTable is itself a JScrollPane
-        add(fileStatusPane, BorderLayout.CENTER);
+        // Added to a top-aligned content panel below to avoid stretching the entire tab
 
         // Bottom panel for buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, Constants.V_GAP));
@@ -222,6 +225,7 @@ public class GitCommitTab extends JPanel {
                     });
             dialog.setVisible(true);
         });
+        buttonPanel.add(Box.createHorizontalStrut(Constants.H_GAP)); // Add H_GAP before the Commit button
         buttonPanel.add(commitButton);
 
         // Add horizontal glue between buttons
@@ -255,7 +259,17 @@ public class GitCommitTab extends JPanel {
             }
         });
 
-        add(buttonPanel, BorderLayout.SOUTH);
+        // Stack the table and buttons at the top so they don't stretch to fill the panel
+        var contentPanel = new JPanel();
+        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
+        fileStatusPane.setAlignmentX(Component.LEFT_ALIGNMENT);
+        buttonPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        contentPanel.add(fileStatusPane);
+        contentPanel.add(Box.createVerticalStrut(Constants.V_GAP));
+        contentPanel.add(buttonPanel);
+        add(contentPanel, BorderLayout.NORTH);
+        // Ensure initial sizing is only as large as the table contents
+        shrinkTableToContents();
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -304,6 +318,8 @@ public class GitCommitTab extends JPanel {
                     // Populate the table via the reusable FileStatusTable widget
                     // This also populates the statusMap within FileStatusTable
                     fileStatusPane.setFiles(uncommittedFilesList);
+                    // Ensure the table's viewport only takes as much space as its contents
+                    shrinkTableToContents();
 
                     // Restore selection
                     List<Integer> rowsToSelect = new ArrayList<>();
@@ -322,6 +338,9 @@ public class GitCommitTab extends JPanel {
 
                     updateButtonEnablement(); // General button enablement based on table content
                     updateCommitButtonText(); // Updates commit button label specifically
+
+                    // Update cached count and badge after status change
+                    updateAfterStatusChange(uncommittedFilesList.size());
                 });
             } catch (Exception e) {
                 logger.error("Error fetching uncommitted files:", e);
@@ -332,6 +351,8 @@ public class GitCommitTab extends JPanel {
                     if (uncommittedFilesTable.getModel() instanceof DefaultTableModel dtm) {
                         dtm.setRowCount(0); // Clear table on error
                     }
+                    // Update cached count and badge after error
+                    updateAfterStatusChange(0);
                 });
             }
             return null;
@@ -679,5 +700,37 @@ public class GitCommitTab extends JPanel {
     void enableButtons() {
         stashButton.setEnabled(true);
         commitButton.setEnabled(true);
+    }
+
+    public int getThreadSafeCachedModifiedFileCount() {
+        return cachedModifiedFileCount;
+    }
+
+    private void updateAfterStatusChange(int newCount) {
+        assert SwingUtilities.isEventDispatchThread() : "updateAfterStatusChange must be called on EDT";
+
+        // Update cached count for thread-safe access
+        cachedModifiedFileCount = newCount;
+
+        // Update the git tab badge
+        chrome.updateGitTabBadge(newCount);
+    }
+
+    /**
+     * Adjust the table's viewport and the surrounding scroll pane so the table only takes as much vertical space as it
+     * needs instead of expanding to fill the panel.
+     */
+    private void shrinkTableToContents() {
+        assert SwingUtilities.isEventDispatchThread() : "shrinkTableToContents must be called on EDT";
+        var table = uncommittedFilesTable;
+        var header = table.getTableHeader();
+        var tablePref = table.getPreferredSize();
+        int headerHeight = header == null ? 0 : header.getPreferredSize().height;
+        int height = tablePref.height + headerHeight;
+        int width = Math.max(tablePref.width, fileStatusPane.getPreferredSize().width);
+        table.setPreferredScrollableViewportSize(tablePref);
+        fileStatusPane.setPreferredSize(new Dimension(width, height));
+        fileStatusPane.revalidate();
+        fileStatusPane.repaint();
     }
 }

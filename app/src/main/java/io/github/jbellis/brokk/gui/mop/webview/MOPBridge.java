@@ -84,12 +84,12 @@ public final class MOPBridge {
         Platform.runLater(() -> engine.executeScript("window.brokk.scrollToCurrent()"));
     }
 
-    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {
+    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         if (text.isEmpty()) {
             return;
         }
         // Epoch is assigned later, just queue the content
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming));
+        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
         scheduleSend();
     }
 
@@ -131,12 +131,15 @@ public final class MOPBridge {
                 if (event instanceof BrokkEvent.Chunk chunk) {
                     if (firstChunk == null) {
                         firstChunk = chunk;
-                    } else if (chunk.isNew() || chunk.msgType() != firstChunk.msgType()) {
+                    } else if (chunk.isNew()
+                            || chunk.msgType() != firstChunk.msgType()
+                            || chunk.reasoning() != firstChunk.reasoning()) {
                         sendChunk(
                                 currentText.toString(),
                                 firstChunk.isNew(),
                                 firstChunk.msgType(),
-                                firstChunk.streaming());
+                                firstChunk.streaming(),
+                                firstChunk.reasoning());
                         currentText.setLength(0);
                         firstChunk = chunk;
                     }
@@ -145,7 +148,12 @@ public final class MOPBridge {
             }
 
             if (firstChunk != null) {
-                sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType(), firstChunk.streaming());
+                sendChunk(
+                        currentText.toString(),
+                        firstChunk.isNew(),
+                        firstChunk.msgType(),
+                        firstChunk.streaming(),
+                        firstChunk.reasoning());
             }
         } finally {
             pending.set(false);
@@ -155,9 +163,9 @@ public final class MOPBridge {
         }
     }
 
-    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {
+    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         var e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming);
+        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning);
         sendEvent(event);
     }
 

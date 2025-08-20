@@ -6,6 +6,7 @@ export type BrokkEvent = {
   isNew?: boolean;
   streaming?: boolean;
   msgType?: 'USER' | 'AI' | 'SYSTEM';
+  reasoning?: boolean;
   epoch: number;
   message?: string;
 };
@@ -35,5 +36,12 @@ export type BubbleState = Bubble & {
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
+
+  // Properties for Reasoning bubbles
+  reasoning?: boolean;
+  startTime?: number;           // ms timestamp when the reasoning started
+  reasoningComplete?: boolean;  // true when the reasoning stream ends
+  duration?: number;            // calculated duration in seconds
+  isCollapsed?: boolean;        // for UI state
 };
 

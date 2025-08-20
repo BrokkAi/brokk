@@ -4,11 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import io.github.jbellis.brokk.difftool.doc.InMemoryDocument;
+import io.github.jbellis.brokk.difftool.doc.StringDocument;
 import org.junit.jupiter.api.Test;
 
 /**
  * Simple tests for FilePanel-related functionality that can be tested without complex UI setup. These tests focus on
- * the InMemoryDocument and performance constants that support FilePanel.
+ * the InMemoryDocument, StringDocument, and performance constants that support FilePanel.
  */
 class FilePanelSimpleTest {
 
@@ -122,5 +123,83 @@ class FilePanelSimpleTest {
             String content = new String(buffer, 0, charsRead);
             assertEquals("Reader test content", content);
         }
+    }
+
+    // Tests for FilePanel isDocumentChanged logic with read-only documents
+    // These tests address the bug where PR diff windows incorrectly prompted users to save read-only files
+
+    /**
+     * Tests the core logic of the FilePanel.isDocumentChanged() fix: read-only documents should not be considered as
+     * having unsaved changes. This directly tests the logic: bufferDocument.isChanged() && !bufferDocument.isReadonly()
+     */
+    @Test
+    void testReadOnlyDocumentLogic() {
+        // Create a read-only StringDocument (like PR diffs use)
+        var readOnlyDoc = new StringDocument("PR file content\nline 2\nline 3", "test-pr-file.java", true);
+
+        // Verify it's read-only
+        assertTrue(readOnlyDoc.isReadonly(), "Document should be read-only");
+
+        // Simulate the document being marked as changed (which happens with editor.setText())
+        try {
+            readOnlyDoc.getDocument().insertString(0, "", null); // This will trigger changed=true
+        } catch (Exception e) {
+            // Expected - read-only documents shouldn't be modifiable, but we need to test the logic
+            // In real usage, the changed flag gets set to true during editor.setText() initialization
+        }
+
+        boolean shouldReportAsChanged = readOnlyDoc.isChanged() && !readOnlyDoc.isReadonly();
+        assertFalse(
+                shouldReportAsChanged,
+                "Read-only document should not report as having unsaved changes, even if marked as changed internally");
+    }
+
+    @Test
+    void testEditableDocumentLogic() {
+        // Create an editable StringDocument
+        var editableDoc = new StringDocument("Original content", "editable-file.java", false);
+
+        // Verify it's not read-only
+        assertFalse(editableDoc.isReadonly(), "Document should be editable");
+
+        // Mark document as changed
+        try {
+            editableDoc.getDocument().insertString(0, "new ", null);
+            assertTrue(editableDoc.isChanged(), "Document should be marked as changed");
+        } catch (Exception e) {
+            fail("Should be able to modify editable document");
+        }
+
+        // For editable documents, the logic should return true when changed
+        boolean shouldReportAsChanged = editableDoc.isChanged() && !editableDoc.isReadonly();
+        assertTrue(shouldReportAsChanged, "Editable document should report as having unsaved changes when changed");
+    }
+
+    @Test
+    void testUnchangedDocumentsLogic() {
+        // Test with read-only unchanged document
+        var readOnlyDoc = new StringDocument("content", "readonly.java", true);
+        boolean readOnlyResult = readOnlyDoc.isChanged() && !readOnlyDoc.isReadonly();
+        assertFalse(readOnlyResult, "Unchanged read-only document should return false");
+
+        // Test with editable unchanged document
+        var editableDoc = new StringDocument("content", "editable.java", false);
+        boolean editableResult = editableDoc.isChanged() && !editableDoc.isReadonly();
+        assertFalse(editableResult, "Unchanged editable document should return false");
+    }
+
+    @Test
+    void testStringDocumentReadOnlyBehavior() {
+        // Test read-only creation
+        var readOnlyDoc = new StringDocument("content", "readonly.java", true);
+        assertTrue(readOnlyDoc.isReadonly(), "Document created with readOnly=true should be read-only");
+
+        // Test editable creation
+        var editableDoc = new StringDocument("content", "editable.java", false);
+        assertFalse(editableDoc.isReadonly(), "Document created with readOnly=false should be editable");
+
+        // Test default behavior (defaults to read-only)
+        var defaultDoc = new StringDocument("content", "default.java");
+        assertTrue(defaultDoc.isReadonly(), "Document created without readOnly parameter defaults to read-only");
     }
 }

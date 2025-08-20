@@ -18,7 +18,8 @@ public sealed interface BrokkEvent {
             boolean isNew,
             @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType,
             int epoch,
-            boolean streaming)
+            boolean streaming,
+            boolean reasoning)
             implements BrokkEvent {
         @Override
         public String getType() {

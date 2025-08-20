@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.BuildToolConventions;
 import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
+import io.github.jbellis.brokk.util.Messages;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Files;
@@ -73,22 +74,21 @@ public class BuildAgent {
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
-        // 1. Initial step: List files in the root directory to give the agent a starting point
+        // build message containing root directory contents
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()
                 .name("listFiles")
                 .arguments("{\"directoryPath\": \".\"}") // Request root dir
                 .build();
         ToolExecutionResult initialResult = toolRegistry.executeTool(this, initialRequest);
-        ToolExecutionResultMessage initialResultMessage = initialResult.toExecutionResultMessage();
-
-        // Add the initial result to history (forge an AI request to make inflexible LLMs happy)
-        chatHistory.add(new UserMessage("Start by examining the project root directory."));
-        chatHistory.add(new AiMessage(List.of(ToolExecutionRequest.builder()
-                .name("listFiles")
-                .arguments("{\"directoryPath\": \".\"}")
-                .build())));
-        chatHistory.add(initialResultMessage);
-        logger.trace("Initial tool result added to history: {}", initialResultMessage.text());
+        chatHistory.add(new UserMessage(
+                """
+        Here are the contents of the project root directory:
+        ```
+        %s
+        ```"""
+                        .formatted(initialResult.resultText())));
+        chatHistory.add(Messages.create("Thank you.", ChatMessageType.AI));
+        logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
         // Determine build system and set initial excluded directories
         var files = project.getAllFiles().stream()

@@ -132,16 +132,13 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return CpgCache.getOrCompute(project, this, () -> {
-                var cpgPath = getCpgPath(project);
-                return new JavaAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
-            });
+            return JavaAnalyzer.create(project);
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            Path cpgPath = getCpgPath(project);
-            return JavaAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
+            // the LSP server component will handle loading in the cache
+            return createAnalyzer(project);
         }
 
         @Override
@@ -239,7 +236,7 @@ public interface Language {
 
         @Override
         public boolean isCpg() {
-            return true;
+            return false;
         }
     };
 

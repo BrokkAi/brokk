@@ -82,11 +82,11 @@ function setAppTheme(dark: boolean): void {
 }
 
 function showSpinnerMessage(message = ''): void {
-    spinnerStore.set({visible: true, message});
+    spinnerStore.show(message);
 }
 
 function hideSpinnerMessage(): void {
-    spinnerStore.set({visible: false, message: ''});
+    spinnerStore.hide();
 }
 
 function replayBufferedItems(buffer: any[]): void {

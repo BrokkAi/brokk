@@ -88,11 +88,17 @@ public final class FileStatusTable extends JScrollPane {
         var model = (DefaultTableModel) table.getModel();
         model.setRowCount(0);
 
-        modifiedFiles.forEach(mf -> {
-            statusMap.put(mf.file(), mf.status());
-            model.addRow(
-                    new Object[] {mf.file().getFileName(), mf.file().getParent().toString(), mf.file()});
-        });
+        // Sort by parent path then filename to provide a stable, predictable order
+        modifiedFiles.stream()
+                .sorted(Comparator.comparing((GitRepo.ModifiedFile mf) ->
+                                mf.file().getParent().toString())
+                        .thenComparing(mf -> mf.file().getFileName()))
+                .forEach(mf -> {
+                    statusMap.put(mf.file(), mf.status());
+                    model.addRow(new Object[] {
+                        mf.file().getFileName(), mf.file().getParent().toString(), mf.file()
+                    });
+                });
     }
 
     public void setFilesFromProjects(Collection<ProjectFile> files) {
@@ -100,10 +106,14 @@ public final class FileStatusTable extends JScrollPane {
         var model = (DefaultTableModel) table.getModel();
         model.setRowCount(0);
 
-        files.forEach(pf -> {
-            statusMap.put(pf, "modified");
-            model.addRow(new Object[] {pf.getFileName(), pf.getParent().toString(), pf});
-        });
+        // Sort by parent path then filename for consistent ordering
+        files.stream()
+                .sorted(Comparator.comparing((ProjectFile pf) -> pf.getParent().toString())
+                        .thenComparing(ProjectFile::getFileName))
+                .forEach(pf -> {
+                    statusMap.put(pf, "modified");
+                    model.addRow(new Object[] {pf.getFileName(), pf.getParent().toString(), pf});
+                });
     }
 
     public List<ProjectFile> getSelectedFiles() {

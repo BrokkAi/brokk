@@ -51,7 +51,14 @@ public class Messages {
     public static String getText(ChatMessage message) {
         return switch (message) {
             case SystemMessage sm -> sm.text();
-            case AiMessage am -> am.text() == null ? "" : am.text();
+            case AiMessage am -> {
+                boolean hasReasoning =
+                        am.reasoningContent() != null && !am.reasoningContent().isBlank();
+                if (hasReasoning) {
+                    yield am.reasoningContent();
+                }
+                yield am.text() == null ? "" : am.text();
+            }
             case UserMessage um ->
                 um.contents().stream()
                         .filter(c -> c instanceof TextContent)
@@ -66,9 +73,13 @@ public class Messages {
 
     /** Helper method to create a ChatMessage of the specified type */
     public static ChatMessage create(String text, ChatMessageType type) {
+        return create(text, type, false);
+    }
+
+    public static ChatMessage create(String text, ChatMessageType type, boolean isReasoning) {
         return switch (type) {
             case USER -> new UserMessage(text);
-            case AI -> new AiMessage(text);
+            case AI -> isReasoning ? new AiMessage("", text) : new AiMessage(text);
             case CUSTOM -> customSystem(text);
             // Add other cases as needed with appropriate implementations
             default -> {
@@ -84,7 +95,7 @@ public class Messages {
             case SystemMessage sm -> sm.text();
             case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             case AiMessage am -> {
-                var raw = am.text() == null ? "" : am.text();
+                var raw = getText(am);
                 if (!am.hasToolExecutionRequests()) {
                     yield raw;
                 }

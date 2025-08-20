@@ -327,9 +327,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     }
                     try {
                         int lineNum = getLineOfOffset(offset);
-                        int lastLine = getLineCount() - 1;
-                        int lineStartOffset = getLineStartOffset(lineNum > 0 ? lineNum - 1 : lineNum);
-                        int lineEndOffset = getLineEndOffset(lineNum < lastLine ? lineNum + 1 : lineNum);
+                        int lineStartOffset = getLineStartOffset(lineNum);
+                        int lineEndOffset = getLineEndOffset(lineNum);
                         var lineText = getText(lineStartOffset, lineEndOffset - lineStartOffset);
 
                         if (lineText != null && !lineText.trim().isEmpty()) {
@@ -632,7 +631,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
                 appendSystemMessage(token);
             }
 

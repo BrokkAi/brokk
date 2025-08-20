@@ -16,10 +16,12 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SplitButton;
@@ -55,6 +57,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
+import javax.swing.text.*;
 import javax.swing.text.AbstractDocument;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -63,6 +66,10 @@ import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -104,6 +111,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private JPanel suggestionContentPanel;
     private CardLayout suggestionCardLayout;
     private final JPanel centerPanel;
+    private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
+    private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
     private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
     // Worker for autocontext suggestion tasks. we don't use CM.backgroundTasks b/c we want this to be single threaded
@@ -119,6 +128,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final AtomicLong suggestionGeneration = new AtomicLong(0);
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
+    private AutoCompletion instructionAutoCompletion;
+    private InstructionsCompletionProvider instructionCompletionProvider;
     private @Nullable String lastCheckedInputText = null;
     private @Nullable float[][] lastCheckedEmbeddings = null;
     private @Nullable List<FileReferenceData> pendingQuickContext = null;
@@ -208,12 +219,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         initializeReferenceFileTable();
 
         // Initialize and configure the context suggestion timer
-        contextSuggestionTimer = new javax.swing.Timer(100, this::triggerContextSuggestion);
+        contextSuggestionTimer = new javax.swing.Timer(CONTEXT_SUGGESTION_DELAY, this::triggerContextSuggestion);
         contextSuggestionTimer.setRepeats(false);
         instructionsArea.getDocument().addDocumentListener(new DocumentListener() {
-            private void checkAndHandleSuggestions() {
+            private void checkAndHandleSuggestions(DocumentEvent e) {
                 if (getInstructions().split("\\s+").length >= 2) {
-                    contextSuggestionTimer.restart();
+                    // Only restart timer if significant change (not just single character)
+                    if (e.getType() == DocumentEvent.EventType.INSERT && e.getLength() > 1) {
+                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
+                        contextSuggestionTimer.restart();
+                    } else if (e.getType() == DocumentEvent.EventType.INSERT) {
+                        // For single character inserts, use longer delay
+                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_TYPING_DELAY);
+                        contextSuggestionTimer.restart();
+                    } else if (e.getType() == DocumentEvent.EventType.REMOVE) {
+                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
+                        contextSuggestionTimer.restart();
+                    }
                 } else {
                     // Input is blank or too short: stop timer, invalidate generation, reset state, schedule UI clear.
                     contextSuggestionTimer.stop();
@@ -242,17 +264,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             @Override
             public void insertUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions();
+                checkAndHandleSuggestions(e);
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions();
+                checkAndHandleSuggestions(e);
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions();
+                // Not typically fired for plain text components, but handle just in case
+                checkAndHandleSuggestions(e);
             }
         });
 
@@ -262,8 +285,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Add this panel as a listener to context changes, only if CM is available
+        // Add this panel as a listener to context changes
         this.contextManager.addContextListener(this);
+
+        // --- Autocomplete Setup ---
+        instructionCompletionProvider = new InstructionsCompletionProvider();
+        instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
+        instructionAutoCompletion.setAutoActivationEnabled(false);
+        instructionAutoCompletion.setTriggerKey(
+                KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        instructionAutoCompletion.install(instructionsArea);
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
@@ -995,7 +1026,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return new TaskResult(
                 cm,
                 "Ask: " + question,
-                List.copyOf(cm.getIo().getLlmRawMessages()),
+                List.copyOf(cm.getIo().getLlmRawMessages(false)),
                 Set.of(), // Ask never changes files
                 stop);
     }
@@ -1009,11 +1040,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void maybeAddInterruptedResult(String action, String input) {
-        if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
+        if (chrome.getLlmRawMessages(false).stream().anyMatch(m -> m instanceof AiMessage)) {
             logger.debug(action + " command cancelled with partial results");
             var sessionResult = new TaskResult(
                     "%s (Cancelled): %s".formatted(action, input),
-                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
+                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), input),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
             chrome.getContextManager().addToHistory(sessionResult, false);
@@ -1116,7 +1147,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         final String finalActionMessage = actionMessage; // Effectively final for lambda
         contextManager.pushContext(ctx -> {
             var parsed = new TaskFragment(
-                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
+                    chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages(false)), finalActionMessage);
             return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
         });
     }
@@ -1207,13 +1238,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 Path newWorktreePath;
                 String actualBranchName;
 
-                IProject projectForWorktreeSetup = currentProject.getParent();
-                GitRepo mainGitRepo = (GitRepo) projectForWorktreeSetup.getRepo();
+                MainProject projectForWorktreeSetup = currentProject.getMainProject();
+                IGitRepo repo = projectForWorktreeSetup.getRepo();
+                if (!(repo instanceof GitRepo mainGitRepo)) {
+                    chrome.hideOutputSpinner();
+                    chrome.toolError(
+                            "Cannot create worktree: Main project repository does not support Git operations.");
+                    populateInstructionsArea(originalInstructions);
+                    return;
+                }
                 String sourceBranchForNew =
                         mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
 
                 var setupResult = GitWorktreeTab.setupNewGitWorktree(
-                        (MainProject) projectForWorktreeSetup,
+                        projectForWorktreeSetup,
                         mainGitRepo,
                         generatedBranchName,
                         true, // Always creating a new branch in this flow
@@ -1385,7 +1423,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Update the LLM output panel directly via Chrome
         chrome.llmOutput(
                 "# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.",
-                ChatMessageType.USER);
+                ChatMessageType.CUSTOM);
         clearCommandInput();
         // Submit the action, calling the private execute method inside the lambda
         submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(searchModel, input));
@@ -1783,6 +1821,75 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 isPopupOpen = false; // Reset guard on any other error
                 logger.error("Error showing @ popup", ex);
             }
+        }
+    }
+
+    private class InstructionsCompletionProvider extends DefaultCompletionProvider {
+        private final Map<String, List<Completion>> completionCache = new ConcurrentHashMap<>();
+        private static final int CACHE_SIZE = 100;
+
+        @Override
+        public String getAlreadyEnteredText(JTextComponent comp) {
+            Document doc = comp.getDocument();
+            int dot = comp.getCaretPosition();
+            Element root = doc.getDefaultRootElement();
+            int line = root.getElementIndex(dot);
+            int lineStart = root.getElement(line).getStartOffset();
+            try {
+                String lineText = doc.getText(lineStart, dot - lineStart);
+                int space = lineText.lastIndexOf(' ');
+                int tab = lineText.lastIndexOf('\t');
+                int separator = Math.max(space, tab);
+                return lineText.substring(separator + 1);
+            } catch (BadLocationException e) {
+                logger.warn("BadLocationException in getAlreadyEnteredText", e);
+                return "";
+            }
+        }
+
+        @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            String text = getAlreadyEnteredText(comp);
+            if (text.isEmpty()) {
+                return List.of();
+            }
+
+            // Check cache first
+            List<Completion> cached = completionCache.get(text);
+            if (cached != null) {
+                return cached;
+            }
+
+            List<Completion> completions;
+            if (text.contains("/") || text.contains("\\")) {
+                var allFiles = contextManager.getProject().getAllFiles();
+                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(
+                        text,
+                        allFiles,
+                        ProjectFile::getFileName,
+                        ProjectFile::toString,
+                        f -> 0,
+                        f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
+                completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
+            } else {
+                var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+                if (analyzer == null) {
+                    return List.of();
+                }
+                var symbols = Completions.completeSymbols(text, analyzer);
+                completions = symbols.stream()
+                        .limit(50)
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.identifier(), symbol.fqName()))
+                        .toList();
+            }
+
+            // Cache the result
+            if (completionCache.size() > CACHE_SIZE) {
+                completionCache.clear();
+            }
+            completionCache.put(text, completions);
+
+            return completions;
         }
     }
 }

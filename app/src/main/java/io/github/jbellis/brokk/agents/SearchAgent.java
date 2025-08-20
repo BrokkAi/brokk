@@ -125,7 +125,7 @@ public class SearchAgent {
             toolSpecs.addAll(toolRegistry.getTools(this, List.of("answerSearch", "abortSearch")));
 
             // Decide next action(s)
-            io.llmOutput("\n# Planning", ChatMessageType.AI, true);
+            io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
             if (result.error() != null || result.isEmpty()) {
                 var details =
@@ -506,8 +506,8 @@ public class SearchAgent {
 
         io.llmOutput("\n# Answer\n" + explanation, ChatMessageType.AI);
         var sessionName = "Search: " + goal;
-        var fragment =
-                new ContextFragment.SearchFragment(cm, sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
+        var fragment = new ContextFragment.SearchFragment(
+                cm, sessionName, List.copyOf(io.getLlmRawMessages(false)), coalesced);
         return new TaskResult(
                 sessionName, fragment, Set.of(), new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }

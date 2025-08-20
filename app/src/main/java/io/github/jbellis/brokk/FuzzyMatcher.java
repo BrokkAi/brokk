@@ -133,7 +133,7 @@ public class FuzzyMatcher {
 
     /** Checks if a character is considered a word separator (whitespace, _, -, :, +, .). */
     private static boolean isWordSeparator(char c) {
-        return FuzzyMatcherUtil.isWhiteSpace(c) || c == '_' || c == '-' || c == ':' || c == '+' || c == '.';
+        return FuzzyMatcherUtil.isWhiteSpace(c) || c == '_' || c == '-' || c == ':' || c == '+' || c == '.' || c == '$';
     }
 
     /** Returns the cleaned pattern string (trimmed and without trailing '*'). */
@@ -168,13 +168,22 @@ public class FuzzyMatcher {
      */
     public int score(String name) {
         var fragments = matchingFragments(name);
+
+        // Early exit for null or empty fragment list (handles empty-pattern case)
         if (fragments == null) {
-            return Integer.MAX_VALUE; // No match
+            return Integer.MAX_VALUE;
         }
         if (fragments.isEmpty()) {
             // Empty pattern matches empty string with score 0.
             // Empty pattern vs non-empty string is handled by minNameLength check.
             return name.isEmpty() ? 0 : Integer.MAX_VALUE;
+        }
+
+        // Exclude matches that finish immediately before a '$' when the pattern is simple
+        // (all-lowercase without separators). This prevents queries like "do" from matching
+        // the outer part of "Do$Re".
+        if (isSimpleLowercasePattern() && endsBeforeDollar(name, fragments)) {
+            return Integer.MAX_VALUE;
         }
 
         // Calculate base score using the logic from MinusculeMatcherImpl.matchingDegree
@@ -401,6 +410,12 @@ public class FuzzyMatcher {
         // Check if the match ends exactly at the end of the name string
         boolean finalMatch = requireNonNull(fragments.getLast()).getEndOffset() == name.length();
 
+        // Penalize any unmatched characters left at the end of the name,
+        // but only when the entire match is a *single* contiguous fragment.
+        // (Keeps adjacency-vs-gap tests working while still preferring exact matches.)
+        int unmatchedTail = name.length() - fragments.getLast().getEndOffset();
+        int unmatchedPenalty = fragments.size() == 1 ? unmatchedTail * 2 : 0;
+
         // Combine components into the final score (higher is better internally before inversion)
         // Realigned with MinusculeMatcherImpl.matchingDegree formula
         return (wordStart ? 1000 : 0)
@@ -415,6 +430,8 @@ public class FuzzyMatcher {
                 (afterSeparator ? 0 : 2)
                 + // Bonus if not after a hard separator (always +2 for us)
                 (startMatch ? 1 : 0)
+                // Exact simple name matches are rewarded more
+                - unmatchedPenalty
                 + // Small bonus for starting at 0
                 (finalMatch ? 1 : 0); // Small bonus for matching up to the end
     }
@@ -999,8 +1016,42 @@ public class FuzzyMatcher {
             }
             return -1; // Not found
         }
-        // Fallback for non-ASCII or if name is not purely ASCII, using standard utility method
-        // This ensures correctness but might be slower.
+
+        // Fallback for non-ASCII input (or when the ASCII scan fails)
+        // This ensures correctness but may be slower.
         return FuzzyMatcherUtil.indexOfIgnoreCase(name, p, fromIndex, name.length());
+    }
+
+    // ---------------------------------------------------------------------
+    // Additional helpers for nested-class filtering
+    // ---------------------------------------------------------------------
+
+    /**
+     * Returns true if the pattern is made exclusively of lowercase letters and contains no hierarchy or word-separator
+     * characters.
+     */
+    private boolean isSimpleLowercasePattern() {
+        if (patternChars.length == 0) {
+            return false;
+        }
+        for (char c : patternChars) {
+            if (!Character.isLowerCase(c)) {
+                return false;
+            }
+            if (c == '$' || c == '.' || isWordSeparator(c)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Checks whether the final matched fragment ends right before a '$' in the name. */
+    private static boolean endsBeforeDollar(String name, FList<TextRange> fragments) {
+        var last = fragments.getLast();
+        if (last == null) {
+            return false;
+        }
+        int end = last.getEndOffset();
+        return end < name.length() && name.charAt(end) == '$';
     }
 }

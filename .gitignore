@@ -60,9 +60,11 @@ project/project/
 cpg.bin
 /workspace/
 
+### LSP Test Files ###
+**/testcode-*/bin/
+
 ### JDeploy CONFIGURATION ###
 .jdeploy/
 
 ### frontend
 /frontend-mop/node_modules/
-

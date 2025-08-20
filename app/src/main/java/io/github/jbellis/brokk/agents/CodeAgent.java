@@ -127,7 +127,8 @@ public class CodeAgent {
                         model,
                         parser,
                         loopContext.conversationState().taskMessages(),
-                        loopContext.conversationState().nextRequest());
+                        loopContext.conversationState().nextRequest(),
+                        loopContext.editState().changedFiles());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
@@ -216,8 +217,8 @@ public class CodeAgent {
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = forArchitect
-                ? List.copyOf(io.getLlmRawMessages())
-                : prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
+                ? List.copyOf(io.getLlmRawMessages(false))
+                : prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
         return new TaskResult(
                 "Code: " + finalActionDescription,
                 new ContextFragment.TaskFragment(contextManager, finalMessages, loopContext.userGoal()),
@@ -324,7 +325,7 @@ public class CodeAgent {
 
         // 2.  Produce TaskResult
         assert stopDetails != null;
-        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
+        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
 
         String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                 ? instructions

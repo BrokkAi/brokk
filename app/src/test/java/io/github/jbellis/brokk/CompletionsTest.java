@@ -18,11 +18,6 @@ public class CompletionsTest {
     @TempDir
     Path tempDir;
 
-    // Method made package-private for testing
-    static List<CodeUnit> completeUsage(String input, IAnalyzer analyzer) {
-        return Completions.completeSymbols(input, analyzer);
-    }
-
     private static class MockAnalyzer implements IAnalyzer {
         private final ProjectFile mockFile;
         private final List<CodeUnit> allClasses;
@@ -60,23 +55,25 @@ public class CompletionsTest {
 
         @Override
         public List<CodeUnit> searchDefinitions(String pattern) {
-            // Case-insensitive pattern matching for compatibility with Analyzer
+            if (".*".equals(pattern)) {
+                return Stream.concat(
+                                allClasses.stream(),
+                                methodsMap.values().stream().flatMap(List::stream))
+                        .toList();
+            }
+
             var regex = "^(?i)" + pattern + "$";
 
             // Find matching classes
-            var matchingClasses = allClasses.stream()
-                    .filter(cu -> cu.identifier().matches(regex))
-                    .toList();
+            var matchingClasses =
+                    allClasses.stream().filter(cu -> cu.fqName().matches(regex)).toList();
 
             // Find matching methods
             var matchingMethods = methodsMap.entrySet().stream()
                     .flatMap(entry -> entry.getValue().stream())
-                    .filter(cu -> cu.identifier().matches(regex))
+                    .filter(cu -> cu.fqName().matches(regex))
                     .toList();
 
-            // Fields not tested
-
-            // Combine results
             return Stream.concat(matchingClasses.stream(), matchingMethods.stream())
                     .toList();
         }
@@ -92,30 +89,30 @@ public class CompletionsTest {
     }
 
     @Test
-    public void testUnqualifiedSingleLetter() {
+    public void testUnqualifiedInput() {
         var mock = new MockAnalyzer(tempDir);
 
-        // Input "d" -> we want it to match "a.b.Do"
+        // Input "do" -> we want it to match "a.b.Do"
         // Because "Do" simple name starts with 'D'
-        var completions = completeUsage("d", mock);
+        var completions = Completions.completeSymbols("do", mock);
 
         var values = toValues(completions);
-        assertEquals(Set.of("a.b.Do", "a.b.Do$Re", "a.b.Do$Re$Sub", "test.CamelClass.someMethod"), values);
+        assertEquals(Set.of("a.b.Do"), values);
     }
 
     @Test
-    public void testUnqualifiedR() {
+    public void testUnqualifiedRe() {
         var mock = new MockAnalyzer(tempDir);
-        // Input "r" -> user wants to find "a.b.Do$Re" by partial name "Re"
-        var completions = completeUsage("r", mock);
+        // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
+        var completions = Completions.completeSymbols("re", mock);
         var values = toValues(completions);
-        assertEquals(Set.of("a.b.Do$Re", "a.b.Do$Re$Sub", "a.b.Do.bar"), values);
+        assertEquals(Set.of("a.b.Do$Re"), values);
     }
 
     @Test
     public void testNestedClassRe() {
         var mock = new MockAnalyzer(tempDir);
-        var completions = completeUsage("Re", mock);
+        var completions = Completions.completeSymbols("Re", mock);
         var values = toValues(completions);
 
         assertEquals(Set.of("a.b.Do$Re", "a.b.Do$Re$Sub"), values);
@@ -125,11 +122,11 @@ public class CompletionsTest {
     public void testCamelCaseCompletion() {
         var mock = new MockAnalyzer(tempDir);
         // Input "CC" -> should match "test.CamelClass" due to camel case matching
-        var completions = completeUsage("CC", mock);
+        var completions = Completions.completeSymbols("CC", mock);
         var values = toValues(completions);
         assertEquals(Set.of("test.CamelClass"), values);
 
-        completions = completeUsage("cam", mock);
+        completions = Completions.completeSymbols("cam", mock);
         values = toValues(completions);
         assertEquals(Set.of("test.CamelClass"), values);
     }

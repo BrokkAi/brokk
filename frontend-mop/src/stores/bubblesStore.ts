@@ -18,31 +18,59 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 return [];
 
             case 'chunk': {
+                const lastBubble = list.at(-1);
+                // If the last message was a streaming reasoning bubble and the new one is not,
+                // mark the reasoning as complete, immutably.
+                if (lastBubble?.reasoning && !lastBubble.reasoningComplete && !evt.reasoning) {
+                    const durationInMs = lastBubble.startTime ? Date.now() - lastBubble.startTime : 0;
+                    const updatedBubble: BubbleState = {
+                        ...lastBubble,
+                        reasoningComplete: true,
+                        streaming: false,
+                        duration: durationInMs / 1000,
+                        isCollapsed: true, // Auto-collapse
+                    };
+                    list = [...list.slice(0, -1), updatedBubble];
+                }
+
                 const isStreaming = evt.streaming ?? false;
                 // Decide if we append or start a new bubble
                 const needNew = evt.isNew ||
                     list.length === 0 ||
-                    evt.msgType !== list[list.length - 1].type;
+                    evt.msgType !== lastBubble?.type ||
+                    evt.reasoning !== (lastBubble?.reasoning ?? false);
+
 
                 let bubble: BubbleState;
                 if (needNew) {
                     nextBubbleId++;
                     bubble = {
                         id: nextBubbleId,
-                        type: evt.msgType!,
+                        type: evt.msgType ?? 'AI',
                         markdown: evt.text ?? '',
                         epoch: evt.epoch,
-                        streaming: isStreaming
+                        streaming: isStreaming,
+                        reasoning: evt.reasoning ?? false,
                     };
+                    if (bubble.reasoning) {
+                        bubble.startTime = Date.now();
+                        bubble.reasoningComplete = false;
+                        bubble.isCollapsed = false;
+                    }
                     list = [...list, bubble];
                     if (isStreaming) {
                         clear(bubble.id);
                     }
                 } else {
-                    bubble = list[list.length - 1]!;
-                    bubble.markdown += evt.text ?? '';
-                    bubble.epoch = evt.epoch;
-                    bubble.streaming = isStreaming;
+                    // Immutable update
+                    const last = list.at(-1)!;
+                    bubble = {
+                        ...last,
+                        markdown: last.markdown + (evt.text ?? ''),
+                        epoch: evt.epoch,
+                        streaming: isStreaming,
+                    };
+                    list = [...list.slice(0, -1), bubble];
                 }
 
                 if (isStreaming) {
@@ -52,7 +80,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     parse(bubble.markdown, bubble.id, true);
                     setTimeout(() => parse(bubble.markdown, bubble.id), 0);
                 }
-                return [...list];
+                return list;
             }
 
             default:
@@ -73,9 +101,19 @@ export function reparseAll(): void {
 }
 
 export function onWorkerResult(msg: ResultMsg): void {
+    bubblesStore.update(list =>
+        list.map(b => (b.id === msg.seq ? {...b, hast: msg.tree} : b))
+    );
+}
+
+/* ─── UI actions ──────────────────────────────────────── */
+export function toggleBubbleCollapsed(id: number): void {
     bubblesStore.update(list => {
-        const bubble = list.find(b => b.id === msg.seq);
-        if (bubble) bubble.hast = msg.tree;
-        return [...list];
+        return list.map(bubble => {
+            if (bubble.id === id) {
+                return {...bubble, isCollapsed: !bubble.isCollapsed};
+            }
+            return bubble;
+        });
     });
 }
