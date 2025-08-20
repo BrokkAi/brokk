@@ -741,6 +741,10 @@ public final class TableUtils {
     /** Recursively searches a component hierarchy for a FileReferenceList instance. */
     @Nullable
     static FileReferenceList findFileReferenceList(Container container) {
+        // If the container itself *is* a FileReferenceList (or subclass), return it
+        if (container instanceof FileReferenceList frlSelf) {
+            return frlSelf;
+        }
         for (Component comp : container.getComponents()) {
             if (comp instanceof FileReferenceList frl) {
                 return frl;
