@@ -115,13 +115,13 @@ public class ContextMenuBuilder {
         menu.add(copyItem);
     }
 
-    /** Helper method to add symbol actions (Go to Definition, Find References) to a container */
+    /** Helper method to add symbol actions (Open in Preview, Find References) to a container */
     private void addSymbolActions(Container parent, SymbolMenuContext context, boolean analyzerReady) {
-        // Go to Definition
-        var goToDefItem = new JMenuItem("Go to Definition");
-        goToDefItem.setEnabled(analyzerReady);
-        goToDefItem.addActionListener(e -> goToDefinition(context));
-        parent.add(goToDefItem);
+        // Open in Preview
+        var openInPreviewItem = new JMenuItem("Open in Preview");
+        openInPreviewItem.setEnabled(analyzerReady);
+        openInPreviewItem.addActionListener(e -> openInPreview(context));
+        parent.add(openInPreviewItem);
 
         // Find References
         var findRefsItem = new JMenuItem("Find References");
@@ -187,8 +187,8 @@ public class ContextMenuBuilder {
     }
 
     // Symbol actions
-    private void goToDefinition(SymbolMenuContext context) {
-        logger.info("Go to definition for symbol: {}", context.symbolName());
+    private void openInPreview(SymbolMenuContext context) {
+        logger.info("Open in preview for symbol: {}", context.symbolName());
 
         if (!context.contextManager().getAnalyzerWrapper().isReady()) {
             context.chrome()
@@ -201,20 +201,21 @@ public class ContextMenuBuilder {
 
         var symbolName = context.symbolName();
         var fqn = context.fqn() != null ? context.fqn() : symbolName;
-        context.contextManager().submitContextTask("Go to definition for " + symbolName, () -> {
+        context.contextManager().submitContextTask("Open in preview for " + symbolName, () -> {
             var analyzer = context.contextManager().getAnalyzerUninterrupted();
 
+            System.out.println("*********** " + context);
             try {
                 // First try exact FQN match
                 var definition = analyzer.getDefinition(fqn);
                 if (definition.isPresent()) {
-                    navigateToSymbol(definition.get(), context);
+                    openPreview(definition.get(), context);
                     return;
                 }
             } catch (Exception e) {
                 logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
-                SwingUtilities.invokeLater(() -> context.chrome()
-                        .toolError("Failed to find definition: " + e.getMessage(), "Go to Definition Error"));
+                context.chrome()
+                        .toolError("Failed to find definition: " + e.getMessage(), "Open in Preview Error");
                 return;
             }
 
@@ -223,33 +224,43 @@ public class ContextMenuBuilder {
             try {
                 candidates = analyzer.searchDefinitions(symbolName);
                 if (candidates.isEmpty()) {
-                    SwingUtilities.invokeLater(() -> context.chrome()
+                    context.chrome()
                             .systemNotify(
                                     "Definition not found for: " + symbolName,
-                                    "Go to Definition",
-                                    JOptionPane.WARNING_MESSAGE));
+                                    "Open in Preview",
+                                    JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             } catch (Exception e) {
                 logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
-                SwingUtilities.invokeLater(
-                        () -> context.chrome().toolError("Search failed: " + e.getMessage(), "Go to Definition Error"));
+                context.chrome().toolError("Search failed: " + e.getMessage(), "Open in Preview Error");
                 return;
             }
 
+            System.out.println("*********** " + candidates);
+
+            // If only one candidate, open directly; if multiple, show popup then open first
             if (candidates.size() == 1) {
-                navigateToSymbol(candidates.get(0), context);
+                openPreview(candidates.get(0), context);
             } else {
-                // Multiple matches - show disambiguation dialog on EDT
-                SwingUtilities.invokeLater(() -> {
-                    var selected = showSymbolDisambiguationDialog(candidates, symbolName, "Go to Definition");
-                    if (selected != null) {
-                        // Navigate back in background thread
-                        context.contextManager().submitContextTask("Navigate to " + selected.fqName(), () -> {
-                            navigateToSymbol(selected, context);
-                        });
-                    }
-                });
+                var matchList = candidates.stream()
+                    .map(candidate -> String.format("• %s in %s",
+                        candidate.shortName(),
+                        candidate.source().toString()))
+                    .collect(Collectors.joining("\n"));
+
+                var message = String.format(
+                    "Found %d definitions for '%s'. Opening the first one:\n\n%s",
+                    candidates.size(),
+                    symbolName,
+                    matchList
+                );
+
+                context.chrome().systemNotify(
+                    message,
+                    "Multiple Definitions Found",
+                    JOptionPane.INFORMATION_MESSAGE
+                );
             }
         });
     }
@@ -276,17 +287,17 @@ public class ContextMenuBuilder {
                 var uses = analyzer.getUses(fqn);
                 if (!uses.isEmpty()) {
                     addUsagesToContext(uses, symbolName, context);
-                    SwingUtilities.invokeLater(() -> context.chrome()
+                    context.chrome()
                             .systemNotify(
                                     String.format("Found %d references for %s", uses.size(), symbolName),
                                     "Find References",
-                                    JOptionPane.INFORMATION_MESSAGE));
+                                    JOptionPane.INFORMATION_MESSAGE);
                     return;
                 }
             } catch (Exception e) {
                 logger.warn("Error during FQN reference lookup for '{}': {}", fqn, e.getMessage());
-                SwingUtilities.invokeLater(() -> context.chrome()
-                        .toolError("Failed to find references: " + e.getMessage(), "Find References Error"));
+                context.chrome()
+                        .toolError("Failed to find references: " + e.getMessage(), "Find References Error");
                 return;
             }
 
@@ -298,12 +309,12 @@ public class ContextMenuBuilder {
                     var definitionUses = analyzer.getUses(symbolFqName);
                     if (!definitionUses.isEmpty()) {
                         addUsagesToContext(definitionUses, symbolFqName, context);
-                        SwingUtilities.invokeLater(() -> context.chrome()
+                        context.chrome()
                                 .systemNotify(
                                         String.format(
                                                 "Found %d references for %s", definitionUses.size(), symbolFqName),
                                         "Find References",
-                                        JOptionPane.INFORMATION_MESSAGE));
+                                        JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
                 }
@@ -316,82 +327,43 @@ public class ContextMenuBuilder {
             try {
                 candidates = analyzer.searchDefinitions(symbolName);
                 if (candidates.isEmpty()) {
-                    SwingUtilities.invokeLater(() -> context.chrome()
+                    context.chrome()
                             .systemNotify(
                                     "No references found for: " + symbolName,
                                     "Find References",
-                                    JOptionPane.WARNING_MESSAGE));
+                                    JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             } catch (Exception e) {
                 logger.warn("Error during fallback search for references for '{}': {}", symbolName, e.getMessage());
-                SwingUtilities.invokeLater(() -> context.chrome()
-                        .toolError("Reference search failed: " + e.getMessage(), "Find References Error"));
+                context.chrome()
+                        .toolError("Reference search failed: " + e.getMessage(), "Find References Error");
                 return;
             }
 
-            if (candidates.size() == 1) {
-                var symbolFqName = candidates.get(0).fqName();
-                try {
-                    var candidateUses = analyzer.getUses(symbolFqName);
-                    if (!candidateUses.isEmpty()) {
-                        addUsagesToContext(candidateUses, symbolFqName, context);
-                        SwingUtilities.invokeLater(() -> context.chrome()
-                                .systemNotify(
-                                        String.format("Found %d references for %s", candidateUses.size(), symbolFqName),
-                                        "Find References",
-                                        JOptionPane.INFORMATION_MESSAGE));
-                    } else {
-                        SwingUtilities.invokeLater(() -> context.chrome()
-                                .systemNotify(
-                                        "No references found for: " + symbolFqName,
-                                        "Find References",
-                                        JOptionPane.WARNING_MESSAGE));
-                    }
-                } catch (Exception e) {
-                    logger.warn("Error getting uses for single candidate '{}': {}", symbolFqName, e.getMessage());
-                    SwingUtilities.invokeLater(() -> context.chrome()
-                            .toolError("Failed to get references: " + e.getMessage(), "Find References Error"));
+            // Take the first candidate (no disambiguation)
+            var symbolFqName = candidates.get(0).fqName();
+            System.out.println("*********. " + symbolFqName);
+            try {
+                var candidateUses = analyzer.getUses(symbolFqName);
+                if (!candidateUses.isEmpty()) {
+                    addUsagesToContext(candidateUses, symbolFqName, context);
+                    context.chrome()
+                            .systemNotify(
+                                    String.format("Found %d references for %s", candidateUses.size(), symbolFqName),
+                                    "Find References",
+                                    JOptionPane.INFORMATION_MESSAGE);
+                } else {
+                    context.chrome()
+                            .systemNotify(
+                                    "No references found for: " + symbolFqName,
+                                    "Find References",
+                                    JOptionPane.WARNING_MESSAGE);
                 }
-            } else {
-                // Multiple matches - show disambiguation dialog on EDT
-                SwingUtilities.invokeLater(() -> {
-                    var selected = showSymbolDisambiguationDialog(candidates, symbolName, "Find References");
-                    if (selected != null) {
-                        // Continue processing in background thread
-                        context.contextManager().submitContextTask("Find references for " + selected.fqName(), () -> {
-                            var symbolFqName = selected.fqName();
-                            try {
-                                var selectedUses = analyzer.getUses(symbolFqName);
-                                if (!selectedUses.isEmpty()) {
-                                    addUsagesToContext(selectedUses, symbolFqName, context);
-                                    SwingUtilities.invokeLater(() -> context.chrome()
-                                            .systemNotify(
-                                                    String.format(
-                                                            "Found %d references for %s",
-                                                            selectedUses.size(), symbolFqName),
-                                                    "Find References",
-                                                    JOptionPane.INFORMATION_MESSAGE));
-                                } else {
-                                    SwingUtilities.invokeLater(() -> context.chrome()
-                                            .systemNotify(
-                                                    "No references found for: " + symbolFqName,
-                                                    "Find References",
-                                                    JOptionPane.WARNING_MESSAGE));
-                                }
-                            } catch (Exception e) {
-                                logger.warn(
-                                        "Error getting uses for selected candidate '{}': {}",
-                                        symbolFqName,
-                                        e.getMessage());
-                                SwingUtilities.invokeLater(() -> context.chrome()
-                                        .toolError(
-                                                "Failed to get references: " + e.getMessage(),
-                                                "Find References Error"));
-                            }
-                        });
-                    }
-                });
+            } catch (Exception e) {
+                logger.warn("Error getting uses for candidate '{}': {}", symbolFqName, e.getMessage());
+                context.chrome()
+                        .toolError("Failed to get references: " + e.getMessage(), "Find References Error");
             }
         });
     }
@@ -463,11 +435,14 @@ public class ContextMenuBuilder {
         });
     }
 
-    private void navigateToSymbol(CodeUnit symbol, SymbolMenuContext context) {
-        logger.debug("Navigating to symbol: {} in file: {}", symbol.fqName(), symbol.source());
+    private void openPreview(CodeUnit symbol, SymbolMenuContext context) {
+        logger.debug("Opening symbol in preview: {} in file: {}", symbol.fqName(), symbol.source());
 
-        context.contextManager().submitContextTask("Navigate to " + symbol.fqName(), () -> {
-            context.contextManager().editFiles(List.of(symbol.source()));
+        context.contextManager().submitContextTask("Open preview for " + symbol.fqName(), () -> {
+            SwingUtilities.invokeLater(() -> {
+                // Use Chrome's centralized preview system
+                context.chrome().previewFile(symbol.source());
+            });
         });
     }
 
@@ -481,30 +456,4 @@ public class ContextMenuBuilder {
         });
     }
 
-    private @Nullable CodeUnit showSymbolDisambiguationDialog(
-            List<CodeUnit> candidates, String symbolName, String title) {
-        if (candidates.isEmpty()) {
-            return null;
-        }
-
-        if (candidates.size() == 1) {
-            return candidates.get(0);
-        }
-
-        var options = candidates.stream()
-                .map(cu -> String.format("%s (%s)", cu.fqName(), cu.source().toString()))
-                .toArray(String[]::new);
-
-        int choice = JOptionPane.showOptionDialog(
-                null,
-                "Multiple " + symbolName + " symbols found. Select one:",
-                title,
-                JOptionPane.DEFAULT_OPTION,
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                options,
-                options[0]);
-
-        return choice >= 0 ? candidates.get(choice) : null;
-    }
 }
