@@ -33,12 +33,14 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         this(fileComparisons, projectRoot, null);
     }
 
-    public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+    public FileTreePanel(
+            List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
         this.projectRoot = projectRoot;
 
-        String displayTitle = rootTitle != null ? rootTitle : projectRoot.getFileName().toString();
+        String displayTitle =
+                rootTitle != null ? rootTitle : projectRoot.getFileName().toString();
         rootNode = new DefaultMutableTreeNode(displayTitle);
         treeModel = new DefaultTreeModel(rootNode);
         fileTree = new JTree(treeModel);
@@ -127,31 +129,156 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             current = current.getParent();
         }
 
-        // Navigate/create each directory level
+        return findOrCreateDirectoryNodeWithCollapsing(root, parts);
+    }
+
+    private DefaultMutableTreeNode findOrCreateDirectoryNodeWithCollapsing(
+            DefaultMutableTreeNode root, java.util.List<String> parts) {
+        if (parts.isEmpty()) {
+            return root;
+        }
+
         var currentNode = root;
-        for (var part : parts) {
-            DefaultMutableTreeNode childNode = null;
+        var i = 0;
 
-            // Look for existing directory node
-            for (int i = 0; i < currentNode.getChildCount(); i++) {
-                var child = (DefaultMutableTreeNode) currentNode.getChildAt(i);
-                var userObject = child.getUserObject();
-                if (userObject instanceof String dirName && dirName.equals(part)) {
-                    childNode = child;
-                    break;
+        while (i < parts.size()) {
+            var remainingParts = parts.subList(i, parts.size());
+
+            // Try to find existing node that matches current path segment
+            DefaultMutableTreeNode matchingChild = findMatchingDirectoryChild(currentNode, remainingParts.get(0));
+
+            if (matchingChild != null) {
+                // Found existing node - check if it's collapsed and if we need to split it
+                if (matchingChild instanceof CollapsedDirectoryNode collapsedNode && collapsedNode.isCollapsed()) {
+                    var nodeSegments = collapsedNode.getSegments();
+                    var commonPrefixLength = findCommonPrefixLength(nodeSegments, remainingParts);
+
+                    if (commonPrefixLength == nodeSegments.size() && commonPrefixLength <= remainingParts.size()) {
+                        // The collapsed node is a prefix of our path - continue from after the collapsed segment
+                        currentNode = matchingChild;
+                        i += commonPrefixLength;
+                    } else if (commonPrefixLength > 0 && commonPrefixLength < nodeSegments.size()) {
+                        // Need to split the collapsed node
+                        currentNode = splitCollapsedNode(currentNode, collapsedNode, commonPrefixLength);
+                        i += commonPrefixLength;
+                    } else {
+                        // No common prefix - create new branch
+                        break;
+                    }
+                } else {
+                    // Regular node - move to it and continue
+                    currentNode = matchingChild;
+                    i++;
                 }
+            } else {
+                // No matching child found - create new collapsed chain for remaining parts
+                break;
             }
+        }
 
-            // Create new directory node if not found
-            if (childNode == null) {
-                childNode = new DefaultMutableTreeNode(part);
-                currentNode.add(childNode);
-            }
-
-            currentNode = childNode;
+        // Create any remaining path segments
+        if (i < parts.size()) {
+            var remainingParts = parts.subList(i, parts.size());
+            currentNode = createCollapsedChain(currentNode, remainingParts);
         }
 
         return currentNode;
+    }
+
+    @Nullable
+    private DefaultMutableTreeNode findMatchingDirectoryChild(DefaultMutableTreeNode parent, String firstSegment) {
+        for (int j = 0; j < parent.getChildCount(); j++) {
+            var child = (DefaultMutableTreeNode) parent.getChildAt(j);
+            var userObject = child.getUserObject();
+
+            if (child instanceof CollapsedDirectoryNode collapsedNode) {
+                if (!collapsedNode.getSegments().isEmpty()
+                        && collapsedNode.getSegments().get(0).equals(firstSegment)) {
+                    return child;
+                }
+            } else if (userObject instanceof String dirName && dirName.equals(firstSegment)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    private int findCommonPrefixLength(java.util.List<String> list1, java.util.List<String> list2) {
+        int commonLength = 0;
+        int maxLength = Math.min(list1.size(), list2.size());
+
+        for (int k = 0; k < maxLength; k++) {
+            if (list1.get(k).equals(list2.get(k))) {
+                commonLength++;
+            } else {
+                break;
+            }
+        }
+
+        return commonLength;
+    }
+
+    private DefaultMutableTreeNode splitCollapsedNode(
+            DefaultMutableTreeNode parent, CollapsedDirectoryNode collapsedNode, int splitPoint) {
+        // Remove the old collapsed node
+        parent.remove(collapsedNode);
+
+        // Create new node for the common prefix
+        var commonSegments = collapsedNode.getSegments().subList(0, splitPoint);
+        var commonNode = createCollapsedNode(commonSegments);
+        parent.add(commonNode);
+
+        // Create new node for the remaining segments of the original collapsed node
+        if (splitPoint < collapsedNode.getSegments().size()) {
+            var remainingSegments = collapsedNode
+                    .getSegments()
+                    .subList(splitPoint, collapsedNode.getSegments().size());
+            var remainingNode = createCollapsedNode(remainingSegments);
+            commonNode.add(remainingNode);
+
+            // Move any children from the original collapsed node to the new remaining node
+            while (collapsedNode.getChildCount() > 0) {
+                var child = (DefaultMutableTreeNode) collapsedNode.getChildAt(0);
+                collapsedNode.remove(child);
+                remainingNode.add(child);
+            }
+        }
+
+        return commonNode;
+    }
+
+    private DefaultMutableTreeNode createCollapsedChain(
+            DefaultMutableTreeNode parent, java.util.List<String> segments) {
+        if (segments.isEmpty()) {
+            return parent;
+        }
+
+        // Determine if we should collapse this chain
+        // We collapse if there's only one path and it has multiple segments
+        boolean shouldCollapse = segments.size() > 1;
+
+        if (shouldCollapse) {
+            var collapsedNode = createCollapsedNode(segments);
+            parent.add(collapsedNode);
+            return collapsedNode;
+        } else {
+            // Create individual nodes
+            var currentNode = parent;
+            for (var segment : segments) {
+                var newNode = new CollapsedDirectoryNode(segment);
+                currentNode.add(newNode);
+                currentNode = newNode;
+            }
+            return currentNode;
+        }
+    }
+
+    private CollapsedDirectoryNode createCollapsedNode(java.util.List<String> segments) {
+        if (segments.size() == 1) {
+            return new CollapsedDirectoryNode(segments.get(0));
+        } else {
+            return new CollapsedDirectoryNode(String.join("/", segments), segments, true);
+        }
     }
 
     @Nullable
@@ -336,6 +463,17 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                 setText(fileInfo.name());
                 setIcon(getDiffStatusIcon(fileInfo.status()));
                 setToolTipText(fileInfo.name() + " (" + getStatusText(fileInfo.status()) + ")");
+            } else if (node instanceof CollapsedDirectoryNode collapsedNode) {
+                setText(collapsedNode.getDisplayName());
+                setIcon(expanded ? getOpenIcon() : getClosedIcon());
+
+                // Create tooltip showing the full expanded structure
+                if (collapsedNode.isCollapsed()) {
+                    var expandedPath = String.join(" > ", collapsedNode.getSegments());
+                    setToolTipText(expandedPath + " (" + node.getChildCount() + " items)");
+                } else {
+                    setToolTipText(collapsedNode.getDisplayName() + " (" + node.getChildCount() + " items)");
+                }
             } else if (userObject instanceof String dirName) {
                 setText(dirName);
                 if (node.isLeaf()) {
@@ -391,6 +529,35 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     return 16;
                 }
             };
+        }
+    }
+
+    private static class CollapsedDirectoryNode extends DefaultMutableTreeNode {
+        private final String compoundPath;
+        private final java.util.List<String> segments;
+        private final boolean isCollapsed;
+
+        public CollapsedDirectoryNode(String compoundPath, java.util.List<String> segments, boolean isCollapsed) {
+            super(compoundPath);
+            this.compoundPath = compoundPath;
+            this.segments = new ArrayList<>(segments);
+            this.isCollapsed = isCollapsed;
+        }
+
+        public CollapsedDirectoryNode(String singleSegment) {
+            this(singleSegment, List.of(singleSegment), false);
+        }
+
+        public java.util.List<String> getSegments() {
+            return segments;
+        }
+
+        public boolean isCollapsed() {
+            return isCollapsed;
+        }
+
+        public String getDisplayName() {
+            return compoundPath;
         }
     }
 

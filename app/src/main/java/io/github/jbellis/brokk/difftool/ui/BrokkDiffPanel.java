@@ -106,15 +106,23 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         fileTreePanel = new FileTreePanel(
                 this.fileComparisons, contextManager.getProject().getRoot(), builder.rootTitle);
 
-        // Create split pane with file tree on left and tabs on right
+        // Create split pane with file tree on left and tabs on right (only if multiple files)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainSplitPane.setLeftComponent(fileTreePanel);
-        mainSplitPane.setRightComponent(tabbedPane);
-        mainSplitPane.setDividerLocation(250); // 250px for file tree
-        mainSplitPane.setResizeWeight(0.0); // Keep file tree fixed size
+        if (fileComparisons.size() > 1) {
+            mainSplitPane.setLeftComponent(fileTreePanel);
+            mainSplitPane.setRightComponent(tabbedPane);
+            mainSplitPane.setDividerLocation(250); // 250px for file tree
+            mainSplitPane.setResizeWeight(0.0); // Keep file tree fixed size
+        } else {
+            // For single file, only show the tabs without the file tree
+            mainSplitPane.setRightComponent(tabbedPane);
+            mainSplitPane.setDividerLocation(0); // No left component, no divider
+        }
 
-        // Set up tree selection listener
-        fileTreePanel.setSelectionListener(this::switchToFile);
+        // Set up tree selection listener (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.setSelectionListener(this::switchToFile);
+        }
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
         addAncestorListener(new AncestorListener() {
             @Override
@@ -343,8 +351,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Predictively load adjacent files in background
         preloadAdjacentFiles(currentFileIndex);
 
-        // Update tree selection to match current file
-        fileTreePanel.selectFile(currentFileIndex);
+        // Update tree selection to match current file (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.selectFile(currentFileIndex);
+        }
 
         updateNavigationButtons();
 
@@ -631,8 +641,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         currentFileIndex = 0;
         loadFileOnDemand(currentFileIndex);
 
-        // Select the first file in the tree
-        fileTreePanel.selectFile(currentFileIndex);
+        // Select the first file in the tree (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.selectFile(currentFileIndex);
+        }
     }
 
     private void loadFileOnDemand(int fileIndex) {
@@ -981,8 +993,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             panel.applyTheme(guiTheme);
         }
 
-        // Apply theme to file tree panel
-        fileTreePanel.applyTheme(guiTheme);
+        // Apply theme to file tree panel (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.applyTheme(guiTheme);
+        }
 
         // Update all child components including toolbar buttons and labels
         SwingUtilities.updateComponentTreeUI(this);

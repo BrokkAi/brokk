@@ -1513,7 +1513,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     if (!descriptionText.isBlank()) {
                         try {
                             var descriptionFragment = new ContextFragment.StringFragment(
-                                    contextManager, descriptionText, PrTitleFormatter.formatDescriptionTitle(prNumber), "markdown");
+                                    contextManager,
+                                    descriptionText,
+                                    PrTitleFormatter.formatDescriptionTitle(prNumber),
+                                    "markdown");
                             contextManager.addVirtualFragment(descriptionFragment);
                             logger.info("Added PR description fragment for PR #{}", prNumber);
                         } catch (Exception e) {
@@ -1525,8 +1528,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 } catch (Exception ex) {
                     logger.error("Error capturing diff for PR #{}", pr.getNumber(), ex);
                     chrome.toolError(
-                            PrTitleFormatter.formatCaptureError(pr.getNumber(), ex.getMessage()),
-                            "Capture Diff Error");
+                            PrTitleFormatter.formatCaptureError(pr.getNumber(), ex.getMessage()), "Capture Diff Error");
                 }
             });
         });
@@ -1573,7 +1575,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(
-                            PrTitleFormatter.formatNoChangesMessage(pr.getNumber()), "Diff Info", JOptionPane.INFORMATION_MESSAGE);
+                            PrTitleFormatter.formatNoChangesMessage(pr.getNumber()),
+                            "Diff Info",
+                            JOptionPane.INFORMATION_MESSAGE);
                     return null;
                 }
 
@@ -1605,13 +1609,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                     builder.addComparison(leftSource, rightSource);
                 }
-                SwingUtilities.invokeLater(
-                        () -> builder.build().showInFrame(PrTitleFormatter.formatDiffTitle(pr)));
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame(PrTitleFormatter.formatDiffTitle(pr)));
 
             } catch (Exception ex) {
                 logger.error("Error opening PR diff viewer for PR #{}", pr.getNumber(), ex);
-                chrome.toolError(
-                        PrTitleFormatter.formatDiffError(pr.getNumber(), ex.getMessage()), "Diff Error");
+                chrome.toolError(PrTitleFormatter.formatDiffError(pr.getNumber(), ex.getMessage()), "Diff Error");
             }
             return null;
         });

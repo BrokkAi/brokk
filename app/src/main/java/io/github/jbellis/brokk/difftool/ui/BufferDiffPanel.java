@@ -370,7 +370,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /** The top-level UI for the left & right file panels plus the "diff scroll component". */
     private void init() {
-        var columns = "3px, pref, 3px, 0:grow, 5px, min, 60px, 0:grow, 25px, min, 3px, pref, 3px";
+        var columns = "3px, pref, 3px, 0:grow, 5px, min, 60px, 0:grow, 5px, min, 3px, pref, 3px";
         var rows = "6px, pref, 3px, fill:0:grow, pref";
 
         setLayout(new BorderLayout());
