@@ -124,6 +124,10 @@ buildConfig {
     className("BuildInfo")
 }
 
+tasks.named("generateBuildConfig") {
+    inputs.file("${project.rootDir}/build/version.txt").optional(true)
+}
+
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
     args.set(listOf("install"))
     inputs.file("${project.rootDir}/frontend-mop/package.json")
