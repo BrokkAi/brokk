@@ -117,6 +117,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // For single file, only show the tabs without the file tree
             mainSplitPane.setRightComponent(tabbedPane);
             mainSplitPane.setDividerLocation(0); // No left component, no divider
+            mainSplitPane.setDividerSize(0); // Hide the divider completely
+            mainSplitPane.setEnabled(false); // Disable resizing
         }
 
         // Set up tree selection listener (only if multiple files)

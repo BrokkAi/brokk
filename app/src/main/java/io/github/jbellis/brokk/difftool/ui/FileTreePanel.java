@@ -364,11 +364,16 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         var leftContent = getSourceContent(comparison.leftSource);
         var rightContent = getSourceContent(comparison.rightSource);
 
-        if (leftContent == null && rightContent != null) {
-            return DiffStatus.ADDED;
-        } else if (leftContent != null && rightContent == null) {
+        // Check for deleted files: left has content, right is null or empty
+        if (leftContent != null && !leftContent.isEmpty() && (rightContent == null || rightContent.isEmpty())) {
             return DiffStatus.DELETED;
-        } else if (leftContent != null && rightContent != null) {
+        }
+        // Check for added files: right has content, left is null or empty
+        else if (rightContent != null && !rightContent.isEmpty() && (leftContent == null || leftContent.isEmpty())) {
+            return DiffStatus.ADDED;
+        }
+        // Both have content - compare for changes
+        else if (leftContent != null && rightContent != null) {
             return leftContent.equals(rightContent) ? DiffStatus.UNCHANGED : DiffStatus.MODIFIED;
         }
 
