@@ -130,7 +130,7 @@ public final class ContextMenuUtils {
         // Check what kind of mouse event we're handling
         if (e.isPopupTrigger()) {
             // Right-click (context menu)
-            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table, visibleFiles);
+            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table);
 
             // Right-click on overflow badge?
             if (targetRef == null && hasOverflow) {
@@ -147,7 +147,7 @@ public final class ContextMenuUtils {
             e.consume(); // Prevent further listeners from acting on this event
         } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
             // Left-click
-            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table, visibleFiles);
+            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table);
             logger.debug(
                     "Left-click on file badges - targetRef={}, hasOverflow={}, visibleFiles={}, totalFiles={}",
                     targetRef != null ? targetRef.getFileName() : "null",

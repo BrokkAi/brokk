@@ -763,11 +763,7 @@ public class WorkspacePanel extends JPanel {
                                     && !descriptionData.fileReferences().isEmpty()) {
                                 // Check if the click actually hit a badge (not just anywhere in the cell)
                                 var clickedRef = TableUtils.findClickedReference(
-                                        e.getPoint(),
-                                        row,
-                                        DESCRIPTION_COLUMN,
-                                        contextTable,
-                                        descriptionData.fileReferences());
+                                        e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
 
                                 if (clickedRef != null) {
                                     // Use ContextMenuUtils directly now that we have the proper data structure
@@ -1404,7 +1400,7 @@ public class WorkspacePanel extends JPanel {
                     if (yInCell > cellRect.height / 2) {
                         // Try to find which specific badge was clicked
                         TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
 
                         if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
                             return new FileBadge(clickedFileRef);
