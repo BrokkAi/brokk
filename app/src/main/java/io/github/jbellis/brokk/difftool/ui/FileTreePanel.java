@@ -19,6 +19,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private DefaultMutableTreeNode rootNode;
     private final List<BrokkDiffPanel.FileComparisonInfo> fileComparisons;
     private final Path projectRoot;
+    private final JScrollPane scrollPane;
 
     public interface FileSelectionListener {
         void onFileSelected(int fileIndex);
@@ -44,11 +45,12 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         rootNode = new DefaultMutableTreeNode(displayTitle);
         treeModel = new DefaultTreeModel(rootNode);
         fileTree = new JTree(treeModel);
+        scrollPane = new JScrollPane(fileTree);
 
         setupTree();
         buildTree();
 
-        add(new JScrollPane(fileTree), BorderLayout.CENTER);
+        add(scrollPane, BorderLayout.CENTER);
     }
 
     private void setupTree() {
@@ -114,6 +116,11 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         SwingUtilities.invokeLater(() -> {
             treeModel.reload();
             expandAllNodes();
+            // Ensure tree is properly sized and scroll to top-left
+            fileTree.revalidate();
+            SwingUtilities.invokeLater(() -> {
+                scrollPane.getViewport().setViewPosition(new Point(0, 0));
+            });
         });
     }
 
