@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 import javafx.application.Platform;
 import javafx.scene.web.WebEngine;
 import javax.swing.SwingUtilities;
+import netscape.javascript.JSException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -40,9 +41,11 @@ public final class MOPBridge {
     private volatile @Nullable IContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
+    private final MOPWebViewHost webViewHost;
 
-    public MOPBridge(WebEngine engine) {
+    public MOPBridge(WebEngine engine, MOPWebViewHost webViewHost) {
         this.engine = engine;
+        this.webViewHost = webViewHost;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "MOPBridge-" + this.hashCode());
             t.setDaemon(true);
@@ -72,57 +75,86 @@ public final class MOPBridge {
         });
     }
 
+    /** Enhanced executeScript with comprehensive JSException prevention */
+    private void safeExecuteScript(String script, String methodName) {
+        if (engine == null) {
+            logger.debug("{} failed: WebEngine is null", methodName);
+            return;
+        }
+
+        Platform.runLater(() -> {
+            try {
+                engine.executeScript(script);
+            } catch (JSException js) {
+                if (js.getMessage() != null && js.getMessage().contains("undefined is not an object")) {
+                    logger.debug("{} failed: JavaScript context not ready - {}", methodName, js.getMessage());
+                } else {
+                    logger.warn("{} failed with JSException: {}", methodName, js.getMessage());
+                }
+            } catch (IllegalStateException ise) {
+                logger.debug("{} failed: WebView not initialized - {}", methodName, ise.getMessage());
+            } catch (Exception e) {
+                logger.warn("{} failed with unexpected exception: {}", methodName, e.getMessage(), e);
+            }
+        });
+    }
+
+    /** Enhanced executeScript for methods that return values */
+    private CompletableFuture<Object> safeExecuteScriptWithResult(String script, String methodName) {
+        var future = new CompletableFuture<Object>();
+
+        if (engine == null) {
+            logger.debug("{} failed: WebEngine is null", methodName);
+            future.complete(null);
+            return future;
+        }
+
+        Platform.runLater(() -> {
+            try {
+                Object result = engine.executeScript(script);
+                future.complete(result);
+            } catch (JSException js) {
+                if (js.getMessage() != null && js.getMessage().contains("undefined is not an object")) {
+                    logger.debug("{} failed: JavaScript context not ready - {}", methodName, js.getMessage());
+                } else {
+                    logger.warn("{} failed with JSException: {}", methodName, js.getMessage());
+                }
+                future.complete(null);
+            } catch (IllegalStateException ise) {
+                logger.debug("{} failed: WebView not initialized - {}", methodName, ise.getMessage());
+                future.complete(null);
+            } catch (Exception e) {
+                logger.warn("{} failed with unexpected exception: {}", methodName, e.getMessage(), e);
+                future.complete(null);
+            }
+        });
+
+        return future;
+    }
+
     public void setSearch(String query, boolean caseSensitive) {
         var js = "if (window.brokk && window.brokk.setSearch) { window.brokk.setSearch(" + toJson(query) + ", "
                 + caseSensitive + "); }";
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript(js);
-            } catch (Exception e) {
-                logger.debug("setSearch failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript(js, "setSearch");
     }
 
     public void clearSearch() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }");
-            } catch (Exception e) {
-                logger.debug("clearSearch failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript(
+                "if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }", "clearSearch");
     }
 
     public void nextMatch() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }");
-            } catch (Exception e) {
-                logger.debug("nextMatch failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }", "nextMatch");
     }
 
     public void prevMatch() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }");
-            } catch (Exception e) {
-                logger.debug("prevMatch failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }", "prevMatch");
     }
 
     public void scrollToCurrent() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript(
-                        "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }");
-            } catch (Exception e) {
-                logger.debug("scrollToCurrent failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript(
+                "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }",
+                "scrollToCurrent");
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
@@ -135,57 +167,30 @@ public final class MOPBridge {
     }
 
     public void setTheme(boolean isDark, boolean isDevMode) {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark
-                        + ", " + isDevMode + "); }");
-            } catch (Exception e) {
-                logger.debug("setTheme failed (page not ready): {}", e.getMessage());
-            }
-        });
+        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
+                + "); }";
+        safeExecuteScript(js, "setTheme");
     }
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner("
-                        + jsonMessage + "); }");
-            } catch (Exception e) {
-                logger.debug("showSpinner failed (page not ready): {}", e.getMessage());
-            }
-        });
+        var js = "if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner(" + jsonMessage + "); }";
+        safeExecuteScript(js, "showSpinner");
     }
 
     public void hideSpinner() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); }");
-            } catch (Exception e) {
-                logger.debug("hideSpinner failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript(
+                "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); }", "hideSpinner");
     }
 
     public void clear() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript("if (window.brokk && window.brokk.clear) { window.brokk.clear(); }");
-            } catch (Exception e) {
-                logger.debug("clear failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript("if (window.brokk && window.brokk.clear) { window.brokk.clear(); }", "clear");
     }
 
     public void refreshSymbolLookup() {
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript(
-                        "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup(); }");
-            } catch (Exception e) {
-                logger.debug("refreshSymbolLookup failed (page not ready): {}", e.getMessage());
-            }
-        });
+        safeExecuteScript(
+                "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup(); }",
+                "refreshSymbolLookup");
     }
 
     private void scheduleSend() {
@@ -253,14 +258,8 @@ public final class MOPBridge {
             awaiting.put(e, new CompletableFuture<>());
         }
         var json = toJson(event);
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript(
-                        "if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); }");
-            } catch (Exception ex) {
-                logger.debug("sendEvent failed (page not ready): {}", ex.getMessage());
-            }
-        });
+        var js = "if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); }";
+        safeExecuteScript(js, "sendEvent");
     }
 
     public void onAck(int e) {
@@ -271,18 +270,9 @@ public final class MOPBridge {
     }
 
     public CompletableFuture<String> getSelection() {
-        var future = new CompletableFuture<String>();
-        Platform.runLater(() -> {
-            try {
-                Object result = engine.executeScript(
-                        "window.brokk && window.brokk.getSelection ? window.brokk.getSelection() : ''");
-                future.complete(result != null ? result.toString() : "");
-            } catch (Exception ex) {
-                logger.debug("Failed to get selection from WebView (page not ready): {}", ex.getMessage());
-                future.complete("");
-            }
-        });
-        return future;
+        var script = "window.brokk && window.brokk.getSelection ? window.brokk.getSelection() : ''";
+        return safeExecuteScriptWithResult(script, "getSelection")
+                .thenApply(result -> result != null ? result.toString() : "");
     }
 
     public CompletableFuture<Void> flushAsync() {
@@ -308,16 +298,16 @@ public final class MOPBridge {
             case "WARN" -> logger.warn("JS: {}", message);
             case "INFO" -> {
                 logger.info("JS: {}", message);
-                if (message.contains("CODE-LOGGER") ) {
-                  System.out.println("////// " + message);
+                if (message.contains("CODE-LOGGER")) {
+                    System.out.println("////// " + message);
                 }
             }
             case "DEBUG" -> logger.debug("JS: {}", message);
             default -> {
                 if (message.contains("[WORKER-ERROR]") || message.contains("[WORKER-REJECTION]")) {
                     logger.error("JS: {}", message);
-                } else if (message.contains("CODE-LOGGER") ) {
-                  System.out.println("////// " + message);
+                } else if (message.contains("CODE-LOGGER")) {
+                    System.out.println("////// " + message);
                 } else if (message.contains("ERROR") || message.contains("Error") || message.contains("error")) {
                     logger.warn("JS: {}", message);
                 } else {
@@ -395,8 +385,7 @@ public final class MOPBridge {
 
     public void onProcessorStateChanged(String state) {
         logger.debug("Received processor state change notification: {}", state);
-        // This is called from MOPWebViewHost when processor state changes
-        // Currently just logs the state change, but can be extended for additional handling
+        webViewHost.onProcessorStateChanged(state);
     }
 
     private static String toJson(Object obj) {

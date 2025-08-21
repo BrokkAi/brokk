@@ -28,7 +28,7 @@ export interface ExpandDiffMsg {
 
 export interface SymbolLookupResponseMsg {
     type: 'symbol-lookup-response';
-    results: Record<string, {exists: boolean}>;
+    results: Record<string, {exists: boolean, fqn?: string | null}>;
     seq: Seq;
 }
 
@@ -57,6 +57,7 @@ export interface ErrorMsg {
 
 export interface ShikiLangsReadyMsg {
     type: 'shiki-langs-ready';
+    canHighlight?: string[]; // languages now available
 }
 
 export interface SymbolLookupRequestMsg {
@@ -71,7 +72,12 @@ export interface WorkerLogMsg {
     message: string;
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg;
+export interface ProcessorStateChangeMsg {
+    type: 'processor-state-changed';
+    state: 'base-ready' | 'shiki-initializing' | 'shiki-ready';
+}
+
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | ProcessorStateChangeMsg;
 
 // shared by both
 

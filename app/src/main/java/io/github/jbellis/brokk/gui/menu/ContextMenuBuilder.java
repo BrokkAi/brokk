@@ -214,8 +214,7 @@ public class ContextMenuBuilder {
                 }
             } catch (Exception e) {
                 logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
-                context.chrome()
-                        .toolError("Failed to find definition: " + e.getMessage(), "Open in Preview Error");
+                context.chrome().toolError("Failed to find definition: " + e.getMessage(), "Open in Preview Error");
                 return;
             }
 
@@ -244,23 +243,16 @@ public class ContextMenuBuilder {
                 openPreview(candidates.get(0), context);
             } else {
                 var matchList = candidates.stream()
-                    .map(candidate -> String.format("• %s in %s",
-                        candidate.shortName(),
-                        candidate.source().toString()))
-                    .collect(Collectors.joining("\n"));
+                        .map(candidate -> String.format(
+                                "• %s in %s",
+                                candidate.shortName(), candidate.source().toString()))
+                        .collect(Collectors.joining("\n"));
 
                 var message = String.format(
-                    "Found %d definitions for '%s'. Opening the first one:\n\n%s",
-                    candidates.size(),
-                    symbolName,
-                    matchList
-                );
+                        "Found %d definitions for '%s'. Opening the first one:\n\n%s",
+                        candidates.size(), symbolName, matchList);
 
-                context.chrome().systemNotify(
-                    message,
-                    "Multiple Definitions Found",
-                    JOptionPane.INFORMATION_MESSAGE
-                );
+                context.chrome().systemNotify(message, "Multiple Definitions Found", JOptionPane.INFORMATION_MESSAGE);
             }
         });
     }
@@ -296,8 +288,7 @@ public class ContextMenuBuilder {
                 }
             } catch (Exception e) {
                 logger.warn("Error during FQN reference lookup for '{}': {}", fqn, e.getMessage());
-                context.chrome()
-                        .toolError("Failed to find references: " + e.getMessage(), "Find References Error");
+                context.chrome().toolError("Failed to find references: " + e.getMessage(), "Find References Error");
                 return;
             }
 
@@ -336,8 +327,7 @@ public class ContextMenuBuilder {
                 }
             } catch (Exception e) {
                 logger.warn("Error during fallback search for references for '{}': {}", symbolName, e.getMessage());
-                context.chrome()
-                        .toolError("Reference search failed: " + e.getMessage(), "Find References Error");
+                context.chrome().toolError("Reference search failed: " + e.getMessage(), "Find References Error");
                 return;
             }
 
@@ -362,8 +352,7 @@ public class ContextMenuBuilder {
                 }
             } catch (Exception e) {
                 logger.warn("Error getting uses for candidate '{}': {}", symbolFqName, e.getMessage());
-                context.chrome()
-                        .toolError("Failed to get references: " + e.getMessage(), "Find References Error");
+                context.chrome().toolError("Failed to get references: " + e.getMessage(), "Find References Error");
             }
         });
     }
@@ -455,5 +444,4 @@ public class ContextMenuBuilder {
             context.contextManager().addReadOnlyFiles(usageFiles);
         });
     }
-
 }

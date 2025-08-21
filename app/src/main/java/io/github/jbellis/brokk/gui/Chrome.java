@@ -1131,6 +1131,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
                 markdownPanel.setProject(getProject());
                 markdownPanel.setSymbolRightClickHandler(this);
+                markdownPanel.setContextManager(contextManager);
                 markdownPanel.updateTheme(themeManager.isDarkTheme());
                 markdownPanel.setText(combinedMessages);
 

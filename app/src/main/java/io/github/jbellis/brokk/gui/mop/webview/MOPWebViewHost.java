@@ -49,7 +49,12 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     // Processor state tracking for enhanced queue logic
-    private enum ProcessorState { INITIALIZING, BASE_READY, SHIKI_READY }
+    private enum ProcessorState {
+        INITIALIZING,
+        BASE_READY,
+        SHIKI_READY
+    }
+
     private volatile ProcessorState processorState = ProcessorState.INITIALIZING;
     private final List<HostCommand> pendingParseCommands = new CopyOnWriteArrayList<>();
 
@@ -104,7 +109,7 @@ public final class MOPWebViewHost extends JPanel {
             webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
-            var bridge = new MOPBridge(view.getEngine());
+            var bridge = new MOPBridge(view.getEngine(), this);
             if (project != null) {
                 bridge.setProject(project);
             }
