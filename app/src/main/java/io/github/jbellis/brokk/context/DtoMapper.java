@@ -132,8 +132,7 @@ public class DtoMapper {
                 ContextFragment.ProjectPathFragment.withId(
                         new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
             case ExternalFileDto efd ->
-                ContextFragment.ExternalPathFragment.withId(
-                        new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+                ContextFragment.ExternalPathFragment.withId(new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
             case ImageFileDto ifd -> {
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
                 yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
@@ -155,9 +154,7 @@ public class DtoMapper {
                         imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
                         ffd.isTextFragment(),
                         ffd.syntaxStyle(),
-                        ffd.files().stream()
-                                .map(DtoMapper::fromProjectFileDto)
-                                .collect(Collectors.toSet()),
+                        ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
                         ffd.originalClassName(),
                         ffd.meta());
         };
@@ -183,8 +180,7 @@ public class DtoMapper {
             ContentReader reader) {
         if (dto == null) return null;
         return switch (dto) {
-            case FrozenFragmentDto ffd ->
-                (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+            case FrozenFragmentDto ffd -> (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
             case SearchFragmentDto searchDto -> {
                 var sources = searchDto.sources().stream()
                         .map(DtoMapper::fromCodeUnitDto)
@@ -230,9 +226,8 @@ public class DtoMapper {
                 }
             }
             case StacktraceFragmentDto stDto -> {
-                var sources = stDto.sources().stream()
-                        .map(DtoMapper::fromCodeUnitDto)
-                        .collect(Collectors.toSet());
+                var sources =
+                        stDto.sources().stream().map(DtoMapper::fromCodeUnitDto).collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(
                         stDto.id(),
                         mgr,

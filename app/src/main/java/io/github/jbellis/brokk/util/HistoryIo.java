@@ -12,7 +12,6 @@ import io.github.jbellis.brokk.context.ContentDtos.DiffContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.FullContentMetadataDto;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
 import io.github.jbellis.brokk.util.migrationv3.HistoryV3Migrator;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -116,9 +115,9 @@ public final class HistoryIo {
                     }
                     default -> {
                         if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
-                            String fragmentIdHash = entry.getName()
-                                    .substring(IMAGES_DIR_PREFIX.length())
-                                    .replaceFirst("\\.png$", "");
+                            String name = entry.getName().substring(IMAGES_DIR_PREFIX.length());
+                            int dotIndex = name.lastIndexOf('.');
+                            String fragmentIdHash = (dotIndex > 0) ? name.substring(0, dotIndex) : name;
                             imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
                         } else if (entry.getName().startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
                             String contentId = entry.getName()
@@ -362,10 +361,11 @@ public final class HistoryIo {
             for (FrozenFragment ff : imageDomainFragments) {
                 byte[] imageBytes = ff.imageBytesContent();
                 if (imageBytes != null) {
-                    ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + ff.id() + ".png");
-                    entry.setMethod(ZipEntry.STORED);
+                    ZipEntry entry = new ZipEntry(
+                            IMAGES_DIR_PREFIX + ff.id() + ".png"); // Assumes PNG, consider content type if varied
+                    entry.setMethod(ZipEntry.STORED); // For uncompressed images, or DEFLATED if compression desired
                     entry.setSize(imageBytes.length);
-                    entry.setCompressedSize(imageBytes.length);
+                    entry.setCompressedSize(imageBytes.length); // If STORED
                     var crc = new CRC32();
                     crc.update(imageBytes);
                     entry.setCrc(crc.getValue());
@@ -401,7 +401,8 @@ public final class HistoryIo {
                         if (diffRatio < 0.75) {
                             // Make sure not to take diff bytes for UUID generation, because two diffs can be
                             // the same but apply to different contents
-                            var contentId = UUID.nameUUIDFromBytes(content.getBytes(StandardCharsets.UTF_8)).toString();
+                            var contentId = UUID.nameUUIDFromBytes(content.getBytes(StandardCharsets.UTF_8))
+                                    .toString();
                             contentMetadata.put(contentId, new DiffContentMetadataDto(revision, lastContentId));
                             contentBytes.put(contentId, diff.getBytes(StandardCharsets.UTF_8));
                             fileKeyToLastContentId.put(fileKey, contentId);
