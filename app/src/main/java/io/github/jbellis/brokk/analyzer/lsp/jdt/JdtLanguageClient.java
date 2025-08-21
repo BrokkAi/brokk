@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer.lsp.jdt;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.LspStatus;
-import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;

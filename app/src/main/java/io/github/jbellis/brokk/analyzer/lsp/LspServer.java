@@ -2,13 +2,13 @@ package io.github.jbellis.brokk.analyzer.lsp;
 
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-
+import io.github.jbellis.brokk.util.FileUtil;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.*;
@@ -16,8 +16,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import io.github.jbellis.brokk.util.FileUtil;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.eclipse.lsp4j.launch.LSPLauncher;
@@ -47,30 +45,27 @@ public abstract class LspServer {
     @Nullable
     private Thread shutdownHook;
 
-/**
- * Channel to the lock file that coordinates access to the shared LSP cache
- * across JVMs.  The channel is kept open for the entire lifetime of the
- * language-server process so the corresponding {@link #cacheLock} remains
- * valid until {@link #shutdownServer()}.
- */
-@Nullable
-private FileChannel lockChannel;
-/**
- * The exclusive lock held on the cache lock file.  It is acquired in
- * {@link #startServer(Path, String, Path, Map)} and released in
- * {@link #shutdownServer()}.  While this lock is held, no other JVM can start
- * another language-server instance against the same cache directory.
- */
-@Nullable
-private FileLock cacheLock;
+    /**
+     * Channel to the lock file that coordinates access to the shared LSP cache across JVMs. The channel is kept open
+     * for the entire lifetime of the language-server process so the corresponding {@link #cacheLock} remains valid
+     * until {@link #shutdownServer()}.
+     */
+    @Nullable
+    private FileChannel lockChannel;
+    /**
+     * The exclusive lock held on the cache lock file. It is acquired in {@link #startServer(Path, String, Path, Map)}
+     * and released in {@link #shutdownServer()}. While this lock is held, no other JVM can start another
+     * language-server instance against the same cache directory.
+     */
+    @Nullable
+    private FileLock cacheLock;
 
-/**
- * If this JVM could not obtain the primary cache lock, it starts the
- * language-server using a temporary cache directory.  The path to that
- * directory is stored here so it can be cleaned up during shutdown.
- */
-@Nullable
-private Path temporaryCachePath;
+    /**
+     * If this JVM could not obtain the primary cache lock, it starts the language-server using a temporary cache
+     * directory. The path to that directory is stored here so it can be cleaned up during shutdown.
+     */
+    @Nullable
+    private Path temporaryCachePath;
 
     /** The type of server this is, e.g, JDT */
     private final SupportedLspServer serverType;
@@ -211,10 +206,7 @@ private Path temporaryCachePath;
                 Files.createDirectories(cache);
             }
             final Path lockFile = cache.resolve(".cache.lock");
-            this.lockChannel = FileChannel.open(
-                    lockFile,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.WRITE);
+            this.lockChannel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             // Try to obtain the lock without blocking.  If it is already held by
             // another JVM we will fall back to a temporary cache.
             this.cacheLock = this.lockChannel.tryLock();
@@ -225,10 +217,10 @@ private Path temporaryCachePath;
                 // Close the channel associated with the primary lock so we do not
                 // keep an unverifiable handle open.
                 try {
-                        this.lockChannel.close();
-                    } catch (IOException closeEx) {
-                        logger.warn("Failed to close primary cache lock channel", closeEx);
-                    }
+                    this.lockChannel.close();
+                } catch (IOException closeEx) {
+                    logger.warn("Failed to close primary cache lock channel", closeEx);
+                }
                 this.lockChannel = null;
 
                 // Create an isolated temporary cache directory
@@ -356,9 +348,8 @@ private Path temporaryCachePath;
     }
 
     /**
-     * Force-clears the on-disk cache when it has become corrupted.  The server
-     * is first shut down (releasing any file lock) and the cache directory is
-     * then deleted so the next startup will rebuild it from scratch.
+     * Force-clears the on-disk cache when it has become corrupted. The server is first shut down (releasing any file
+     * lock) and the cache directory is then deleted so the next startup will rebuild it from scratch.
      */
     public synchronized void clearCache() {
         logger.warn("Clearing LSP cache due to detected corruption.");
