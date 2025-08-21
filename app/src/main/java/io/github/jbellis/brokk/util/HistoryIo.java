@@ -84,7 +84,7 @@ public final class HistoryIo {
         Map<String, DtoMapper.GitStateDto> rawGitStateDtos = null;
         Map<String, ContextHistory.ContextHistoryEntryInfo> entryInfoDtos = new HashMap<>();
         Map<String, ContentMetadataDto> contentMetadata = Map.of();
-        var contentReader = new ContentReader(zip);
+        var contentBytesMap = new HashMap<String, byte[]>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
@@ -120,6 +120,11 @@ public final class HistoryIo {
                                     .substring(IMAGES_DIR_PREFIX.length())
                                     .replaceFirst("\\.png$", "");
                             imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
+                        } else if (entry.getName().startsWith(CONTENT_DIR_PREFIX) && !entry.isDirectory()) {
+                            String contentId = entry.getName()
+                                    .substring(CONTENT_DIR_PREFIX.length())
+                                    .replaceFirst("\\.txt$", "");
+                            contentBytesMap.put(contentId, zis.readAllBytes());
                         }
                     }
                 }
@@ -130,6 +135,7 @@ public final class HistoryIo {
             return null;
         }
 
+        var contentReader = new ContentReader(contentBytesMap);
         contentReader.setContentMetadata(contentMetadata);
 
         if (rawGitStateDtos != null) {
@@ -393,10 +399,11 @@ public final class HistoryIo {
                         var diff = ContentDiffUtils.diff(lastContent, content);
                         var diffRatio = (double) diff.length() / content.length();
                         if (diffRatio < 0.75) {
-                            byte[] diffBytes = diff.getBytes(StandardCharsets.UTF_8);
-                            var contentId = UUID.nameUUIDFromBytes(diffBytes).toString();
+                            // Make sure not to take diff bytes for UUID generation, because two diffs can be
+                            // the same but apply to different contents
+                            var contentId = UUID.nameUUIDFromBytes(content.getBytes(StandardCharsets.UTF_8)).toString();
                             contentMetadata.put(contentId, new DiffContentMetadataDto(revision, lastContentId));
-                            contentBytes.put(contentId, diffBytes);
+                            contentBytes.put(contentId, diff.getBytes(StandardCharsets.UTF_8));
                             fileKeyToLastContentId.put(fileKey, contentId);
                             idToFullContent.put(contentId, content);
                             return contentId;
@@ -431,12 +438,12 @@ public final class HistoryIo {
     }
 
     public static class ContentReader {
-        private final Path zip;
+        private final Map<String, byte[]> contentBytes;
         private Map<String, ContentMetadataDto> contentMetadata = Map.of();
         private final Map<String, String> contentCache = new HashMap<>();
 
-        public ContentReader(Path zip) {
-            this.zip = zip;
+        public ContentReader(Map<String, byte[]> contentBytes) {
+            this.contentBytes = contentBytes;
         }
 
         public void setContentMetadata(Map<String, ContentMetadataDto> contentMetadata) {
@@ -452,7 +459,10 @@ public final class HistoryIo {
             var metadata = contentMetadata.get(contentId);
             if (metadata == null) throw new IOException("No metadata for content ID: " + contentId);
 
-            byte[] bytes = readBytesFromZip(CONTENT_DIR_PREFIX + contentId + ".txt");
+            byte[] bytes = contentBytes.get(contentId);
+            if (bytes == null) {
+                throw new IOException("Content not found for ID: " + contentId);
+            }
             String content = new String(bytes, StandardCharsets.UTF_8);
 
             String result;
@@ -465,21 +475,6 @@ public final class HistoryIo {
 
             contentCache.put(contentId, result);
             return result;
-        }
-
-        private byte[] readBytesFromZip(String entryName) throws IOException {
-            try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
-                ZipEntry entry;
-                while ((entry = zis.getNextEntry()) != null) {
-                    if (entry.getName().equals(entryName)) {
-                        try (var baos = new ByteArrayOutputStream()) {
-                            zis.transferTo(baos);
-                            return baos.toByteArray();
-                        }
-                    }
-                }
-            }
-            throw new IOException("Entry not found in zip: " + entryName);
         }
     }
 }
