@@ -87,7 +87,8 @@ public class ToolRegistry {
 
             // Create the Markdown code fence with icon and headline
             return """
-                   ```%s %s
+                   ### %s %s
+                   ```yaml
                    %s```
                    """
                     .formatted(displayMeta.getIcon(), displayMeta.getHeadline(), yamlBuilder);
