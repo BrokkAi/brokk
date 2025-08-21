@@ -71,6 +71,10 @@ public interface IProject extends AutoCloseable {
         return this;
     }
 
+    default MainProject getMainProject() {
+        throw new UnsupportedOperationException();
+    }
+
     default boolean hasGit() {
         return false;
     }
@@ -263,6 +267,10 @@ public interface IProject extends AutoCloseable {
 
     default Set<String> getExcludedDirectories() {
         return Set.of();
+    }
+
+    default IConsoleIO getConsoleIO() {
+        throw new UnsupportedOperationException();
     }
 
     enum CpgRefresh {

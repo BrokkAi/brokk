@@ -4,21 +4,14 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.IWatchService.EventBatch;
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -52,7 +45,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             false; // TODO allow requesting either incremental or full rebuild
     private volatile boolean rebuildPending = false;
 
-    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener) {
+    public AnalyzerWrapper(
+            IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener, IConsoleIO io) {
         this.project = project;
         this.root = project.getRoot();
         gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
@@ -73,19 +67,22 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             long start = System.currentTimeMillis();
-            currentAnalyzer = loadOrCreateAnalyzer();
+            currentAnalyzer = loadOrCreateAnalyzer(io);
             long durationMs = System.currentTimeMillis() - start;
 
             delayNotificationsUntilCompleted.complete(null);
 
             // debug logging
-            var codeUnits = currentAnalyzer.getAllDeclarations();
-            var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
-            logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
+            final var metrics = currentAnalyzer.getMetrics();
+            logger.debug(
+                    "Initial analyzer has {} declarations across {} files",
+                    metrics.numberOfDeclarations(),
+                    metrics.numberOfCodeUnits());
 
             // configure auto-refresh based on how long the first build took
             if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                handleFirstBuildRefreshSettings(codeUnits.size(), durationMs, project.getAnalyzerLanguages());
+                handleFirstBuildRefreshSettings(
+                        metrics.numberOfCodeUnits(), durationMs, project.getAnalyzerLanguages());
             }
 
             return currentAnalyzer;
@@ -178,7 +175,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
      * loadSingleCachedAnalyzerForLanguage</code> are now performed here <em>before</em> we decide whether to call
      * <code>langHandle.loadAnalyzer()</code> (use cache) or <code>langHandle.createAnalyzer()</code> (full rebuild).
      */
-    private IAnalyzer loadOrCreateAnalyzer() {
+    private IAnalyzer loadOrCreateAnalyzer(IConsoleIO io) {
         // ACHTUNG!
         // Do not call into the listener directly in this method, since if the listener asks for the analyzer
         // object via get() it can cause a deadlock.
@@ -230,6 +227,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         try {
             logger.debug("Attempting to load existing analyzer");
             analyzer = langHandle.loadAnalyzer(project);
+            if (analyzer instanceof CanCommunicate communicativeAnalyzer) {
+                communicativeAnalyzer.setIo(io);
+            }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
             logger.warn(th);
@@ -344,6 +344,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
     /**
      * Determine whether the cached analyzer for the given language is stale relative to its tracked source files and
      * any user-requested rebuilds.
+     *
+     * <p>
      *
      * <p>The caller guarantees that {@code analyzerPath} is non-null and exists.
      */

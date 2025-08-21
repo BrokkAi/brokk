@@ -125,7 +125,7 @@ public class SearchAgent {
             toolSpecs.addAll(toolRegistry.getTools(this, List.of("answerSearch", "abortSearch")));
 
             // Decide next action(s)
-            io.llmOutput("\n# Planning", ChatMessageType.AI, true);
+            io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
             var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
             if (result.error() != null || result.isEmpty()) {
                 var details =
@@ -365,6 +365,7 @@ public class SearchAgent {
 
         // Text-based search
         names.add("searchSubstrings");
+        names.add("searchGitCommitMessages");
         names.add("searchFilenames");
         names.add("getFileContents");
         names.add("getFileSummaries");
@@ -410,7 +411,7 @@ public class SearchAgent {
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodSourcesToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "getRelatedClasses" -> 5;
-            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames" -> 6;
+            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
             default -> 9;
@@ -506,8 +507,8 @@ public class SearchAgent {
 
         io.llmOutput("\n# Answer\n" + explanation, ChatMessageType.AI);
         var sessionName = "Search: " + goal;
-        var fragment =
-                new ContextFragment.SearchFragment(cm, sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
+        var fragment = new ContextFragment.SearchFragment(
+                cm, sessionName, List.copyOf(io.getLlmRawMessages(false)), coalesced);
         return new TaskResult(
                 sessionName, fragment, Set.of(), new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
@@ -541,6 +542,7 @@ public class SearchAgent {
                         "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
+                        "searchGitCommitMessages",
                         "getFileContents",
                         "getFileSummaries")
                 .contains(toolName);
@@ -662,6 +664,7 @@ public class SearchAgent {
                 case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
                     listParamSignatures(toolName, args, "classNames");
                 case "getMethodSources" -> listParamSignatures(toolName, args, "methodNames");
+                case "searchGitCommitMessages" -> List.of(toolName + ":pattern=" + args.getOrDefault("pattern", ""));
                 case "answerSearch", "abortSearch" -> List.of(toolName + ":finalizing");
                 default -> List.of(toolName + ":unknown");
             };

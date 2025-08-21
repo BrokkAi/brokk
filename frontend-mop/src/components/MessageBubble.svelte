@@ -12,7 +12,7 @@
     AI: '--message-border-ai',
     USER: '--message-border-user',
     CUSTOM: '--message-border-custom',
-    SYSTEM: '--message-border-custom'
+    SYSTEM: '--message-border-custom',
   }[bubble.type] ?? '--message-border-custom';
 
   const bgVar = bubble.type === 'CUSTOM' ? '--custom-message-background' : '--message-background';
@@ -30,8 +30,8 @@
   class="message-wrapper"
 >
   <header class="header" style="color: var({hlVar});">
-    <Icon icon={iconId} style="color: var({hlVar}); margin-right: 0.35em;" />
-    <span class="title">{title}</span>
+      <Icon icon={iconId} style="color: var({hlVar}); margin-right: 0.35em;" />
+      <span class="title">{title}</span>
   </header>
   <div
     class="message-bubble"

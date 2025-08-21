@@ -5,11 +5,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.Messages;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 public class LlmTest {
@@ -32,29 +35,7 @@ public class LlmTest {
     static void setUp() {
         // Create ContextManager, which initializes Models internally
         var consoleIO = new NoOpConsoleIO();
-        var project = new IProject() {
-            @Override
-            public Path getRoot() {
-                return tempDir;
-            }
-        };
-        var models = new Service(project);
-        contextManager = new IContextManager() {
-            @Override
-            public IConsoleIO getIo() {
-                return consoleIO;
-            }
-
-            @Override
-            public IProject getProject() {
-                return project;
-            }
-
-            @Override
-            public Service getService() {
-                return models;
-            }
-        };
+        contextManager = new TestContextManager(tempDir, consoleIO);
     }
 
     // Simple tool for testing
@@ -217,6 +198,7 @@ public class LlmTest {
         }
     }
 
+    @Test
     void testEmulateToolExecutionResults() {
         var user1 = new UserMessage("Initial request");
         var term1 = ToolExecutionResultMessage.toolExecutionResultMessage("t1", "toolA", "Result A");
@@ -229,10 +211,10 @@ public class LlmTest {
 
         // Case 1: Single TERM followed by UserMessage
         var messages1 = List.of(user1, term1, user2);
-        var result1 = llm.emulateToolExecutionResults(messages1);
+        var result1 = Llm.emulateToolExecutionResults(messages1);
         assertEquals(2, result1.size());
         assertEquals(user1, result1.get(0));
-        assertTrue(result1.get(1) instanceof UserMessage);
+        assertInstanceOf(UserMessage.class, result1.get(1));
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nFollow-up based on results",
                 Messages.getText(result1.get(1)).stripIndent());
@@ -240,20 +222,20 @@ public class LlmTest {
 
         // Case 2: Multiple TERMs followed by UserMessage
         var messages2 = List.of(user1, term1, term2, user2);
-        var result2 = llm.emulateToolExecutionResults(messages2);
+        var result2 = Llm.emulateToolExecutionResults(messages2);
         assertEquals(2, result2.size());
         assertEquals(user1, result2.get(0));
-        assertTrue(result2.get(1) instanceof UserMessage);
+        assertInstanceOf(UserMessage.class, result2.get(1));
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n\nFollow-up based on results",
                 Messages.getText(result2.get(1)).stripIndent());
 
         // Case 3: TERM followed by non-UserMessage (AiMessage)
         var messages3 = List.of(user1, term1, ai1, user2);
-        var result3 = llm.emulateToolExecutionResults(messages3);
+        var result3 = Llm.emulateToolExecutionResults(messages3);
         assertEquals(4, result3.size());
         assertEquals(user1, result3.get(0));
-        assertTrue(result3.get(1) instanceof UserMessage);
+        assertInstanceOf(UserMessage.class, result3.get(1));
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n",
                 Messages.getText(result3.get(1)).stripIndent());
@@ -262,7 +244,7 @@ public class LlmTest {
 
         // Case 4: Trailing TERM(s)
         var messages4 = List.of(user1, term1, user2, term4);
-        var result4 = llm.emulateToolExecutionResults(messages4);
+        var result4 = Llm.emulateToolExecutionResults(messages4);
         assertEquals(3, result4.size());
         assertEquals(user1, result4.get(0));
         assertEquals(
@@ -274,7 +256,7 @@ public class LlmTest {
 
         // Case 5: Multiple combinations and other messages, including combining multiple terms
         var messages5 = List.of(user1, term1, term2, user2, ai1, term3, term4, user3);
-        var result5 = llm.emulateToolExecutionResults(messages5);
+        var result5 = Llm.emulateToolExecutionResults(messages5);
         // Expected: user1, combined(message from term1,term2 and user2), ai1, combined(message from term3,term4 and
         // user3)
         assertEquals(4, result5.size());
@@ -309,26 +291,46 @@ public class LlmTest {
 
         // Case 6: No TERMs
         var messages6 = List.of(user1, ai1, user2);
-        var result6 = llm.emulateToolExecutionResults(messages6);
+        var result6 = Llm.emulateToolExecutionResults(messages6);
         assertEquals(messages6, result6);
         assertEquals(messages6, result6, "List should be identical if unmodified");
 
         // Case 7: Only TERMs - creates a new UserMessage
         var messages7 = List.<ChatMessage>of(term1, term2);
-        var result7 = llm.emulateToolExecutionResults(messages7);
+        var result7 = Llm.emulateToolExecutionResults(messages7);
         assertEquals(1, result7.size());
-        assertTrue(result7.get(0) instanceof UserMessage);
+        assertInstanceOf(UserMessage.class, result7.getFirst());
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\n<toolcall id=\"t2\" name=\"toolB\">\nResult B\n</toolcall>\n",
-                Messages.getText(result7.get(0)).stripIndent());
+                Messages.getText(result7.getFirst()).stripIndent());
 
         // Case 8: TERM at the beginning followed by UserMessage
         var messages8 = List.of(term1, user1);
-        var result8 = llm.emulateToolExecutionResults(messages8);
+        var result8 = Llm.emulateToolExecutionResults(messages8);
         assertEquals(1, result8.size());
-        assertTrue(result8.get(0) instanceof UserMessage);
+        assertInstanceOf(UserMessage.class, result8.getFirst());
         assertEquals(
                 "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n\nInitial request",
-                Messages.getText(result8.get(0)).stripIndent());
+                Messages.getText(result8.getFirst()).stripIndent());
+
+        // Case 9: TERM followed by AiMessage with native tool calls; ensure tool calls are stringified and not retained
+        var toolReq9 = ToolExecutionRequest.builder()
+                .id("x1")
+                .name("toolX")
+                .arguments("{\"a\":1}")
+                .build();
+        var aiWithToolCalls = new AiMessage("AI with tool call", null, List.of(toolReq9));
+        var messages9 = List.of(user1, term1, aiWithToolCalls, user2);
+        var result9 = Llm.emulateToolExecutionResults(messages9);
+        assertEquals(4, result9.size());
+        assertEquals(user1, result9.get(0));
+        assertEquals(
+                "<toolcall id=\"t1\" name=\"toolA\">\nResult A\n</toolcall>\n",
+                Messages.getText(result9.get(1)).stripIndent());
+        assertInstanceOf(AiMessage.class, result9.get(2));
+        var ai9 = (AiMessage) result9.get(2);
+        assertFalse(ai9.hasToolExecutionRequests(), "AI message should not contain native tool requests");
+        assertEquals(Messages.getRepr(aiWithToolCalls), ai9.text());
+        assertEquals(user2, result9.get(3));
     }
 }

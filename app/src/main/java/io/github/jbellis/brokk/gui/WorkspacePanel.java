@@ -484,7 +484,9 @@ public class WorkspacePanel extends JPanel {
                 JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Create main panel with vertical layout
             JPanel panel = new JPanel();
-            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            // FlowLayout centers components vertically within the row, keeping badges aligned
+            // with the description text.
+            panel.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 0));
             panel.setOpaque(true);
 
             // Set colors based on selection
@@ -505,11 +507,23 @@ public class WorkspacePanel extends JPanel {
             String description = data.description();
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
 
-            // Create description label
-            JLabel descLabel = new JLabel(description);
+            // Calculate available width for description after reserving space for badges
+            int colWidth = table.getColumnModel().getColumn(column).getWidth();
+            int reservedWidth = fileReferences.isEmpty() ? 0 : 130; // room for visible/overflow badges + gap
+            var fm = table.getFontMetrics(table.getFont());
+            String clipped = ellipsize(description, fm, Math.max(colWidth - reservedWidth, 30));
+
+            // Create description label (possibly clipped with …)
+            JLabel descLabel = new JLabel(clipped);
             descLabel.setOpaque(false);
             descLabel.setForeground(panel.getForeground());
-            descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
+            descLabel.setVerticalAlignment(SwingConstants.CENTER); // Center alignment with LOC column
+            descLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+            // If we clipped the text, show the full description in a tooltip
+            if (!clipped.equals(description)) {
+                descLabel.setToolTipText(description);
+            }
 
             // Add description to panel
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -517,17 +531,20 @@ public class WorkspacePanel extends JPanel {
 
             // Add file badges if there are any
             if (!fileReferences.isEmpty()) {
-                // Add small vertical gap
-                panel.add(Box.createVerticalStrut(3));
+                // Add small horizontal gap between description and badges
+                panel.add(Box.createHorizontalStrut(3));
 
-                // Calculate available width for badges (table column width minus padding)
-                int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
+                // Calculate available width for badges (table column width minus padding and description width)
+                int availableWidth = table.getColumnModel().getColumn(column).getWidth()
+                        - 20
+                        - descLabel.getPreferredSize().width; // Leave some padding
 
                 // Create adaptive file reference list
                 var badgeList =
                         new TableUtils.FileReferenceList.AdaptiveFileReferenceList(fileReferences, availableWidth, 4);
                 badgeList.setOpaque(false);
                 badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                badgeList.setAlignmentY(Component.CENTER_ALIGNMENT);
 
                 // Set badge colors based on selection
                 badgeList.setSelected(isSelected);
@@ -549,7 +566,35 @@ public class WorkspacePanel extends JPanel {
         private int calculatePreferredHeight(JPanel panel) {
             // Force layout to get accurate measurements
             panel.doLayout();
-            return panel.getPreferredSize().height + 4; // Add small padding
+            return panel.getPreferredSize().height;
+        }
+
+        /** Return a possibly-truncated version of {@code text} that fits within {@code maxWidth}. */
+        private static String ellipsize(String text, FontMetrics fm, int maxWidth) {
+            if (fm.stringWidth(text) <= maxWidth) {
+                return text;
+            }
+
+            String ellipsis = "...";
+            int ellipsisWidth = fm.stringWidth(ellipsis);
+            if (ellipsisWidth >= maxWidth) { // not even room for the ellipsis
+                return ellipsis;
+            }
+
+            int low = 0;
+            int high = text.length();
+            while (low < high) {
+                int mid = (low + high) >>> 1;
+                String candidate = text.substring(0, mid) + ellipsis;
+                int w = fm.stringWidth(candidate);
+                if (w > maxWidth) {
+                    high = mid;
+                } else {
+                    low = mid + 1;
+                }
+            }
+            // low is first index that does NOT fit; use low-1
+            return text.substring(0, Math.max(0, low - 1)) + ellipsis;
         }
     }
 
@@ -707,14 +752,14 @@ public class WorkspacePanel extends JPanel {
                 var fontMetrics = table.getFontMetrics(tableFont);
 
                 // Use a small offset to align with description text baseline (similar to TableUtils approach)
-                int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
+                int baselineOffset = fontMetrics.getLeading();
 
-                setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
+                setBorder(BorderFactory.createEmptyBorder(0, 0, baselineOffset, LOC_COLUMN_RIGHT_PADDING));
                 return c;
             }
         };
         locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
-        locRenderer.setVerticalAlignment(SwingConstants.TOP);
+        locRenderer.setVerticalAlignment(SwingConstants.CENTER);
         contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
         // Remove file references column setup - badges will be in description column
@@ -737,11 +782,6 @@ public class WorkspacePanel extends JPanel {
                 maybeHandleFileRefClick(e);
             }
 
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                maybeHandleFileRefClick(e);
-            }
-
             private void maybeHandleFileRefClick(MouseEvent e) {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
                 if (!e.isPopupTrigger()) {
@@ -757,20 +797,37 @@ public class WorkspacePanel extends JPanel {
                                     && !descriptionData.fileReferences().isEmpty()) {
                                 // Check if the click actually hit a badge (not just anywhere in the cell)
                                 var clickedRef = TableUtils.findClickedReference(
-                                        e.getPoint(),
-                                        row,
-                                        DESCRIPTION_COLUMN,
-                                        contextTable,
-                                        descriptionData.fileReferences());
+                                        e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
 
-                                if (clickedRef != null) {
-                                    // Use ContextMenuUtils directly now that we have the proper data structure
+                                if (clickedRef != null && clickedRef.getRepoFile() != null) {
+                                    // Direct badge click: delegate to central handler
                                     ContextMenuUtils.handleFileReferenceClick(
                                             e,
                                             contextTable,
                                             chrome,
-                                            () -> {}, // Workspace doesn't need to refresh suggestions
+                                            () -> {}, // Workspace doesn’t need to refresh suggestions
                                             DESCRIPTION_COLUMN);
+                                } else {
+                                    // Check for overflow “+ N more” badge click
+                                    boolean isOverflowClick = TableUtils.isClickOnOverflowBadge(
+                                            e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
+                                    if (isOverflowClick) {
+                                        // Obtain the renderer component to fetch hidden files list
+                                        Component rendererComp = contextTable.prepareRenderer(
+                                                contextTable.getCellRenderer(row, DESCRIPTION_COLUMN),
+                                                row,
+                                                DESCRIPTION_COLUMN);
+
+                                        var afl = (TableUtils.FileReferenceList.AdaptiveFileReferenceList)
+                                                TableUtils.findFileReferenceList((Container) rendererComp);
+
+                                        java.util.List<TableUtils.FileReferenceList.FileReferenceData> hiddenFiles =
+                                                afl != null ? afl.getHiddenFiles() : java.util.List.of();
+
+                                        TableUtils.showOverflowPopup(
+                                                chrome, contextTable, row, DESCRIPTION_COLUMN, hiddenFiles);
+                                        e.consume(); // Stop further processing
+                                    }
                                 }
                             }
                         }
@@ -1398,7 +1455,7 @@ public class WorkspacePanel extends JPanel {
                     if (yInCell > cellRect.height / 2) {
                         // Try to find which specific badge was clicked
                         TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
 
                         if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
                             return new FileBadge(clickedFileRef);
@@ -1563,7 +1620,7 @@ public class WorkspacePanel extends JPanel {
             ContextAction action, List<? extends ContextFragment> selectedFragments) // Use wildcard
             {
         // Use submitContextTask from ContextManager to run the action on the appropriate executor
-        return contextManager.submitContextTask(action + " action", () -> {
+        var future = contextManager.submitContextTask(action + " action", () -> {
             try {
                 switch (action) {
                     case EDIT -> doEditAction(selectedFragments);
@@ -1579,6 +1636,9 @@ public class WorkspacePanel extends JPanel {
             }
             // No finally block needed here as submitContextTask handles enabling buttons
         });
+        // Refocus the instructions input promptly after hotkey-triggered workspace actions
+        SwingUtilities.invokeLater(chrome::focusInput);
+        return future;
     }
 
     /** Edit Action: Only allows selecting Project Files */
@@ -2022,7 +2082,11 @@ public class WorkspacePanel extends JPanel {
                 }
                 double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
 
-                costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
+                if (models.isFreeTier(config.name())) {
+                    costEstimates.add(String.format("%s: free", config.name()));
+                } else {
+                    costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
+                }
                 seenModels.add(config.name());
 
             } catch (Exception e) {

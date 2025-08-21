@@ -480,7 +480,7 @@ public class GitWorktreeTab extends JPanel {
             boolean okPressed) {}
 
     private void addWorktree() {
-        MainProject project = (MainProject) contextManager.getProject();
+        MainProject project = contextManager.getProject().getMainProject();
         IGitRepo repo = project.getRepo(); // This repo instance is effectively final for the lambda
 
         contextManager.submitContextTask("Preparing to add worktree...", () -> {
@@ -776,7 +776,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        MainProject project = (MainProject) contextManager.getProject();
+        MainProject project = contextManager.getProject().getMainProject();
         IGitRepo repo = project.getRepo();
 
         if (!(repo instanceof GitRepo)) { // Should not happen if buttons are correctly disabled by buildUnsupportedUI

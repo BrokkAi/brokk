@@ -23,6 +23,11 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public MainProject getMainProject() {
+        return parent;
+    }
+
+    @Override
     public Path getMasterRootPathForConfig() {
         return parent.getMasterRootPathForConfig();
     }

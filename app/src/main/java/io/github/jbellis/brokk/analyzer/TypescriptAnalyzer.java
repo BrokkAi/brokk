@@ -612,10 +612,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return cleaned;
     }
 
+    @SuppressWarnings("RedundantNullCheck")
     public boolean isTypeAlias(CodeUnit cu) {
         // Check if this field-type CodeUnit represents a type alias
         // We can identify this by checking if there are signatures that contain "type " and " = "
-        List<String> sigList = signatures.get(cu);
+        List<String> sigList = withSignatures(signatures -> signatures.get(cu));
         if (sigList != null) {
             for (String sig : sigList) {
                 if ((sig.contains("type ") || sig.contains("export type ")) && sig.contains(" = ")) {
@@ -750,7 +751,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public Optional<String> getSkeleton(String fqName) {
         // Find the CodeUnit for this FQN - optimize with early termination
         CodeUnit foundCu = null;
-        for (CodeUnit cu : signatures.keySet()) {
+        for (CodeUnit cu : withSignatures(Map::keySet)) {
             if (cu.fqName().equals(fqName)) {
                 foundCu = cu;
                 break;
@@ -784,7 +785,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     /** Find direct parent of a CodeUnit by looking in childrenByParent map */
     private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
-        for (var entry : childrenByParent.entrySet()) {
+        for (var entry : withChildrenByParent(Map::entrySet)) {
             CodeUnit parent = entry.getKey();
             List<CodeUnit> children = entry.getValue();
             if (children.contains(cu)) {

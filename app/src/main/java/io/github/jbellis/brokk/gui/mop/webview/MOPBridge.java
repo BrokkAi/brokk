@@ -17,6 +17,7 @@ import javafx.scene.web.WebEngine;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public final class MOPBridge {
     private static final Logger logger = LogManager.getLogger(MOPBridge.class);
@@ -84,12 +85,12 @@ public final class MOPBridge {
         Platform.runLater(() -> engine.executeScript("window.brokk.scrollToCurrent()"));
     }
 
-    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {
+    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         if (text.isEmpty()) {
             return;
         }
         // Epoch is assigned later, just queue the content
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming));
+        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
         scheduleSend();
     }
 
@@ -107,7 +108,9 @@ public final class MOPBridge {
     }
 
     public void clear() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.Clear(e));
+        scheduleSend();
     }
 
     private void scheduleSend() {
@@ -131,22 +134,26 @@ public final class MOPBridge {
                 if (event instanceof BrokkEvent.Chunk chunk) {
                     if (firstChunk == null) {
                         firstChunk = chunk;
-                    } else if (chunk.isNew() || chunk.msgType() != firstChunk.msgType()) {
-                        sendChunk(
-                                currentText.toString(),
-                                firstChunk.isNew(),
-                                firstChunk.msgType(),
-                                firstChunk.streaming());
-                        currentText.setLength(0);
+                    } else if (chunk.isNew()
+                            || chunk.msgType() != firstChunk.msgType()
+                            || chunk.reasoning() != firstChunk.reasoning()) {
+                        // A new bubble is starting, so send the previously buffered one
+                        flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
                     }
                     currentText.append(chunk.text());
+                } else if (event instanceof BrokkEvent.Clear clearEvent) {
+                    // This is a Clear event.
+                    // First, we MUST send any pending text that came before it.
+                    flushCurrentChunk(firstChunk, currentText);
+                    firstChunk = null;
+                    // Now, send the Clear event itself.
+                    sendEvent(clearEvent);
                 }
             }
 
-            if (firstChunk != null) {
-                sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType(), firstChunk.streaming());
-            }
+            // After the loop, send any remaining buffered text
+            flushCurrentChunk(firstChunk, currentText);
         } finally {
             pending.set(false);
             if (!eventQueue.isEmpty()) {
@@ -155,17 +162,27 @@ public final class MOPBridge {
         }
     }
 
-    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {
+    private void flushCurrentChunk(@Nullable BrokkEvent.Chunk firstChunk, StringBuilder currentText) {
+        if (firstChunk != null) {
+            sendChunk(
+                    currentText.toString(),
+                    firstChunk.isNew(),
+                    firstChunk.msgType(),
+                    firstChunk.streaming(),
+                    firstChunk.reasoning());
+            currentText.setLength(0);
+        }
+    }
+
+    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         var e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming);
+        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning);
         sendEvent(event);
     }
 
     private void sendEvent(BrokkEvent event) {
         var e = event.getEpoch();
-        if (e != null) {
-            awaiting.put(e, new CompletableFuture<>());
-        }
+        awaiting.put(e, new CompletableFuture<>());
         var json = toJson(event);
         Platform.runLater(() -> engine.executeScript("window.brokk.onEvent(" + json + ")"));
     }

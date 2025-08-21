@@ -373,7 +373,7 @@ public class SessionManager implements AutoCloseable {
         }
         Path sessionZip = masterRootPath.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip");
         if (!Files.exists(sessionZip)) {
-            logger.debug("Session zip not found at {} for session ID {}", sessionZip, sessionId);
+            logger.trace("Session zip not found at {} for session ID {}", sessionZip, sessionId);
             return Optional.empty();
         }
         try (var fs = FileSystems.newFileSystem(sessionZip, Map.of())) {

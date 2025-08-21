@@ -1,17 +1,22 @@
 import type {ResultMsg} from "./worker/shared";
 
-export type BrokkEvent = {
-  type: 'chunk' | 'clear' | 'spinner';
-  text?: string;
-  isNew?: boolean;
-  streaming?: boolean;
-  msgType?: 'USER' | 'AI' | 'SYSTEM';
-  epoch: number;
-  message?: string;
-};
+export type BrokkEvent =
+  | {
+      type: 'chunk';
+      text: string;
+      isNew: boolean;
+      streaming: boolean;
+      msgType: 'USER' | 'AI' | 'SYSTEM';
+      reasoning: boolean;
+      epoch: number;
+    }
+  | {
+      type: 'clear';
+      epoch: number;
+    };
 
 export type Bubble = {
-  id: number;
+  seq: number;
   type: 'USER' | 'AI' | 'SYSTEM';
   markdown: string;
   title?: string;
@@ -35,5 +40,12 @@ export type BubbleState = Bubble & {
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
+
+  // Properties for Reasoning bubbles
+  reasoning?: boolean;
+  startTime?: number;           // ms timestamp when the reasoning started
+  reasoningComplete?: boolean;  // true when the reasoning stream ends
+  duration?: number;            // calculated duration in seconds
+  isCollapsed?: boolean;        // for UI state
 };
 

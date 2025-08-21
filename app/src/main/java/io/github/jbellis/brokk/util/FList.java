@@ -1,3 +1,11 @@
+/**
+ * Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
+ */
+/*
+ * Modifications copyright 2025 Brokk, Inc. and made available under the GPLv3.
+ *
+ * The original file can be found at https://github.com/JetBrains/intellij-community/blob/master/platform/util/base/src/com/intellij/util/containers/FList.java
+ */
 package io.github.jbellis.brokk.util;
 
 import static java.util.Objects.requireNonNull;

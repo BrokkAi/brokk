@@ -46,10 +46,10 @@ public interface IConsoleIO {
         CommandOutput
     }
 
-    void llmOutput(String token, ChatMessageType type, boolean isNewMessage);
+    void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning);
 
     default void llmOutput(String token, ChatMessageType type) {
-        llmOutput(token, type, false);
+        llmOutput(token, type, false, false);
     }
 
     default void setLlmOutput(ContextFragment.TaskFragment newOutput) {
@@ -77,11 +77,7 @@ public interface IConsoleIO {
 
     default void hideSessionSwitchSpinner() {}
 
-    default String getLlmOutputText() {
-        throw new UnsupportedOperationException();
-    }
-
-    default List<ChatMessage> getLlmRawMessages() {
+    default List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
         throw new UnsupportedOperationException();
     }
 

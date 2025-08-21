@@ -17,7 +17,6 @@ import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
 import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
-import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -207,7 +206,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
                 // pass
             }
         };
@@ -273,10 +272,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
-        var analyzerListener = createAnalyzerListener();
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
-
         this.io = new Chrome(this);
+
+        var analyzerListener = createAnalyzerListener();
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener, this.getIo());
 
         // Load saved context history or create a new one
         var contextTask =
@@ -424,7 +423,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                         "Attempting to delete old history directory (modified {}): {}",
                                         lastModifiedTime,
                                         entry);
-                                if (deleteDirectoryRecursively(entry)) {
+                                if (FileUtils.deleteDirectoryRecursively(entry)) {
                                     deletedCount.incrementAndGet();
                                 } else {
                                     logger.error("Failed to fully delete old history directory: {}", entry);
@@ -445,32 +444,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.debug("Deleted {} old LLM history directories.", count);
         } else {
             logger.debug("No old LLM history directories found to delete.");
-        }
-    }
-
-    /**
-     * Recursively deletes a directory and its contents. Logs errors encountered during deletion.
-     *
-     * @param path The directory path to delete.
-     * @return true if the directory was successfully deleted (or didn't exist), false otherwise.
-     */
-    private boolean deleteDirectoryRecursively(Path path) {
-        assert Files.exists(path);
-        try (var stream = Files.walk(path)) {
-            stream.sorted(Comparator.reverseOrder()) // Ensure contents are deleted before directories
-                    .forEach(p -> {
-                        try {
-                            Files.delete(p);
-                        } catch (IOException e) {
-                            // Log the specific error but allow the walk to continue trying other files/dirs
-                            logger.error("Failed to delete path {} during recursive cleanup of {}", p, path, e);
-                        }
-                    });
-            // Final check after attempting deletion
-            return !Files.exists(path);
-        } catch (IOException e) {
-            logger.error("Failed to walk or initiate deletion for directory: {}", path, e);
-            return false;
         }
     }
 
@@ -591,7 +564,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 task.run();
             } catch (CancellationException cex) {
                 if (isLlmTask) {
-                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM);
+                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM, true, false);
                 } else {
                     io.systemOutput(description + " canceled");
                 }
@@ -747,25 +720,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Drop fragments by their IDs. */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        var ids = fragments.stream().map(f -> mapToLiveFragment(f).id()).toList();
+        var ids = fragments.stream()
+                .map(f -> contextHistory.mapToLiveFragment(f).id())
+                .toList();
         pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
         io.systemOutput("Dropped "
                 + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
-    }
-
-    /**
-     * Occasionally you will need to determine which live fragment a frozen fragment came from. This does that by
-     * assuming that the live and frozen Contexts have their fragments in the same order.
-     */
-    private ContextFragment mapToLiveFragment(ContextFragment f) {
-        if (!(f instanceof FrozenFragment)) {
-            return f;
-        }
-
-        var ctx = topContext();
-        int idx = ctx.getAllFragmentsInDisplayOrder().indexOf(f);
-        assert idx >= 0 : "Fragment %s not found in top context %s".formatted(f, ctx.getAllFragmentsInDisplayOrder());
-        return liveContext().getAllFragmentsInDisplayOrder().get(idx);
     }
 
     /** Clear conversation history. */
@@ -1990,7 +1950,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceFrozenContext);
+        var ctx = Context.unfreeze(newContextFrom(sourceFrozenContext));
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
         var ch = new ContextHistory(ctx);
@@ -2259,7 +2219,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.io = new HeadlessConsole();
 
         // no AnalyzerListener, instead we will block for it to be ready
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null);
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null, this.io);
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

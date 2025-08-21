@@ -2,11 +2,14 @@ package io.github.jbellis.brokk.gui;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +17,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -465,8 +469,8 @@ public final class GitUiUtil {
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
                     builder.addComparison(
-                            new BufferSource.StringSource(oldContent, parentId, file.getFileName()),
-                            new BufferSource.StringSource(newContent, commitInfo.id(), file.getFileName()));
+                            new BufferSource.StringSource(oldContent, parentId, file.toString()),
+                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
                 }
 
                 var title = "Commit Diff: %s (%s)"
@@ -503,8 +507,8 @@ public final class GitUiUtil {
 
                 for (var file : changedFiles) {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
-                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.getFileName());
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.toString());
+                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.toString());
                     builder.addComparison(leftSource, rightSource);
                 }
 
@@ -665,6 +669,49 @@ public final class GitUiUtil {
             } catch (Exception ex) {
                 logger.warn("Error capturing diff for PR #{}: {}", prNumber, ex.getMessage(), ex);
                 chrome.toolError(String.format("Error capturing diff for PR #%d: %s", prNumber, ex.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * Gets the current branch name from a project's Git repository.
+     *
+     * @param project The project to get the branch name from
+     * @return The current branch name, or empty string if unable to retrieve
+     */
+    public static String getCurrentBranchName(IProject project) {
+        try {
+            if (!project.hasGit()) {
+                return "";
+            }
+            IGitRepo repo = project.getRepo();
+            if (repo instanceof GitRepo gitRepo) {
+                return gitRepo.getCurrentBranch();
+            }
+        } catch (Exception e) {
+            logger.warn("Could not get current branch name", e);
+        }
+        return "";
+    }
+
+    /**
+     * Updates a panel's titled border to include the current branch name.
+     *
+     * @param panel The panel to update
+     * @param baseTitle The base title (e.g., "Git", "Project Files")
+     * @param branchName The current branch name (may be empty)
+     */
+    public static void updatePanelBorderWithBranch(@Nullable JPanel panel, String baseTitle, String branchName) {
+        if (panel == null) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            var border = panel.getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                String newTitle = !branchName.isBlank() ? baseTitle + " (" + branchName + ")" : baseTitle;
+                titledBorder.setTitle(newTitle);
+                panel.revalidate();
+                panel.repaint();
             }
         });
     }

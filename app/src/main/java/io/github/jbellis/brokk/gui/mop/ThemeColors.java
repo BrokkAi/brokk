@@ -72,6 +72,12 @@ public class ThemeColors {
         DARK_COLORS.put("git_changed", new Color(239, 202, 8)); // Amber/Yellow
         LIGHT_COLORS.put("git_changed", new Color(204, 143, 0)); // Darker Amber/Yellow
 
+        // Git tab badge colors
+        DARK_COLORS.put("git_badge_background", Color.decode("#007ACC")); // VSCode blue for dark theme
+        DARK_COLORS.put("git_badge_text", Color.WHITE);
+        LIGHT_COLORS.put("git_badge_background", Color.decode("#DC3545")); // Red for light theme
+        LIGHT_COLORS.put("git_badge_text", Color.WHITE);
+
         // File reference badge colors (same for both themes for now)
         Color badgeBorder = new Color(66, 139, 202);
         Color badgeForeground = new Color(66, 139, 202);
@@ -130,6 +136,17 @@ public class ThemeColors {
     public static String getColorHex(boolean isDarkTheme, String key) {
         Color color = getColor(isDarkTheme, key);
         return String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+    }
+
+    /**
+     * Gets all colors for the specified theme.
+     *
+     * @param isDarkTheme true for dark theme, false for light theme
+     * @return a copy of the color map for the specified theme
+     */
+    public static Map<String, Color> getAllColors(boolean isDarkTheme) {
+        // Return an immutable view; callers shouldn’t be able to mutate our theme state
+        return Map.copyOf(isDarkTheme ? DARK_COLORS : LIGHT_COLORS);
     }
 
     /**

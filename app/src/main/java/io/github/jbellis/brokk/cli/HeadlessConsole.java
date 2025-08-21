@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.cli;
 
+import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
+
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -11,7 +13,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import javax.swing.*;
 
 /**
@@ -23,7 +24,7 @@ public final class HeadlessConsole implements IConsoleIO {
     List<ChatMessage> messages = new ArrayList<>();
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (isNewMessage || messages.isEmpty() || messages.getLast().type() != type) {
             System.out.printf("# %s%n%n", type);
             messages.add(createMessage(type, token));
@@ -73,13 +74,11 @@ public final class HeadlessConsole implements IConsoleIO {
     }
 
     @Override
-    public String getLlmOutputText() {
-        return getLlmRawMessages().stream().map(Messages::getText).collect(Collectors.joining("\n"));
-    }
-
-    @Override
-    public List<ChatMessage> getLlmRawMessages() {
-        return List.copyOf(messages);
+    public List<ChatMessage> getLlmRawMessages(boolean includeReasoning) {
+        if (includeReasoning) {
+            return List.copyOf(messages);
+        }
+        return messages.stream().filter(m -> !isReasoningMessage(m)).toList();
     }
 
     @Override

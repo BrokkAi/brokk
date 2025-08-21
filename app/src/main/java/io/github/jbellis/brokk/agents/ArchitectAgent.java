@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.agents;
 
+import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.agent.tool.P;
@@ -106,7 +107,7 @@ public class ArchitectAgent {
                     String finalExplanation) {
         var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
         logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, true);
+        io.llmOutput(msg, ChatMessageType.AI, true, false);
 
         return finalExplanation;
     }
@@ -116,7 +117,7 @@ public class ArchitectAgent {
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
         var msg = "# Architect aborted\n\n%s".formatted(reason);
         logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, true);
+        io.llmOutput(msg, ChatMessageType.AI, true, false);
 
         return reason;
     }
@@ -155,7 +156,7 @@ public class ArchitectAgent {
 
         var cursor = messageCursor();
         // TODO label this Architect
-        io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true);
+        io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true, false);
         var agent = new CodeAgent(contextManager, codeModel);
         var result = agent.runTask(instructions, true);
         var stopDetails = result.stopDetails();
@@ -216,7 +217,7 @@ public class ArchitectAgent {
             @Nullable @P("Commit message in imperative form (≤ 80 chars). " + "Leave blank to auto-generate.")
                     String message) {
         var cursor = messageCursor();
-        io.llmOutput("Git committing changes...\n", ChatMessageType.CUSTOM, true);
+        io.llmOutput("Git committing changes...\n", ChatMessageType.CUSTOM, true, false);
         try {
             // --- Guards ----------------------------------------------------------
             var project = contextManager.getProject();
@@ -253,7 +254,7 @@ public class ArchitectAgent {
             + "This implicitly pushes the branch and sets upstream when needed.")
     public String createPullRequest(@P("PR title.") String title, @P("PR description in Markdown.") String body) {
         var cursor = messageCursor();
-        io.llmOutput("Creating pull request…\n", ChatMessageType.CUSTOM, true);
+        io.llmOutput("Creating pull request…\n", ChatMessageType.CUSTOM, true, false);
 
         try {
             var project = contextManager.getProject();
@@ -343,7 +344,7 @@ public class ArchitectAgent {
     public String runShellCommand(@P("The shell command to execute, for example `./gradlew test`") String command)
             throws InterruptedException {
         var cursor = messageCursor();
-        io.llmOutput("Running shell command: " + command, ChatMessageType.CUSTOM, true);
+        io.llmOutput("Running shell command: " + command, ChatMessageType.CUSTOM, true, false);
         String output = null;
         try {
             output = Environment.instance.runShellCommand(
@@ -432,7 +433,7 @@ public class ArchitectAgent {
             throws InterruptedException {
         var cursor = messageCursor();
         logger.debug("askHumanQuestion invoked with question: {}", question);
-        io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true);
+        io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true, false);
 
         String answer = SwingUtil.runOnEdt(() -> AskHumanDialog.ask((Chrome) this.io, question), null);
 
@@ -446,7 +447,7 @@ public class ArchitectAgent {
             throw new InterruptedException();
         } else {
             logger.debug("Human responded: {}", answer);
-            io.llmOutput(answer, ChatMessageType.USER, true);
+            io.llmOutput(answer, ChatMessageType.USER, true, false);
             var newMessages = messagesSince(cursor);
             var tr = new TaskResult(contextManager, "Ask human", newMessages, Set.of(), TaskResult.StopReason.SUCCESS);
             contextManager.addToHistory(tr, false);
@@ -471,7 +472,7 @@ public class ArchitectAgent {
 
         while (true) {
             var planningCursor = messageCursor();
-            io.llmOutput("\n# Planning", ChatMessageType.AI, true);
+            io.llmOutput("\n# Planning", ChatMessageType.AI, true, false);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatModel>();
@@ -821,13 +822,15 @@ public class ArchitectAgent {
 
     /** Returns a cursor that represents the current end of the LLM output message list. */
     private int messageCursor() {
-        return io.getLlmRawMessages().size();
+        return io.getLlmRawMessages(true).size();
     }
 
     /** Returns a copy of new messages added to the LLM output after the given cursor. */
     private List<ChatMessage> messagesSince(int cursor) {
-        var raw = io.getLlmRawMessages();
-        return List.copyOf(raw.subList(cursor, raw.size()));
+        var raw = io.getLlmRawMessages(true);
+        var newMessages = List.copyOf(raw.subList(cursor, raw.size()));
+        // Filter out reasoning messages (for the history)
+        return newMessages.stream().filter(m -> !isReasoningMessage(m)).toList();
     }
 
     /**

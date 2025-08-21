@@ -274,6 +274,11 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
+    public MainProject getMainProject() {
+        return this;
+    }
+
+    @Override
     public Path getMasterRootPathForConfig() {
         return this.masterRootPathForConfig;
     }
@@ -489,6 +494,19 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
+    /**
+     * Returns the size of the given {@link ProjectFile} in bytes. Any {@link IOException} is logged and a size of
+     * {@code 0} is returned so that a single problematic file does not break language detection.
+     */
+    private static long getFileSize(ProjectFile pf) {
+        try {
+            return Files.size(pf.absPath());
+        } catch (IOException e) {
+            logger.warn("Unable to determine size of file {}: {}", pf, e.getMessage());
+            return 0L;
+        }
+    }
+
     @Override
     public Set<Language> getAnalyzerLanguages() {
         String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
@@ -508,27 +526,28 @@ public final class MainProject extends AbstractProject {
                     .collect(Collectors.toSet());
         }
 
-        Map<Language, Long> languageCounts = repo.getTrackedFiles().stream() // repo from AbstractProject
-                .map(pf -> Language.fromExtension(pf.extension()))
-                .filter(l -> l != Language.NONE)
-                .collect(Collectors.groupingBy(l -> l, Collectors.counting()));
+        Map<Language, Long> languageSizes = repo.getTrackedFiles().stream() // repo from AbstractProject
+                .filter(pf -> Language.fromExtension(pf.extension()) != Language.NONE)
+                .collect(Collectors.groupingBy(
+                        pf -> Language.fromExtension(pf.extension()),
+                        Collectors.summingLong(MainProject::getFileSize)));
 
-        if (languageCounts.isEmpty()) {
+        if (languageSizes.isEmpty()) {
             logger.debug(
                     "No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
             return Set.of(Language.NONE);
         }
 
-        long totalRecognizedFiles =
-                languageCounts.values().stream().mapToLong(Long::longValue).sum();
+        long totalRecognizedBytes =
+                languageSizes.values().stream().mapToLong(Long::longValue).sum();
         Set<Language> detectedLanguages = new HashSet<>();
 
-        languageCounts.entrySet().stream()
-                .filter(entry -> (double) entry.getValue() / totalRecognizedFiles >= 0.10)
+        languageSizes.entrySet().stream()
+                .filter(entry -> (double) entry.getValue() / totalRecognizedBytes >= 0.10)
                 .forEach(entry -> detectedLanguages.add(entry.getKey()));
 
         if (detectedLanguages.isEmpty()) {
-            var mostCommonEntry = languageCounts.entrySet().stream()
+            var mostCommonEntry = languageSizes.entrySet().stream()
                     .max(Map.Entry.comparingByValue())
                     .orElseThrow();
             detectedLanguages.add(mostCommonEntry.getKey());
@@ -537,7 +556,7 @@ public final class MainProject extends AbstractProject {
                     root, mostCommonEntry.getKey().name());
         }
 
-        if (languageCounts.containsKey(Language.SQL)) {
+        if (languageSizes.containsKey(Language.SQL)) {
             boolean addedByThisRule = detectedLanguages.add(Language.SQL);
             if (addedByThisRule) {
                 logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
@@ -1213,7 +1232,6 @@ public final class MainProject extends AbstractProject {
                 .sorted(Map.Entry.<Path, ProjectPersistentInfo>comparingByValue(
                                 Comparator.comparingLong(ProjectPersistentInfo::lastOpened))
                         .reversed())
-                .limit(10)
                 .toList();
 
         // Collect current project paths to keep

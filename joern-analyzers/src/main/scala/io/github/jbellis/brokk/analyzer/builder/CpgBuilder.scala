@@ -46,7 +46,9 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     * @return
     *   the same CPG reference as given.
     */
-  def build(cpg: Cpg, config: R, maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using pool: ForkJoinPool): Cpg = {
+  def build(cpg: Cpg, config: R, maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using
+    pool: ForkJoinPool
+  ): Cpg = {
     if (cpg.metaData.nonEmpty) {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(
@@ -107,12 +109,15 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   }
 
   protected def runPasses(cpg: Cpg, config: R)(using pool: ForkJoinPool): Cpg = {
-    Using.resource(createAst(cpg, config).getOrElse {
-      throw new IOException(s"Failed to create $language CPG")
-    }) { cpg =>
-      applyPasses(cpg).getOrElse {
-        throw new IOException(s"Failed to apply post-processing on $language CPG")
-      }
+    val astResult = createAst(cpg, config)
+    Using.resource(astResult.recover { ex =>
+      logger.error(s"Failed to create $language CPG", ex)
+      throw new IOException(s"Failed to create $language CPG: ${ex.getMessage}", ex)
+    }.get) { cpg =>
+      applyPasses(cpg).recover { ex =>
+        logger.error(s"Failed to apply post-processing on $language CPG", ex)
+        throw new IOException(s"Failed to apply post-processing on $language CPG: ${ex.getMessage}", ex)
+      }.get
     }
   }
 
@@ -129,7 +134,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     *   the given CPG.
     */
   protected def createOrUpdateMetaData(cpg: Cpg, language: String, inputPath: String)(using pool: ForkJoinPool): Cpg = {
-    if cpg.metaData.isEmpty then new MetaDataPass(cpg, language, inputPath).createAndApply()
+    if cpg.metaData.isEmpty then cpg.createAndApply(new MetaDataPass(cpg, language, inputPath, None))
     cpg
   }
 
@@ -157,8 +162,11 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     // These are separated as we may want to insert our own custom, framework-specific passes
     // in between these at some point in the future. For now, these resemble the default Joern
     // pass ordering and strategy minus CFG.
+
+    // Binary Compatibility fix: Use manual execution for ALL passes to ensure uniformity
+    // This avoids the package name detection complexity and potential NoSuchMethodError
     (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg) ++ postProcessingPasses(cpg))
-      .foreach(_.createAndApply())
+      .foreach(cpg.createAndApply)
     cpg
   }
 

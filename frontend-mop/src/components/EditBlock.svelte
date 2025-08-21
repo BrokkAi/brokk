@@ -27,7 +27,7 @@
         showDetails = !showDetails;
         if (showDetails) {
             const markdown =
-                get(bubblesStore).find(b => b.id === bubbleId)?.markdown ?? '';
+                get(bubblesStore).find(b => b.seq === bubbleId)?.markdown ?? '';
             expandDiff(markdown, bubbleId, id);
         }
     }

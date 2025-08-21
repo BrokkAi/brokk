@@ -45,7 +45,8 @@ public final class MOPWebViewHost extends JPanel {
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
-        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) implements HostCommand {}
+        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
+                implements HostCommand {}
 
         record SetTheme(boolean isDark) implements HostCommand {}
 
@@ -269,10 +270,11 @@ public final class MOPWebViewHost extends JPanel {
         });
     }
 
-    public void append(String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming) {
+    public void append(
+            String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         sendOrQueue(
-                new HostCommand.Append(text, isNewMessage, msgType, streaming),
-                bridge -> bridge.append(text, isNewMessage, msgType, streaming));
+                new HostCommand.Append(text, isNewMessage, msgType, streaming, reasoning),
+                bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
     }
 
     public void setTheme(boolean isDark) {
@@ -418,7 +420,8 @@ public final class MOPWebViewHost extends JPanel {
             logger.info("Flushing {} buffered commands", pendingCommands.size());
             pendingCommands.forEach(command -> {
                 switch (command) {
-                    case HostCommand.Append a -> bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming());
+                    case HostCommand.Append a ->
+                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
                     case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
