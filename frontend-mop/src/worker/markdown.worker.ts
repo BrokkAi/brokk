@@ -1,4 +1,4 @@
-import { initProcessor, parseMarkdown, handleSymbolLookupResponse, clearSymbolCache } from './processor';
+import { initProcessor, parseMarkdown, handleSymbolLookupResponse, clearSymbolCache, clearContextCache } from './processor';
 import type {
   InboundToWorker,
   OutboundFromWorker,
@@ -104,7 +104,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
 
     case 'symbol-lookup-response':
       workerLog('info', `symbol-lookup-response received for seq ${m.seq} with ${Object.keys(m.results).length} symbols`);
-      handleSymbolLookupResponse(m.seq, m.results);
+      handleSymbolLookupResponse(m.seq, m.results, m.contextId);
       break;
 
     case 'test-error':
@@ -117,8 +117,13 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
     case 'hide-spinner':
-      workerLog('info', 'Spinner hidden - clearing symbol cache');
-      clearSymbolCache();
+      if (m.contextId) {
+        workerLog('info', `Spinner hidden - clearing symbol cache for context: ${m.contextId}`);
+        clearContextCache(m.contextId);
+      } else {
+        workerLog('info', 'Spinner hidden - clearing all symbol cache');
+        clearSymbolCache();
+      }
       break;
   }
   } catch (error) {

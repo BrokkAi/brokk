@@ -30,6 +30,7 @@ export interface SymbolLookupResponseMsg {
     type: 'symbol-lookup-response';
     results: Record<string, {exists: boolean, fqn?: string | null}>;
     seq: Seq;
+    contextId: string;
 }
 
 export interface TestErrorMsg {
@@ -39,6 +40,7 @@ export interface TestErrorMsg {
 
 export interface HideSpinnerMsg {
     type: 'hide-spinner';
+    contextId?: string;
 }
 
 export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | TestErrorMsg | HideSpinnerMsg;
@@ -68,6 +70,7 @@ export interface SymbolLookupRequestMsg {
     type: 'symbol-lookup-request';
     symbols: string[];
     seq: Seq;
+    contextId: string;
 }
 
 export interface WorkerLogMsg {

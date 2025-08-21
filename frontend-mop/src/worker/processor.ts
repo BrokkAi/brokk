@@ -20,6 +20,7 @@ import { createLogger } from '../lib/logging';
 
 const log = createLogger('md-worker');
 
+
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
 }
@@ -154,7 +155,9 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
     if (!fast) {
         const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
         if (symbolCandidates && symbolCandidates.size > 0) {
-            handleSymbolLookup(symbolCandidates, tree, seq);
+            // For now, request context ID when we need it for symbol lookup
+            // This will be done through a sync call to the main thread
+            handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq);
         }
     }
 
@@ -169,18 +172,27 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
     return tree;
 }
 
-function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number): void {
-    workerLog('info', `symbol-lookup request: ${Array.from(symbols).join(', ')}`);
+function handleSymbolLookupWithContextRequest(symbols: Set<string>, tree: HastRoot, seq: number): void {
+    // Store the tree and symbols, then immediately proceed with the lookup using a default context for now
+    // In practice, the main thread should provide the context ID when making calls
+    // For this implementation, let's use a simpler approach and assume the main thread will provide context ID
+    const defaultContextId = 'main-context'; // Temporary solution
+    handleSymbolLookup(symbols, tree, seq, defaultContextId);
+}
+
+function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, contextId: string): void {
+    workerLog('info', `symbol-lookup request: ${Array.from(symbols).join(', ')} for context: ${contextId}`);
     try {
         const symbolArray = Array.from(symbols);
 
-        // Check cache first and filter out already cached symbols
+        // Check cache first and filter out already cached symbols (using context-specific keys)
         const cachedResults: Record<string, {exists: boolean, fqn?: string | null}> = {};
         const uncachedSymbols: string[] = [];
 
         for (const symbol of symbolArray) {
-            if (symbolCache.has(symbol)) {
-                cachedResults[symbol] = symbolCache.get(symbol)!;
+            const cacheKey = `${contextId}:${symbol}`;
+            if (symbolCache.has(cacheKey)) {
+                cachedResults[symbol] = symbolCache.get(cacheKey)!;
             } else {
                 uncachedSymbols.push(symbol);
             }
@@ -202,7 +214,8 @@ function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number): 
             post({
                 type: 'symbol-lookup-request',
                 symbols: uncachedSymbols,
-                seq: seq
+                seq: seq,
+                contextId: contextId
             });
         } else {
             workerLog('info', 'All symbols found in cache, no lookup needed');
@@ -231,10 +244,10 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
     }
 }
 
-export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>): void {
-    workerLog('info', `symbol-lookup-response processing: ${Object.keys(results).length} symbols`);
+export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>, contextId: string): void {
+    workerLog('info', `symbol-lookup-response processing: ${Object.keys(results).length} symbols for context: ${contextId}`);
 
-    // Add results to cache
+    // Add results to cache with context-specific keys
     for (const [symbol, result] of Object.entries(results)) {
         // Implement simple cache eviction when limit reached
         if (symbolCache.size >= SYMBOL_CACHE_LIMIT) {
@@ -245,9 +258,10 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
                 workerLog('debug', `Evicted symbol from cache: ${firstKey}`);
             }
         }
-        symbolCache.set(symbol, result);
+        const cacheKey = `${contextId}:${symbol}`;
+        symbolCache.set(cacheKey, result);
     }
-    workerLog('info', `Cached ${Object.keys(results).length} symbol results. Cache size: ${symbolCache.size}`);
+    workerLog('info', `Cached ${Object.keys(results).length} symbol results with context ${contextId}. Cache size: ${symbolCache.size}`);
 
     const pending = pendingSymbolLookups.get(seq);
     if (pending) {
@@ -270,6 +284,19 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
     } else {
         workerLog('warn', `No pending lookup found for seq ${seq}`);
     }
+}
+
+// Context-specific cache functions
+export function clearContextCache(contextId: string): void {
+    const prefix = `${contextId}:`;
+    let clearedCount = 0;
+    for (const key of symbolCache.keys()) {
+        if (key.startsWith(prefix)) {
+            symbolCache.delete(key);
+            clearedCount++;
+        }
+    }
+    workerLog('info', `Cleared ${clearedCount} entries for context: ${contextId}`);
 }
 
 // Export function to clear symbol cache (called on worker reset)

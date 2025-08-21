@@ -37,7 +37,8 @@ export function clear(seq: number) {
 }
 
 export function hideSpinner() {
-  worker.postMessage(<InboundToWorker>{ type: 'hide-spinner' });
+  const contextId = getContextId();
+  worker.postMessage(<InboundToWorker>{ type: 'hide-spinner', contextId });
 }
 
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
@@ -58,8 +59,21 @@ export function testWorkerError(errorType: 'uncaughtError' | 'promiseRejection' 
   worker.postMessage(<InboundToWorker>{ type: 'test-error', errorType });
 }
 
+/* context helper -------------------------------------------------- */
+function getContextId(): string {
+  try {
+    const javaBridge = (window as any).javaBridge;
+    if (javaBridge && typeof javaBridge.getContextCacheId === 'function') {
+      return javaBridge.getContextCacheId();
+    }
+  } catch (e) {
+    log.warn('Error getting context ID:', e);
+  }
+  return 'no-context';
+}
+
 /* symbol lookup handler ------------------------------------------- */
-async function handleSymbolLookupRequest(symbols: string[], seq: number) {
+async function handleSymbolLookupRequest(symbols: string[], seq: number, contextId: string) {
   try {
     // Access JavaBridge from main window context
     const javaBridge = (window as any).javaBridge;
@@ -69,7 +83,7 @@ async function handleSymbolLookupRequest(symbols: string[], seq: number) {
     }
 
     // Log the lookup request
-    log.info(`Processing ${symbols.length} symbols: ${symbols.join(', ')}`);
+    log.info(`Processing ${symbols.length} symbols: ${symbols.join(', ')} for context: ${contextId}`);
 
     // Call JavaBridge to lookup symbols
     const jsonInput = JSON.stringify(symbols);
@@ -90,7 +104,8 @@ async function handleSymbolLookupRequest(symbols: string[], seq: number) {
       const message = <InboundToWorker>{
         type: 'symbol-lookup-response',
         results: results,
-        seq: seq
+        seq: seq,
+        contextId: contextId
       };
       log.debugLog(`[SYMBOL-LOOKUP] About to send message to worker: ${JSON.stringify(message)}`);
       try {
@@ -130,7 +145,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       break;
     case 'symbol-lookup-request':
       //log.debugLog("++++++++ symbol");
-      handleSymbolLookupRequest(msg.symbols, msg.seq);
+      handleSymbolLookupRequest(msg.symbols, msg.seq, msg.contextId);
       break;
     case 'worker-log':
       // Use appropriate console method based on level for JavaFX WebView interception

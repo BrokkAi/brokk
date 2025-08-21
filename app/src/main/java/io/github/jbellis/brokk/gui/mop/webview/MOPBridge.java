@@ -388,6 +388,52 @@ public final class MOPBridge {
         webViewHost.onProcessorStateChanged(state);
     }
 
+    public String getContextCacheId() {
+        if (contextManager == null) {
+            return "no-context";
+        }
+
+        var sb = new StringBuilder();
+
+        // Project identity
+        var project = contextManager.getProject();
+        if (project != null) {
+            sb.append("project:").append(project.getRoot().toString());
+        } else {
+            sb.append("project:null");
+        }
+
+        // Context manager identity
+        sb.append("|cm:").append(System.identityHashCode(contextManager));
+        sb.append("|cm-class:").append(contextManager.getClass().getSimpleName());
+
+        // Analyzer identity
+        try {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            sb.append("|analyzer:").append(System.identityHashCode(analyzer));
+            sb.append("|analyzer-class:").append(analyzer.getClass().getSimpleName());
+        } catch (Exception e) {
+            sb.append("|analyzer:unavailable");
+        }
+
+        // Git state (if available)
+        try {
+            if (project != null) {
+                var repo = project.getRepo();
+                sb.append("|branch:").append(repo.getCurrentBranch());
+                sb.append("|commit:").append(repo.getCurrentCommitId().substring(0, Math.min(8, repo.getCurrentCommitId().length())));
+                var modifiedFiles = repo.getModifiedFiles();
+                sb.append("|dirty:").append(!modifiedFiles.isEmpty());
+            }
+        } catch (Exception e) {
+            sb.append("|git:unavailable");
+        }
+
+        // Hash the context string for compact ID
+        String contextString = sb.toString();
+        return Integer.toHexString(contextString.hashCode());
+    }
+
     private static String toJson(Object obj) {
         try {
             return MAPPER.writeValueAsString(obj);
