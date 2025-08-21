@@ -365,6 +365,7 @@ public class SearchAgent {
 
         // Text-based search
         names.add("searchSubstrings");
+        names.add("searchGitCommitMessages");
         names.add("searchFilenames");
         names.add("getFileContents");
         names.add("getFileSummaries");
@@ -410,7 +411,7 @@ public class SearchAgent {
             case "addClassSummariesToWorkspace", "addFileSummariesToWorkspace", "addMethodSourcesToWorkspace" -> 3;
             case "addFilesToWorkspace", "addClassesToWorkspace", "addSymbolUsagesToWorkspace" -> 4;
             case "getRelatedClasses" -> 5;
-            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames" -> 6;
+            case "searchSymbols", "getUsages", "searchSubstrings", "searchFilenames", "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "getFiles" -> 8;
             default -> 9;
@@ -541,6 +542,7 @@ public class SearchAgent {
                         "getClassSources",
                         "searchSubstrings",
                         "searchFilenames",
+                        "searchGitCommitMessages",
                         "getFileContents",
                         "getFileSummaries")
                 .contains(toolName);
@@ -662,6 +664,7 @@ public class SearchAgent {
                 case "getRelatedClasses", "getClassSkeletons", "getClassSources" ->
                     listParamSignatures(toolName, args, "classNames");
                 case "getMethodSources" -> listParamSignatures(toolName, args, "methodNames");
+                case "searchGitCommitMessages" -> List.of(toolName + ":pattern=" + args.getOrDefault("pattern", ""));
                 case "answerSearch", "abortSearch" -> List.of(toolName + ":finalizing");
                 default -> List.of(toolName + ":unknown");
             };

@@ -1232,7 +1232,6 @@ public final class MainProject extends AbstractProject {
                 .sorted(Map.Entry.<Path, ProjectPersistentInfo>comparingByValue(
                                 Comparator.comparingLong(ProjectPersistentInfo::lastOpened))
                         .reversed())
-                .limit(10)
                 .toList();
 
         // Collect current project paths to keep

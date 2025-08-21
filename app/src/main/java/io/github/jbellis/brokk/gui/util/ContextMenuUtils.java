@@ -130,7 +130,7 @@ public final class ContextMenuUtils {
         // Check what kind of mouse event we're handling
         if (e.isPopupTrigger()) {
             // Right-click (context menu)
-            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table, visibleFiles);
+            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table);
 
             // Right-click on overflow badge?
             if (targetRef == null && hasOverflow) {
@@ -147,7 +147,7 @@ public final class ContextMenuUtils {
             e.consume(); // Prevent further listeners from acting on this event
         } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
             // Left-click
-            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table, visibleFiles);
+            var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table);
             logger.debug(
                     "Left-click on file badges - targetRef={}, hasOverflow={}, visibleFiles={}, totalFiles={}",
                     targetRef != null ? targetRef.getFileName() : "null",
@@ -158,8 +158,7 @@ public final class ContextMenuUtils {
             // If no visible badge was clicked, check if it was an overflow badge click
             if (targetRef == null && hasOverflow) {
                 // Check if the click is actually on the overflow badge area
-                boolean isOverflowClick =
-                        TableUtils.isClickOnOverflowBadge(p, row, columnIndex, table, visibleFiles, hasOverflow);
+                boolean isOverflowClick = TableUtils.isClickOnOverflowBadge(p, row, columnIndex, table);
                 logger.debug("Overflow badge click check - isOverflowClick={}", isOverflowClick);
                 if (isOverflowClick) {
                     // Show the overflow popup with only the hidden files

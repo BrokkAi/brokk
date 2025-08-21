@@ -1389,9 +1389,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Hides the inline loading spinner in the output panel. */
     @Override
     public void hideOutputSpinner() {
-        SwingUtilities.invokeLater(() -> {
-            historyOutputPanel.hideSpinner();
-        });
+        SwingUtilities.invokeLater(historyOutputPanel::hideSpinner);
     }
 
     /** Shows the session switching spinner in the history panel. */
@@ -1407,7 +1405,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void focusInput() {
-        SwingUtilities.invokeLater(() -> instructionsPanel.requestCommandInputFocus());
+        SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
     }
 
     public void toggleGitPanel() {

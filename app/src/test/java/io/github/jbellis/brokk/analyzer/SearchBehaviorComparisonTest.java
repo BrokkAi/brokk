@@ -5,16 +5,20 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Test to verify that TreeSitterAnalyzer and JoernAnalyzer have consistent search behavior for case-insensitive and
  * regex-based searches.
  */
 public final class SearchBehaviorComparisonTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(SearchBehaviorComparisonTest.class);
+
     private static TestProject javaTestProject;
     private static JavaAnalyzer javaAnalyzer;
     private static TestProject jsTestProject;
@@ -22,10 +26,13 @@ public final class SearchBehaviorComparisonTest {
 
     @BeforeAll
     static void setup() {
-        javaTestProject = createTestProject("../joern-analyzers/", "testcode-java", Language.JAVA);
-        var tempCpgFile = Path.of(System.getProperty("java.io.tmpdir"), "brokk-search-comparison-test.bin");
-        javaAnalyzer = new JavaAnalyzer(javaTestProject.getRoot(), Collections.emptySet(), tempCpgFile);
-
+        javaTestProject = createTestProject("", "testcode-java", Language.JAVA);
+        javaAnalyzer = JavaAnalyzer.create(javaTestProject);
+        try {
+            javaAnalyzer.isAdvancedAnalysisReady().join();
+        } catch (Exception e) {
+            logger.error("The Java analyzer's advanced capabilities failed during initialization.", e);
+        }
         jsTestProject = createTestProject("", "testcode-js", Language.JAVASCRIPT);
         jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
     }
@@ -189,7 +196,7 @@ public final class SearchBehaviorComparisonTest {
     @Test
     void testAnalyzerTypeIdentification() {
         // Verify that we can distinguish between CPG and TreeSitter analyzers
-        assertTrue(javaAnalyzer.isCpg(), "Java analyzer should be CPG-based");
+        assertFalse(javaAnalyzer.isCpg(), "Java analyzer should be TreeSitter-based");
         assertFalse(jsAnalyzer.isCpg(), "JavaScript analyzer should be TreeSitter-based");
     }
 }

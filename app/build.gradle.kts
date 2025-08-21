@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
     implementation(libs.picocli)
+    implementation(libs.bundles.apache)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -81,6 +82,9 @@ dependencies {
 
     // TreeSitter parsers
     implementation(libs.bundles.treesitter)
+
+    // Eclipse LSP
+    implementation(libs.bundles.eclipse.lsp)
 
     // Java Decompiler
     implementation(libs.java.decompiler)

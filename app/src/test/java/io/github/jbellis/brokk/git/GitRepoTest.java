@@ -1121,6 +1121,44 @@ public class GitRepoTest {
     }
 
     @Test
+    void testSearchCommits() throws Exception {
+        // Create additional commits
+        createCommit("file1.txt", "content1", "First feature commit");
+        createCommit("file2.txt", "content2", "Second feature commit with bugfix");
+        createCommit("file3.txt", "content3", "Docs update");
+
+        // Search by simple substring
+        List<CommitInfo> results = repo.searchCommits("feature");
+        assertEquals(2, results.size());
+        assertTrue(results.stream().anyMatch(c -> c.message().equals("First feature commit")));
+        assertTrue(results.stream().anyMatch(c -> c.message().equals("Second feature commit with bugfix")));
+
+        // Search by regex
+        results = repo.searchCommits("bug.ix");
+        assertEquals(1, results.size());
+        assertEquals("Second feature commit with bugfix", results.getFirst().message());
+
+        // Search by author (Test User from setup + 3 new commits)
+        results = repo.searchCommits("Test User");
+        assertEquals(4, results.size());
+
+        // Case-insensitive search
+        results = repo.searchCommits("DOCS");
+        assertEquals(1, results.size());
+        assertEquals("Docs update", results.getFirst().message());
+
+        // No matches
+        results = repo.searchCommits("nonexistent");
+        assertTrue(results.isEmpty());
+
+        // Invalid regex should fall back to substring search
+        createCommit("file_invalid.txt", "invalid content", "Commit with [[ pattern");
+        results = repo.searchCommits("[[");
+        assertEquals(1, results.size());
+        assertEquals("Commit with [[ pattern", results.getFirst().message());
+    }
+
+    @Test
     void testForceRemoveFiles() throws Exception {
         // 1. Create and commit a file
         Path fileToRemove = projectRoot.resolve("file-to-remove.txt");
