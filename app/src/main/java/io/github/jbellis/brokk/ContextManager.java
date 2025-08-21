@@ -17,7 +17,6 @@ import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
 import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
-import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -424,7 +423,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                         "Attempting to delete old history directory (modified {}): {}",
                                         lastModifiedTime,
                                         entry);
-                                if (FileUtils.deleteDirectoryRecursively(entry)) {
+                                if (FileUtil.deleteRecursively(entry)) {
                                     deletedCount.incrementAndGet();
                                 } else {
                                     logger.error("Failed to fully delete old history directory: {}", entry);
@@ -565,7 +564,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 task.run();
             } catch (CancellationException cex) {
                 if (isLlmTask) {
-                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM);
+                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM, true, false);
                 } else {
                     io.systemOutput(description + " canceled");
                 }
@@ -721,25 +720,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Drop fragments by their IDs. */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        var ids = fragments.stream().map(f -> mapToLiveFragment(f).id()).toList();
+        var ids = fragments.stream()
+                .map(f -> contextHistory.mapToLiveFragment(f).id())
+                .toList();
         pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
         io.systemOutput("Dropped "
                 + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
-    }
-
-    /**
-     * Occasionally you will need to determine which live fragment a frozen fragment came from. This does that by
-     * assuming that the live and frozen Contexts have their fragments in the same order.
-     */
-    private ContextFragment mapToLiveFragment(ContextFragment f) {
-        if (!(f instanceof FrozenFragment)) {
-            return f;
-        }
-
-        var ctx = topContext();
-        int idx = ctx.getAllFragmentsInDisplayOrder().indexOf(f);
-        assert idx >= 0 : "Fragment %s not found in top context %s".formatted(f, ctx.getAllFragmentsInDisplayOrder());
-        return liveContext().getAllFragmentsInDisplayOrder().get(idx);
     }
 
     /** Clear conversation history. */
@@ -1964,7 +1950,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceFrozenContext);
+        var ctx = Context.unfreeze(newContextFrom(sourceFrozenContext));
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
         var ch = new ContextHistory(ctx);

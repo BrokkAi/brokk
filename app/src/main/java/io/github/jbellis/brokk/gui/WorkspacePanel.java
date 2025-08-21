@@ -507,12 +507,23 @@ public class WorkspacePanel extends JPanel {
             String description = data.description();
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
 
-            // Create description label
-            JLabel descLabel = new JLabel(description);
+            // Calculate available width for description after reserving space for badges
+            int colWidth = table.getColumnModel().getColumn(column).getWidth();
+            int reservedWidth = fileReferences.isEmpty() ? 0 : 130; // room for visible/overflow badges + gap
+            var fm = table.getFontMetrics(table.getFont());
+            String clipped = ellipsize(description, fm, Math.max(colWidth - reservedWidth, 30));
+
+            // Create description label (possibly clipped with …)
+            JLabel descLabel = new JLabel(clipped);
             descLabel.setOpaque(false);
             descLabel.setForeground(panel.getForeground());
             descLabel.setVerticalAlignment(SwingConstants.CENTER); // Center alignment with LOC column
             descLabel.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+            // If we clipped the text, show the full description in a tooltip
+            if (!clipped.equals(description)) {
+                descLabel.setToolTipText(description);
+            }
 
             // Add description to panel
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -556,6 +567,34 @@ public class WorkspacePanel extends JPanel {
             // Force layout to get accurate measurements
             panel.doLayout();
             return panel.getPreferredSize().height;
+        }
+
+        /** Return a possibly-truncated version of {@code text} that fits within {@code maxWidth}. */
+        private static String ellipsize(String text, FontMetrics fm, int maxWidth) {
+            if (fm.stringWidth(text) <= maxWidth) {
+                return text;
+            }
+
+            String ellipsis = "...";
+            int ellipsisWidth = fm.stringWidth(ellipsis);
+            if (ellipsisWidth >= maxWidth) { // not even room for the ellipsis
+                return ellipsis;
+            }
+
+            int low = 0;
+            int high = text.length();
+            while (low < high) {
+                int mid = (low + high) >>> 1;
+                String candidate = text.substring(0, mid) + ellipsis;
+                int w = fm.stringWidth(candidate);
+                if (w > maxWidth) {
+                    high = mid;
+                } else {
+                    low = mid + 1;
+                }
+            }
+            // low is first index that does NOT fit; use low-1
+            return text.substring(0, Math.max(0, low - 1)) + ellipsis;
         }
     }
 
@@ -743,11 +782,6 @@ public class WorkspacePanel extends JPanel {
                 maybeHandleFileRefClick(e);
             }
 
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                maybeHandleFileRefClick(e);
-            }
-
             private void maybeHandleFileRefClick(MouseEvent e) {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
                 if (!e.isPopupTrigger()) {
@@ -763,20 +797,37 @@ public class WorkspacePanel extends JPanel {
                                     && !descriptionData.fileReferences().isEmpty()) {
                                 // Check if the click actually hit a badge (not just anywhere in the cell)
                                 var clickedRef = TableUtils.findClickedReference(
-                                        e.getPoint(),
-                                        row,
-                                        DESCRIPTION_COLUMN,
-                                        contextTable,
-                                        descriptionData.fileReferences());
+                                        e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
 
-                                if (clickedRef != null) {
-                                    // Use ContextMenuUtils directly now that we have the proper data structure
+                                if (clickedRef != null && clickedRef.getRepoFile() != null) {
+                                    // Direct badge click: delegate to central handler
                                     ContextMenuUtils.handleFileReferenceClick(
                                             e,
                                             contextTable,
                                             chrome,
-                                            () -> {}, // Workspace doesn't need to refresh suggestions
+                                            () -> {}, // Workspace doesn’t need to refresh suggestions
                                             DESCRIPTION_COLUMN);
+                                } else {
+                                    // Check for overflow “+ N more” badge click
+                                    boolean isOverflowClick = TableUtils.isClickOnOverflowBadge(
+                                            e.getPoint(), row, DESCRIPTION_COLUMN, contextTable);
+                                    if (isOverflowClick) {
+                                        // Obtain the renderer component to fetch hidden files list
+                                        Component rendererComp = contextTable.prepareRenderer(
+                                                contextTable.getCellRenderer(row, DESCRIPTION_COLUMN),
+                                                row,
+                                                DESCRIPTION_COLUMN);
+
+                                        var afl = (TableUtils.FileReferenceList.AdaptiveFileReferenceList)
+                                                TableUtils.findFileReferenceList((Container) rendererComp);
+
+                                        java.util.List<TableUtils.FileReferenceList.FileReferenceData> hiddenFiles =
+                                                afl != null ? afl.getHiddenFiles() : java.util.List.of();
+
+                                        TableUtils.showOverflowPopup(
+                                                chrome, contextTable, row, DESCRIPTION_COLUMN, hiddenFiles);
+                                        e.consume(); // Stop further processing
+                                    }
                                 }
                             }
                         }
@@ -1404,7 +1455,7 @@ public class WorkspacePanel extends JPanel {
                     if (yInCell > cellRect.height / 2) {
                         // Try to find which specific badge was clicked
                         TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable);
 
                         if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
                             return new FileBadge(clickedFileRef);

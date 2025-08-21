@@ -4,6 +4,7 @@ import com.github.difflib.patch.AbstractDelta;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
+import io.github.jbellis.brokk.difftool.performance.LongLineDetector;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.difftool.search.SearchHit;
 import io.github.jbellis.brokk.difftool.search.SearchHits;
@@ -586,7 +587,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Minimal protection: Plain text for extreme cases
         if (averageLineLength > PerformanceConstants.MINIMAL_SYNTAX_LINE_LENGTH_BYTES
-                || (numberOfLines <= 3 && contentLength > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES)) {
+                || LongLineDetector.isLongLineFile(numberOfLines, contentLength)) {
             return ProtectionLevel.MINIMAL;
         }
 

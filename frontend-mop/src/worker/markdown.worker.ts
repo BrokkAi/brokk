@@ -4,10 +4,12 @@ import type {
   OutboundFromWorker,
   ResultMsg,
   ErrorMsg,
+  LogMsg,
 } from './shared';
 import { currentExpandIds } from './expand-state';
 
 // Initialize the processor, which will asynchronously load Shiki.
+const ENABLE_WORKER_LOG = false;
 initProcessor();
 
 let buffer = '';
@@ -19,27 +21,35 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   const m: InboundToWorker = ev.data;
   switch (m.type) {
     case 'parse':
-      buffer = m.text;
+      log('debug', '[md-worker] parse', m.seq, m.updateBuffer, m.text);
+      // caller can decide whether to update internal buffer
+      // "true" is only needed if chunks are added via append after the parse
+      if (m.updateBuffer) {
+        buffer = m.text;
+        seq = m.seq;
+      }
       safeParseAndPost(m.seq, m.text, m.fast);
       break;
 
     case 'chunk':
+      log('debug', '[md-worker] chunk', m.seq, m.text);
       buffer += m.text;
       seq = m.seq;
       if (!busy) { busy = true; void parseAndPost(); }
       else dirty = true;
       break;
 
-    case 'clear':
-      console.log('--- clear worker state ---');
+    case 'clear-state':
+      log('debug', '[md-worker] clear-state', seq, m.flushBeforeClear);
       // Final flush of any pending buffer for the previous stream/message
-      if (buffer.length > 0) {
+      // Do not flush on hard clear
+      if (m.flushBeforeClear && buffer.length > 0) {
         safeParseAndPost(seq, buffer);
       }
       buffer = '';
       dirty = false;
       busy = false; // Stop any in-flight parseAndPost loops
-      seq = m.seq;
+      seq = 0;
       currentExpandIds.clear();
       break;
 
@@ -63,6 +73,7 @@ async function parseAndPost(): Promise<void> {
   // Cancellation Guard: If the global seq has changed, it means a `clear`
   // message for a new bubble has arrived. This loop is now stale and must terminate.
   if (seqForThisRun !== seq) {
+    log('debug', '[md-worker] cancel guard: seqForThisRun !== seq', seqForThisRun, seq);
     // The `clear` handler will have already set `busy = false`, allowing a new
     // loop to start for the new bubble. We just need to stop this one.
     return;
@@ -83,8 +94,26 @@ function safeParseAndPost(seq: number, text: string, fast: boolean = false) {
     const tree = parseMarkdown(seq, text, fast);
     post(<ResultMsg>{ type: 'result', tree, seq: seq });
   } catch (e) {
-    console.error('[md-worker]', e);
+    log('error', '[md-worker]', e);
     const error = e instanceof Error ? e : new Error(String(e));
     post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: seq });
   }
+}
+
+function log(level: LogMsg['level'], ...args: unknown[]) {
+  if (!ENABLE_WORKER_LOG) {
+    return;
+  }
+  const message = args
+      .map(arg => {
+        if (arg instanceof Error) {
+          return arg.stack || arg.message;
+        }
+        if (typeof arg === 'object' && arg !== null) {
+          return JSON.stringify(arg);
+        }
+        return String(arg);
+      })
+      .join(' ');
+  post(<LogMsg>{ type: 'log', level, message });
 }

@@ -54,7 +54,7 @@ public final class JdtProjectHelper {
                 runCommand(projectPath, wrapperPath.toString(), "eclipse:eclipse");
                 return true; // Success
             } catch (Exception e) {
-                logger.warn("Maven wrapper failed to execute, falling back to system 'mvn'.", e);
+                logger.debug("Maven wrapper failed to execute, falling back to system 'mvn'.");
             }
         }
 
@@ -63,7 +63,7 @@ public final class JdtProjectHelper {
             logger.debug("Maven wrapper not found or failed. Trying system 'mvn'...");
             return runCommand(projectPath, "mvn", "eclipse:eclipse");
         } catch (Exception e) {
-            logger.warn("System 'mvn' command failed. No Eclipse files will be used.", e);
+            logger.debug("System 'mvn' command failed. No Eclipse files will be used.");
             return false;
         }
     }
@@ -79,7 +79,7 @@ public final class JdtProjectHelper {
                 runCommand(projectPath, wrapperPath.toString(), "eclipse");
                 return true; // Success
             } catch (Exception e) {
-                logger.warn("Gradle wrapper failed to execute, falling back to system 'gradle'.", e);
+                logger.debug("Gradle wrapper failed to execute, falling back to system 'gradle'.");
             }
         }
 
@@ -88,7 +88,7 @@ public final class JdtProjectHelper {
             logger.debug("Gradle wrapper not found or failed. Trying system 'gradle'...");
             return runCommand(projectPath, "gradle", "eclipse");
         } catch (Exception e) {
-            logger.warn("System 'gradle' command failed. No Eclipse files will be used.", e);
+            logger.debug("System 'gradle' command failed. No Eclipse files will be used.");
             return false;
         }
     }

@@ -140,25 +140,25 @@ public class MenuBar {
         var editFilesItem = new JMenuItem("Edit Files");
         editFilesItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        editFilesItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+        editFilesItem.addActionListener(e -> {
             chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.EDIT, List.of());
-        }));
+        });
         editFilesItem.setEnabled(chrome.getProject().hasGit());
         contextMenu.add(editFilesItem);
 
         var readFilesItem = new JMenuItem("Read Files");
         readFilesItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_R, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        readFilesItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+        readFilesItem.addActionListener(e -> {
             chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.READ, List.of());
-        }));
+        });
         readFilesItem.setEnabled(true);
         contextMenu.add(readFilesItem);
 
         var viewFileItem = new JMenuItem("View File");
         viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_O, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        viewFileItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+        viewFileItem.addActionListener(e -> {
             var cm = chrome.getContextManager();
             var project = cm.getProject();
 
@@ -187,7 +187,7 @@ public class MenuBar {
                     }
                 }
             });
-        }));
+        });
         viewFileItem.setEnabled(true);
         contextMenu.add(viewFileItem);
 
@@ -196,9 +196,9 @@ public class MenuBar {
         var summarizeItem = new JMenuItem("Summarize");
         summarizeItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_M, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        summarizeItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+        summarizeItem.addActionListener(e -> {
             chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.SUMMARIZE, List.of());
-        }));
+        });
         summarizeItem.setEnabled(true);
         contextMenu.add(summarizeItem);
 

@@ -332,16 +332,36 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         var lineText = getText(lineStartOffset, lineEndOffset - lineStartOffset);
 
                         if (lineText != null && !lineText.trim().isEmpty()) {
+                            var addedShortNames = new HashMap<String, CodeUnit>();
                             for (CodeUnit unit : codeUnits) {
                                 var identifier = unit.identifier();
                                 var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
                                 if (p.matcher(lineText).find()) {
-                                    var item = new JMenuItem("Capture usages of " + unit.shortName());
+                                    if (addedShortNames.containsKey(unit.shortName())) {
+                                        continue; // already have a menu item for this shortName
+                                    }
+                                    addedShortNames.put(unit.shortName(), unit);
+                                }
+                            }
+                            for (String shortName : addedShortNames.keySet()) {
+                                // Specific to some languages, the constructor is the name of the type and may come
+                                // up when clicking on the type. These both refer to the same usages, thus will be
+                                // duplicates.
+                                final var codeUnit = addedShortNames.get(shortName);
+                                // Check if another code unit shares this name and is a class
+                                final var isConstructor = codeUnit.isFunction()
+                                        && addedShortNames.values().stream()
+                                                .anyMatch(x -> !x.equals(codeUnit)
+                                                        && x.isClass()
+                                                        && shortName.endsWith(x.shortName()));
+
+                                if (!isConstructor) {
+                                    var item = new JMenuItem(
+                                            "<html>Capture usages of <code>" + shortName + "</code></html>");
                                     // Use a local variable for the action listener lambda
                                     item.addActionListener(action -> {
                                         contextManager.submitBackgroundTask(
-                                                "Capture Usages",
-                                                () -> contextManager.usageForIdentifier(unit.fqName()));
+                                                "Capture Usages", () -> contextManager.usageForIdentifier(shortName));
                                     });
                                     dynamicMenuItems.add(item); // Track for removal
                                 }

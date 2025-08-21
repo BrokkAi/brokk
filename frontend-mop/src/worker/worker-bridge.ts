@@ -8,12 +8,12 @@ export function pushChunk(text: string, seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
-export function parse(text: string, seq: number, fast = false) {
-  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast });
+export function parse(text: string, seq: number, fast = false, updateBuffer = true) {
+  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast, updateBuffer });
 }
 
-export function clear(seq: number) {
-  worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
+export function clearState(flushBeforeClear: boolean) {
+  worker.postMessage(<InboundToWorker>{ type: 'clear-state', flushBeforeClear });
 }
 
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
@@ -38,6 +38,9 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       break;
     case 'result':
       onWorkerResult(msg);
+      break;
+    case 'log':
+      window.javaBridge?.jsLog(msg.level, msg.message);
       break;
     case 'error':
       console.error('[md-worker]', msg.message + '\n' + msg.stack);

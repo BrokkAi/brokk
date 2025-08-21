@@ -48,7 +48,7 @@ public final class JdtLanguageClient implements LanguageClient {
 
     private void alertUser(String message) {
         if (io != null) {
-            io.toolError(message);
+            io.systemOutput(message);
         } else {
             accumulatedErrors.add(message);
         }
@@ -88,7 +88,7 @@ public final class JdtLanguageClient implements LanguageClient {
             case Error -> handleSystemError(message);
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
             case Info -> {
-                logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
+                logger.trace("[LSP-SERVER-LOG] INFO: {}", message.getMessage());
 
                 if (message.getMessage().endsWith("build jobs finished")) {
                     // This is a good way we can tell when the server is ready
@@ -112,7 +112,7 @@ public final class JdtLanguageClient implements LanguageClient {
                             });
                 }
             }
-            default -> logger.debug("[LSP-SERVER-LOG] {}", message.getMessage());
+            default -> logger.trace("[LSP-SERVER-LOG] DEBUG: {}", message.getMessage());
         }
     }
 
@@ -144,6 +144,10 @@ public final class JdtLanguageClient implements LanguageClient {
         } else if (isOutOfMemoryError(message)) {
             alertUser(
                     "The Java Language Server ran out of memory. Consider increasing this under 'Settings' -> 'Analyzers' -> 'Java'.");
+        } else if (isCachePossiblyCorrupted(message)) {
+            alertUser("The Java Language Server cache may be corrupted, automatically clearing now.");
+            // Shut down the current server and rebuild a fresh cache
+            SharedJdtLspServer.getInstance().clearCache();
         } else if (isUnhandledError(message)) {
             alertUser("Failed to import Java project due to unknown error. Please look at $HOME/.brokk/debug.log.");
         }
@@ -160,7 +164,7 @@ public final class JdtLanguageClient implements LanguageClient {
     public CompletableFuture<Void> registerCapability(RegistrationParams params) {
         // Acknowledge the server's request and return a completed future.
         // This satisfies the protocol and prevents an exception.
-        logger.info("Server requested to register capabilities: {}", params.getRegistrations());
+        logger.trace("Server requested to register capabilities: {}", params.getRegistrations());
         return CompletableFuture.completedFuture(null);
     }
 
@@ -171,6 +175,10 @@ public final class JdtLanguageClient implements LanguageClient {
 
     private boolean isOutOfMemoryError(MessageParams message) {
         return message.getMessage().contains("Java heap space");
+    }
+
+    private boolean isCachePossiblyCorrupted(MessageParams message) {
+        return message.getMessage().contains("Could not write metadata for");
     }
 
     private boolean isUnhandledError(MessageParams message) {

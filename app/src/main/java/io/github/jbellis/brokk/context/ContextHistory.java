@@ -355,6 +355,21 @@ public class ContextHistory {
         return Map.copyOf(entryInfos);
     }
 
+    /**
+     * Occasionally you will need to determine which live fragment a frozen fragment came from. This does that by
+     * assuming that the live and frozen Contexts have their fragments in the same order.
+     */
+    public synchronized ContextFragment mapToLiveFragment(ContextFragment f) {
+        if (!(f instanceof FrozenFragment)) {
+            return f;
+        }
+
+        var ctx = topContext();
+        int idx = ctx.getAllFragmentsInDisplayOrder().indexOf(f);
+        assert idx >= 0 : "Fragment %s not found in top context %s".formatted(f, ctx.getAllFragmentsInDisplayOrder());
+        return getLiveContext().getAllFragmentsInDisplayOrder().get(idx);
+    }
+
     /** Applies the state from a frozen context to the workspace by restoring files. */
     private void applyFrozenContextToWorkspace(@Nullable Context frozenContext, IConsoleIO io) {
         if (frozenContext == null) {

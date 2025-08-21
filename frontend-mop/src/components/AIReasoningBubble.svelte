@@ -19,7 +19,7 @@
   function toggleCollapse() {
     // Only allow toggling when reasoning is complete.
     if (bubble.reasoningComplete) {
-      toggleBubbleCollapsed(bubble.id);
+      toggleBubbleCollapsed(bubble.seq);
     }
   }
 </script>

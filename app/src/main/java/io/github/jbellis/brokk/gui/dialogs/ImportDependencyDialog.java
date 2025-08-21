@@ -537,11 +537,7 @@ public class ImportDependencyDialog {
                         importButton.setEnabled(true);
                     });
                     if (tempDir != null && Files.exists(tempDir)) {
-                        try {
-                            FileUtil.deleteRecursively(tempDir);
-                        } catch (IOException e) {
-                            logger.error("Failed to delete temporary clone directory {}", tempDir, e);
-                        }
+                        FileUtil.deleteRecursively(tempDir);
                     }
                 }
                 return null;
