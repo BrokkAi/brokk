@@ -38,7 +38,7 @@ public final class HistoryIo {
     private static final String V1_FRAGMENTS_FILENAME = "fragments-v1.json";
     private static final String V3_FRAGMENTS_FILENAME = "fragments-v3.json";
     private static final String CONTEXTS_FILENAME = "contexts.jsonl";
-    private static final String CONTENT_FILENAME = "content.json";
+    private static final String CONTENT_FILENAME = "content_metadata.json";
     private static final String CONTENT_DIR_PREFIX = "content/";
     private static final String RESET_EDGES_FILENAME = "reset_edges.json";
     private static final String GIT_STATES_FILENAME = "git_states.json";
@@ -379,6 +379,7 @@ public final class HistoryIo {
         private final Map<String, String> idToFullContent = new HashMap<>();
 
         public String writeContent(String content, @Nullable String fileKey) {
+            int revision = 1;
             if (fileKey != null) {
                 var lastContentId = fileKeyToLastContentId.get(fileKey);
                 if (lastContentId != null) {
@@ -388,13 +389,14 @@ public final class HistoryIo {
                         if (content.equals(lastContent)) {
                             return lastContentId;
                         }
+                        revision = lastMetadata.revision() + 1;
                         var diff = ContentDiffUtils.diff(lastContent, content);
                         var diffRatio = (double) diff.length() / content.length();
                         if (diffRatio < 0.75) {
-                            var contentId = UUID.randomUUID().toString();
-                            var rev = lastMetadata.revision() + 1;
-                            contentMetadata.put(contentId, new DiffContentMetadataDto(rev, lastContentId));
-                            contentBytes.put(contentId, diff.getBytes(StandardCharsets.UTF_8));
+                            byte[] diffBytes = diff.getBytes(StandardCharsets.UTF_8);
+                            var contentId = UUID.nameUUIDFromBytes(diffBytes).toString();
+                            contentMetadata.put(contentId, new DiffContentMetadataDto(revision, lastContentId));
+                            contentBytes.put(contentId, diffBytes);
                             fileKeyToLastContentId.put(fileKey, contentId);
                             idToFullContent.put(contentId, content);
                             return contentId;
@@ -409,9 +411,10 @@ public final class HistoryIo {
                 return existingId;
             }
 
-            var contentId = UUID.randomUUID().toString();
-            contentMetadata.put(contentId, new FullContentMetadataDto(1));
-            contentBytes.put(contentId, content.getBytes(StandardCharsets.UTF_8));
+            byte[] fullContentBytes = content.getBytes(StandardCharsets.UTF_8);
+            var contentId = UUID.nameUUIDFromBytes(fullContentBytes).toString();
+            contentMetadata.put(contentId, new FullContentMetadataDto(revision));
+            contentBytes.put(contentId, fullContentBytes);
             fullContentToId.put(content, contentId);
             if (fileKey != null) fileKeyToLastContentId.put(fileKey, contentId);
             idToFullContent.put(contentId, content);
@@ -454,7 +457,7 @@ public final class HistoryIo {
 
             String result;
             if (metadata instanceof DiffContentMetadataDto d) {
-                String baseContent = readContent(d.diffForContent());
+                String baseContent = readContent(d.appliesTo());
                 result = ContentDiffUtils.applyDiff(content, baseContent);
             } else {
                 result = content;

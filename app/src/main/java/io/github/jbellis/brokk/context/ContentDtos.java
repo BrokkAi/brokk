@@ -6,7 +6,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 public class ContentDtos {
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
     @JsonSubTypes({
-        @JsonSubTypes.Type(value = FullContentMetadataDto.class, name = "content"),
+        @JsonSubTypes.Type(value = FullContentMetadataDto.class, name = "fullContent"),
         @JsonSubTypes.Type(value = DiffContentMetadataDto.class, name = "diff")
     })
     public sealed interface ContentMetadataDto permits FullContentMetadataDto, DiffContentMetadataDto {
@@ -15,5 +15,5 @@ public class ContentDtos {
 
     public record FullContentMetadataDto(int revision) implements ContentMetadataDto {}
 
-    public record DiffContentMetadataDto(int revision, String diffForContent) implements ContentMetadataDto {}
+    public record DiffContentMetadataDto(int revision, String appliesTo) implements ContentMetadataDto {}
 }
