@@ -7,7 +7,8 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class MultiAnalyzer implements IAnalyzer {
+public class MultiAnalyzer
+        implements IAnalyzer, CallGraphProvider, UsagesProvider, SkeletonProvider, SourceCodeProvider {
     private static final Logger logger = LogManager.getLogger(MultiAnalyzer.class);
 
     private final Map<Language, IAnalyzer> delegates;
@@ -30,7 +31,7 @@ public class MultiAnalyzer implements IAnalyzer {
         return Optional.empty();
     }
 
-    private <K, V> Map<K, List<V>> mergeMapsFromCpgAnalyzers(Function<IAnalyzer, Map<K, List<V>>> extractor) {
+    private <K, V> Map<K, List<V>> mergeMapsFromAnalyzers(Function<IAnalyzer, Map<K, List<V>>> extractor) {
         return delegates.values().stream()
                 .filter(IAnalyzer::isCpg)
                 .flatMap(analyzer -> extractor.apply(analyzer).entrySet().stream())
@@ -95,36 +96,57 @@ public class MultiAnalyzer implements IAnalyzer {
 
     @Override
     public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        return mergeMapsFromCpgAnalyzers(analyzer -> analyzer.getCallgraphTo(methodName, depth));
+        return mergeMapsFromAnalyzers(analyzer -> {
+            if (analyzer instanceof CallGraphProvider callGraphProvider)
+                return callGraphProvider.getCallgraphTo(methodName, depth);
+            else return Collections.emptyMap();
+        });
     }
 
     @Override
     public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        return mergeMapsFromCpgAnalyzers(analyzer -> analyzer.getCallgraphFrom(methodName, depth));
+        return mergeMapsFromAnalyzers(analyzer -> {
+            if (analyzer instanceof CallGraphProvider callGraphProvider)
+                return callGraphProvider.getCallgraphFrom(methodName, depth);
+            else return Collections.emptyMap();
+        });
     }
 
     @Override
     public Optional<String> getSkeleton(String fqName) {
-        return findFirst(analyzer -> analyzer.getSkeleton(fqName));
+        return findFirst(analyzer -> {
+            if (analyzer instanceof SkeletonProvider skeletonProvider) return skeletonProvider.getSkeleton(fqName);
+            else return Optional.empty();
+        });
     }
 
     @Override
     public Optional<String> getSkeletonHeader(String className) {
-        return findFirst(analyzer -> analyzer.getSkeletonHeader(className));
+        return findFirst(analyzer -> {
+            if (analyzer instanceof SkeletonProvider skeletonProvider)
+                return skeletonProvider.getSkeletonHeader(className);
+            else return Optional.empty();
+        });
     }
 
     @Override
     public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> analyzer.getMethodSource(fqName));
+        return findFirst(analyzer -> {
+            if (analyzer instanceof SourceCodeProvider sourceCodeProvider)
+                return sourceCodeProvider.getMethodSource(fqName);
+            else return Optional.empty();
+        });
     }
 
     @Override
     public String getClassSource(String fqcn) {
         for (var delegate : delegates.values()) {
             try {
-                var source = delegate.getClassSource(fqcn);
-                if (source != null && !source.isEmpty()) {
-                    return source;
+                if (delegate instanceof SourceCodeProvider sourceCodeProvider) {
+                    var source = sourceCodeProvider.getClassSource(fqcn);
+                    if (source != null && !source.isEmpty()) {
+                        return source;
+                    }
                 }
             } catch (SymbolNotFoundException e) {
                 // pass
@@ -138,8 +160,8 @@ public class MultiAnalyzer implements IAnalyzer {
         var lang = Language.fromExtension(
                 com.google.common.io.Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getSkeletons(file);
+        if (delegate instanceof SkeletonProvider skeletonProvider) {
+            return skeletonProvider.getSkeletons(file);
         }
         return Map.of();
     }

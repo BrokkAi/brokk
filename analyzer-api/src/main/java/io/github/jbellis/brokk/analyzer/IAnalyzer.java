@@ -4,7 +4,6 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 public interface IAnalyzer {
     /** Record representing a code unit relevance result with a code unit and its score. */
@@ -35,53 +34,7 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        throw new UnsupportedOperationException();
-    }
-
-    default Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        throw new UnsupportedOperationException();
-    }
-
     // Summarization
-
-    /** return a summary of the given type or method */
-    default Optional<String> getSkeleton(String fqName) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Returns just the class signature and field declarations, without method details. Used in symbol usages lookup.
-     * (Show the "header" of the class that uses the referenced symbol in a field declaration.)
-     */
-    default Optional<String> getSkeletonHeader(String className) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Gets the source code for a given method name. If multiple methods match (e.g. overloads), their source code
-     * snippets are concatenated (separated by newlines). If none match, returns None.
-     */
-    default Optional<String> getMethodSource(String fqName) {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Gets the source code for the entire given class. If the class is partial or has multiple definitions, this
-     * typically returns the primary definition.
-     */
-    default @Nullable String getClassSource(String fqcn) {
-        throw new UnsupportedOperationException();
-    }
-
-    default Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        Map<CodeUnit, String> skeletons = new HashMap<>();
-        for (CodeUnit symbol : getDeclarationsInFile(file)) {
-            Optional<String> skelOpt = getSkeleton(symbol.fqName());
-            skelOpt.ifPresent(s -> skeletons.put(symbol, s));
-        }
-        return skeletons;
-    }
 
     default List<CodeUnit> getMembersInClass(String fqClass) {
         throw new UnsupportedOperationException();

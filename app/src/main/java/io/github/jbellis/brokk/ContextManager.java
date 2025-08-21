@@ -1051,14 +1051,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var content = new StringBuilder();
         IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
-        for (var element : stacktrace.getFrames()) {
-            var methodFullName = element.getClassName() + "." + element.getMethodName();
-            var methodSource = localAnalyzer.getMethodSource(methodFullName);
-            if (methodSource.isPresent()) {
-                String className = ContextFragment.toClassname(methodFullName);
-                localAnalyzer.getDefinition(className).filter(CodeUnit::isClass).ifPresent(sources::add);
-                content.append(methodFullName).append(":\n");
-                content.append(methodSource.get()).append("\n\n");
+        if (getAnalyzerUninterrupted() instanceof SourceCodeProvider sourceCodeProvider) {
+            for (var element : stacktrace.getFrames()) {
+                var methodFullName = element.getClassName() + "." + element.getMethodName();
+                var methodSource = sourceCodeProvider.getMethodSource(methodFullName);
+                if (methodSource.isPresent()) {
+                    String className = ContextFragment.toClassname(methodFullName);
+                    localAnalyzer
+                            .getDefinition(className)
+                            .filter(CodeUnit::isClass)
+                            .ifPresent(sources::add);
+                    content.append(methodFullName).append(":\n");
+                    content.append(methodSource.get()).append("\n\n");
+                }
             }
         }
 

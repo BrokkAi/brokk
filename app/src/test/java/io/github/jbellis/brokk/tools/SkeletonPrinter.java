@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility to print skeleton output for files in a directory or a specific file. Usage: java SkeletonPrinter
@@ -347,7 +348,7 @@ public class SkeletonPrinter {
             }
 
             // Count skeletons for this file
-            var skeletons = analyzer.getSkeletons(projectFile);
+            var skeletons = ((SkeletonProvider) analyzer).getSkeletons(projectFile);
             skeletonsProduced += skeletons.size();
         } catch (Exception e) {
             var errorMsg = "Error processing file " + filePath + ": " + e.getMessage();
@@ -371,15 +372,23 @@ public class SkeletonPrinter {
         }
     }
 
-    private static IAnalyzer createAnalyzer(IProject project, Language language) {
-        return switch (language.internalName()) {
-            case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
-            case "JavaScript" -> new JavascriptAnalyzer(project);
-            case "Java" -> JavaAnalyzer.create(project);
-            case "Python" -> new PythonAnalyzer(project);
-            case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
-            default -> null;
-        };
+    @SuppressWarnings("unchecked")
+    private static <T extends IAnalyzer & SkeletonProvider> @Nullable T createAnalyzer(
+            IProject project, Language language) {
+        final IAnalyzer analyzer =
+                switch (language.internalName()) {
+                    case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
+                    case "JavaScript" -> new JavascriptAnalyzer(project);
+                    case "Java" -> JavaAnalyzer.create(project);
+                    case "Python" -> new PythonAnalyzer(project);
+                    case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
+                    default -> null;
+                };
+        if (analyzer != null) {
+            return (T) analyzer;
+        } else {
+            return null;
+        }
     }
 
     private static void printFileSkeletons(IAnalyzer analyzer, ProjectFile file) {
@@ -409,7 +418,7 @@ public class SkeletonPrinter {
 
         System.out.println(colorize(BOLD + GREEN, "--- SKELETON OUTPUT ---"));
 
-        var skeletons = analyzer.getSkeletons(file);
+        var skeletons = ((SkeletonProvider) analyzer).getSkeletons(file);
         if (skeletons.isEmpty()) {
             System.out.println(colorize(YELLOW, "No skeletons found in this file."));
             return;

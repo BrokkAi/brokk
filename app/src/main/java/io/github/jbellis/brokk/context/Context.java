@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.JoernAnalyzer;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
 import io.github.jbellis.brokk.util.Messages;
@@ -361,9 +362,10 @@ public class Context {
                 }
             }
 
-            if (eligible) { // Parentheses removed around condition
+            if (eligible
+                    && analyzer instanceof SkeletonProvider skeletonProvider) { // Parentheses removed around condition
                 // Check if skeleton exists before adding, to ensure it's a valid target for summary
-                if (analyzer.getSkeleton(fqcn).isPresent()) {
+                if (skeletonProvider.getSkeleton(fqcn).isPresent()) {
                     targetFqns.add(fqcn);
                 }
             }

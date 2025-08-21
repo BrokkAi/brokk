@@ -40,7 +40,9 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     extends IAnalyzer
     with Closeable
     with SkeletonProvider
-    with SourceCodeProvider {
+    with SourceCodeProvider
+    with UsagesProvider 
+    with CallGraphProvider {
 
   // Logger instance for this class
   protected val logger: Logger = LoggerFactory.getLogger(getClass)

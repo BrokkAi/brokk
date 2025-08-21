@@ -1,13 +1,13 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -147,10 +147,14 @@ public class CallGraphDialog extends JDialog {
         }
 
         // Update the call graph map
-        if (isCallerGraph) {
-            callGraph = analyzer.getCallgraphTo(methodName, depth);
+        if (analyzer instanceof CallGraphProvider callGraphProvider) {
+            if (isCallerGraph) {
+                callGraph = callGraphProvider.getCallgraphTo(methodName, depth);
+            } else {
+                callGraph = callGraphProvider.getCallgraphFrom(methodName, depth);
+            }
         } else {
-            callGraph = analyzer.getCallgraphFrom(methodName, depth);
+            callGraph = Collections.emptyMap();
         }
 
         // Count total call sites

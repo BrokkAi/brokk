@@ -323,20 +323,21 @@ public interface ContextFragment {
         @Override
         public String formatSummary() {
             IAnalyzer analyzer = getAnalyzer();
-            if (analyzer.isEmpty()) {
-                return PathFragment.formatSummary(file); // Fallback if analyzer not ready or empty
-            }
-            var summary = analyzer.getSkeletons(file).entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(Map.Entry::getValue)
-                    .collect(Collectors.joining("\n"));
+            if (!analyzer.isEmpty() && analyzer instanceof SkeletonProvider skeletonProvider) {
+                var summary = skeletonProvider.getSkeletons(file).entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(Map.Entry::getValue)
+                        .collect(Collectors.joining("\n"));
 
-            return """
+                return """
                    <file source="%s" summarized=true>
                    %s
                    </file>
                    """
-                    .formatted(file, summary);
+                        .formatted(file, summary);
+            } else {
+                return PathFragment.formatSummary(file); // Fallback if analyzer not ready, empty, or inappropriate
+            }
         }
 
         @Override
@@ -1269,11 +1270,13 @@ public interface ContextFragment {
             if (!analyzer.isCpg()) {
                 return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
             }
-            Map<String, List<CallSite>> graphData;
-            if (isCalleeGraph) {
-                graphData = analyzer.getCallgraphFrom(methodName, depth);
-            } else {
-                graphData = analyzer.getCallgraphTo(methodName, depth);
+            Map<String, List<CallSite>> graphData = Collections.emptyMap();
+            if (analyzer instanceof CallGraphProvider callGraphProvider) {
+                if (isCalleeGraph) {
+                    graphData = callGraphProvider.getCallgraphFrom(methodName, depth);
+                } else {
+                    graphData = callGraphProvider.getCallgraphTo(methodName, depth);
+                }
             }
 
             if (graphData.isEmpty()) {
@@ -1368,21 +1371,24 @@ public interface ContextFragment {
         private Map<CodeUnit, String> fetchSkeletons() {
             IAnalyzer analyzer = getAnalyzer();
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
-            switch (summaryType) {
-                case CODEUNIT_SKELETON -> {
-                    for (String className : targetIdentifiers) {
-                        analyzer.getDefinition(className).ifPresent(cu -> {
-                            analyzer.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
-                        });
+            if (analyzer instanceof SkeletonProvider skeletonProvider) {
+                switch (summaryType) {
+                    case CODEUNIT_SKELETON -> {
+                        for (String className : targetIdentifiers) {
+                            analyzer.getDefinition(className).ifPresent(cu -> {
+                                skeletonProvider.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
+                            });
+                        }
                     }
-                }
-                case FILE_SKELETONS -> {
-                    // This assumes targetIdentifiers are file paths. Expansion of globs should happen before fragment
-                    // creation.
-                    for (String filePath : targetIdentifiers) {
-                        IContextManager cm = getContextManager();
-                        ProjectFile projectFile = cm.toFile(filePath);
-                        skeletonsMap.putAll(analyzer.getSkeletons(projectFile));
+                    case FILE_SKELETONS -> {
+                        // This assumes targetIdentifiers are file paths. Expansion of globs should happen before
+                        // fragment
+                        // creation.
+                        for (String filePath : targetIdentifiers) {
+                            IContextManager cm = getContextManager();
+                            ProjectFile projectFile = cm.toFile(filePath);
+                            skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
+                        }
                     }
                 }
             }

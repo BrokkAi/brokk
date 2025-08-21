@@ -21,7 +21,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
+public interface LspAnalyzer extends IAnalyzer, AutoCloseable, CallGraphProvider, UsagesProvider, SourceCodeProvider {
 
     Logger logger = LoggerFactory.getLogger(LspAnalyzer.class);
 
