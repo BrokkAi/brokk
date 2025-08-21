@@ -17,6 +17,7 @@ export interface ParseMsg {
     text: string;
     seq: Seq;
     fast: boolean;
+    updateBuffer: boolean;
 }
 
 export interface ExpandDiffMsg {

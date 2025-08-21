@@ -10,8 +10,7 @@ import org.jetbrains.annotations.Nullable;
 public sealed interface BrokkEvent {
     String getType();
 
-    @Nullable
-    Integer getEpoch(); // Can return null for events that don't need an ACK
+    Integer getEpoch();
 
     record Chunk(
             String text,
@@ -24,6 +23,18 @@ public sealed interface BrokkEvent {
         @Override
         public String getType() {
             return "chunk";
+        }
+
+        @Override
+        public Integer getEpoch() {
+            return epoch;
+        }
+    }
+
+    record Clear(int epoch) implements BrokkEvent {
+        @Override
+        public String getType() {
+            return "clear";
         }
 
         @Override

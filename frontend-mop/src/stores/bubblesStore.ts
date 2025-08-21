@@ -97,7 +97,8 @@ export function reparseAll(): void {
     bubblesStore.update(list => {
         for (const bubble of list) {
             // Re-parse any bubble that has markdown content and might contain code.
-            parse(bubble.markdown, bubble.seq);
+            // skip updating the internal worker buffer, to give the worker the chance to go ahead where it stopped after reparseAll
+            parse(bubble.markdown, bubble.seq, false);
         }
         return list; // The list reference itself does not change
     });

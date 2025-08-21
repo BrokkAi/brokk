@@ -21,8 +21,13 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   const m: InboundToWorker = ev.data;
   switch (m.type) {
     case 'parse':
-      log('debug', '[md-worker] parse', m.seq, m.text);
-      buffer = m.text;
+      log('debug', '[md-worker] parse', m.seq, m.updateBuffer, m.text);
+      // caller can decide whether to update internal buffer
+      // "true" is only needed if chunks are added via append after the parse
+      if (m.updateBuffer) {
+        buffer = m.text;
+        seq = m.seq;
+      }
       safeParseAndPost(m.seq, m.text, m.fast);
       break;
 

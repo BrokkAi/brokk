@@ -8,8 +8,8 @@ export function pushChunk(text: string, seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
-export function parse(text: string, seq: number, fast = false) {
-  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast });
+export function parse(text: string, seq: number, fast = false, updateBuffer = true) {
+  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast, updateBuffer });
 }
 
 export function clearState(flushBeforeClear: boolean) {
