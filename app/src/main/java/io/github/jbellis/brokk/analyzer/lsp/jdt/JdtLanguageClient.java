@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer.lsp.jdt;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.LspStatus;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -144,6 +145,10 @@ public final class JdtLanguageClient implements LanguageClient {
         } else if (isOutOfMemoryError(message)) {
             alertUser(
                     "The Java Language Server ran out of memory. Consider increasing this under 'Settings' -> 'Analyzers' -> 'Java'.");
+        } else if (isCachePossiblyCorrupted(message)) {
+            alertUser("The Java Language Server cache may be corrupted, automatically clearing now.");
+            // Shut down the current server and rebuild a fresh cache
+            SharedJdtLspServer.getInstance().clearCache();
         } else if (isUnhandledError(message)) {
             alertUser("Failed to import Java project due to unknown error. Please look at $HOME/.brokk/debug.log.");
         }
@@ -171,6 +176,10 @@ public final class JdtLanguageClient implements LanguageClient {
 
     private boolean isOutOfMemoryError(MessageParams message) {
         return message.getMessage().contains("Java heap space");
+    }
+
+    private boolean isCachePossiblyCorrupted(MessageParams message) {
+        return message.getMessage().contains("Could not write metadata for");
     }
 
     private boolean isUnhandledError(MessageParams message) {

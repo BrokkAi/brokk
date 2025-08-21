@@ -424,7 +424,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                         "Attempting to delete old history directory (modified {}): {}",
                                         lastModifiedTime,
                                         entry);
-                                if (FileUtils.deleteDirectoryRecursively(entry)) {
+                                if (FileUtil.deleteRecursively(entry)) {
                                     deletedCount.incrementAndGet();
                                 } else {
                                     logger.error("Failed to fully delete old history directory: {}", entry);

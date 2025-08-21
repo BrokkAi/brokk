@@ -19,7 +19,7 @@ public final class FileUtil {
      * Deletes {@code path} and everything beneath it. Does **not** follow symlinks; logs but ignores individual delete
      * failures.
      */
-    public static boolean deleteRecursively(Path path) throws IOException {
+    public static boolean deleteRecursively(Path path) {
         if (!Files.exists(path)) {
             return false;
         }

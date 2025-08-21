@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.analyzer.lsp;
 
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.util.FileUtils;
+
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -16,6 +16,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import io.github.jbellis.brokk.util.FileUtil;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.eclipse.lsp4j.launch.LSPLauncher;
@@ -62,8 +64,19 @@ private FileChannel lockChannel;
 @Nullable
 private FileLock cacheLock;
 
+/**
+ * If this JVM could not obtain the primary cache lock, it starts the
+ * language-server using a temporary cache directory.  The path to that
+ * directory is stored here so it can be cleaned up during shutdown.
+ */
+@Nullable
+private Path temporaryCachePath;
+
     /** The type of server this is, e.g, JDT */
     private final SupportedLspServer serverType;
+    /** Language identifier used when the server was started (e.g. "java"). */
+    @Nullable
+    private String languageId;
 
     private final AtomicInteger clientCounter = new AtomicInteger(0);
 
@@ -186,6 +199,10 @@ private FileLock cacheLock;
             Path initialWorkspace, String language, Path cache, Map<String, Object> initializationOptions)
             throws IOException {
         logger.info("First client connected. Starting {} Language Server...", serverType.name());
+        this.languageId = language;
+
+        // Use this reference for whichever cache directory we eventually decide to use
+        Path cacheDir = cache;
 
         // Acquire an exclusive lock on the shared cache so only one JVM
         // starts/uses the language server at a time.
@@ -198,14 +215,36 @@ private FileLock cacheLock;
                     lockFile,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE);
-            this.cacheLock = this.lockChannel.lock();   // blocks until available
-            logger.debug("Obtained cache lock on {}", lockFile.toAbsolutePath());
+            // Try to obtain the lock without blocking.  If it is already held by
+            // another JVM we will fall back to a temporary cache.
+            this.cacheLock = this.lockChannel.tryLock();
+            if (this.cacheLock == null) {
+                logger.info(
+                        "Primary LSP cache at {} is locked by another process. Falling back to a temporary cache.",
+                        cache.toAbsolutePath());
+                // Close the channel associated with the primary lock so we do not
+                // keep an unverifiable handle open.
+                try {
+                        this.lockChannel.close();
+                    } catch (IOException closeEx) {
+                        logger.warn("Failed to close primary cache lock channel", closeEx);
+                    }
+                this.lockChannel = null;
+
+                // Create an isolated temporary cache directory
+                this.temporaryCachePath = Files.createTempDirectory("brokk-lsp-cache-");
+                cacheDir = this.temporaryCachePath;
+            } else {
+                // Successfully obtained exclusive lock on the primary cache
+                logger.debug("Obtained cache lock on {}", lockFile.toAbsolutePath());
+                this.temporaryCachePath = null;
+            }
         } catch (IOException e) {
             logger.error("Unable to obtain cache lock for {}", cache, e);
             throw e;
         }
 
-        final ProcessBuilder pb = createProcessBuilder(cache);
+        final ProcessBuilder pb = createProcessBuilder(cacheDir);
         // In case the JVM doesn't shut down gracefully. If graceful shutdown is successful, this is removed.
         // See LspServer::shutdown
         this.shutdownHook = new Thread(() -> {
@@ -216,7 +255,7 @@ private FileLock cacheLock;
         });
         Runtime.getRuntime().addShutdownHook(this.shutdownHook);
 
-        final Path errorLog = LspServer.getCacheForLsp(language).resolve("error.log");
+        final Path errorLog = cacheDir.resolve("error.log");
         pb.redirectError(errorLog.toFile());
         this.serverProcess = pb.start();
 
@@ -316,6 +355,22 @@ private FileLock cacheLock;
         return capabilities;
     }
 
+    /**
+     * Force-clears the on-disk cache when it has become corrupted.  The server
+     * is first shut down (releasing any file lock) and the cache directory is
+     * then deleted so the next startup will rebuild it from scratch.
+     */
+    public synchronized void clearCache() {
+        logger.warn("Clearing LSP cache due to detected corruption.");
+        // Stop the running server and free the file-lock
+        shutdownServer();
+        // Resolve the cache path (fall back to serverType if languageId is null)
+        String lang = languageId != null ? languageId : serverType.name().toLowerCase(Locale.ROOT);
+        Path cacheDir = getCacheForLsp(lang);
+        FileUtil.deleteRecursively(cacheDir);
+        logger.warn("Deleted cache at {}", cacheDir);
+    }
+
     protected void shutdownServer() {
         logger.info("Last client disconnected. Shutting down JDT Language Server...");
         try {
@@ -381,6 +436,14 @@ private FileLock cacheLock;
         }
         this.cacheLock = null;
         this.lockChannel = null;
+
+        // Clean up any temporary cache directory we created for this JVM.
+        // deleteDirectoryRecursively handles its own IOExceptions internally.
+        if (this.temporaryCachePath != null) {
+            FileUtil.deleteRecursively(this.temporaryCachePath);
+            logger.debug("Deleted temporary LSP cache at {}", this.temporaryCachePath);
+            this.temporaryCachePath = null;
+        }
     }
 
     /**
@@ -418,7 +481,7 @@ private FileLock cacheLock;
                 startServer(projectPathAbsolute, language, cache, initializationOptions);
             } catch (IOException e) {
                 logger.error("Error starting server, cache may be corrupt, retrying with fresh cache.", e);
-                FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
+                FileUtil.deleteRecursively(cache); // start on a fresh cache
                 startServer(projectPathAbsolute, language, cache, initializationOptions);
             }
         } else {
