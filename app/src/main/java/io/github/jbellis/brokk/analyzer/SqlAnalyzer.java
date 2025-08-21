@@ -149,11 +149,6 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
-    public boolean isCpg() {
-        return false; // SQL Analyzer does not produce CPGs
-    }
-
-    @Override
     public List<CodeUnit> getAllDeclarations() {
         return Collections.unmodifiableList(allDeclarationsList);
     }

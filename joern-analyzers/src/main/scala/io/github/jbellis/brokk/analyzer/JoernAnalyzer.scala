@@ -92,9 +92,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
   /** Simplest constructor: build a brand new CPG for the given source path.
     */
   def this(sourcePath: Path) = this(sourcePath, Cpg.empty)
-
-  override def isCpg: Boolean = true
-
+  
   override def update(changedFiles: util.Set[ProjectFile]): IAnalyzer =
     updateFilesInternal(defaultConfig, Option(changedFiles))
 

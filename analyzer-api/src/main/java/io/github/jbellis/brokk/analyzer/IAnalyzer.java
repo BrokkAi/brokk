@@ -20,15 +20,6 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default boolean isCpg() {
-        throw new UnsupportedOperationException();
-    }
-
-    // CPG methods
-    default List<CodeUnit> getUses(String fqName) {
-        throw new UnsupportedOperationException();
-    }
-
     default List<CodeUnitRelevance> getRelevantCodeUnits(
             Map<String, Double> seedClassWeights, int k, boolean reversed) {
         throw new UnsupportedOperationException();

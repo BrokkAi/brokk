@@ -11,11 +11,6 @@ public class DisabledAnalyzer
     }
 
     @Override
-    public boolean isCpg() {
-        return false;
-    }
-
-    @Override
     public List<CodeUnit> getAllDeclarations() {
         return Collections.emptyList();
     }

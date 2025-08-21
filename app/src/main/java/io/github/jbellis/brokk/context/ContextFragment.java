@@ -1181,12 +1181,15 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            if (!analyzer.isCpg()) {
+            if (analyzer instanceof UsagesProvider usagesProvider) {
+                List<CodeUnit> uses = usagesProvider.getUses(targetIdentifier);
+                var result = AnalyzerUtil.processUsages(analyzer, uses);
+                return result.code().isEmpty()
+                        ? "No relevant usages found for symbol: " + targetIdentifier
+                        : result.code();
+            } else {
                 return "Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".";
             }
-            List<CodeUnit> uses = analyzer.getUses(targetIdentifier);
-            var result = AnalyzerUtil.processUsages(analyzer, uses);
-            return result.code().isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : result.code();
         }
 
         @Override
@@ -1197,9 +1200,13 @@ public interface ContextFragment {
         @Override
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
-            List<CodeUnit> uses = analyzer.getUses(targetIdentifier);
-            var result = AnalyzerUtil.processUsages(analyzer, uses);
-            return result.sources();
+            if (analyzer instanceof UsagesProvider usagesProvider) {
+                List<CodeUnit> uses = usagesProvider.getUses(targetIdentifier);
+                var result = AnalyzerUtil.processUsages(analyzer, uses);
+                return result.sources();
+            } else {
+                throw new UnsupportedOperationException();
+            }
         }
 
         @Override
@@ -1267,16 +1274,15 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            if (!analyzer.isCpg()) {
-                return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-            }
-            Map<String, List<CallSite>> graphData = Collections.emptyMap();
+            final Map<String, List<CallSite>> graphData;
             if (analyzer instanceof CallGraphProvider callGraphProvider) {
                 if (isCalleeGraph) {
                     graphData = callGraphProvider.getCallgraphFrom(methodName, depth);
                 } else {
                     graphData = callGraphProvider.getCallgraphTo(methodName, depth);
                 }
+            } else {
+                return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
             }
 
             if (graphData.isEmpty()) {

@@ -109,15 +109,10 @@ public final class TestContextManager implements IContextManager {
      * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing without
      * requiring a full CPG.
      */
-    private static class MockAnalyzer implements IAnalyzer, SkeletonProvider {
+    private static class MockAnalyzer implements IAnalyzer, SkeletonProvider, UsagesProvider {
         @Override
         public boolean isEmpty() {
             return false;
-        }
-
-        @Override
-        public boolean isCpg() {
-            return false; // This will cause dynamic fragments to return placeholder text
         }
 
         @Override

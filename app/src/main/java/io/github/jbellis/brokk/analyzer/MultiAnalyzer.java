@@ -33,7 +33,6 @@ public class MultiAnalyzer
 
     private <K, V> Map<K, List<V>> mergeMapsFromAnalyzers(Function<IAnalyzer, Map<K, List<V>>> extractor) {
         return delegates.values().stream()
-                .filter(IAnalyzer::isCpg)
                 .flatMap(analyzer -> extractor.apply(analyzer).entrySet().stream())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (list1, list2) -> Stream.concat(
                                 list1.stream(), list2.stream())
@@ -47,15 +46,13 @@ public class MultiAnalyzer
     }
 
     @Override
-    public boolean isCpg() {
-        return delegates.values().stream().anyMatch(IAnalyzer::isCpg);
-    }
-
-    @Override
     public List<CodeUnit> getUses(String fqName) {
         return delegates.values().stream()
-                .filter(IAnalyzer::isCpg)
-                .flatMap(analyzer1 -> ((Function<IAnalyzer, List<CodeUnit>>) analyzer -> analyzer.getUses(fqName))
+                .flatMap(analyzer1 -> ((Function<IAnalyzer, List<CodeUnit>>) analyzer -> {
+                            if (analyzer instanceof UsagesProvider usagesProvider)
+                                return usagesProvider.getUses(fqName);
+                            else return Collections.emptyList();
+                        })
                         .apply(analyzer1).stream())
                 .distinct()
                 .collect(Collectors.toList());
@@ -67,12 +64,7 @@ public class MultiAnalyzer
             logger.warn("MultiAnalyzer pagerank called with empty seed classes -- sub analyzer will be ~random");
         }
 
-        // Assume that the seeds belong to a single CPG, so we look for a matching sub-Analyzer
         for (var analyzer : delegates.values()) {
-            if (!analyzer.isCpg()) {
-                continue;
-            }
-
             boolean meetsSeedCriteria = false;
             if (seedClassWeights.isEmpty()) {
                 meetsSeedCriteria = true; // No seeds to check, so criteria met.

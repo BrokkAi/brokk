@@ -192,11 +192,4 @@ public final class SearchBehaviorComparisonTest {
         assertNotNull(
                 jsConstructorSymbols, "JavaScript analyzer should return non-null result for 'constructor' search");
     }
-
-    @Test
-    void testAnalyzerTypeIdentification() {
-        // Verify that we can distinguish between CPG and TreeSitter analyzers
-        assertFalse(javaAnalyzer.isCpg(), "Java analyzer should be TreeSitter-based");
-        assertFalse(jsAnalyzer.isCpg(), "JavaScript analyzer should be TreeSitter-based");
-    }
 }

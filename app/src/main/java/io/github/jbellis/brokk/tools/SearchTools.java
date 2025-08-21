@@ -166,15 +166,13 @@ public class SearchTools {
 
     /**
      * Advanced capabilities are typically associated with {@link CallGraphProvider} and {@link UsagesProvider}
-     * analyzers.
+     * analyzers. If this analyzer may provide such capabilities, this checks if they are ready.
      */
     private static void assertAdvancedCapabilities(IAnalyzer analyzer, String failureMessagePrefix) {
         final var suffix = ": Code Intelligence is not available.";
-        if (analyzer instanceof HasDelayedCapabilities advancedAnalyzer) {
-            assert advancedAnalyzer.isAdvancedAnalysisReady().getNow(false) : failureMessagePrefix + suffix;
-        } else {
-            assert analyzer.isCpg() : failureMessagePrefix + suffix;
-        }
+        assert !(analyzer instanceof HasDelayedCapabilities advancedAnalyzer)
+                        || advancedAnalyzer.isAdvancedAnalysisReady().getNow(false)
+                : failureMessagePrefix + suffix;
     }
 
     @Tool(
@@ -299,9 +297,11 @@ public class SearchTools {
         }
 
         List<CodeUnit> allUses = new ArrayList<>();
-        for (String symbol : symbols) {
-            if (!symbol.isBlank()) {
-                allUses.addAll(getAnalyzer().getUses(symbol));
+        if (getAnalyzer() instanceof UsagesProvider usagesProvider) {
+            for (String symbol : symbols) {
+                if (!symbol.isBlank()) {
+                    allUses.addAll(usagesProvider.getUses(symbol));
+                }
             }
         }
 
@@ -549,9 +549,9 @@ public class SearchTools {
     @Tool(
             value =
                     """
-    Search git commit messages using a Java regular expression.
-    Returns matching commits with their message and list of changed files.
-    """)
+                            Search git commit messages using a Java regular expression.
+                            Returns matching commits with their message and list of changed files.
+                            """)
     public String searchGitCommitMessages(
             @P("Java-style regex pattern to search for within commit messages.") String pattern,
             @P("Explanation of what you're looking for in this request so the summarizer can accurately capture it.")

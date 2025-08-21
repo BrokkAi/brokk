@@ -367,11 +367,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public boolean isCpg() {
-        return false;
-    }
-
-    @Override
     public Optional<String> getSkeletonHeader(String fqName) {
         return withReadLock(() -> getSkeletonImpl(fqName, true));
     }

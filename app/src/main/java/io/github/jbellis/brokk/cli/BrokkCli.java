@@ -13,9 +13,7 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
@@ -252,11 +250,11 @@ public final class BrokkCli implements Callable<Integer> {
         var workspaceTools = new WorkspaceTools(cm);
 
         // --- Name Resolution and Context Building ---
-        boolean cpgRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
+        boolean callsAndUsagesRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
 
-        if (cpgRequired) {
+        if (callsAndUsagesRequired) {
             var analyzer = cm.getAnalyzer();
-            if (!analyzer.isCpg()) {
+            if (!(analyzer instanceof CallGraphProvider && analyzer instanceof UsagesProvider)) {
                 System.err.println(
                         "One or more of the requested options requires Code Intelligence, which is not available.");
                 return 1;

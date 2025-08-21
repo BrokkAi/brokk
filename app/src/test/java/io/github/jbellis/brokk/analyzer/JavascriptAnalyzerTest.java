@@ -363,11 +363,6 @@ public final class JavascriptAnalyzerTest {
 
     // Tests from TreeSitterAnalyzerMiscTest
     @Test
-    void testIsCpg() {
-        assertFalse(jsAnalyzer.isCpg(), "TreeSitterAnalyzer instances should not be CPGs.");
-    }
-
-    @Test
     void testGetSkeletonHeader() {
         // Test case 1: Class in JSX
         Optional<String> jsxClassHeader = jsAnalyzer.getSkeletonHeader("JsxClass");

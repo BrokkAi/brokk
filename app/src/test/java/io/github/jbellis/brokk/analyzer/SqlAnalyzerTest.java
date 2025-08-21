@@ -49,7 +49,6 @@ class SqlAnalyzerTest {
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
         assertFalse(analyzer.isEmpty(), "Analyzer should not be empty.");
-        assertFalse(analyzer.isCpg(), "SQL Analyzer should not be a CPG analyzer.");
 
         List<CodeUnit> allDecls = analyzer.getAllDeclarations();
         assertEquals(1, allDecls.size(), "Should find one declaration.");

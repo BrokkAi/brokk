@@ -44,11 +44,6 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable, CallGraphProvider
     String getLanguage();
 
     @Override
-    default boolean isCpg() {
-        return false;
-    }
-
-    @Override
     default boolean isEmpty() {
         // If no source files are determined either because none are applicable or analysis failed, this will be
         // empty
