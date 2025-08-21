@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import dev.langchain4j.data.message.ChatMessageType;
-import org.jetbrains.annotations.Nullable;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public sealed interface BrokkEvent {
