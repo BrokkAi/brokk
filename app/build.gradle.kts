@@ -129,7 +129,7 @@ tasks.named("generateBuildConfig") {
 }
 
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
-    args.set(listOf("install"))
+    args.set(listOf("ci"))
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
     outputs.dir("${project.rootDir}/frontend-mop/node_modules")
@@ -139,7 +139,6 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
 tasks.register("frontendPatch") {
     dependsOn("frontendInstall")
 
-    inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
     inputs.dir("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown").optional(true)
     outputs.file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json").optional(true)
 
