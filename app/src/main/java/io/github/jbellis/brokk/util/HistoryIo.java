@@ -450,18 +450,18 @@ public final class HistoryIo {
             this.contentMetadata = contentMetadata;
         }
 
-        public String readContent(String contentId) throws IOException {
+        public String readContent(String contentId) {
             var cached = contentCache.get(contentId);
             if (cached != null) {
                 return cached;
             }
 
             var metadata = contentMetadata.get(contentId);
-            if (metadata == null) throw new IOException("No metadata for content ID: " + contentId);
+            if (metadata == null) throw new IllegalStateException("No metadata for content ID: " + contentId);
 
             byte[] bytes = contentBytes.get(contentId);
             if (bytes == null) {
-                throw new IOException("Content not found for ID: " + contentId);
+                throw new IllegalStateException("Content not found for ID: " + contentId);
             }
             String content = new String(bytes, StandardCharsets.UTF_8);
 

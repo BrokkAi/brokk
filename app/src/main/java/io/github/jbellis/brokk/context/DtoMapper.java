@@ -56,18 +56,14 @@ public class DtoMapper {
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
-                    try {
-                        if (taskRefDto.logId() != null) {
-                            var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
-                            if (logFragment != null) {
-                                return new TaskEntry(taskRefDto.sequence(), logFragment, null);
-                            }
-                        } else if (taskRefDto.summaryContentId() != null) {
-                            String summary = contentReader.readContent(taskRefDto.summaryContentId());
-                            return TaskEntry.fromCompressed(taskRefDto.sequence(), summary);
+                    if (taskRefDto.logId() != null) {
+                        var logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                        if (logFragment != null) {
+                            return new TaskEntry(taskRefDto.sequence(), logFragment, null);
                         }
-                    } catch (IOException e) {
-                        logger.error("Failed to read content for TaskEntryRefDto {}", taskRefDto, e);
+                    } else if (taskRefDto.summaryContentId() != null) {
+                        String summary = contentReader.readContent(taskRefDto.summaryContentId());
+                        return TaskEntry.fromCompressed(taskRefDto.sequence(), summary);
                     }
                     return null;
                 })
@@ -131,44 +127,40 @@ public class DtoMapper {
             IContextManager mgr,
             @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
-        try {
-            return switch (dto) {
-                case ProjectFileDto pfd ->
-                    ContextFragment.ProjectPathFragment.withId(
-                            new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
-                case ExternalFileDto efd ->
-                    ContextFragment.ExternalPathFragment.withId(
-                            new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
-                case ImageFileDto ifd -> {
-                    BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-                    yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
-                }
-                case GitFileFragmentDto gfd ->
-                    ContextFragment.GitFileFragment.withId(
-                            new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
-                            gfd.revision(),
-                            reader.readContent(gfd.contentId()),
-                            gfd.id());
-                case FrozenFragmentDto ffd ->
-                    FrozenFragment.fromDto(
-                            ffd.id(),
-                            mgr,
-                            ContextFragment.FragmentType.valueOf(ffd.originalType()),
-                            ffd.description(),
-                            ffd.shortDescription(),
-                            ffd.isTextFragment() ? reader.readContent(Objects.requireNonNull(ffd.contentId())) : null,
-                            imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
-                            ffd.isTextFragment(),
-                            ffd.syntaxStyle(),
-                            ffd.files().stream()
-                                    .map(DtoMapper::fromProjectFileDto)
-                                    .collect(Collectors.toSet()),
-                            ffd.originalClassName(),
-                            ffd.meta());
-            };
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read content for fragment " + dto.id(), e);
-        }
+        return switch (dto) {
+            case ProjectFileDto pfd ->
+                ContextFragment.ProjectPathFragment.withId(
+                        new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+            case ExternalFileDto efd ->
+                ContextFragment.ExternalPathFragment.withId(
+                        new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+            case ImageFileDto ifd -> {
+                BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
+                yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
+            }
+            case GitFileFragmentDto gfd ->
+                ContextFragment.GitFileFragment.withId(
+                        new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())),
+                        gfd.revision(),
+                        reader.readContent(gfd.contentId()),
+                        gfd.id());
+            case FrozenFragmentDto ffd ->
+                FrozenFragment.fromDto(
+                        ffd.id(),
+                        mgr,
+                        ContextFragment.FragmentType.valueOf(ffd.originalType()),
+                        ffd.description(),
+                        ffd.shortDescription(),
+                        ffd.isTextFragment() ? reader.readContent(Objects.requireNonNull(ffd.contentId())) : null,
+                        imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
+                        ffd.isTextFragment(),
+                        ffd.syntaxStyle(),
+                        ffd.files().stream()
+                                .map(DtoMapper::fromProjectFileDto)
+                                .collect(Collectors.toSet()),
+                        ffd.originalClassName(),
+                        ffd.meta());
+        };
     }
 
     private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(
@@ -190,42 +182,42 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto == null) return null;
-        try {
-            return switch (dto) {
-                case FrozenFragmentDto ffd ->
-                    (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
-                case SearchFragmentDto searchDto -> {
-                    var sources = searchDto.sources().stream()
-                            .map(DtoMapper::fromCodeUnitDto)
-                            .collect(Collectors.toSet());
-                    var messages = searchDto.messages().stream()
-                            .map(msgDto -> fromChatMessageDto(msgDto, reader))
-                            .toList();
-                    yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
-                }
-                case TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
-                case StringFragmentDto stringDto ->
-                    new ContextFragment.StringFragment(
-                            stringDto.id(),
-                            mgr,
-                            reader.readContent(stringDto.contentId()),
-                            stringDto.description(),
-                            stringDto.syntaxStyle());
-                case SkeletonFragmentDto skeletonDto ->
-                    new ContextFragment.SkeletonFragment(
-                            skeletonDto.id(),
-                            mgr,
-                            skeletonDto.targetIdentifiers(),
-                            ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
-                case UsageFragmentDto usageDto ->
-                    new ContextFragment.UsageFragment(usageDto.id(), mgr, usageDto.targetIdentifier());
-                case PasteTextFragmentDto pasteTextDto ->
-                    new ContextFragment.PasteTextFragment(
-                            pasteTextDto.id(),
-                            mgr,
-                            reader.readContent(pasteTextDto.contentId()),
-                            CompletableFuture.completedFuture(pasteTextDto.description()));
-                case PasteImageFragmentDto pasteImageDto -> {
+        return switch (dto) {
+            case FrozenFragmentDto ffd ->
+                (FrozenFragment) _buildReferencedFragment(ffd, mgr, imageBytesMap, reader);
+            case SearchFragmentDto searchDto -> {
+                var sources = searchDto.sources().stream()
+                        .map(DtoMapper::fromCodeUnitDto)
+                        .collect(Collectors.toSet());
+                var messages = searchDto.messages().stream()
+                        .map(msgDto -> fromChatMessageDto(msgDto, reader))
+                        .toList();
+                yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
+            }
+            case TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
+            case StringFragmentDto stringDto ->
+                new ContextFragment.StringFragment(
+                        stringDto.id(),
+                        mgr,
+                        reader.readContent(stringDto.contentId()),
+                        stringDto.description(),
+                        stringDto.syntaxStyle());
+            case SkeletonFragmentDto skeletonDto ->
+                new ContextFragment.SkeletonFragment(
+                        skeletonDto.id(),
+                        mgr,
+                        skeletonDto.targetIdentifiers(),
+                        ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
+            case UsageFragmentDto usageDto ->
+                new ContextFragment.UsageFragment(usageDto.id(), mgr, usageDto.targetIdentifier());
+            case PasteTextFragmentDto pasteTextDto ->
+                new ContextFragment.PasteTextFragment(
+                        pasteTextDto.id(),
+                        mgr,
+                        reader.readContent(pasteTextDto.contentId()),
+                        CompletableFuture.completedFuture(pasteTextDto.description()));
+            case PasteImageFragmentDto pasteImageDto -> {
+                try {
                     byte[] imageBytes = Base64.getDecoder().decode(reader.readContent(pasteImageDto.contentId()));
                     var image = FrozenFragment.bytesToImage(imageBytes);
                     yield new ContextFragment.AnonymousImageFragment(
@@ -233,43 +225,43 @@ public class DtoMapper {
                             mgr,
                             image,
                             CompletableFuture.completedFuture(pasteImageDto.description()));
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
-                case StacktraceFragmentDto stDto -> {
-                    var sources = stDto.sources().stream()
-                            .map(DtoMapper::fromCodeUnitDto)
-                            .collect(Collectors.toSet());
-                    yield new ContextFragment.StacktraceFragment(
-                            stDto.id(),
-                            mgr,
-                            sources,
-                            reader.readContent(stDto.originalContentId()),
-                            stDto.exception(),
-                            reader.readContent(stDto.codeContentId()));
-                }
-                case CallGraphFragmentDto callGraphDto ->
-                    new ContextFragment.CallGraphFragment(
-                            callGraphDto.id(),
-                            mgr,
-                            callGraphDto.methodName(),
-                            callGraphDto.depth(),
-                            callGraphDto.isCalleeGraph());
-                case HistoryFragmentDto historyDto -> {
-                    var historyEntries = historyDto.history().stream()
-                            .map(taskEntryDto -> _fromTaskEntryDto(
-                                    taskEntryDto,
-                                    mgr,
-                                    fragmentCacheForRecursion,
-                                    allReferencedDtos,
-                                    allVirtualDtos,
-                                    allTaskDtos,
-                                    reader))
-                            .toList();
-                    yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
-                }
-            };
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read content for fragment " + dto.id(), e);
-        }
+            }
+            case StacktraceFragmentDto stDto -> {
+                var sources = stDto.sources().stream()
+                        .map(DtoMapper::fromCodeUnitDto)
+                        .collect(Collectors.toSet());
+                yield new ContextFragment.StacktraceFragment(
+                        stDto.id(),
+                        mgr,
+                        sources,
+                        reader.readContent(stDto.originalContentId()),
+                        stDto.exception(),
+                        reader.readContent(stDto.codeContentId()));
+            }
+            case CallGraphFragmentDto callGraphDto ->
+                new ContextFragment.CallGraphFragment(
+                        callGraphDto.id(),
+                        mgr,
+                        callGraphDto.methodName(),
+                        callGraphDto.depth(),
+                        callGraphDto.isCalleeGraph());
+            case HistoryFragmentDto historyDto -> {
+                var historyEntries = historyDto.history().stream()
+                        .map(taskEntryDto -> _fromTaskEntryDto(
+                                taskEntryDto,
+                                mgr,
+                                fragmentCacheForRecursion,
+                                allReferencedDtos,
+                                allVirtualDtos,
+                                allTaskDtos,
+                                reader))
+                        .toList();
+                yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
+            }
+        };
     }
 
     private static FrozenFragmentDto toFrozenFragmentDto(FrozenFragment ff, ContentWriter writer) {
@@ -463,17 +455,13 @@ public class DtoMapper {
     }
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto, ContentReader reader) {
-        try {
-            String content = reader.readContent(dto.contentId());
-            return switch (dto.role().toLowerCase(java.util.Locale.ROOT)) {
-                case "user" -> dev.langchain4j.data.message.UserMessage.from(content);
-                case "ai" -> dev.langchain4j.data.message.AiMessage.from(content);
-                case "system", "custom" -> dev.langchain4j.data.message.SystemMessage.from(content);
-                default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
-            };
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read content for chat message", e);
-        }
+        String content = reader.readContent(dto.contentId());
+        return switch (dto.role().toLowerCase(java.util.Locale.ROOT)) {
+            case "user" -> dev.langchain4j.data.message.UserMessage.from(content);
+            case "ai" -> dev.langchain4j.data.message.AiMessage.from(content);
+            case "system", "custom" -> dev.langchain4j.data.message.SystemMessage.from(content);
+            default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
+        };
     }
 
     private static CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) {
@@ -505,12 +493,8 @@ public class DtoMapper {
                             reader));
             return new TaskEntry(dto.sequence(), taskFragment, null);
         } else if (dto.summaryContentId() != null) {
-            try {
-                String summary = reader.readContent(dto.summaryContentId());
-                return TaskEntry.fromCompressed(dto.sequence(), summary);
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to read task summary content", e);
-            }
+            String summary = reader.readContent(dto.summaryContentId());
+            return TaskEntry.fromCompressed(dto.sequence(), summary);
         }
         throw new IllegalArgumentException("TaskEntryDto has neither log nor summary");
     }
