@@ -191,9 +191,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
         initializeThemeManager();
-
-        loadWindowSizeAndPosition();
-        // Load saved theme, window size, and position
+        // Defer restoring window size and divider positions until after
+        // all split panes are fully constructed.
         frame.setTitle("Brokk: " + getProject().getRoot());
 
         // Show initial system message
@@ -326,6 +325,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         bottomSplitPane.setLeftComponent(leftTabbedPanel);
         bottomSplitPane.setRightComponent(outputStackSplit);
+        // Ensure the right stack can shrink enough so the sidebar can grow
+        outputStackSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
         bottomSplitPane.setResizeWeight(0.0);
         int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
@@ -336,6 +337,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
         bottomPanel.repaint();
+
+        // Now that every split pane exists, restore previous window size and
+        // divider locations and hook their listeners.
+        loadWindowSizeAndPosition();
 
         // Set initial enabled state for global actions after all components are ready
         this.globalUndoAction.updateEnabledState();
@@ -1327,9 +1332,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
 
-            // Store reference to bottom split pane for position saving
-            JSplitPane bottomSplitPane = (JSplitPane) mainVerticalSplitPane.getBottomComponent();
-
             // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
             int bottomHorizPos = project.getHorizontalSplitPosition();
             if (bottomHorizPos > 0) {
@@ -1866,8 +1868,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private int computeInitialSidebarWidth() {
         int ideal = projectFilesPanel.getPreferredSize().width;
         int frameWidth = frame.getWidth();
+
+        // Allow between 10 % and 40 % on normal displays.
+        // On very wide screens ( > 2000 px ), 40 % is excessive,
+        // so cap the maximum at 25 %.
         int min = (int) (frameWidth * 0.10); // 10 % of window width
-        int max = (int) (frameWidth * 0.40); // 40 % of window width
+        double maxFraction = frameWidth > 2000 ? 0.25 : 0.40;
+        int max = (int) (frameWidth * maxFraction);
+
         return Math.max(min, Math.min(ideal, max));
     }
 }
