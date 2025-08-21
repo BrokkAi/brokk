@@ -88,7 +88,7 @@ public final class JdtLanguageClient implements LanguageClient {
             case Error -> handleSystemError(message);
             case Warning -> logger.warn("[LSP-SERVER-LOG] {}", message.getMessage());
             case Info -> {
-                logger.info("[LSP-SERVER-LOG] {}", message.getMessage());
+                logger.trace("[LSP-SERVER-LOG] INFO: {}", message.getMessage());
 
                 if (message.getMessage().endsWith("build jobs finished")) {
                     // This is a good way we can tell when the server is ready
@@ -112,7 +112,7 @@ public final class JdtLanguageClient implements LanguageClient {
                             });
                 }
             }
-            default -> logger.debug("[LSP-SERVER-LOG] {}", message.getMessage());
+            default -> logger.trace("[LSP-SERVER-LOG] DEBUG: {}", message.getMessage());
         }
     }
 
@@ -160,7 +160,7 @@ public final class JdtLanguageClient implements LanguageClient {
     public CompletableFuture<Void> registerCapability(RegistrationParams params) {
         // Acknowledge the server's request and return a completed future.
         // This satisfies the protocol and prevents an exception.
-        logger.info("Server requested to register capabilities: {}", params.getRegistrations());
+        logger.trace("Server requested to register capabilities: {}", params.getRegistrations());
         return CompletableFuture.completedFuture(null);
     }
 
