@@ -1158,8 +1158,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 4. Specific handling for Git-history snapshots
             if (workingFragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
                 var ghf = (ContextFragment.GitFileFragment) workingFragment;
-                var previewPanel =
-                        new PreviewTextPanel(contextManager, null, ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
+                // pass the actual ProjectFile so dynamic menu items can be built
+                var previewPanel = new PreviewTextPanel(
+                        contextManager, ghf.file(), ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
                 showPreviewFrame(contextManager, title, previewPanel);
                 return;
             }
@@ -1205,9 +1206,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Otherwise – fall back to showing the frozen snapshot.
+                ProjectFile srcFile = null;
+                if (workingFragment instanceof ContextFragment.PathFragment pfFrag
+                        && pfFrag.file() instanceof ProjectFile p) {
+                    srcFile = p; // supply the ProjectFile if we have one
+                }
                 var snapshotPanel = new PreviewTextPanel(
                         contextManager,
-                        null,
+                        srcFile,
                         workingFragment.text(),
                         workingFragment.syntaxStyle(),
                         themeManager,
