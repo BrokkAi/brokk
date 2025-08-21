@@ -326,8 +326,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         bottomSplitPane.setLeftComponent(leftTabbedPanel);
         bottomSplitPane.setRightComponent(outputStackSplit);
-        bottomSplitPane.setResizeWeight(0.40); // keep roughly 40% for the left tabs when resizing
-        bottomSplitPane.setDividerLocation(0.40); // initial 40% divider
+        // Left panel keeps its preferred width; right panel takes the remaining space
+        bottomSplitPane.setResizeWeight(0.0);
+        int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+        bottomSplitPane.setDividerLocation(initialDividerLocation);
 
         bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
@@ -384,7 +386,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // After the frame is visible, (re)apply the 30 % divider if no saved position exists yet
         SwingUtilities.invokeLater(() -> {
             if (getProject().getHorizontalSplitPosition() == 0) {
-                bottomSplitPane.setDividerLocation(0.3);
+                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(preferred);
             }
         });
 
@@ -1332,7 +1335,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (bottomHorizPos > 0) {
                 bottomSplitPane.setDividerLocation(bottomHorizPos);
             } else {
-                bottomSplitPane.setDividerLocation(0.3);
+                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(preferred);
             }
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (bottomSplitPane.isShowing()) {
@@ -1856,5 +1860,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);
         return label;
+    }
+
+    /** Calculates an appropriate initial width for the left sidebar based on content and window size. */
+    private int computeInitialSidebarWidth() {
+        int ideal = projectFilesPanel.getPreferredSize().width;
+        int frameWidth = frame.getWidth();
+        int min = (int) (frameWidth * 0.10); // 10 % of window width
+        int max = (int) (frameWidth * 0.40); // 40 % of window width
+        return Math.max(min, Math.min(ideal, max));
     }
 }
