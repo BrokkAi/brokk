@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import java.lang.reflect.Proxy;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
@@ -134,5 +135,36 @@ public class SearchToolsTest {
 
         // 4. Ensure the file name appears in the output
         assertTrue(result.contains("filename_[[-test.txt"), "Result should reference the test filename");
+    }
+
+    @Test
+    void testSearchFilenames_withSubdirectories() throws Exception {
+        // 1. Create a file with a subdirectory path
+        Path subDir = projectRoot.resolve("frontend-mop").resolve("src");
+        Files.createDirectories(subDir);
+        Path filePath = subDir.resolve("MOP.svelte");
+        Files.writeString(filePath, "dummy content");
+
+        // 2. Add to mock project file list.
+        String relativePathNix = "frontend-mop/src/MOP.svelte";
+        mockProjectFiles.add(new ProjectFile(projectRoot, relativePathNix));
+
+        // 3. Test cases
+        // A. Full path with forward slashes
+        String resultNix = searchTools.searchFilenames(java.util.List.of(relativePathNix), "test nix path");
+        assertTrue(resultNix.contains(relativePathNix), "Should find file with forward-slash path");
+
+        // B. File name only
+        String resultName = searchTools.searchFilenames(java.util.List.of("MOP.svelte"), "test file name");
+        assertTrue(resultName.contains(relativePathNix), "Should find file with file name only");
+
+        // C. Partial path
+        String resultPartial = searchTools.searchFilenames(java.util.List.of("src/MOP"), "test partial path");
+        assertTrue(resultPartial.contains(relativePathNix), "Should find file with partial path");
+
+        // D. Full path with backslashes (Windows-style)
+        String relativePathWin = "frontend-mop\\src\\MOP.svelte";
+        String resultWin = searchTools.searchFilenames(java.util.List.of(relativePathWin), "test windows path");
+        assertTrue(resultWin.contains(relativePathNix), "Should find file with back-slash path pattern");
     }
 }

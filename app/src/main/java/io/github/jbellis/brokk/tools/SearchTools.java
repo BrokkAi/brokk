@@ -160,7 +160,8 @@ public class SearchTools {
                 Pattern regex = Pattern.compile(pat);
                 predicates.add(s -> regex.matcher(s).find());
             } catch (PatternSyntaxException ex) {
-                predicates.add(s -> s.contains(pat));
+                // Fallback: simple substring match, but normalize to forward slashes
+                predicates.add(s -> s.contains(pat.replace('\\', '/')));
             }
         }
         return predicates;
