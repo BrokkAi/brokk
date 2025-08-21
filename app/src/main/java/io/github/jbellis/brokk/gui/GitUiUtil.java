@@ -469,8 +469,8 @@ public final class GitUiUtil {
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
                     builder.addComparison(
-                            new BufferSource.StringSource(oldContent, parentId, file.getFileName()),
-                            new BufferSource.StringSource(newContent, commitInfo.id(), file.getFileName()));
+                            new BufferSource.StringSource(oldContent, parentId, file.toString()),
+                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
                 }
 
                 var title = "Commit Diff: %s (%s)"
@@ -507,8 +507,8 @@ public final class GitUiUtil {
 
                 for (var file : changedFiles) {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
-                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.getFileName());
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.toString());
+                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.toString());
                     builder.addComparison(leftSource, rightSource);
                 }
 
