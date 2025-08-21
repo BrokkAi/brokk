@@ -48,6 +48,11 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    // Processor state tracking for enhanced queue logic
+    private enum ProcessorState { INITIALIZING, BASE_READY, SHIKI_READY }
+    private volatile ProcessorState processorState = ProcessorState.INITIALIZING;
+    private final List<HostCommand> pendingParseCommands = new CopyOnWriteArrayList<>();
+
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
@@ -62,6 +67,8 @@ public final class MOPWebViewHost extends JPanel {
         record Clear() implements HostCommand {}
 
         record RefreshSymbolLookup() implements HostCommand {}
+
+        record ProcessorStateChanged(String state) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -293,7 +300,7 @@ public final class MOPWebViewHost extends JPanel {
 
     public void append(
             String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming, boolean reasoning) {
-        sendOrQueue(
+        sendOrQueueParse(
                 new HostCommand.Append(text, isNewMessage, msgType, streaming, reasoning),
                 bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
     }
@@ -423,6 +430,43 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    private void sendOrQueueParse(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
+        if (processorState != ProcessorState.SHIKI_READY) {
+            pendingParseCommands.add(command);
+            logger.debug("Queued parse command, processor not ready: {} (state: {})", command, processorState);
+        } else {
+            sendOrQueue(command, action);
+        }
+    }
+
+    public void onProcessorStateChanged(String state) {
+        var oldState = processorState;
+        processorState = switch (state) {
+            case "base-ready" -> ProcessorState.BASE_READY;
+            case "shiki-ready" -> ProcessorState.SHIKI_READY;
+            case "shiki-initializing" -> ProcessorState.INITIALIZING;
+            default -> processorState; // Keep current state for unknown values
+        };
+
+        logger.debug("Processor state changed from {} to {} ({})", oldState, processorState, state);
+
+        // Flush pending parse commands when shiki is ready
+        if (processorState == ProcessorState.SHIKI_READY && !pendingParseCommands.isEmpty()) {
+            logger.info("Processor ready, flushing {} pending parse commands", pendingParseCommands.size());
+            var bridge = bridgeRef.get();
+            if (bridge != null) {
+                pendingParseCommands.forEach(command -> {
+                    switch (command) {
+                        case HostCommand.Append a ->
+                            bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
+                        default -> logger.warn("Unexpected command type in parse queue: {}", command);
+                    }
+                });
+                pendingParseCommands.clear();
+            }
+        }
+    }
+
     public CompletableFuture<Void> flushAsync() {
         var bridge = bridgeRef.get();
         if (bridge != null) {
@@ -452,6 +496,7 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
                     case HostCommand.RefreshSymbolLookup ignored -> bridge.refreshSymbolLookup();
+                    case HostCommand.ProcessorStateChanged p -> bridge.onProcessorStateChanged(p.state());
                 }
             });
             pendingCommands.clear();

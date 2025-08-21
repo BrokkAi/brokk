@@ -393,6 +393,12 @@ public final class MOPBridge {
         });
     }
 
+    public void onProcessorStateChanged(String state) {
+        logger.debug("Received processor state change notification: {}", state);
+        // This is called from MOPWebViewHost when processor state changes
+        // Currently just logs the state change, but can be extended for additional handling
+    }
+
     private static String toJson(Object obj) {
         try {
             return MAPPER.writeValueAsString(obj);
