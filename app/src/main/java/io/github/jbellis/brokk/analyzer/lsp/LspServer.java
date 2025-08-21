@@ -7,6 +7,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,6 +44,23 @@ public abstract class LspServer {
 
     @Nullable
     private Thread shutdownHook;
+
+/**
+ * Channel to the lock file that coordinates access to the shared LSP cache
+ * across JVMs.  The channel is kept open for the entire lifetime of the
+ * language-server process so the corresponding {@link #cacheLock} remains
+ * valid until {@link #shutdownServer()}.
+ */
+@Nullable
+private FileChannel lockChannel;
+/**
+ * The exclusive lock held on the cache lock file.  It is acquired in
+ * {@link #startServer(Path, String, Path, Map)} and released in
+ * {@link #shutdownServer()}.  While this lock is held, no other JVM can start
+ * another language-server instance against the same cache directory.
+ */
+@Nullable
+private FileLock cacheLock;
 
     /** The type of server this is, e.g, JDT */
     private final SupportedLspServer serverType;
@@ -166,6 +186,24 @@ public abstract class LspServer {
             Path initialWorkspace, String language, Path cache, Map<String, Object> initializationOptions)
             throws IOException {
         logger.info("First client connected. Starting {} Language Server...", serverType.name());
+
+        // Acquire an exclusive lock on the shared cache so only one JVM
+        // starts/uses the language server at a time.
+        try {
+            if (Files.notExists(cache)) {
+                Files.createDirectories(cache);
+            }
+            final Path lockFile = cache.resolve(".cache.lock");
+            this.lockChannel = FileChannel.open(
+                    lockFile,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE);
+            this.cacheLock = this.lockChannel.lock();   // blocks until available
+            logger.debug("Obtained cache lock on {}", lockFile.toAbsolutePath());
+        } catch (IOException e) {
+            logger.error("Unable to obtain cache lock for {}", cache, e);
+            throw e;
+        }
 
         final ProcessBuilder pb = createProcessBuilder(cache);
         // In case the JVM doesn't shut down gracefully. If graceful shutdown is successful, this is removed.
@@ -324,6 +362,25 @@ public abstract class LspServer {
         } finally {
             this.serverProcess = null;
         }
+
+        // Release the cross-process cache lock, if held.
+        if (this.cacheLock != null) {
+            try {
+                this.cacheLock.release();
+                logger.debug("Released cache lock.");
+            } catch (IOException e) {
+                logger.warn("Failed to release cache lock cleanly", e);
+            }
+        }
+        if (this.lockChannel != null) {
+            try {
+                this.lockChannel.close();
+            } catch (IOException e) {
+                logger.warn("Failed to close lock channel cleanly", e);
+            }
+        }
+        this.cacheLock = null;
+        this.lockChannel = null;
     }
 
     /**

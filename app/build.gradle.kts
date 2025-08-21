@@ -213,7 +213,7 @@ tasks.withType<Test> {
     useJUnitPlatform()
 
     // Use a single forked JVM for all tests (for TreeSitter native library isolation)
-    maxParallelForks = 1
+    maxParallelForks = 6
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(
