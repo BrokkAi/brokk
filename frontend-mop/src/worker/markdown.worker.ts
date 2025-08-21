@@ -1,4 +1,4 @@
-import { initProcessor, parseMarkdown, handleSymbolLookupResponse } from './processor';
+import { initProcessor, parseMarkdown, handleSymbolLookupResponse, clearSymbolCache } from './processor';
 import type {
   InboundToWorker,
   OutboundFromWorker,
@@ -94,6 +94,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       busy = false;  // Reset busy flag to prevent old parseAndPost from continuing
       seq = m.seq;
       currentExpandIds.clear();
+      clearSymbolCache();
       break;
 
     case 'expand-diff':
@@ -113,6 +114,11 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       } else {
         workerLog('error', `[WORKER-TEST] Unknown error type: ${m.errorType}`);
       }
+      break;
+
+    case 'hide-spinner':
+      workerLog('info', 'Spinner hidden - clearing symbol cache');
+      clearSymbolCache();
       break;
   }
   } catch (error) {

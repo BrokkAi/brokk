@@ -36,6 +36,10 @@ export function clear(seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
 }
 
+export function hideSpinner() {
+  worker.postMessage(<InboundToWorker>{ type: 'hide-spinner' });
+}
+
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
   // 1. Ask worker to mark this block as "expanded"
   worker.postMessage(<InboundToWorker>{ type: 'expand-diff', bubbleId, blockId });

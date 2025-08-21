@@ -7,7 +7,7 @@ import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log} from './lib/logging';
-import {testWorkerError} from './worker/worker-bridge';
+import {testWorkerError, hideSpinner as notifyWorkerHideSpinner} from './worker/worker-bridge';
 
 let searchCtrl: SearchController | null = null;
 
@@ -135,6 +135,8 @@ function showSpinnerMessage(message = ''): void {
 
 function hideSpinnerMessage(): void {
     spinnerStore.set({visible: false, message: ''});
+    // Notify worker that spinner is hidden to clear symbol cache
+    notifyWorkerHideSpinner();
 }
 
 function refreshSymbolLookup(): void {

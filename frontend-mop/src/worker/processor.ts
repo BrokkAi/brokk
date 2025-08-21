@@ -6,7 +6,6 @@ import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
 import { rehypeSymbolLookup, enhanceSymbolCandidates } from './rehype/rehype-symbol-lookup';
-import { rehypeCodeLogger } from './rehype/rehype-code-logger';
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -33,6 +32,10 @@ function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) 
 // Track pending symbol lookups
 const pendingSymbolLookups = new Map<number, {symbols: Set<string>, tree: HastRoot}>();
 
+// Symbol cache with upper limit
+const SYMBOL_CACHE_LIMIT = 1000;
+const symbolCache = new Map<string, {exists: boolean, fqn?: string | null}>();
+
 
 export function createBaseProcessor(): Processor {
     return unified()
@@ -41,13 +44,23 @@ export function createBaseProcessor(): Processor {
         .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
         .use(remarkGfm)
         .use(remarkBreaks)
-        // .use(remarkRehype, {allowDangerousHtml: true}) as any;
         .use(remarkRehype, {allowDangerousHtml: true})
-        .use(rehypeCodeLogger)
         .use(rehypeSymbolLookup) as any;
 }
+
+export function createFastProcessor(): Processor {
+    return unified()
+        .use(remarkParse)
+        .data('micromarkExtensions', [gfmEditBlock()])
+        .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
+        .use(remarkGfm)
+        .use(remarkBreaks)
+        .use(remarkRehype, {allowDangerousHtml: true}) as any;
+}
+
 // processors
 let baseProcessor: Processor = createBaseProcessor();
+let fastBaseProcessor: Processor = createFastProcessor();
 let shikiProcessor: Processor = null;
 let currentProcessor: Processor = baseProcessor;
 let processorInitialized = false;
@@ -66,18 +79,9 @@ export function initProcessor(): Promise<void> {
         .then(({rehypePlugin}) => {
             const [pluginFn, shikiHighlighter, opts] = rehypePlugin as any;
             highlighter = shikiHighlighter;
-            shikiProcessor = unified()
-                .use(remarkParse)
-                .data('micromarkExtensions', [gfmEditBlock()])
-                .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
-                .use(remarkGfm)
-                .use(remarkBreaks)
-                .use(remarkRehype, {allowDangerousHtml: true})
+            shikiProcessor = createBaseProcessor()
                 .use(pluginFn, shikiHighlighter, opts)
-                // .use(rehypeEditDiff, shikiHighlighter) as any;
-                .use(rehypeEditDiff, shikiHighlighter)
-                .use(rehypeCodeLogger)
-                .use(rehypeSymbolLookup) as any;
+                .use(rehypeEditDiff, shikiHighlighter);
 
             // Atomic update: set processor and flag together
             currentProcessor = shikiProcessor;
@@ -124,7 +128,7 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
 
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
-    const proc = fast ? baseProcessor : currentProcessor;
+    const proc = fast ? fastBaseProcessor : currentProcessor;
 
     // Log which processor is being used
     const processorType = fast ? 'baseProcessor' : (currentProcessor === shikiProcessor ? 'shikiProcessor' : 'baseProcessor');
@@ -146,11 +150,12 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
         throw e;
     }
 
-    // Check for symbol candidates from rehype plugin and perform lookup
-    const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
-
-    if (symbolCandidates && symbolCandidates.size > 0) {
-        handleSymbolLookup(symbolCandidates, tree, seq);
+    // Check for symbol candidates from rehype plugin and perform lookup (only in non-fast mode)
+    if (!fast) {
+        const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
+        if (symbolCandidates && symbolCandidates.size > 0) {
+            handleSymbolLookup(symbolCandidates, tree, seq);
+        }
     }
 
     if (!fast && highlighter) {
@@ -169,15 +174,45 @@ function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number): 
     try {
         const symbolArray = Array.from(symbols);
 
-        // Store the pending lookup with the tree so we can enhance it later
-        pendingSymbolLookups.set(seq, { symbols, tree });
+        // Check cache first and filter out already cached symbols
+        const cachedResults: Record<string, {exists: boolean, fqn?: string | null}> = {};
+        const uncachedSymbols: string[] = [];
 
-        // Send request to main thread to handle JavaBridge communication
-        post({
-            type: 'symbol-lookup-request',
-            symbols: symbolArray,
-            seq: seq
-        });
+        for (const symbol of symbolArray) {
+            if (symbolCache.has(symbol)) {
+                cachedResults[symbol] = symbolCache.get(symbol)!;
+            } else {
+                uncachedSymbols.push(symbol);
+            }
+        }
+
+        // If we have cached results, enhance tree immediately
+        if (Object.keys(cachedResults).length > 0) {
+            workerLog('info', `Using cached results for ${Object.keys(cachedResults).length} symbols`);
+            enhanceSymbolCandidates(tree, cachedResults);
+        }
+
+        // Only lookup uncached symbols
+        if (uncachedSymbols.length > 0) {
+            workerLog('info', `Looking up ${uncachedSymbols.length} uncached symbols`);
+            // Store the pending lookup with the tree so we can enhance it later
+            pendingSymbolLookups.set(seq, { symbols, tree });
+
+            // Send request to main thread to handle JavaBridge communication
+            post({
+                type: 'symbol-lookup-request',
+                symbols: uncachedSymbols,
+                seq: seq
+            });
+        } else {
+            workerLog('info', 'All symbols found in cache, no lookup needed');
+            // All symbols were cached, send result immediately
+            post({
+                type: 'result',
+                tree: tree,
+                seq: seq
+            });
+        }
     } catch (e) {
         log.warn('Error during symbol lookup request:', e);
     }
@@ -198,6 +233,22 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
 
 export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>): void {
     workerLog('info', `symbol-lookup-response processing: ${Object.keys(results).length} symbols`);
+
+    // Add results to cache
+    for (const [symbol, result] of Object.entries(results)) {
+        // Implement simple cache eviction when limit reached
+        if (symbolCache.size >= SYMBOL_CACHE_LIMIT) {
+            // Remove first (oldest) entry
+            const firstKey = symbolCache.keys().next().value;
+            if (firstKey) {
+                symbolCache.delete(firstKey);
+                workerLog('debug', `Evicted symbol from cache: ${firstKey}`);
+            }
+        }
+        symbolCache.set(symbol, result);
+    }
+    workerLog('info', `Cached ${Object.keys(results).length} symbol results. Cache size: ${symbolCache.size}`);
+
     const pending = pendingSymbolLookups.get(seq);
     if (pending) {
         workerLog('info', `Found pending lookup for seq ${seq}, enhancing tree...`);
@@ -219,4 +270,10 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
     } else {
         workerLog('warn', `No pending lookup found for seq ${seq}`);
     }
+}
+
+// Export function to clear symbol cache (called on worker reset)
+export function clearSymbolCache(): void {
+    symbolCache.clear();
+    workerLog('info', 'Symbol cache cleared');
 }

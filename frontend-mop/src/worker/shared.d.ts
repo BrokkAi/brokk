@@ -37,7 +37,11 @@ export interface TestErrorMsg {
     errorType: 'uncaughtError' | 'promiseRejection' | 'syntaxError';
 }
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | TestErrorMsg;
+export interface HideSpinnerMsg {
+    type: 'hide-spinner';
+}
+
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | TestErrorMsg | HideSpinnerMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
