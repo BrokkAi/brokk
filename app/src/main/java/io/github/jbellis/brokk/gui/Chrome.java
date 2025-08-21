@@ -1436,6 +1436,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return contextManager;
     }
 
+    public ProjectFilesPanel getProjectFilesPanel() {
+        return projectFilesPanel;
+    }
+
     public List<ContextFragment> getSelectedFragments() {
         return workspacePanel.getSelectedFragments();
     }

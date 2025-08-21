@@ -115,7 +115,7 @@ public class ContextMenuBuilder {
         menu.add(copyItem);
     }
 
-    /** Helper method to add symbol actions (Open in Preview, Find References) to a container */
+    /** Helper method to add symbol actions (Open in Preview, Open in Project Tree) to a container */
     private void addSymbolActions(Container parent, SymbolMenuContext context, boolean analyzerReady) {
         // Open in Preview
         var openInPreviewItem = new JMenuItem("Open in Preview");
@@ -123,11 +123,11 @@ public class ContextMenuBuilder {
         openInPreviewItem.addActionListener(e -> openInPreview(context));
         parent.add(openInPreviewItem);
 
-        // Find References
-        var findRefsItem = new JMenuItem("Find References");
-        findRefsItem.setEnabled(analyzerReady);
-        findRefsItem.addActionListener(e -> findReferences(context));
-        parent.add(findRefsItem);
+        // Open in Project Tree
+        var openInTreeItem = new JMenuItem("Open in Project Tree");
+        openInTreeItem.setEnabled(analyzerReady);
+        openInTreeItem.addActionListener(e -> openInProjectTree(context));
+        parent.add(openInTreeItem);
     }
 
     private void buildFileMenu() {
@@ -257,8 +257,8 @@ public class ContextMenuBuilder {
         });
     }
 
-    private void findReferences(SymbolMenuContext context) {
-        logger.info("Find references for symbol: {}", context.symbolName());
+    private void openInProjectTree(SymbolMenuContext context) {
+        logger.info("Open in project tree for symbol: {}", context.symbolName());
 
         if (!context.contextManager().getAnalyzerWrapper().isReady()) {
             context.chrome()
@@ -271,89 +271,49 @@ public class ContextMenuBuilder {
 
         var symbolName = context.symbolName();
         var fqn = context.fqn() != null ? context.fqn() : symbolName;
-        context.contextManager().submitContextTask("Find references for " + symbolName, () -> {
+        context.contextManager().submitContextTask("Open in project tree for " + symbolName, () -> {
             var analyzer = context.contextManager().getAnalyzerUninterrupted();
 
             try {
-                // First try exact FQN match for uses
-                var uses = analyzer.getUses(fqn);
-                if (!uses.isEmpty()) {
-                    addUsagesToContext(uses, symbolName, context);
-                    context.chrome()
-                            .systemNotify(
-                                    String.format("Found %d references for %s", uses.size(), symbolName),
-                                    "Find References",
-                                    JOptionPane.INFORMATION_MESSAGE);
+                // First try exact FQN match
+                var definition = analyzer.getDefinition(fqn);
+                if (definition.isPresent()) {
+                    var projectFile = definition.get().source();
+                    SwingUtilities.invokeLater(() -> {
+                        context.chrome().getProjectFilesPanel().showFileInTree(projectFile);
+                    });
                     return;
                 }
             } catch (Exception e) {
-                logger.warn("Error during FQN reference lookup for '{}': {}", fqn, e.getMessage());
-                context.chrome().toolError("Failed to find references: " + e.getMessage(), "Find References Error");
+                logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
+                context.chrome()
+                        .toolError("Failed to find definition: " + e.getMessage(), "Open in Project Tree Error");
                 return;
             }
 
-            // If no direct uses found, try to find the symbol first, then get its uses
-            try {
-                var definition = analyzer.getDefinition(fqn);
-                if (definition.isPresent()) {
-                    var symbolFqName = definition.get().fqName();
-                    var definitionUses = analyzer.getUses(symbolFqName);
-                    if (!definitionUses.isEmpty()) {
-                        addUsagesToContext(definitionUses, symbolFqName, context);
-                        context.chrome()
-                                .systemNotify(
-                                        String.format(
-                                                "Found %d references for %s", definitionUses.size(), symbolFqName),
-                                        "Find References",
-                                        JOptionPane.INFORMATION_MESSAGE);
-                        return;
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("Error during definition-based reference lookup for '{}': {}", fqn, e.getMessage());
-            }
-
-            // Fallback: search for symbol candidates and let user choose
+            // Fallback: search for candidates with the symbol name
             List<CodeUnit> candidates;
             try {
                 candidates = analyzer.searchDefinitions(symbolName);
                 if (candidates.isEmpty()) {
                     context.chrome()
                             .systemNotify(
-                                    "No references found for: " + symbolName,
-                                    "Find References",
+                                    "Definition not found for: " + symbolName,
+                                    "Open in Project Tree",
                                     JOptionPane.WARNING_MESSAGE);
                     return;
                 }
             } catch (Exception e) {
-                logger.warn("Error during fallback search for references for '{}': {}", symbolName, e.getMessage());
-                context.chrome().toolError("Reference search failed: " + e.getMessage(), "Find References Error");
+                logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
+                context.chrome().toolError("Search failed: " + e.getMessage(), "Open in Project Tree Error");
                 return;
             }
 
-            // Take the first candidate (no disambiguation)
-            var symbolFqName = candidates.get(0).fqName();
-            System.out.println("*********. " + symbolFqName);
-            try {
-                var candidateUses = analyzer.getUses(symbolFqName);
-                if (!candidateUses.isEmpty()) {
-                    addUsagesToContext(candidateUses, symbolFqName, context);
-                    context.chrome()
-                            .systemNotify(
-                                    String.format("Found %d references for %s", candidateUses.size(), symbolFqName),
-                                    "Find References",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                } else {
-                    context.chrome()
-                            .systemNotify(
-                                    "No references found for: " + symbolFqName,
-                                    "Find References",
-                                    JOptionPane.WARNING_MESSAGE);
-                }
-            } catch (Exception e) {
-                logger.warn("Error getting uses for candidate '{}': {}", symbolFqName, e.getMessage());
-                context.chrome().toolError("Failed to get references: " + e.getMessage(), "Find References Error");
-            }
+            // If candidates found, use the first one
+            var projectFile = candidates.get(0).source();
+            SwingUtilities.invokeLater(() -> {
+                context.chrome().getProjectFilesPanel().showFileInTree(projectFile);
+            });
         });
     }
 
@@ -432,16 +392,6 @@ public class ContextMenuBuilder {
                 // Use Chrome's centralized preview system
                 context.chrome().previewFile(symbol.source());
             });
-        });
-    }
-
-    private void addUsagesToContext(List<CodeUnit> uses, String symbolName, SymbolMenuContext context) {
-        logger.debug("Adding {} usages of {} to context", uses.size(), symbolName);
-
-        var usageFiles = uses.stream().map(CodeUnit::source).distinct().toList();
-
-        context.contextManager().submitContextTask("Add references for " + symbolName, () -> {
-            context.contextManager().addReadOnlyFiles(usageFiles);
         });
     }
 }
