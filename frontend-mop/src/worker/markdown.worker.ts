@@ -66,8 +66,13 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       try {
         //set the buffer for the case that later the chunks are appended  (via messages of type 'chunk')
         buffer = m.text;
-        const tree = parseMarkdown(m.seq, m.text, m.fast);
-        post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
+        parseMarkdown(m.seq, m.text, m.fast).then(tree => {
+          post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
+        }).catch(e => {
+          log.error('processing error:', e);
+          const error = e instanceof Error ? e : new Error(String(e));
+          post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: m.seq });
+        });
       } catch (e) {
         log.error('processing error:', e);
         const error = e instanceof Error ? e : new Error(String(e));
@@ -118,7 +123,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
 async function parseAndPost(seq: number): Promise<void> {
   try {
     // Force fast=false to ensure symbol lookup runs during streaming
-    const tree = parseMarkdown(seq, buffer, false);
+    const tree = await parseMarkdown(seq, buffer, false);
     post(<ResultMsg>{ type: 'result', tree, seq });
   } catch (e) {
     log.error('worker error:', e);

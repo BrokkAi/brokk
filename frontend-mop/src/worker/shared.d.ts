@@ -1,5 +1,6 @@
 export type Seq = number;
 
+
 /* ---------- main → worker ---------- */
 export interface ChunkMsg {
     type: 'chunk';

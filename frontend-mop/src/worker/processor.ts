@@ -50,13 +50,19 @@ export function createBaseProcessor(): Processor {
 let baseProcessor: Processor = createBaseProcessor();
 let shikiProcessor: Processor = null;
 let currentProcessor: Processor = baseProcessor;
+let processorInitialized = false;
+let initializationPromise: Promise<void> | null = null;
 // shiki-highlighter
 export let highlighter: HighlighterCore | null = null;
 
-export function initProcessor() {
+export function initProcessor(): Promise<void> {
+    if (initializationPromise) {
+        return initializationPromise; // Return existing promise
+    }
+
     // Asynchronously initialize Shiki and create a new processor with it.
     log.info('shiki loading lib...');
-    shikiPluginPromise
+    initializationPromise = shikiPluginPromise
         .then(({rehypePlugin}) => {
             const [pluginFn, shikiHighlighter, opts] = rehypePlugin as any;
             highlighter = shikiHighlighter;
@@ -72,13 +78,21 @@ export function initProcessor() {
                 .use(rehypeEditDiff, shikiHighlighter)
                 .use(rehypeCodeLogger)
                 .use(rehypeSymbolLookup) as any;
+
+            // Atomic update: set processor and flag together
             currentProcessor = shikiProcessor;
+            processorInitialized = true;
+
             console.log('[shiki] loaded!');
             post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
         })
         .catch(e => {
             log.error('Shiki init failed', e);
+            processorInitialized = false; // Mark as failed
+            throw e;
         });
+
+    return initializationPromise;
 }
 
 function detectCodeFenceLangs(tree: Root): Set<string> {
@@ -100,7 +114,13 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     return detectedLangs;
 }
 
-export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
+export async function parseMarkdown(seq: number, src: string, fast = false): Promise<HastRoot> {
+    // Wait for shiki processor when not using fast mode
+    if (!fast && !processorInitialized && initializationPromise) {
+        workerLog('info', `[markdown-worker] Waiting for shiki processor initialization (seq=${seq})`);
+        await initializationPromise;
+        workerLog('info', `[markdown-worker] Shiki processor ready, proceeding with parsing (seq=${seq})`);
+    }
 
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);

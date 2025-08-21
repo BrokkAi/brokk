@@ -2,6 +2,9 @@ import type {InboundToWorker, OutboundFromWorker} from './shared';
 import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
 import { createLogger } from '../lib/logging';
 
+// Environment detection
+const isDevMode = typeof window !== 'undefined' && !window.javaBridge;
+
 console.log('MAIN: Creating worker with URL:', __WORKER_URL__);
 const worker = new Worker(__WORKER_URL__, { type: 'module' });
 console.log('MAIN: Worker created successfully');
@@ -106,6 +109,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
+      log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
       reparseAll();
       break;
     case 'result':
