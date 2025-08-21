@@ -12,7 +12,7 @@ export type BrokkEvent = {
 };
 
 export type Bubble = {
-  id: number;
+  seq: number;
   type: 'USER' | 'AI' | 'SYSTEM';
   markdown: string;
   title?: string;

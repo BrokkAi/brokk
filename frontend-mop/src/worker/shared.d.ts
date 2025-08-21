@@ -8,8 +8,8 @@ export interface ChunkMsg {
 }
 
 export interface ClearMsg {
-    type: 'clear';
-    seq: Seq;
+    type: 'clear-state';
+    flushBeforeClear: boolean;s
 }
 
 export interface ParseMsg {
@@ -47,7 +47,13 @@ export interface ShikiLangsReadyMsg {
     type: 'shiki-langs-ready';
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg;
+export interface LogMsg {
+    type: 'log';
+    level: 'log' | 'warn' | 'error' | 'debug' | 'info';
+    message: string;
+}
+
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | LogMsg;
 
 // shared by both
 
