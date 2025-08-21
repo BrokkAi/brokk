@@ -35,6 +35,13 @@ jobs:
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
 
+    - name: Pre-install frontend dependencies (macOS workaround)
+      if: matrix.os == 'macos-latest'
+      run: |
+        cd frontend-mop
+        npm cache clean --force
+        npm ci
+
     - name: Run tests
       run: ./gradlew test
 
