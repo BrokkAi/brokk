@@ -157,6 +157,7 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
     description = "Build frontend with Vite"
     group = "frontend"
     dependsOn("frontendInstall", "frontendPatch")
+
     args.set(listOf("run", "build"))
 
     inputs.dir("${project.rootDir}/frontend-mop/src")
