@@ -312,6 +312,7 @@ public final class HistoryIo {
             resetEdgesBytes = objectMapper.writeValueAsBytes(dtos);
         }
 
+        Files.createDirectories(target.getParent());
         try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
             zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
             zos.write(fragmentsBytes);
