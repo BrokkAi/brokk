@@ -6,11 +6,7 @@ import java.util.Map;
 /** Implemented by analyzers that can readily provide call graph analysis. */
 public interface CallGraphProvider {
 
-    default Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        throw new UnsupportedOperationException();
-    }
+    Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth);
 
-    default Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        throw new UnsupportedOperationException();
-    }
+    Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth);
 }

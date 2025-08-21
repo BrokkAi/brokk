@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 public final class TestContextManager implements IContextManager {
@@ -140,6 +141,11 @@ public final class TestContextManager implements IContextManager {
         public java.util.Map<io.github.jbellis.brokk.analyzer.CodeUnit, String> getSkeletons(
                 io.github.jbellis.brokk.analyzer.ProjectFile file) {
             return java.util.Map.of(); // Return empty map for test purposes
+        }
+
+        @Override
+        public Optional<String> getSkeletonHeader(String className) {
+            return Optional.empty();
         }
     }
 }

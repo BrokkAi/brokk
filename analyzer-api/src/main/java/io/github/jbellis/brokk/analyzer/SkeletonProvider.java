@@ -8,24 +8,19 @@ import java.util.Optional;
 public interface SkeletonProvider {
 
     /** return a summary of the given type or method */
-    default Optional<String> getSkeleton(String fqName) {
-        throw new UnsupportedOperationException();
-    }
+    Optional<String> getSkeleton(String fqName);
 
     /**
      * Returns just the class signature and field declarations, without method details. Used in symbol usages lookup.
      * (Show the "header" of the class that uses the referenced symbol in a field declaration.)
      */
-    default Optional<String> getSkeletonHeader(String className) {
-        throw new UnsupportedOperationException();
-    }
+    Optional<String> getSkeletonHeader(String className);
 
     default Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        Map<CodeUnit, String> skeletons = new HashMap<>();
+        final Map<CodeUnit, String> skeletons = new HashMap<>();
         if (this instanceof IAnalyzer analyzer) {
             for (CodeUnit symbol : analyzer.getDeclarationsInFile(file)) {
-                Optional<String> skelOpt = getSkeleton(symbol.fqName());
-                skelOpt.ifPresent(s -> skeletons.put(symbol, s));
+                getSkeleton(symbol.fqName()).ifPresent(s -> skeletons.put(symbol, s));
             }
         }
         return skeletons;
