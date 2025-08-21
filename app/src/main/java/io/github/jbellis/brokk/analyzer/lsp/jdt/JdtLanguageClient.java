@@ -48,7 +48,7 @@ public final class JdtLanguageClient implements LanguageClient {
 
     private void alertUser(String message) {
         if (io != null) {
-            io.toolError(message);
+            io.systemOutput(message);
         } else {
             accumulatedErrors.add(message);
         }
