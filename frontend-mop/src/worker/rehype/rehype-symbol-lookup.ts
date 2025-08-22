@@ -83,43 +83,42 @@ function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) 
 /**
  * Post-processing function to enhance symbol candidates with lookup results.
  * This runs after the rehype plugin and can access the tree with marked symbols.
+ * Updated to work with optimized response format: Map<string, string> containing only existing symbols.
  */
-export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string, {exists: boolean, fqn?: string | null}>): void {
+export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string, string>): void {
     let candidatesFound = 0;
     let symbolsEnhanced = 0;
 
-    workerLog('debug', `[ENHANCE] Starting enhancement with ${Object.keys(symbolResults).length} symbol results`);
+    workerLog('debug', `[ENHANCE] Starting enhancement with ${Object.keys(symbolResults).length} found symbols`);
 
     visit(tree, 'element', (node: any) => {
         const symbolCandidate = node.properties?.['data-symbol-candidate'];
         if (symbolCandidate) {
             candidatesFound++;
-            if (symbolResults[symbolCandidate]) {
-                const result = symbolResults[symbolCandidate];
 
-                if (result.exists) {
-                    symbolsEnhanced++;
-                    // Add CSS class for symbols that exist
-                    if (!node.properties.className) node.properties.className = [];
-                    node.properties.className.push('symbol-exists');
+            // Check if symbol exists in the results (optimized format only contains existing symbols)
+            if (symbolCandidate in symbolResults) {
+                const fqn = symbolResults[symbolCandidate];
 
-                    // Also set as 'class' property for proper HTML rendering
-                    node.properties.class = node.properties.className;
+                symbolsEnhanced++;
+                // Add CSS class for symbols that exist
+                if (!node.properties.className) node.properties.className = [];
+                node.properties.className.push('symbol-exists');
 
-                    // Add data attributes for click handling
-                    node.properties['data-symbol'] = symbolCandidate;
-                    node.properties['data-symbol-exists'] = 'true';
-                    // Store FQN if available
-                    if (result.fqn) {
-                        node.properties['data-symbol-fqn'] = result.fqn;
-                    }
+                // Also set as 'class' property for proper HTML rendering
+                node.properties.class = node.properties.className;
 
-                    workerLog('debug', `[ENHANCE] Enhanced symbol: ${symbolCandidate}`);
-                }
+                // Add data attributes for click handling
+                node.properties['data-symbol'] = symbolCandidate;
+                node.properties['data-symbol-exists'] = 'true';
+                // Store FQN (always available in optimized format)
+                node.properties['data-symbol-fqn'] = fqn;
 
-                // Clean up the candidate marker
-                delete node.properties['data-symbol-candidate'];
+                workerLog('debug', `[ENHANCE] Enhanced symbol: ${symbolCandidate} -> ${fqn}`);
             }
+
+            // Clean up the candidate marker
+            delete node.properties['data-symbol-candidate'];
         }
     });
 

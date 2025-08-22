@@ -338,7 +338,7 @@ public final class MOPBridge {
     }
 
     public String lookupSymbols(String symbolNamesJson) {
-        logger.debug("Symbol lookup requested with JSON: {}", symbolNamesJson);
+        logger.debug("Optimized symbol lookup requested with JSON: {}", symbolNamesJson);
         logger.debug("ContextManager available: {}", contextManager != null);
 
         if (contextManager != null) {
@@ -350,10 +350,13 @@ public final class MOPBridge {
             var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
             logger.debug("Parsed {} symbol names for lookup", symbolNames.size());
 
-            var results = SymbolLookupService.lookupSymbols(symbolNames, contextManager);
+            var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
             var jsonResult = MAPPER.writeValueAsString(results);
 
-            logger.debug("Symbol lookup completed, returning {} results", results.size());
+            logger.debug(
+                    "Optimized symbol lookup completed, returning {} found symbols out of {} requested",
+                    results.size(),
+                    symbolNames.size());
             return jsonResult;
         } catch (Exception e) {
             logger.warn("Error in symbol lookup", e);
@@ -421,7 +424,10 @@ public final class MOPBridge {
             if (project != null) {
                 var repo = project.getRepo();
                 sb.append("|branch:").append(repo.getCurrentBranch());
-                sb.append("|commit:").append(repo.getCurrentCommitId().substring(0, Math.min(8, repo.getCurrentCommitId().length())));
+                sb.append("|commit:")
+                        .append(repo.getCurrentCommitId()
+                                .substring(
+                                        0, Math.min(8, repo.getCurrentCommitId().length())));
                 var modifiedFiles = repo.getModifiedFiles();
                 sb.append("|dirty:").append(!modifiedFiles.isEmpty());
             }

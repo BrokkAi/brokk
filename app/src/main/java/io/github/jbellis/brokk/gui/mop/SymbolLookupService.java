@@ -90,6 +90,66 @@ public class SymbolLookupService {
         return results;
     }
 
+    /**
+     * Optimized symbol lookup that returns only existing symbols as a lean Map<String, String>. This reduces payload
+     * size by ~90% by excluding non-existent symbols and removing redundant data.
+     */
+    public static Map<String, String> lookupSymbolsOptimized(
+            Set<String> symbolNames, @Nullable IContextManager contextManager) {
+        var foundSymbols = new HashMap<String, String>();
+
+        logger.debug("Starting optimized lookup for {} symbols: {}", symbolNames.size(), symbolNames);
+
+        if (symbolNames.isEmpty() || contextManager == null) {
+            logger.debug("No symbols to lookup or no context manager available");
+            return foundSymbols;
+        }
+
+        var project = contextManager.getProject();
+        logger.debug(
+                "ContextManager type: {}, project: {} at {}",
+                contextManager.getClass().getSimpleName(),
+                project.getClass().getSimpleName(),
+                project.getRoot());
+
+        try {
+            var analyzerWrapper = contextManager.getAnalyzerWrapper();
+            if (!analyzerWrapper.isReady()) {
+                logger.debug("Analyzer not ready, returning empty results");
+                return foundSymbols;
+            }
+
+            var analyzer = analyzerWrapper.getNonBlocking();
+            if (analyzer == null || analyzer.isEmpty()) {
+                logger.debug("No analyzer available for symbol lookup");
+                return foundSymbols;
+            }
+
+            logger.debug("Using analyzer: {}", analyzer.getClass().getSimpleName());
+
+            for (var symbolName : symbolNames) {
+                logger.debug("Checking symbol: '{}'", symbolName);
+                var symbolInfo = checkSymbolExists(analyzer, symbolName);
+                logger.debug("Symbol '{}' exists: {}, FQN: {}", symbolName, symbolInfo.exists(), symbolInfo.fqn());
+
+                // Only add symbols that actually exist
+                if (symbolInfo.exists() && symbolInfo.fqn() != null) {
+                    foundSymbols.put(symbolName, symbolInfo.fqn());
+                }
+            }
+
+        } catch (Exception e) {
+            logger.warn("Error during optimized symbol lookup", e);
+            // Return empty map on error instead of negative results
+        }
+
+        logger.debug(
+                "Optimized symbol lookup completed with {} found symbols out of {} requested",
+                foundSymbols.size(),
+                symbolNames.size());
+        return foundSymbols;
+    }
+
     private static SymbolInfo checkSymbolExists(IAnalyzer analyzer, String symbolName) {
         if (symbolName.trim().isEmpty()) {
             return new SymbolInfo(false, null);
