@@ -295,6 +295,7 @@ public final class HistoryIo {
             }
         }
 
+        Files.createDirectories(target.getParent());
         try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
             var allFragmentsDto = new AllFragmentsDto(
                     CURRENT_FORMAT_VERSION, collectedReferencedDtos, collectedVirtualDtos, collectedTaskDtos);

@@ -1020,6 +1020,7 @@ public class ContextAgent {
 
     private Map<ProjectFile, String> readFileContents(Collection<ProjectFile> files) {
         return files.stream()
+                .distinct()
                 .parallel()
                 .map(file -> {
                     try {

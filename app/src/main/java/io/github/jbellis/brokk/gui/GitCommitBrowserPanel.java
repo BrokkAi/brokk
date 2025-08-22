@@ -32,6 +32,7 @@ import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.CherryPickResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,8 +52,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private final GitWorkflowService gitWorkflowService;
 
     public record Options(boolean showSearch, boolean showPushPullButtons, boolean showCreatePrButton) {
-        public static final Options DEFAULT = new Options(true, true, true);
-        public static final Options HIDE_ALL_BUTTONS = new Options(true, false, false); // Example for PR dialog
+        public static final Options FOR_PULL_REQUEST = new Options(true, false, false);
     }
 
     @FunctionalInterface
@@ -83,6 +83,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private JMenuItem applyStashCommitItem;
     private JMenuItem dropStashCommitItem;
     private JMenuItem createBranchFromCommitItem;
+    private JMenuItem cherryPickCommitItem;
 
     private JButton pullButton;
     private JButton pushButton;
@@ -96,12 +97,12 @@ public class GitCommitBrowserPanel extends JPanel {
 
     @SuppressWarnings("NullAway.Init") // Initialization is handled by buildCommitBrowserUI and its helpers
     public GitCommitBrowserPanel(
-            Chrome chrome, ContextManager contextManager, CommitContextReloader reloader, @Nullable Options options) {
+            Chrome chrome, ContextManager contextManager, CommitContextReloader reloader, Options options) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.reloader = reloader;
-        this.options = Objects.requireNonNullElse(options, Options.DEFAULT);
+        this.options = options;
         this.gitWorkflowService = new GitWorkflowService(contextManager);
         buildCommitBrowserUI();
 
@@ -109,10 +110,6 @@ public class GitCommitBrowserPanel extends JPanel {
         relativeTimeRefreshTimer = new javax.swing.Timer(60_000, e -> commitsTable.repaint());
         relativeTimeRefreshTimer.setRepeats(true);
         relativeTimeRefreshTimer.start();
-    }
-
-    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader) {
-        this(chrome, contextManager, reloader, Options.DEFAULT);
     }
 
     private void buildCommitBrowserUI() {
@@ -479,12 +476,14 @@ public class GitCommitBrowserPanel extends JPanel {
         applyStashCommitItem = new JMenuItem("Apply Stash");
         dropStashCommitItem = new JMenuItem("Drop Stash");
         createBranchFromCommitItem = new JMenuItem("Create Branch From Commit");
+        cherryPickCommitItem = new JMenuItem("Cherry pick into ...");
 
         commitsContextMenu.add(addToContextItem);
         commitsContextMenu.add(viewChangesItem);
         commitsContextMenu.add(compareAllToLocalItem);
         commitsContextMenu.add(softResetItem);
         commitsContextMenu.add(revertCommitItem);
+        commitsContextMenu.add(cherryPickCommitItem);
         commitsContextMenu.add(createBranchFromCommitItem);
         commitsContextMenu.add(popStashCommitItem);
         commitsContextMenu.add(applyStashCommitItem);
@@ -546,9 +545,18 @@ public class GitCommitBrowserPanel extends JPanel {
         revertCommitItem.setVisible(!isStash);
         revertCommitItem.setEnabled(
                 !isStash); // Git revert doesn't directly do ranges. Enable if any non-stash selected.
-
         createBranchFromCommitItem.setVisible(!isStash);
         createBranchFromCommitItem.setEnabled(selectedRows.length == 1 && !isStash);
+
+        String cpBranch;
+        try {
+            cpBranch = getRepo().getCurrentBranch();
+        } catch (Exception ex) {
+            cpBranch = "current branch";
+        }
+        cherryPickCommitItem.setText("Cherry pick into " + cpBranch);
+        cherryPickCommitItem.setVisible(!isStash);
+        cherryPickCommitItem.setEnabled(!allSelectedCommitsReachableFromHead());
 
         boolean allSelectedAreStashes = Arrays.stream(selectedRows) // boolean preferred by style guide
                 .mapToObj(r -> (ICommitInfo) commitsTableModel.getValueAt(r, COL_COMMIT_OBJ))
@@ -560,13 +568,13 @@ public class GitCommitBrowserPanel extends JPanel {
         applyStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1);
         dropStashCommitItem.setVisible(allSelectedAreStashes);
         dropStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1);
-
         // Hide non-stash items if all are stashes
         if (allSelectedAreStashes) {
             softResetItem.setVisible(false);
             revertCommitItem.setVisible(false);
             compareAllToLocalItem.setVisible(false);
             createBranchFromCommitItem.setVisible(false);
+            cherryPickCommitItem.setVisible(false);
         }
         // Hide stash items if not all are stashes (or none are)
         if (!allSelectedAreStashes) {
@@ -586,6 +594,7 @@ public class GitCommitBrowserPanel extends JPanel {
         applyStashCommitItem.setVisible(visible);
         dropStashCommitItem.setVisible(visible);
         createBranchFromCommitItem.setVisible(visible);
+        cherryPickCommitItem.setVisible(visible);
     }
 
     private void setupCommitContextMenuActions() {
@@ -613,7 +622,6 @@ public class GitCommitBrowserPanel extends JPanel {
                 softResetToCommitInternal(ci.id(), firstLine);
             }
         });
-
         viewChangesItem.addActionListener(e -> {
             if (commitsTable.getSelectedRowCount() == 1) {
                 var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
@@ -631,6 +639,75 @@ public class GitCommitBrowserPanel extends JPanel {
                 var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
                 revertCommitInternal(ci.id());
             }
+        });
+
+        cherryPickCommitItem.addActionListener(e -> {
+            int[] rows = commitsTable.getSelectedRows();
+            if (rows.length == 0) return;
+            rows = Arrays.stream(rows).sorted().toArray();
+
+            // Collect commit IDs, oldest first (reverse table order)
+            var commitIds = new ArrayList<String>(rows.length);
+            for (int i = rows.length - 1; i >= 0; i--) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(rows[i], COL_COMMIT_OBJ);
+                commitIds.add(ci.id());
+            }
+            if (commitIds.isEmpty()) return;
+
+            String branchTmp;
+            try {
+                branchTmp = getRepo().getCurrentBranch();
+            } catch (GitAPIException ex) {
+                throw new IllegalStateException(ex);
+            }
+            final String branchLabel = branchTmp;
+
+            String taskName = (commitIds.size() == 1)
+                    ? "Cherry picking 1 commit into " + branchLabel
+                    : "Cherry picking " + commitIds.size() + " commits into " + branchLabel;
+
+            contextManager.submitUserTask(taskName, () -> {
+                int applied = 0;
+                for (var cid : commitIds) {
+                    CherryPickResult res;
+                    try {
+                        res = getRepo().cherryPickCommit(cid);
+                    } catch (GitAPIException gae) {
+                        logger.warn("Cherry-pick threw GitAPIException for {}: {}", cid, gae.getMessage());
+                        chrome.toolError(
+                                "Cherry-pick failed for " + getShortId(cid) + ": " + gae.getMessage(),
+                                "Cherry-pick Error");
+                        break;
+                    }
+
+                    var status = res.getStatus();
+                    if (status == CherryPickResult.CherryPickStatus.OK) {
+                        applied++;
+                    } else if (status == CherryPickResult.CherryPickStatus.CONFLICTING) {
+                        chrome.toolError(
+                                "Cherry-pick resulted in conflicts. Please resolve and commit.\nConflicts: "
+                                        + String.join(
+                                                ", ", res.getFailingPaths().keySet()),
+                                "Cherry-pick Conflicts");
+                        break;
+                    } else {
+                        logger.warn("Cherry-pick returned status {} for {}.", status, cid);
+                        chrome.toolError(
+                                "Cherry-pick failed for " + getShortId(cid) + ": " + status, "Cherry-pick Error");
+                        break;
+                    }
+                }
+
+                int finalApplied = applied;
+                SwingUtil.runOnEdt(() -> {
+                    chrome.systemOutput("Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
+                    refreshCurrentViewAfterGitOp();
+                    var gitPanel = chrome.getGitPanel();
+                    if (gitPanel != null) {
+                        gitPanel.updateCommitPanel();
+                    }
+                });
+            });
         });
 
         popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
@@ -1441,6 +1518,32 @@ public class GitCommitBrowserPanel extends JPanel {
         return Arrays.stream(selectedRows)
                 .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ))
                 .toList();
+    }
+
+    /**
+     * Returns true if every selected commit is already reachable from HEAD. If reachability cannot be determined,
+     * returns false (to favor enabling the action).
+     */
+    private boolean allSelectedCommitsReachableFromHead() {
+        int[] rows = commitsTable.getSelectedRows();
+        if (rows.length == 0) {
+            return false;
+        }
+        try {
+            for (int row : rows) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+                if (ci == null) {
+                    return false;
+                }
+                if (!getRepo().isCommitReachableFrom(ci.id(), "HEAD")) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (GitAPIException e) {
+            logger.warn("Failed to evaluate reachability for selected commits: {}", e.getMessage());
+            return false;
+        }
     }
 
     /** Builds a git-style tooltip string for a commit. */

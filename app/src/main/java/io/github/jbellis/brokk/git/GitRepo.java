@@ -1292,6 +1292,14 @@ public class GitRepo implements Closeable, IGitRepo {
         invalidateCaches();
     }
 
+    /** Cherry-picks a commit onto the current HEAD (typically the current branch). */
+    public CherryPickResult cherryPickCommit(String commitId) throws GitAPIException {
+        var objectId = resolve(commitId);
+        var result = git.cherryPick().include(objectId).call();
+        invalidateCaches();
+        return result;
+    }
+
     /**
      * Checkout specific files from a commit, restoring them to their state at that commit. This is equivalent to `git
      * checkout <commitId> -- <files>`
@@ -2255,6 +2263,19 @@ public class GitRepo implements Closeable, IGitRepo {
         var idB = resolve(revB);
         var mb = computeMergeBase(idA, idB);
         return mb == null ? null : mb.getName();
+    }
+
+    /** Returns true if the given commit is reachable from the specified base ref (e.g., "HEAD" or a branch name). */
+    public boolean isCommitReachableFrom(String commitId, String baseRef) throws GitAPIException {
+        var commitObj = resolve(commitId);
+        var baseObj = resolve(baseRef);
+        try (var revWalk = new RevWalk(repository)) {
+            RevCommit commit = revWalk.parseCommit(commitObj);
+            RevCommit base = revWalk.parseCommit(baseObj);
+            return revWalk.isMergedInto(commit, base);
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
     }
 
     public record ListWorktreesResult(List<WorktreeInfo> worktrees, List<Path> invalidPaths) {}

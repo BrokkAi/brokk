@@ -1,18 +1,22 @@
 import type {ResultMsg} from "./worker/shared";
 
-export type BrokkEvent = {
-  type: 'chunk' | 'clear' | 'spinner';
-  text?: string;
-  isNew?: boolean;
-  streaming?: boolean;
-  msgType?: 'USER' | 'AI' | 'SYSTEM';
-  reasoning?: boolean;
-  epoch: number;
-  message?: string;
-};
+export type BrokkEvent =
+  | {
+      type: 'chunk';
+      text: string;
+      isNew: boolean;
+      streaming: boolean;
+      msgType: 'USER' | 'AI' | 'SYSTEM';
+      reasoning: boolean;
+      epoch: number;
+    }
+  | {
+      type: 'clear';
+      epoch: number;
+    };
 
 export type Bubble = {
-  id: number;
+  seq: number;
   type: 'USER' | 'AI' | 'SYSTEM';
   markdown: string;
   title?: string;
