@@ -28,7 +28,7 @@ export interface ExpandDiffMsg {
 
 export interface SymbolLookupResponseMsg {
     type: 'symbol-lookup-response';
-    results: Record<string, {exists: boolean, fqn?: string | null}>;
+    results: Record<string, string>;
     seq: Seq;
     contextId: string;
 }

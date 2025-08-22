@@ -15,7 +15,11 @@ import type {OutboundFromWorker, ShikiLangsReadyMsg} from './shared';
 import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
+import { createWorkerLogger } from '../lib/logging';
 
+
+// Create tagged logger for symbol cache debugging
+const cacheLog = createWorkerLogger('symbol-cache');
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
@@ -25,9 +29,18 @@ function post(msg: OutboundFromWorker) {
 // Track pending symbol lookups
 const pendingSymbolLookups = new Map<number, {symbols: Set<string>, tree: HastRoot}>();
 
-// Symbol cache with upper limit
+// Symbol cache with upper limit - optimized format (only known symbols)
 const SYMBOL_CACHE_LIMIT = 1000;
-const symbolCache = new Map<string, {exists: boolean, fqn?: string | null}>();
+const symbolCache = new Map<string, string>();
+
+// Cache debugging statistics
+let cacheStats = {
+    requests: 0,
+    hits: 0,
+    misses: 0,
+    evictions: 0,
+    totalSymbolsProcessed: 0
+};
 
 
 export function createBaseProcessor(): Processor {
@@ -56,40 +69,26 @@ let baseProcessor: Processor = createBaseProcessor();
 let fastBaseProcessor: Processor = createFastProcessor();
 let shikiProcessor: Processor = null;
 let currentProcessor: Processor = baseProcessor;
-let processorInitialized = false;
-let initializationPromise: Promise<void> | null = null;
 // shiki-highlighter
 export let highlighter: HighlighterCore | null = null;
 
-export function initProcessor(): Promise<void> {
-    if (initializationPromise) {
-        return initializationPromise; // Return existing promise
-    }
-
+export function initProcessor() {
     // Asynchronously initialize Shiki and create a new processor with it.
-    console.log('shiki loading lib...');
-    initializationPromise = shikiPluginPromise
+    console.log('[shiki] loading lib...');
+    shikiPluginPromise
         .then(({rehypePlugin}) => {
             const [pluginFn, shikiHighlighter, opts] = rehypePlugin as any;
             highlighter = shikiHighlighter;
             shikiProcessor = createBaseProcessor()
                 .use(pluginFn, shikiHighlighter, opts)
                 .use(rehypeEditDiff, shikiHighlighter);
-
-            // Atomic update: set processor and flag together
             currentProcessor = shikiProcessor;
-            processorInitialized = true;
-
             console.log('[shiki] loaded!');
             post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
         })
         .catch(e => {
-            console.error('Shiki init failed', e);
-            processorInitialized = false; // Mark as failed
-            throw e;
+            console.error('[shiki] init failed', e);
         });
-
-    return initializationPromise;
 }
 
 function detectCodeFenceLangs(tree: Root): Set<string> {
@@ -111,26 +110,10 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     return detectedLangs;
 }
 
-export async function parseMarkdown(seq: number, src: string, fast = false): Promise<HastRoot> {
-    // Wait for shiki processor when not using fast mode
-    if (!fast && !processorInitialized && initializationPromise) {
-        console.log(`[markdown-worker] Waiting for shiki processor initialization (seq=${seq})`);
-        await initializationPromise;
-        console.log(`[markdown-worker] Shiki processor ready, proceeding with parsing (seq=${seq})`);
-    }
-
+export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? fastBaseProcessor : currentProcessor;
-
-    // Log which processor is being used
-    const processorType = fast ? 'baseProcessor' : (currentProcessor === shikiProcessor ? 'shikiProcessor' : 'baseProcessor');
-    console.log(`[markdown-worker] Using ${processorType} for parsing (fast=${fast})`);
-
-    // Log if the source contains code elements
-    const hasInlineCode = src.includes('`');
-    const hasCodeBlock = src.includes('```');
-    console.log(`[markdown-worker] Source contains: ${hasInlineCode ? 'inline code' : 'no inline'}, ${hasCodeBlock ? 'code blocks' : 'no blocks'}`);
     let tree: HastRoot = null;
     let mdastTree: Root = null;
     try {
@@ -143,13 +126,14 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
         throw e;
     }
 
-    // Check for symbol candidates from rehype plugin and perform lookup (only in non-fast mode)
+    // Check for symbol candidates from rehype plugin and perform lookup asynchronously (only in non-fast mode)
     if (!fast) {
         const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
         if (symbolCandidates && symbolCandidates.size > 0) {
-            // For now, request context ID when we need it for symbol lookup
-            // This will be done through a sync call to the main thread
-            handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq);
+            // Start symbol lookup asynchronously - don't block parsing
+            setTimeout(() => {
+                handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq);
+            }, 0);
         }
     }
 
@@ -169,38 +153,57 @@ function handleSymbolLookupWithContextRequest(symbols: Set<string>, tree: HastRo
     // In practice, the main thread should provide the context ID when making calls
     // For this implementation, let's use a simpler approach and assume the main thread will provide context ID
     const defaultContextId = 'main-context'; // Temporary solution
+    cacheLog.debug(`Using default context ID '${defaultContextId}' for ${symbols.size} symbols in seq ${seq}`);
     handleSymbolLookup(symbols, tree, seq, defaultContextId);
 }
 
 function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, contextId: string): void {
-    console.log(`symbol-lookup request: ${Array.from(symbols).join(', ')} for context: ${contextId}`);
+    cacheStats.requests++;
+    cacheStats.totalSymbolsProcessed += symbols.size;
+
+    cacheLog.info(`Lookup request seq:${seq} context:'${contextId}' symbols:${symbols.size} [${Array.from(symbols).join(', ')}]`);
+
     try {
         const symbolArray = Array.from(symbols);
 
         // Check cache first and filter out already cached symbols (using context-specific keys)
-        const cachedResults: Record<string, {exists: boolean, fqn?: string | null}> = {};
+        const cachedResults: Record<string, string> = {};
         const uncachedSymbols: string[] = [];
 
         for (const symbol of symbolArray) {
             const cacheKey = `${contextId}:${symbol}`;
+            cacheLog.debug(`Checking cache for key: '${cacheKey}'`);
+
             if (symbolCache.has(cacheKey)) {
-                cachedResults[symbol] = symbolCache.get(cacheKey)!;
+                const cachedFqn = symbolCache.get(cacheKey)!;
+                cachedResults[symbol] = cachedFqn;
+                cacheStats.hits++;
+                cacheLog.debug(`Cache HIT for '${symbol}' -> fqn:${cachedFqn}`);
             } else {
                 uncachedSymbols.push(symbol);
+                cacheStats.misses++;
+                cacheLog.debug(`Cache MISS for '${symbol}' (key: '${cacheKey}')`);
             }
         }
 
-        // If we have cached results, enhance tree immediately
+        // Log cache statistics every 10 requests
+        if (cacheStats.requests % 10 === 0) {
+            const hitRate = ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1);
+            cacheLog.info(`Cache Stats: requests:${cacheStats.requests} hits:${cacheStats.hits} misses:${cacheStats.misses} hit-rate:${hitRate}% size:${symbolCache.size}/${SYMBOL_CACHE_LIMIT} evictions:${cacheStats.evictions}`);
+        }
+
+        // If we have cached results, enhance tree with them
         if (Object.keys(cachedResults).length > 0) {
-            console.log(`Using cached results for ${Object.keys(cachedResults).length} symbols`);
+            cacheLog.info(`Using cached results for ${Object.keys(cachedResults).length} symbols`);
             enhanceSymbolCandidates(tree, cachedResults);
         }
 
         // Only lookup uncached symbols
         if (uncachedSymbols.length > 0) {
-            console.log(`Looking up ${uncachedSymbols.length} uncached symbols`);
+            cacheLog.info(`Need to lookup ${uncachedSymbols.length} uncached symbols: [${uncachedSymbols.join(', ')}]`);
             // Store the pending lookup with the tree so we can enhance it later
             pendingSymbolLookups.set(seq, { symbols, tree });
+            cacheLog.debug(`Stored pending lookup for seq:${seq}`);
 
             // Send request to main thread to handle JavaBridge communication
             post({
@@ -209,17 +212,19 @@ function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, c
                 seq: seq,
                 contextId: contextId
             });
+            cacheLog.debug(`Sent lookup request to main thread for seq:${seq}`);
         } else {
-            console.log('All symbols found in cache, no lookup needed');
-            // All symbols were cached, send result immediately
+            cacheLog.info(`All ${symbolArray.length} symbols found in cache, no lookup needed`);
+            // All symbols were cached, send result with enhanced tree
             post({
                 type: 'result',
                 tree: tree,
                 seq: seq
             });
+            cacheLog.debug(`Sent cached result to main thread for seq:${seq}`);
         }
     } catch (e) {
-        console.warn('Error during symbol lookup request:', e);
+        cacheLog.error(`Error during symbol lookup request seq:${seq}:`, e);
     }
 }
 
@@ -236,31 +241,36 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
     }
 }
 
-export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>, contextId: string): void {
-    console.log(`symbol-lookup-response processing: ${Object.keys(results).length} symbols for context: ${contextId}`);
+export function handleSymbolLookupResponse(seq: number, results: Record<string, string>, contextId: string): void {
+    cacheLog.info(`Response processing seq:${seq} context:'${contextId}' results:${Object.keys(results).length}`);
 
     // Add results to cache with context-specific keys
-    for (const [symbol, result] of Object.entries(results)) {
+    let newEntriesAdded = 0;
+    for (const [symbol, fqn] of Object.entries(results)) {
         // Implement simple cache eviction when limit reached
         if (symbolCache.size >= SYMBOL_CACHE_LIMIT) {
             // Remove first (oldest) entry
             const firstKey = symbolCache.keys().next().value;
             if (firstKey) {
                 symbolCache.delete(firstKey);
-                console.log(`Evicted symbol from cache: ${firstKey}`);
+                cacheStats.evictions++;
+                cacheLog.debug(`Evicted symbol from cache: '${firstKey}' (limit:${SYMBOL_CACHE_LIMIT})`);
             }
         }
         const cacheKey = `${contextId}:${symbol}`;
-        symbolCache.set(cacheKey, result);
+        symbolCache.set(cacheKey, fqn);
+        newEntriesAdded++;
+        cacheLog.debug(`Cached '${symbol}' (key:'${cacheKey}') -> fqn:${fqn}`);
     }
-    console.log(`Cached ${Object.keys(results).length} symbol results with context ${contextId}. Cache size: ${symbolCache.size}`);
+    cacheLog.info(`Cached ${newEntriesAdded} new entries. Total cache size: ${symbolCache.size}/${SYMBOL_CACHE_LIMIT}`);
 
     const pending = pendingSymbolLookups.get(seq);
     if (pending) {
-        console.log(`Found pending lookup for seq ${seq}, enhancing tree...`);
-        // Enhance the tree with symbol information
+        cacheLog.debug(`Found pending lookup for seq:${seq}, enhancing tree...`);
+
+        // Enhance the tree with symbol information using optimized format
         enhanceSymbolCandidates(pending.tree, results);
-        console.log(`Tree enhanced, sending result back to main thread...`);
+        cacheLog.debug(`Tree enhanced for seq:${seq}, sending result back to main thread...`);
 
         // Send the enhanced tree back to main thread to trigger DOM update
         post({
@@ -268,13 +278,14 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
             tree: pending.tree,
             seq: seq
         });
-        console.log(`Enhanced tree sent to main thread for seq ${seq}`);
+        cacheLog.info(`Enhanced tree sent to main thread for seq:${seq}`);
 
         // Clean up the pending lookup
         pendingSymbolLookups.delete(seq);
-        console.log(`Cleaned up pending lookup for seq ${seq}`);
+        cacheLog.debug(`Cleaned up pending lookup for seq:${seq}`);
     } else {
-        console.warn(`No pending lookup found for seq ${seq}`);
+        cacheLog.warn(`No pending lookup found for seq:${seq} - possible duplicate response or cleanup issue`);
+        cacheLog.debug(`Current pending lookups: [${Array.from(pendingSymbolLookups.keys()).join(', ')}]`);
     }
 }
 
@@ -282,17 +293,37 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
 export function clearContextCache(contextId: string): void {
     const prefix = `${contextId}:`;
     let clearedCount = 0;
+    const keysToDelete: string[] = [];
+
+    // Collect keys to delete (avoid modifying during iteration)
     for (const key of symbolCache.keys()) {
         if (key.startsWith(prefix)) {
-            symbolCache.delete(key);
-            clearedCount++;
+            keysToDelete.push(key);
         }
     }
-    console.log(`Cleared ${clearedCount} entries for context: ${contextId}`);
+
+    // Delete collected keys
+    for (const key of keysToDelete) {
+        symbolCache.delete(key);
+        clearedCount++;
+    }
+
+    cacheLog.info(`Cleared ${clearedCount} entries for context: '${contextId}'. Remaining cache size: ${symbolCache.size}`);
+
+    // Reset stats if cache is now empty
+    if (symbolCache.size === 0) {
+        cacheStats = { requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0 };
+        cacheLog.debug('Cache stats reset after context clear');
+    }
 }
 
 // Export function to clear symbol cache (called on worker reset)
 export function clearSymbolCache(): void {
+    const previousSize = symbolCache.size;
     symbolCache.clear();
-    console.log('Symbol cache cleared');
+
+    // Reset all statistics
+    cacheStats = { requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0 };
+
+    cacheLog.info(`Symbol cache completely cleared. Removed ${previousSize} entries. Stats reset.`);
 }

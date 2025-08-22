@@ -56,15 +56,8 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
 
 /* context helper -------------------------------------------------- */
 function getContextId(): string {
-  try {
-    const javaBridge = (window as any).javaBridge;
-    if (javaBridge && typeof javaBridge.getContextCacheId === 'function') {
-      return javaBridge.getContextCacheId();
-    }
-  } catch (e) {
-    log.warn('Error getting context ID:', e);
-  }
-  return 'no-context';
+  // Use hardcoded context ID for now to ensure cache consistency
+  return 'main-context';
 }
 
 /* symbol lookup handler ------------------------------------------- */

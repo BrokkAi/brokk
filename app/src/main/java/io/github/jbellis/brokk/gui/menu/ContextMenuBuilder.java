@@ -85,21 +85,27 @@ public class ContextMenuBuilder {
             if (fqn != null && fqn.contains(",")) {
                 // Multiple matches - create submenus
                 var fqns = Splitter.on(',').split(fqn);
+                var uniqueFqns = new HashSet<String>();
+
                 for (String currentFqn : fqns) {
-                    var submenu = new JMenu(currentFqn.trim());
+                    var trimmedFqn = currentFqn.trim();
+                    // Skip duplicates
+                    if (uniqueFqns.add(trimmedFqn)) {
+                        var submenu = new JMenu(trimmedFqn);
 
-                    // Create a context for this specific FQN
-                    var specificContext = new SymbolMenuContext(
-                            symbolContext.symbolName(),
-                            true,
-                            currentFqn.trim(),
-                            symbolContext.chrome(),
-                            symbolContext.contextManager());
+                        // Create a context for this specific FQN
+                        var specificContext = new SymbolMenuContext(
+                                symbolContext.symbolName(),
+                                true,
+                                trimmedFqn,
+                                symbolContext.chrome(),
+                                symbolContext.contextManager());
 
-                    // Add symbol actions to this submenu
-                    addSymbolActions(submenu, specificContext, analyzerReady);
+                        // Add symbol actions to this submenu
+                        addSymbolActions(submenu, specificContext, analyzerReady);
 
-                    menu.add(submenu);
+                        menu.add(submenu);
+                    }
                 }
             } else {
                 // Single match - add symbol actions directly to main menu
