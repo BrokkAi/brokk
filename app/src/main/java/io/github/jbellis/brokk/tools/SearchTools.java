@@ -159,6 +159,19 @@ public class SearchTools {
             try {
                 Pattern regex = Pattern.compile(pat);
                 predicates.add(s -> regex.matcher(s).find());
+
+                // Also handle the common "double-escaped dot" case (e.g. .*\\\\.java)
+                if (pat.contains("\\\\.")) {
+                    String singleEscaped = pat.replaceAll("\\\\\\\\.", "\\\\.");
+                    if (!singleEscaped.equals(pat)) {
+                        try {
+                            Pattern alt = Pattern.compile(singleEscaped);
+                            predicates.add(s -> alt.matcher(s).find());
+                        } catch (PatternSyntaxException ignored) {
+                            // If even the alternative is invalid we silently ignore it.
+                        }
+                    }
+                }
             } catch (PatternSyntaxException ex) {
                 // Fallback: simple substring match, but normalize to forward slashes
                 predicates.add(s -> s.contains(pat.replace('\\', '/')));
@@ -685,8 +698,11 @@ public class SearchTools {
         var matchingFiles = contextManager.getProject().getAllFiles().stream()
                 .map(ProjectFile::toString) // Use relative path from ProjectFile
                 .filter(filePath -> {
+                    // Normalise to forward slashes so regex like "frontend-mop/.*\\.svelte"
+                    // work on Windows paths containing back-slashes.
+                    String unixPath = filePath.replace('\\', '/');
                     for (Predicate<String> predicate : predicates) {
-                        if (predicate.test(filePath)) {
+                        if (predicate.test(unixPath)) {
                             return true;
                         }
                     }
