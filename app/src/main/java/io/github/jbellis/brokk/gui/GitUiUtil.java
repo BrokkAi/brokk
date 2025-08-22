@@ -715,4 +715,60 @@ public final class GitUiUtil {
             }
         });
     }
+
+    /**
+     * Builds a concise commit label such as<br>
+     * 'First line …' [abcdef1] <br>
+     * If {@code rawTitle} is just a hash, we try to look up the commit message from {@code repo}. When the lookup fails
+     * we fall back to the hash only.
+     */
+    public static String friendlyCommitLabel(@Nullable String rawTitle, @Nullable GitRepo repo) {
+        if (rawTitle == null || rawTitle.isBlank()) {
+            return "";
+        }
+
+        // Detect a leading full hash (40 hex chars) or short hash (≥7 hex chars)
+        var matcher =
+                Pattern.compile("^(?<hash>[a-fA-F0-9]{7,40})\\s*(?<msg>.*)$").matcher(rawTitle.strip());
+        String hash;
+        String msg;
+        if (matcher.matches()) {
+            hash = matcher.group("hash");
+            msg = matcher.group("msg");
+        } else {
+            // Try to find the hash at the end in brackets, e.g. "Some title (abcdef123)"
+            var tailMatcher = Pattern.compile("^(?<msg>.*)\\s+\\((?<hash>[a-fA-F0-9]{7,40})\\)$")
+                    .matcher(rawTitle.strip());
+            if (tailMatcher.matches()) {
+                hash = tailMatcher.group("hash");
+                msg = tailMatcher.group("msg");
+            } else {
+                // No recognisable hash – just truncate the string we have
+                return truncateWithEllipsis(rawTitle.trim(), 40);
+            }
+        }
+
+        hash = shortenCommitId(hash); // canonical short hash
+
+        // If we still have no message, and a repo is available, try to look it up
+        if ((msg == null || msg.isBlank()) && repo != null) {
+            try {
+                var infoOpt = repo.getLocalCommitInfo(hash);
+                if (infoOpt.isPresent()) {
+                    msg = infoOpt.get().message();
+                }
+            } catch (Exception ignore) {
+                /* lookup failure is non-fatal */
+            }
+        }
+
+        // Final formatting
+        msg = (msg == null ? "" : truncateWithEllipsis(msg.split("\\R", 2)[0].trim(), 30));
+        return msg.isBlank() ? "[%s]".formatted(hash) : "'%s' [%s]".formatted(msg, hash);
+    }
+
+    /** Truncates s to maxLen characters, appending '...' if needed. */
+    private static String truncateWithEllipsis(String s, int maxLen) {
+        return s.length() <= maxLen ? s : s.substring(0, maxLen - 2) + "...";
+    }
 }
