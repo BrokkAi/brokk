@@ -728,7 +728,14 @@ public class SearchTools {
                 if (result.length() > 0) {
                     result.append("\n\n");
                 }
-                result.append("<file name=\"%s\">\n%s\n</file>".formatted(filename, content));
+                result.append(
+                        """
+                    ```%s
+                    %s
+                    ```
+                    """
+                                .stripIndent()
+                                .formatted(filename, content));
                 anySuccess = true;
             } catch (IOException e) {
                 logger.error("Error reading file content for {}: {}", filename, e.getMessage());

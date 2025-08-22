@@ -2,11 +2,14 @@ package io.github.jbellis.brokk.analyzer.lsp;
 
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.util.FileUtils;
+import io.github.jbellis.brokk.util.FileUtil;
 import java.io.File;
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -42,8 +45,33 @@ public abstract class LspServer {
     @Nullable
     private Thread shutdownHook;
 
+    /**
+     * Channel to the lock file that coordinates access to the shared LSP cache across JVMs. The channel is kept open
+     * for the entire lifetime of the language-server process so the corresponding {@link #cacheLock} remains valid
+     * until {@link #shutdownServer()}.
+     */
+    @Nullable
+    private FileChannel lockChannel;
+    /**
+     * The exclusive lock held on the cache lock file. It is acquired in {@link #startServer(Path, String, Path, Map)}
+     * and released in {@link #shutdownServer()}. While this lock is held, no other JVM can start another
+     * language-server instance against the same cache directory.
+     */
+    @Nullable
+    private FileLock cacheLock;
+
+    /**
+     * If this JVM could not obtain the primary cache lock, it starts the language-server using a temporary cache
+     * directory. The path to that directory is stored here so it can be cleaned up during shutdown.
+     */
+    @Nullable
+    private Path temporaryCachePath;
+
     /** The type of server this is, e.g, JDT */
     private final SupportedLspServer serverType;
+    /** Language identifier used when the server was started (e.g. "java"). */
+    @Nullable
+    private String languageId;
 
     private final AtomicInteger clientCounter = new AtomicInteger(0);
 
@@ -166,8 +194,49 @@ public abstract class LspServer {
             Path initialWorkspace, String language, Path cache, Map<String, Object> initializationOptions)
             throws IOException {
         logger.info("First client connected. Starting {} Language Server...", serverType.name());
+        this.languageId = language;
 
-        final ProcessBuilder pb = createProcessBuilder(cache);
+        // Use this reference for whichever cache directory we eventually decide to use
+        Path cacheDir = cache;
+
+        // Acquire an exclusive lock on the shared cache so only one JVM
+        // starts/uses the language server at a time.
+        try {
+            if (Files.notExists(cache)) {
+                Files.createDirectories(cache);
+            }
+            final Path lockFile = cache.resolve(".cache.lock");
+            this.lockChannel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            // Try to obtain the lock without blocking.  If it is already held by
+            // another JVM we will fall back to a temporary cache.
+            this.cacheLock = this.lockChannel.tryLock();
+            if (this.cacheLock == null) {
+                logger.info(
+                        "Primary LSP cache at {} is locked by another process. Falling back to a temporary cache.",
+                        cache.toAbsolutePath());
+                // Close the channel associated with the primary lock so we do not
+                // keep an unverifiable handle open.
+                try {
+                    this.lockChannel.close();
+                } catch (IOException closeEx) {
+                    logger.warn("Failed to close primary cache lock channel", closeEx);
+                }
+                this.lockChannel = null;
+
+                // Create an isolated temporary cache directory
+                this.temporaryCachePath = Files.createTempDirectory("brokk-lsp-cache-");
+                cacheDir = this.temporaryCachePath;
+            } else {
+                // Successfully obtained exclusive lock on the primary cache
+                logger.debug("Obtained cache lock on {}", lockFile.toAbsolutePath());
+                this.temporaryCachePath = null;
+            }
+        } catch (IOException e) {
+            logger.error("Unable to obtain cache lock for {}", cache, e);
+            throw e;
+        }
+
+        final ProcessBuilder pb = createProcessBuilder(cacheDir);
         // In case the JVM doesn't shut down gracefully. If graceful shutdown is successful, this is removed.
         // See LspServer::shutdown
         this.shutdownHook = new Thread(() -> {
@@ -178,7 +247,7 @@ public abstract class LspServer {
         });
         Runtime.getRuntime().addShutdownHook(this.shutdownHook);
 
-        final Path errorLog = LspServer.getCacheForLsp(language).resolve("error.log");
+        final Path errorLog = cacheDir.resolve("error.log");
         pb.redirectError(errorLog.toFile());
         this.serverProcess = pb.start();
 
@@ -278,6 +347,21 @@ public abstract class LspServer {
         return capabilities;
     }
 
+    /**
+     * Force-clears the on-disk cache when it has become corrupted. The server is first shut down (releasing any file
+     * lock) and the cache directory is then deleted so the next startup will rebuild it from scratch.
+     */
+    public synchronized void clearCache() {
+        logger.warn("Clearing LSP cache due to detected corruption.");
+        // Stop the running server and free the file-lock
+        shutdownServer();
+        // Resolve the cache path (fall back to serverType if languageId is null)
+        String lang = languageId != null ? languageId : serverType.name().toLowerCase(Locale.ROOT);
+        Path cacheDir = getCacheForLsp(lang);
+        FileUtil.deleteRecursively(cacheDir);
+        logger.warn("Deleted cache at {}", cacheDir);
+    }
+
     protected void shutdownServer() {
         logger.info("Last client disconnected. Shutting down JDT Language Server...");
         try {
@@ -324,6 +408,33 @@ public abstract class LspServer {
         } finally {
             this.serverProcess = null;
         }
+
+        // Release the cross-process cache lock, if held.
+        if (this.cacheLock != null) {
+            try {
+                this.cacheLock.release();
+                logger.debug("Released cache lock.");
+            } catch (IOException e) {
+                logger.warn("Failed to release cache lock cleanly", e);
+            }
+        }
+        if (this.lockChannel != null) {
+            try {
+                this.lockChannel.close();
+            } catch (IOException e) {
+                logger.warn("Failed to close lock channel cleanly", e);
+            }
+        }
+        this.cacheLock = null;
+        this.lockChannel = null;
+
+        // Clean up any temporary cache directory we created for this JVM.
+        // deleteDirectoryRecursively handles its own IOExceptions internally.
+        if (this.temporaryCachePath != null) {
+            FileUtil.deleteRecursively(this.temporaryCachePath);
+            logger.debug("Deleted temporary LSP cache at {}", this.temporaryCachePath);
+            this.temporaryCachePath = null;
+        }
     }
 
     /**
@@ -361,7 +472,7 @@ public abstract class LspServer {
                 startServer(projectPathAbsolute, language, cache, initializationOptions);
             } catch (IOException e) {
                 logger.error("Error starting server, cache may be corrupt, retrying with fresh cache.", e);
-                FileUtils.deleteDirectoryRecursively(cache); // start on a fresh cache
+                FileUtil.deleteRecursively(cache); // start on a fresh cache
                 startServer(projectPathAbsolute, language, cache, initializationOptions);
             }
         } else {
