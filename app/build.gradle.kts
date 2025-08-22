@@ -129,7 +129,7 @@ tasks.named("generateBuildConfig") {
 }
 
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
-    args.set(listOf("ci"))
+    args.set(listOf("install", "--silent"))
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
     outputs.dir("${project.rootDir}/frontend-mop/node_modules")

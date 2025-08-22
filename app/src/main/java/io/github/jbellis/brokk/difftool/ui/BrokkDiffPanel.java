@@ -8,7 +8,9 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -20,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import javax.swing.*;
-import javax.swing.KeyStroke;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
@@ -499,13 +500,27 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             var currentLeftSource = currentComparison.leftSource;
             var currentRightSource = currentComparison.rightSource;
 
+            // Build a friendlier description that shows a shortened hash plus
+            // the first-line commit title (trimmed with … when overly long)
+            // Build user-friendly labels for the two sides
+            GitRepo repo = null;
+            try {
+                repo = (GitRepo) contextManager.getProject().getRepo();
+            } catch (Exception lookupEx) {
+                // Commit message lookup is best-effort; log at TRACE and continue.
+                if (logger.isTraceEnabled()) {
+                    logger.trace("Commit message lookup failed: {}", lookupEx.toString());
+                }
+            }
+            var description = "Captured Diff: %s vs %s"
+                    .formatted(
+                            GitUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
+                            GitUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
+
             var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
             var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
                     currentLeftSource.title(), currentRightSource.title(), leftLines, patch, 0);
             var diffText = String.join("\n", unifiedDiff);
-
-            var description =
-                    "Captured Diff: %s vs %s".formatted(currentLeftSource.title(), currentRightSource.title());
 
             var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
 
