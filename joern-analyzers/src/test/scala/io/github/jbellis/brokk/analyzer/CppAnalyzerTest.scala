@@ -417,6 +417,6 @@ class CppAnalyzerTest {
   @Test
   def getClassSourceNonexistentTest(): Unit = {
     val source = an.getClassSource("NonExistentClass")
-    assertEquals(null, source)
+    assertTrue(source.isEmpty)
   }
 }
