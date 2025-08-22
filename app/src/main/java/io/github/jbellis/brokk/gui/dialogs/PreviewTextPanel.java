@@ -39,6 +39,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -353,8 +354,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                             var addedShortNames = new HashMap<String, CodeUnit>();
                             for (CodeUnit unit : codeUnits) {
                                 var identifier = unit.identifier();
+                                // in the case of nested classes, etc.
+                                var simpleIdentifier = Arrays.stream(identifier.split("[$.]"))
+                                        .toList()
+                                        .getLast();
 
-                                if (identifier.endsWith(clickedIdentifier)) {
+                                if (identifier.equals(clickedIdentifier)
+                                        || simpleIdentifier.equals(clickedIdentifier)) {
                                     // Exact match with the clicked token
                                     addedShortNames.putIfAbsent(clickedIdentifier, unit);
                                 } else {
@@ -384,13 +390,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                     // Use a local variable for the action listener lambda
                                     item.addActionListener(action -> {
                                         contextManager.submitBackgroundTask(
-                                                "Capture Usages", () -> contextManager.usageForIdentifier(identifier));
+                                                "Capture Usages",
+                                                () -> contextManager.usageForIdentifier(codeUnit.identifier()));
                                     });
                                     dynamicMenuItems.add(item); // Track for removal
                                 }
                             }
                         }
-                    } catch (javax.swing.text.BadLocationException ex) {
+                    } catch (BadLocationException ex) {
                         logger.warn(
                                 "Error getting line text for usage capture menu items based on offset {}", offset, ex);
                     }

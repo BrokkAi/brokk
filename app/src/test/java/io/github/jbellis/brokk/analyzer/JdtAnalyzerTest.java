@@ -259,6 +259,7 @@ public class JdtAnalyzerTest {
                   public static class AInnerStatic {
                     public AInnerStatic() {...}
                   }
+                  public void usesInnerClass() {...}
                 }
                 """
                         .trim()
@@ -488,6 +489,15 @@ public class JdtAnalyzerTest {
         final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));
         assertTrue(ex.getMessage()
                 .contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class"));
+    }
+
+    @Test
+    public void getUsesNestedClassTest() {
+        final var symbol = "A$AInner";
+        final var usages = analyzer.getUses(symbol);
+        assertEquals(
+                Set.of("A.usesInnerClass"),
+                usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet()));
     }
 
     @Test

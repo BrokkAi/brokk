@@ -521,7 +521,9 @@ public final class LspAnalyzerHelper {
                 symbol.getContainerName() == null || symbol.getContainerName().isEmpty()
                         ? symbol.getName()
                         : symbol.getContainerName() + "." + symbol.getName();
-        return symbol.getName().equals(simpleOrFullName) || symbolFullName.equals(simpleOrFullName);
+        return symbol.getName().equals(simpleOrFullName)
+                || symbolFullName.equals(simpleOrFullName)
+                || (simpleOrFullName.contains(".") && symbolFullName.endsWith(simpleOrFullName));
     }
 
     public static boolean simpleOrFullMatch(
