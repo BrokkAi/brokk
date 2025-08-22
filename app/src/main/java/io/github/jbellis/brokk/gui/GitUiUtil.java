@@ -17,12 +17,18 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.JOptionPane;
 import javax.swing.border.TitledBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.errors.MissingObjectException;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.transport.RefSpec;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHPullRequest;
 
 /**
  * Static utilities for showing diffs, capturing diffs, or editing files in the Git UI, removing duplicated code across
@@ -620,8 +626,7 @@ public final class GitUiUtil {
 
         var shortCommitId = shortenCommitId(commitId);
 
-        var repo = (io.github.jbellis.brokk.git.GitRepo)
-                contextManager.getProject().getRepo();
+        var repo = (GitRepo) contextManager.getProject().getRepo();
 
         contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
             try {
@@ -677,7 +682,7 @@ public final class GitUiUtil {
             int prNumber,
             String prHeadSha,
             String prBaseSha,
-            io.github.jbellis.brokk.git.GitRepo repo) {
+            GitRepo repo) {
         cm.submitContextTask("Capturing diff for PR #" + prNumber, () -> {
             try {
                 String effectiveBaseSha = repo.getMergeBase(prHeadSha, prBaseSha);
@@ -767,5 +772,172 @@ public final class GitUiUtil {
                 panel.repaint();
             }
         });
+    }
+
+    /** Extract file path from display format "filename - full/path" to just "full/path". */
+    public static String extractFilePathFromDisplay(String displayText) {
+        int dashIndex = displayText.indexOf(" - ");
+        if (dashIndex != -1 && dashIndex < displayText.length() - 3) {
+            return displayText.substring(dashIndex + 3);
+        }
+        return displayText;
+    }
+
+    /** Open a BrokkDiffPanel showing all file changes in a PR with a specific file pre-selected. */
+    public static void openPrDiffPanel(
+            ContextManager contextManager, Chrome chrome, GHPullRequest pr, String targetFileName) {
+        String targetFilePath = extractFilePathFromDisplay(targetFileName);
+
+        contextManager.submitUserTask("Show PR Diff", () -> {
+            try {
+                var repo = (GitRepo) contextManager.getProject().getRepo();
+
+                String prHeadSha = pr.getHead().getSha();
+                String prBaseSha = pr.getBase().getSha();
+                String prHeadFetchRef = String.format(
+                        "+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", pr.getNumber(), pr.getNumber());
+                String prBaseBranchName = pr.getBase().getRef();
+                String prBaseFetchRef =
+                        String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                    chrome.toolError(
+                            "Could not make PR head commit " + shortenCommitId(prHeadSha) + " available locally.",
+                            "Diff Error");
+                    return null;
+                }
+                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                    logger.warn(
+                            "PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.",
+                            shortenCommitId(prBaseSha),
+                            prBaseFetchRef);
+                }
+
+                var modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+
+                if (modifiedFiles.isEmpty()) {
+                    chrome.systemNotify(
+                            PrTitleFormatter.formatNoChangesMessage(pr.getNumber()),
+                            "Diff Info",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    return null;
+                }
+
+                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                        .setMultipleCommitsContext(true)
+                        .setRootTitle(PrTitleFormatter.formatPrRoot(pr));
+
+                // Add all files in natural order and track target file index
+                int targetFileIndex = -1;
+                int currentIndex = 0;
+
+                for (var mf : modifiedFiles) {
+                    var projectFile = mf.file();
+                    var status = mf.status();
+
+                    BufferSource leftSource, rightSource;
+
+                    if ("deleted".equals(status)) {
+                        leftSource = new BufferSource.StringSource(
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                        rightSource =
+                                new BufferSource.StringSource("", prHeadSha + " (Deleted)", projectFile.toString());
+                    } else if ("new".equals(status)) {
+                        leftSource = new BufferSource.StringSource("", prBaseSha + " (New)", projectFile.toString());
+                        rightSource = new BufferSource.StringSource(
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                    } else { // modified
+                        leftSource = new BufferSource.StringSource(
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                        rightSource = new BufferSource.StringSource(
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                    }
+
+                    // Check if this is the target file
+                    if (projectFile.toString().equals(targetFilePath)) {
+                        targetFileIndex = currentIndex;
+                    }
+
+                    builder.addComparison(leftSource, rightSource);
+                    currentIndex++;
+                }
+
+                // Set initial file index to target file if found
+                if (targetFileIndex >= 0) {
+                    builder.setInitialFileIndex(targetFileIndex);
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    var diffPanel = builder.build();
+                    diffPanel.showInFrame(PrTitleFormatter.formatDiffTitle(pr));
+                });
+
+            } catch (Exception ex) {
+                logger.error(
+                        "Error opening PR diff viewer for PR #{} with file '{}'", pr.getNumber(), targetFileName, ex);
+                chrome.toolError(PrTitleFormatter.formatDiffError(pr.getNumber(), ex.getMessage()), "Diff Error");
+            }
+            return null;
+        });
+    }
+
+    /** Helper method to check if a commit is locally available. */
+    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
+        ObjectId objectId = null;
+        try {
+            objectId = repo.resolve(sha);
+            // Try to parse the commit to ensure its data is present
+            try (RevWalk revWalk = new RevWalk(repo.getGit().getRepository())) {
+                revWalk.parseCommit(objectId);
+                return true; // Resolvable and parsable
+            }
+        } catch (MissingObjectException e) {
+            logger.debug(
+                    "Commit object for SHA {} (resolved to {}) is missing locally.",
+                    shortenCommitId(sha),
+                    objectId != null ? objectId.name() : "null");
+            return false;
+        } catch (Exception e) {
+            logger.debug("Cannot resolve or parse SHA {}: {}", shortenCommitId(sha), e.getMessage());
+            return false;
+        }
+    }
+
+    /** Helper method to ensure a SHA is available locally by fetching if needed. */
+    private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
+        if (isCommitLocallyAvailable(repo, sha)) {
+            return true;
+        }
+
+        // If not available or missing, try to fetch
+        logger.debug(
+                "SHA {} not fully available locally - fetching {} from {}", shortenCommitId(sha), refSpec, remoteName);
+        try {
+            repo.getGit()
+                    .fetch()
+                    .setRemote(remoteName)
+                    .setRefSpecs(new RefSpec(refSpec))
+                    .call();
+            // After fetch, verify again
+            if (isCommitLocallyAvailable(repo, sha)) {
+                logger.debug("Successfully fetched and verified SHA {}", shortenCommitId(sha));
+                return true;
+            } else {
+                logger.warn(
+                        "Failed to make SHA {} fully available locally even after fetching {} from {}",
+                        shortenCommitId(sha),
+                        refSpec,
+                        remoteName);
+                return false;
+            }
+        } catch (Exception e) {
+            // Includes GitAPIException, IOException, etc.
+            logger.warn(
+                    "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
+                    shortenCommitId(sha),
+                    e.getMessage(),
+                    e);
+            return false;
+        }
     }
 }
