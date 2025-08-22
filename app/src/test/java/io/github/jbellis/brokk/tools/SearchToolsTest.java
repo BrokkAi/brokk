@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
-import java.io.File;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -154,28 +153,33 @@ public class SearchToolsTest {
         // 3. Test cases
         // A. Full path with forward slashes
         String resultNix = searchTools.searchFilenames(java.util.List.of(relativePathNix), "test nix path");
-        assertTrue(resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
-                   "Should find file with forward-slash path");
+        assertTrue(
+                resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
+                "Should find file with forward-slash path");
 
         // B. File name only
         String resultName = searchTools.searchFilenames(java.util.List.of("MOP.svelte"), "test file name");
-        assertTrue(resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
-                   "Should find file with file name only");
+        assertTrue(
+                resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
+                "Should find file with file name only");
 
         // C. Partial path
         String resultPartial = searchTools.searchFilenames(java.util.List.of("src/MOP"), "test partial path");
-        assertTrue(resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
-                   "Should find file with partial path");
+        assertTrue(
+                resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
+                "Should find file with partial path");
 
         // D. Full path with backslashes (Windows-style)
         String resultWin = searchTools.searchFilenames(java.util.List.of(relativePathWin), "test windows path");
-        assertTrue(resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
-                   "Should find file with back-slash path pattern");
+        assertTrue(
+                resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
+                "Should find file with back-slash path pattern");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
         String regexPattern = "frontend-mop/.*\\\\.svelte";
         String resultRegex = searchTools.searchFilenames(java.util.List.of(regexPattern), "test regex path");
-        assertTrue(resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
-                   "Should find file with regex pattern");
+        assertTrue(
+                resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
+                "Should find file with regex pattern");
     }
 }
