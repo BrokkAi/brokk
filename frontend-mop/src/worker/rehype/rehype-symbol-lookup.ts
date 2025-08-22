@@ -9,9 +9,47 @@ import {visit} from 'unist-util-visit';
  * PERFORMANCE: Uses single AST traversal with cached node references - 50% improvement over dual traversal.
  */
 
-// Simple cleanup - only trim whitespace, preserve original symbol
+// Java class name validation - only accept valid Java class names (simple or fully qualified)
 function cleanSymbolName(raw: string): string {
-    return raw.trim();
+    const trimmed = raw.trim();
+
+    // Length check
+    if (trimmed.length < 2 || trimmed.length > 200) {
+        return '';
+    }
+
+    // Check if it could be a Java class name (simple or qualified)
+    if (isValidJavaClassName(trimmed)) {
+        return trimmed;
+    }
+
+    return '';
+}
+
+function isValidJavaClassName(name: string): boolean {
+    // Split by dots for package.Class format
+    const segments = name.split('.');
+
+    // Each segment must be a valid Java identifier
+    for (const segment of segments) {
+        if (!isValidJavaIdentifier(segment)) {
+            return false;
+        }
+    }
+
+    // If multiple segments, last one should look like a class name (start with uppercase)
+    if (segments.length > 1) {
+        const className = segments[segments.length - 1];
+        return /^[A-Z]/.test(className);
+    }
+
+    // Single segment should start with uppercase (class name)
+    return /^[A-Z]/.test(name);
+}
+
+function isValidJavaIdentifier(identifier: string): boolean {
+    // Java identifier: start with letter/underscore/dollar, then letters/digits/underscore/dollar
+    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(identifier);
 }
 
 // Store symbol nodes during traversal for efficient enhancement

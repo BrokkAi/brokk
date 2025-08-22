@@ -24,60 +24,44 @@ public class SymbolLookupService {
             Set<String> symbolNames, @Nullable IContextManager contextManager) {
         var results = new HashMap<String, SymbolLookupResult>();
 
-        logger.debug("Starting lookup for {} symbols: {}", symbolNames.size(), symbolNames);
+        logger.trace("Starting lookup for {} symbols", symbolNames.size());
 
         if (symbolNames.isEmpty()) {
-            logger.debug("No symbols to lookup, returning empty results");
             return results;
         }
 
         if (contextManager == null) {
-            logger.debug("No context manager available for symbol lookup");
+            logger.trace("No context manager available for symbol lookup");
             symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
             return results;
         }
 
         var project = contextManager.getProject();
-        logger.debug(
-                "ContextManager type: {}, project: {} at {}",
-                contextManager.getClass().getSimpleName(),
-                project.getClass().getSimpleName(),
-                project.getRoot());
+        logger.trace("Using {} with project at {}", contextManager.getClass().getSimpleName(), project.getRoot());
 
         try {
-            logger.debug("Getting analyzer wrapper...");
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
-            logger.debug(
-                    "AnalyzerWrapper type: {}, ready: {}",
-                    analyzerWrapper.getClass().getSimpleName(),
-                    analyzerWrapper.isReady());
+            logger.trace("AnalyzerWrapper ready: {}", analyzerWrapper.isReady());
 
             if (!analyzerWrapper.isReady()) {
-                logger.debug("Analyzer not ready, returning false for all symbols");
+                logger.trace("Analyzer not ready");
                 symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
                 return results;
             }
 
-            logger.debug("Getting non-blocking analyzer...");
             var analyzer = analyzerWrapper.getNonBlocking();
 
-            logger.debug(
-                    "Analyzer available: {}, empty: {}",
-                    analyzer != null,
-                    analyzer != null ? analyzer.isEmpty() : "N/A");
-
             if (analyzer == null || analyzer.isEmpty()) {
-                logger.debug("No analyzer available for symbol lookup");
+                logger.trace("No analyzer available for symbol lookup");
                 symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
                 return results;
             }
 
-            logger.debug("Using analyzer: {}", analyzer.getClass().getSimpleName());
+            logger.trace("Using analyzer: {}", analyzer.getClass().getSimpleName());
 
             for (var symbolName : symbolNames) {
-                logger.debug("Checking symbol: '{}'", symbolName);
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                logger.debug("Symbol '{}' exists: {}, FQN: {}", symbolName, symbolInfo.exists(), symbolInfo.fqn());
+                logger.trace("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
                 results.put(symbolName, new SymbolLookupResult(symbolName, symbolInfo.exists(), symbolInfo.fqn()));
             }
 
@@ -86,7 +70,7 @@ public class SymbolLookupService {
             symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
         }
 
-        logger.debug("Symbol lookup completed with {} results", results.size());
+        logger.trace("Symbol lookup completed with {} results", results.size());
         return results;
     }
 
@@ -98,39 +82,33 @@ public class SymbolLookupService {
             Set<String> symbolNames, @Nullable IContextManager contextManager) {
         var foundSymbols = new HashMap<String, String>();
 
-        logger.debug("Starting optimized lookup for {} symbols: {}", symbolNames.size(), symbolNames);
+        logger.trace("Starting optimized lookup for {} symbols", symbolNames.size());
 
         if (symbolNames.isEmpty() || contextManager == null) {
-            logger.debug("No symbols to lookup or no context manager available");
             return foundSymbols;
         }
 
         var project = contextManager.getProject();
-        logger.debug(
-                "ContextManager type: {}, project: {} at {}",
-                contextManager.getClass().getSimpleName(),
-                project.getClass().getSimpleName(),
-                project.getRoot());
+        logger.trace("Using {} with project at {}", contextManager.getClass().getSimpleName(), project.getRoot());
 
         try {
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
             if (!analyzerWrapper.isReady()) {
-                logger.debug("Analyzer not ready, returning empty results");
+                logger.trace("Analyzer not ready");
                 return foundSymbols;
             }
 
             var analyzer = analyzerWrapper.getNonBlocking();
             if (analyzer == null || analyzer.isEmpty()) {
-                logger.debug("No analyzer available for symbol lookup");
+                logger.trace("No analyzer available for symbol lookup");
                 return foundSymbols;
             }
 
-            logger.debug("Using analyzer: {}", analyzer.getClass().getSimpleName());
+            logger.trace("Using analyzer: {}", analyzer.getClass().getSimpleName());
 
             for (var symbolName : symbolNames) {
-                logger.debug("Checking symbol: '{}'", symbolName);
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                logger.debug("Symbol '{}' exists: {}, FQN: {}", symbolName, symbolInfo.exists(), symbolInfo.fqn());
+                logger.trace("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
 
                 // Only add symbols that actually exist
                 if (symbolInfo.exists() && symbolInfo.fqn() != null) {
@@ -143,10 +121,7 @@ public class SymbolLookupService {
             // Return empty map on error instead of negative results
         }
 
-        logger.debug(
-                "Optimized symbol lookup completed with {} found symbols out of {} requested",
-                foundSymbols.size(),
-                symbolNames.size());
+        logger.trace("Optimized lookup completed: {} found out of {} requested", foundSymbols.size(), symbolNames.size());
         return foundSymbols;
     }
 
@@ -156,36 +131,23 @@ public class SymbolLookupService {
         }
 
         var trimmed = symbolName.trim();
-        logger.debug("Checking symbol existence: '{}'", trimmed);
+        logger.trace("Checking symbol existence: '{}'", trimmed);
 
         try {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
-            logger.debug(
-                    "getDefinition('{}') result: {}", trimmed, definition.isPresent() ? definition.get() : "not found");
+            logger.trace("getDefinition('{}') found: {}", trimmed, definition.isPresent());
             if (definition.isPresent()) {
                 return new SymbolInfo(true, definition.get().fqName());
             }
 
             // Then try pattern search
-            logger.debug("Trying searchDefinitions for '{}'", trimmed);
             var searchResults = analyzer.searchDefinitions(trimmed);
-            logger.debug("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
+            logger.trace("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
 
-            // Enhanced debug logging for TSParser specifically
-            if ("TSParser".equals(trimmed)) {
-                logger.info("=== ENHANCED DEBUG FOR TSParser ===");
-                logger.info("Found {} search results for 'TSParser':", searchResults.size());
-                for (int i = 0; i < searchResults.size(); i++) {
-                    var result = searchResults.get(i);
-                    logger.info(
-                            "  {}. FQN: '{}', Simple: '{}'", i + 1, result.fqName(), getSimpleName(result.fqName()));
-                }
-                logger.info("=== END TSParser DEBUG ===");
-            }
 
             if (!searchResults.isEmpty()) {
-                logger.debug(
+                logger.trace(
                         "Search results for '{}': {}",
                         trimmed,
                         searchResults.stream().limit(5).map(cu -> cu.fqName()).toList());
@@ -193,7 +155,7 @@ public class SymbolLookupService {
                 // For Java, return all exact class matches; for other languages, find best match
                 var projectSourceResults = filterToProjectSources(searchResults);
                 if (projectSourceResults.isEmpty()) {
-                    logger.debug("No project source matches found for '{}'", trimmed);
+                    logger.trace("No project source matches found for '{}'", trimmed);
                     return new SymbolInfo(false, null);
                 }
 
@@ -204,46 +166,29 @@ public class SymbolLookupService {
                                 .map(CodeUnit::fqName)
                                 .sorted()
                                 .collect(Collectors.joining(","));
-                        logger.debug("Java class matches for '{}': {}", trimmed, commaSeparatedFqns);
+                        logger.trace("Java class matches for '{}': {}", trimmed, commaSeparatedFqns);
                         return new SymbolInfo(true, commaSeparatedFqns);
                     }
                 } else {
                     // For non-Java languages, use the existing best match logic
                     var bestMatch = findBestMatch(trimmed, projectSourceResults);
-                    logger.debug("Best match for '{}': {}", trimmed, bestMatch.fqName());
+                    logger.trace("Best match for '{}': {}", trimmed, bestMatch.fqName());
                     return new SymbolInfo(true, bestMatch.fqName());
                 }
             }
 
-            // Debug: Sample some FQN names from analyzer to see what's available
-            var allDeclarations = analyzer.getAllDeclarations();
-            logger.debug("Total declarations in analyzer: {}", allDeclarations.size());
-            if (!allDeclarations.isEmpty()) {
-                var sampleFqNames = allDeclarations.stream()
-                        .limit(10)
-                        .map(cu -> cu.fqName())
-                        .toList();
-                logger.debug("Sample FQN names in analyzer: {}", sampleFqNames);
-
-                // Specifically check for TreeSitterAnalyzer
-                var treeSitterMatches = allDeclarations.stream()
-                        .filter(cu -> cu.fqName().contains("TreeSitter"))
-                        .map(cu -> cu.fqName())
-                        .toList();
-                logger.debug("FQN names containing 'TreeSitter': {}", treeSitterMatches);
-            }
 
             return new SymbolInfo(false, null);
 
         } catch (Exception e) {
-            logger.debug("Error checking symbol existence for '{}': {}", trimmed, e.getMessage());
+            logger.trace("Error checking symbol existence for '{}': {}", trimmed, e.getMessage());
             return new SymbolInfo(false, null);
         }
     }
 
     /** Find the best match from search results, prioritizing exact matches over substring matches. */
     private static CodeUnit findBestMatch(String searchTerm, List<CodeUnit> searchResults) {
-        logger.debug("Finding best match for '{}' among {} results", searchTerm, searchResults.size());
+        logger.trace("Finding best match for '{}' among {} results", searchTerm, searchResults.size());
 
         // Priority 1: Exact simple name match (class name without package)
         var exactSimpleNameMatches = searchResults.stream()
@@ -251,12 +196,12 @@ public class SymbolLookupService {
                 .toList();
 
         if (!exactSimpleNameMatches.isEmpty()) {
-            logger.debug("Found {} exact simple name matches for '{}'", exactSimpleNameMatches.size(), searchTerm);
+            logger.trace("Found {} exact simple name matches for '{}'", exactSimpleNameMatches.size(), searchTerm);
             // If multiple exact matches, prefer the shortest FQN (more specific/direct)
             var result = exactSimpleNameMatches.stream()
                     .min(Comparator.comparing(cu -> cu.fqName().length()))
                     .orElseThrow(); // Safe since we check isEmpty() above
-            logger.debug("Selected exact match: '{}'", result.fqName());
+            logger.trace("Selected exact match: '{}'", result.fqName());
             return result;
         }
 
@@ -268,11 +213,11 @@ public class SymbolLookupService {
                 .toList();
 
         if (!endsWithMatches.isEmpty()) {
-            logger.debug("Found {} 'ends with' matches for '{}'", endsWithMatches.size(), searchTerm);
+            logger.trace("Found {} 'ends with' matches for '{}'", endsWithMatches.size(), searchTerm);
             var result = endsWithMatches.stream()
                     .min(Comparator.comparing(cu -> cu.fqName().length()))
                     .orElseThrow(); // Safe since we check isEmpty() above
-            logger.debug("Selected 'ends with' match: '{}'", result.fqName());
+            logger.trace("Selected 'ends with' match: '{}'", result.fqName());
             return result;
         }
 
@@ -291,24 +236,24 @@ public class SymbolLookupService {
                     .toList();
 
             if (!reasonableMatches.isEmpty()) {
-                logger.debug(
+                logger.trace(
                         "Using selective fallback 'contains' matching for '{}' with {} reasonable matches",
                         searchTerm,
                         reasonableMatches.size());
                 var result = reasonableMatches.stream()
                         .min(Comparator.comparing(cu -> cu.fqName().length()))
                         .orElseThrow();
-                logger.debug("Selected selective fallback match: '{}'", result.fqName());
+                logger.trace("Selected selective fallback match: '{}'", result.fqName());
                 return result;
             }
         }
 
         // If no reasonable matches, just return the shortest overall match but log a warning
-        logger.debug("No reasonable matches for '{}', using unrestricted fallback", searchTerm);
+        logger.trace("No reasonable matches for '{}', using unrestricted fallback", searchTerm);
         var result = searchResults.stream()
                 .min(Comparator.comparing(cu -> cu.fqName().length()))
                 .orElseThrow(); // Safe since the caller checks searchResults is not empty
-        logger.debug("Selected unrestricted fallback match: '{}'", result.fqName());
+        logger.trace("Selected unrestricted fallback match: '{}'", result.fqName());
         return result;
     }
 
@@ -337,7 +282,7 @@ public class SymbolLookupService {
 
     /** Find all Java classes with exact simple name match for the given search term. */
     private static List<CodeUnit> findAllJavaClassMatches(String searchTerm, List<CodeUnit> searchResults) {
-        logger.debug("Finding all Java class matches for '{}' among {} results", searchTerm, searchResults.size());
+        logger.trace("Finding all Java class matches for '{}' among {} results", searchTerm, searchResults.size());
 
         // For Java, find all classes with exact simple name match (ignoring case for class names)
         var exactMatches = searchResults.stream()
@@ -345,8 +290,8 @@ public class SymbolLookupService {
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
                 .toList();
 
-        logger.debug("Found {} exact Java class matches for '{}'", exactMatches.size(), searchTerm);
-        exactMatches.forEach(cu -> logger.debug("  Match: {}", cu.fqName()));
+        logger.trace("Found {} exact Java class matches for '{}'", exactMatches.size(), searchTerm);
+        exactMatches.forEach(cu -> logger.trace("  Match: {}", cu.fqName()));
 
         return exactMatches;
     }
