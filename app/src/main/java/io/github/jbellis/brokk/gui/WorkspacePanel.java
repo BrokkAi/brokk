@@ -1579,15 +1579,11 @@ public class WorkspacePanel extends JPanel {
             dialog.setVisible(true);
             dialogRef.set(dialog);
         });
-        try {
-            var dialog = castNonNull(dialogRef.get());
-            if (dialog.isConfirmed()) {
-                return dialog.getSelectedSymbol();
-            }
-            return null;
-        } finally {
-            chrome.focusInput();
+        var dialog = castNonNull(dialogRef.get());
+        if (dialog.isConfirmed()) {
+            return dialog.getSelectedSymbol();
         }
+        return null;
     }
 
     /** Show the call graph dialog for configuring method and depth */
@@ -1601,15 +1597,9 @@ public class WorkspacePanel extends JPanel {
             dialog.setVisible(true);
             dialogRef.set(dialog);
         });
-        try {
-            var dialog = dialogRef.get();
-            if (dialog != null && dialog.isConfirmed()) {
-                return dialog;
-            }
-            return null;
-        } finally {
-            chrome.focusInput();
-        }
+
+        var dialog = castNonNull(dialogRef.get());
+        return dialog.isConfirmed() ? dialog : null;
     }
 
     /**
@@ -1620,7 +1610,7 @@ public class WorkspacePanel extends JPanel {
             ContextAction action, List<? extends ContextFragment> selectedFragments) // Use wildcard
             {
         // Use submitContextTask from ContextManager to run the action on the appropriate executor
-        var future = contextManager.submitContextTask(action + " action", () -> {
+        return contextManager.submitContextTask(action + " action", () -> {
             try {
                 switch (action) {
                     case EDIT -> doEditAction(selectedFragments);
@@ -1633,12 +1623,10 @@ public class WorkspacePanel extends JPanel {
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput(action + " canceled.");
+            } finally {
+                SwingUtilities.invokeLater(chrome::focusInput);
             }
-            // No finally block needed here as submitContextTask handles enabling buttons
         });
-        // Refocus the instructions input promptly after hotkey-triggered workspace actions
-        SwingUtilities.invokeLater(chrome::focusInput);
-        return future;
     }
 
     /** Edit Action: Only allows selecting Project Files */
@@ -2025,15 +2013,9 @@ public class WorkspacePanel extends JPanel {
             dialog.setVisible(true);
             dialogRef.set(dialog);
         });
-        try {
-            var dialog = dialogRef.get();
-            if (dialog != null && dialog.isConfirmed()) {
-                return dialog.getSelection(); // Return the Selection record
-            }
-            return null; // Indicate cancellation or no selection
-        } finally {
-            chrome.focusInput();
-        }
+
+        var dialog = castNonNull(dialogRef.get());
+        return dialog.isConfirmed() ? dialog.getSelection() : null;
     }
 
     private boolean isUrl(String text) {

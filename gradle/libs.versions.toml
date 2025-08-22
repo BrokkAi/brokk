@@ -17,6 +17,9 @@ maven-embedder = "3.9.6"
 maven-resolver = "1.9.20"
 dependency-analysis = "2.6.0"
 javafx = "22"
+node = "7.1.0"
+nodejs = "22.14.0"
+npm = "10.9.2"
 
 [libraries]
 # Scala
@@ -137,3 +140,4 @@ buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
 spotless = { id = "com.diffplug.spotless", version = "7.2.0" }
 javafx = { id = "org.openjfx.javafxplugin", version = "0.1.0" }
 dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependency-analysis" }
+node = { id = "com.github.node-gradle.node", version.ref = "node" }

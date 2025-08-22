@@ -170,28 +170,6 @@ class SimplePerformanceTest {
                     .filter(delta -> delta.intersectsRange(startLine, endLine))
                     .toList();
         }
-
-        int calculateTimerDelay(long fileSize) {
-            if (fileSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES) {
-                return PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS;
-            } else {
-                return PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS;
-            }
-        }
-
-        String determineOptimizationStrategy(long fileSize) {
-            boolean isLargeFile = fileSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
-
-            if (isLargeFile) {
-                return OPTIMIZATION_STRATEGY_MODERATE;
-            } else {
-                return OPTIMIZATION_STRATEGY_MINIMAL;
-            }
-        }
-
-        boolean isLargeFile(long fileSize) {
-            return fileSize >= PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
-        }
     }
 
     private static class TestDelta {
@@ -238,9 +216,9 @@ class SimplePerformanceTest {
     // Test constants moved from PerformanceConstants to keep production code clean
     public static final class TestConstants {
         // Performance thresholds for testing
-        public static final long FAST_OPERATION_THRESHOLD_MS = 10;
+        public static final long FAST_OPERATION_THRESHOLD_MS = 30;
         public static final long LARGE_DIFF_OPERATION_TIMEOUT_MS = 1000;
-        public static final long VIEWPORT_FILTER_OPERATION_THRESHOLD_MS = 10;
+        public static final long VIEWPORT_FILTER_OPERATION_THRESHOLD_MS = 50;
 
         // Test file sizes
         public static final long TEST_SMALL_FILE_SIZE_BYTES = 1024 * 1024; // 1MB

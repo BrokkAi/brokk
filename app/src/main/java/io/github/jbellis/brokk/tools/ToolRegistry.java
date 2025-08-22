@@ -140,6 +140,20 @@ public class ToolRegistry {
         GET_RELATED_CLASSES("🔍", "Finding related code"),
         CALL_GRAPH_TO("🔍", "Getting call graph TO"),
         CALL_GRAPH_FROM("🔍", "Getting call graph FROM"),
+        SEARCH_GIT_COMMIT_MESSAGES("🔍", "Searching git commits"),
+        LIST_FILES("🔍", "Listing files"),
+        GET_FILES("🔍", "Finding files for classes"),
+        ADD_FILES_TO_WORKSPACE("📝", "Adding files to workspace"),
+        ADD_CLASSES_TO_WORKSPACE("📝", "Adding classes to workspace"),
+        ADD_URL_CONTENTS_TO_WORKSPACE("📝", "Adding URL contents to workspace"),
+        ADD_TEXT_TO_WORKSPACE("📝", "Adding text to workspace"),
+        ADD_SYMBOL_USAGES_TO_WORKSPACE("📝", "Adding symbol usages to workspace"),
+        ADD_CLASS_SUMMARIES_TO_WORKSPACE("📝", "Adding class summaries to workspace"),
+        ADD_FILE_SUMMARIES_TO_WORKSPACE("📝", "Adding file summaries to workspace"),
+        ADD_METHOD_SOURCES_TO_WORKSPACE("📝", "Adding method sources to workspace"),
+        ADD_CALL_GRAPH_IN_TO_WORKSPACE("📝", "Adding callers to workspace"),
+        ADD_CALL_GRAPH_OUT_TO_WORKSPACE("📝", "Adding callees to workspace"),
+        DROP_WORKSPACE_FRAGMENTS("🗑️", "Removing from workspace"),
         ANSWER_SEARCH("", ""),
         ABORT_SEARCH("", ""),
         UNKNOWN("❓", "");
@@ -174,6 +188,20 @@ public class ToolRegistry {
                 case "getMethodSources" -> GET_METHOD_SOURCES;
                 case "getCallGraphTo" -> CALL_GRAPH_TO;
                 case "getCallGraphFrom" -> CALL_GRAPH_FROM;
+                case "searchGitCommitMessages" -> SEARCH_GIT_COMMIT_MESSAGES;
+                case "listFiles" -> LIST_FILES;
+                case "getFiles" -> GET_FILES;
+                case "addFilesToWorkspace" -> ADD_FILES_TO_WORKSPACE;
+                case "addClassesToWorkspace" -> ADD_CLASSES_TO_WORKSPACE;
+                case "addUrlContentsToWorkspace" -> ADD_URL_CONTENTS_TO_WORKSPACE;
+                case "addTextToWorkspace" -> ADD_TEXT_TO_WORKSPACE;
+                case "addSymbolUsagesToWorkspace" -> ADD_SYMBOL_USAGES_TO_WORKSPACE;
+                case "addClassSummariesToWorkspace" -> ADD_CLASS_SUMMARIES_TO_WORKSPACE;
+                case "addFileSummariesToWorkspace" -> ADD_FILE_SUMMARIES_TO_WORKSPACE;
+                case "addMethodSourcesToWorkspace" -> ADD_METHOD_SOURCES_TO_WORKSPACE;
+                case "addCallGraphInToWorkspace" -> ADD_CALL_GRAPH_IN_TO_WORKSPACE;
+                case "addCallGraphOutToWorkspace" -> ADD_CALL_GRAPH_OUT_TO_WORKSPACE;
+                case "dropWorkspaceFragments" -> DROP_WORKSPACE_FRAGMENTS;
                 case "answerSearch" -> ANSWER_SEARCH;
                 case "abortSearch" -> ABORT_SEARCH;
                 default -> {

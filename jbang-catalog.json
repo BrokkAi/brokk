@@ -2,7 +2,7 @@
   "catalogs": {},
   "aliases": {
     "brokk": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.13.2/brokk-0.13.2.jar",
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.13.3/brokk-0.13.3.jar",
       "java": "21",
       "java-options": [
         "--add-modules=jdk.incubator.vector"
