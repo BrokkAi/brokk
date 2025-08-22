@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
-import java.lang.reflect.Method;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -15,19 +14,6 @@ import org.junit.jupiter.api.Test;
  * difference when a diff is opened.
  */
 class BufferDiffPanelAutoScrollTest {
-
-    @Test
-    @DisplayName("scrollToFirstDifference method exists and handles null safely")
-    void testScrollToFirstDifferenceMethodExists() throws Exception {
-        // Verify that the scrollToFirstDifference method exists on BufferDiffPanel
-        Method scrollMethod = BufferDiffPanel.class.getDeclaredMethod("scrollToFirstDifference");
-        assertNotNull(scrollMethod, "scrollToFirstDifference method should exist");
-
-        // Verify the method is private as intended
-        assertTrue(
-                java.lang.reflect.Modifier.isPrivate(scrollMethod.getModifiers()),
-                "scrollToFirstDifference should be private");
-    }
 
     @Test
     @DisplayName("Auto-scroll logic correctly identifies first difference in patch")

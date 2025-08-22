@@ -92,6 +92,13 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    /** The metrics around the codebase as determined by the analyzer. */
+    default CodeBaseMetrics getMetrics() {
+        final var declarations = getAllDeclarations();
+        final var codeUnits = declarations.stream().map(CodeUnit::source).distinct();
+        return new CodeBaseMetrics((int) codeUnits.count(), declarations.size());
+    }
+
     /** Gets top-level declarations in a given file. */
     default Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
         throw new UnsupportedOperationException();
@@ -114,7 +121,7 @@ public interface IAnalyzer {
 
     /**
      * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided pattern as
-     * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*" val
+     * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"val
      * ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
      */
     default List<CodeUnit> searchDefinitions(String pattern) {
@@ -215,6 +222,8 @@ public interface IAnalyzer {
     /**
      * Gets a set of relevant symbol names (classes, methods, fields) defined within the given source CodeUnits.
      *
+     * <p>
+     *
      * <p>Almost all String representations in the Analyzer are fully-qualified, but these are not! In CodeUnit terms,
      * this returns identifiers -- just the symbol name itself, no class or package hierarchy.
      *
@@ -244,6 +253,8 @@ public interface IAnalyzer {
      * contains the *parameter variable names* (not types). If there is only a single match, or exactly one match with
      * matching param names, return it. Otherwise throw {@code SymbolNotFoundException} or
      * {@code SymbolAmbiguousException}.
+     *
+     * <p>
      *
      * <p>TODO this should return an Optional
      */

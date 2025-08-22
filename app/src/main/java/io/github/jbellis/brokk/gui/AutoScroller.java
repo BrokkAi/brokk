@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import javax.swing.*;
@@ -49,15 +50,9 @@ public final class AutoScroller {
         } else if (view instanceof JList<?> list) {
             list.getModel().addListDataListener(new ListDataAdapter(state));
             logger.trace("[AutoScroller] Installed ListDataListener for JList");
-        } else if (view.getClass().getName().equals("io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel")) {
-            try {
-                var mopClass = Class.forName("io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel");
-                var addTextChangeListenerMethod = mopClass.getMethod("addTextChangeListener", Runnable.class);
-                addTextChangeListenerMethod.invoke(view, (Runnable) state::contentGrew);
-                logger.trace("[AutoScroller] Installed text change listener for MarkdownOutputPanel");
-            } catch (Exception e) {
-                logger.error("[AutoScroller] Failed to install text change listener for MarkdownOutputPanel", e);
-            }
+        } else if (view instanceof MarkdownOutputPanel mop) {
+            mop.addTextChangeListener(state::contentGrew);
+            logger.trace("[AutoScroller] Installed text change listener for MarkdownOutputPanel");
         } else {
             // Fallback for custom components
             final int[] lastHeight = {view.getHeight()};

@@ -12,6 +12,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -1291,6 +1292,14 @@ public class GitRepo implements Closeable, IGitRepo {
         invalidateCaches();
     }
 
+    /** Cherry-picks a commit onto the current HEAD (typically the current branch). */
+    public CherryPickResult cherryPickCommit(String commitId) throws GitAPIException {
+        var objectId = resolve(commitId);
+        var result = git.cherryPick().include(objectId).call();
+        invalidateCaches();
+        return result;
+    }
+
     /**
      * Checkout specific files from a commit, restoring them to their state at that commit. This is equivalent to `git
      * checkout <commitId> -- <files>`
@@ -2015,24 +2024,61 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Search commits by text in message/author/email */
+    /**
+     * Search commits whose full message, author name, or author e-mail match the supplied regular expression
+     * (case-insensitive).
+     *
+     * @param query a Java regular-expression pattern
+     * @return matching commits, newest first (same order as {@code git log})
+     * @throws GitAPIException on git errors
+     * @throws GitRepoException if the regex is invalid
+     */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
-        var commits = new ArrayList<CommitInfo>();
-        var lowerQuery = query.toLowerCase(Locale.ROOT);
+        var matches = new ArrayList<CommitInfo>();
 
-        for (var commit : git.log().call()) {
-            var cMessage = commit.getFullMessage().toLowerCase(Locale.ROOT);
-            var cAuthorName = commit.getAuthorIdent().getName().toLowerCase(Locale.ROOT);
-            var cAuthorEmail = commit.getAuthorIdent().getEmailAddress().toLowerCase(Locale.ROOT);
-
-            if (cMessage.contains(lowerQuery)
-                    || cAuthorName.contains(lowerQuery)
-                    || cAuthorEmail.contains(lowerQuery)) {
-                // Use factory method
-                commits.add(this.fromRevCommit(commit));
+        Pattern pattern = null;
+        boolean regexValid = true;
+        try {
+            // Prepare case-insensitive regex pattern
+            var preparedPattern = query.contains(".*") ? query : ".*" + query + ".*";
+            pattern = Pattern.compile("(?i)" + preparedPattern, Pattern.CASE_INSENSITIVE);
+        } catch (PatternSyntaxException e) {
+            if (query.startsWith("(?i).*")) {
+                // Propagate exception to indicate we should try a fallback pattern
+                throw e;
+            } else {
+                // Try again with pattern escaping from the start
+                try {
+                    return searchCommits(".*" + Pattern.quote(query) + ".*");
+                } catch (PatternSyntaxException rethrownException) {
+                    regexValid = false;
+                }
             }
         }
-        return commits;
+        final String fallbackPattern = query.toLowerCase(Locale.ROOT);
+
+        for (var commit : git.log().call()) {
+            var msg = commit.getFullMessage();
+            var author = commit.getAuthorIdent();
+            var name = author.getName();
+            var email = author.getEmailAddress();
+
+            boolean match;
+            if (regexValid && pattern != null) {
+                match = pattern.matcher(msg).find()
+                        || pattern.matcher(name).find()
+                        || pattern.matcher(email).find();
+            } else {
+                match = msg.toLowerCase(Locale.ROOT).contains(fallbackPattern)
+                        || name.toLowerCase(Locale.ROOT).contains(fallbackPattern)
+                        || email.toLowerCase(Locale.ROOT).contains(fallbackPattern);
+            }
+
+            if (match) {
+                matches.add(this.fromRevCommit(commit));
+            }
+        }
+        return matches;
     }
 
     @Override
@@ -2217,6 +2263,19 @@ public class GitRepo implements Closeable, IGitRepo {
         var idB = resolve(revB);
         var mb = computeMergeBase(idA, idB);
         return mb == null ? null : mb.getName();
+    }
+
+    /** Returns true if the given commit is reachable from the specified base ref (e.g., "HEAD" or a branch name). */
+    public boolean isCommitReachableFrom(String commitId, String baseRef) throws GitAPIException {
+        var commitObj = resolve(commitId);
+        var baseObj = resolve(baseRef);
+        try (var revWalk = new RevWalk(repository)) {
+            RevCommit commit = revWalk.parseCommit(commitObj);
+            RevCommit base = revWalk.parseCommit(baseObj);
+            return revWalk.isMergedInto(commit, base);
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
     }
 
     public record ListWorktreesResult(List<WorktreeInfo> worktrees, List<Path> invalidPaths) {}

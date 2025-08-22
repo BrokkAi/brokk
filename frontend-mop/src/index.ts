@@ -66,7 +66,6 @@ function setupBrokkInterface(): any[] {
 }
 
 async function handleEvent(payload: any): Promise<void> {
-    console.log('Received event from Java bridge:', JSON.stringify(payload));
     onBrokkEvent(payload); // updates store & talks to worker
 
     // Wait until Svelte updated *and* browser painted
@@ -105,11 +104,11 @@ function setAppTheme(dark: boolean, isDevMode?: boolean): void {
 }
 
 function showSpinnerMessage(message = ''): void {
-    spinnerStore.set({visible: true, message});
+    spinnerStore.show(message);
 }
 
 function hideSpinnerMessage(): void {
-    spinnerStore.set({visible: false, message: ''});
+    spinnerStore.hide();
     // Notify worker that spinner is hidden to clear symbol cache
     notifyWorkerHideSpinner();
 }

@@ -8,7 +8,9 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
@@ -20,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import javax.swing.*;
-import javax.swing.KeyStroke;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
 import org.apache.logging.log4j.LogManager;
@@ -32,6 +33,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
+    private final JSplitPane mainSplitPane;
+    private final FileTreePanel fileTreePanel;
     private boolean started;
     private final JLabel loadingLabel = createLoadingLabel();
     private final GuiTheme theme;
@@ -41,6 +44,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     final List<FileComparisonInfo> fileComparisons;
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
+    private final int initialFileIndex;
 
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
@@ -90,6 +94,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.theme = theme;
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
+        this.initialFileIndex = builder.initialFileIndex;
 
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
@@ -99,11 +104,40 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Make the container focusable, so it can handle key events
         setFocusable(true);
         tabbedPane = new JTabbedPane();
+
+        // Initialize file tree panel
+        fileTreePanel = new FileTreePanel(
+                this.fileComparisons, contextManager.getProject().getRoot(), builder.rootTitle);
+
+        // Create split pane with file tree on left and tabs on right (only if multiple files)
+        mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.setMinimumSize(new Dimension(200, 0)); // Prevent file tree from becoming too small
+            mainSplitPane.setLeftComponent(fileTreePanel);
+            mainSplitPane.setRightComponent(tabbedPane);
+            mainSplitPane.setDividerLocation(250); // 250px for file tree
+            mainSplitPane.setResizeWeight(0.25); // Give file tree 25% of resize space
+        } else {
+            // For single file, only show the tabs without the file tree
+            mainSplitPane.setRightComponent(tabbedPane);
+            mainSplitPane.setDividerLocation(0); // No left component, no divider
+            mainSplitPane.setDividerSize(0); // Hide the divider completely
+            mainSplitPane.setEnabled(false); // Disable resizing
+        }
+
+        // Set up tree selection listener (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.setSelectionListener(this::switchToFile);
+        }
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
         addAncestorListener(new AncestorListener() {
             @Override
             public void ancestorAdded(AncestorEvent event) {
                 start();
+                // Initialize file tree after panel is added to UI
+                if (fileComparisons.size() > 1) {
+                    fileTreePanel.initializeTree();
+                }
             }
 
             @Override
@@ -129,6 +163,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         private final ContextManager contextManager;
         private final List<FileComparisonInfo> fileComparisons;
         private boolean isMultipleCommitsContext = false;
+        private int initialFileIndex = 0;
+
+        @Nullable
+        private String rootTitle;
 
         @Nullable
         private BufferSource leftSource;
@@ -167,6 +205,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return this;
         }
 
+        public Builder setRootTitle(String rootTitle) {
+            this.rootTitle = rootTitle;
+            return this;
+        }
+
+        public Builder setInitialFileIndex(int initialFileIndex) {
+            this.initialFileIndex = initialFileIndex;
+            return this;
+        }
+
         public BrokkDiffPanel build() {
             assert !fileComparisons.isEmpty() : "At least one file comparison must be added";
             return new BrokkDiffPanel(this, theme);
@@ -198,7 +246,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
-        add(getTabbedPane(), BorderLayout.CENTER);
+        add(mainSplitPane, BorderLayout.CENTER);
 
         // Add component listener to handle window resize events after navigation
         addComponentListener(new java.awt.event.ComponentAdapter() {
@@ -326,6 +374,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Predictively load adjacent files in background
         preloadAdjacentFiles(currentFileIndex);
 
+        // Update tree selection to match current file (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.selectFile(currentFileIndex);
+        }
+
         updateNavigationButtons();
 
         // Log memory and window status
@@ -447,13 +500,27 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             var currentLeftSource = currentComparison.leftSource;
             var currentRightSource = currentComparison.rightSource;
 
+            // Build a friendlier description that shows a shortened hash plus
+            // the first-line commit title (trimmed with … when overly long)
+            // Build user-friendly labels for the two sides
+            GitRepo repo = null;
+            try {
+                repo = (GitRepo) contextManager.getProject().getRepo();
+            } catch (Exception lookupEx) {
+                // Commit message lookup is best-effort; log at TRACE and continue.
+                if (logger.isTraceEnabled()) {
+                    logger.trace("Commit message lookup failed: {}", lookupEx.toString());
+                }
+            }
+            var description = "Captured Diff: %s vs %s"
+                    .formatted(
+                            GitUiUtil.friendlyCommitLabel(currentLeftSource.title(), repo),
+                            GitUiUtil.friendlyCommitLabel(currentRightSource.title(), repo));
+
             var patch = DiffUtils.diff(leftLines, rightLines, (DiffAlgorithmListener) null);
             var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(
                     currentLeftSource.title(), currentRightSource.title(), leftLines, patch, 0);
             var diffText = String.join("\n", unifiedDiff);
-
-            var description =
-                    "Captured Diff: %s vs %s".formatted(currentLeftSource.title(), currentRightSource.title());
 
             var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
 
@@ -631,11 +698,17 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     public void launchComparison() {
         logger.info(
-                "Navigation Step 0: Launching diff comparison with {} files, starting with file index 0",
-                fileComparisons.size());
-        // Show the first file immediately
-        currentFileIndex = 0;
+                "Navigation Step 0: Launching diff comparison with {} files, starting with file index {}",
+                fileComparisons.size(),
+                initialFileIndex);
+        // Show the initial file
+        currentFileIndex = initialFileIndex;
         loadFileOnDemand(currentFileIndex);
+
+        // Select the initial file in the tree (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.selectFile(currentFileIndex);
+        }
     }
 
     private void loadFileOnDemand(int fileIndex) {
@@ -984,6 +1057,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             panel.applyTheme(guiTheme);
         }
 
+        // Apply theme to file tree panel (only if multiple files)
+        if (fileComparisons.size() > 1) {
+            fileTreePanel.applyTheme(guiTheme);
+        }
+
         // Update all child components including toolbar buttons and labels
         SwingUtilities.updateComponentTreeUI(this);
         revalidate();
@@ -1166,10 +1244,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * BorderLayout relationships to restore proper resize behavior.
      */
     private void resetLayoutHierarchy(BufferDiffPanel currentPanel) {
-        // Remove and re-add tabbedPane to reset BorderLayout relationships
-        remove(getTabbedPane());
+        // Remove and re-add mainSplitPane to reset BorderLayout relationships
+        remove(mainSplitPane);
         invalidate();
-        add(getTabbedPane(), java.awt.BorderLayout.CENTER);
+        add(mainSplitPane, java.awt.BorderLayout.CENTER);
         revalidate();
 
         // Ensure child components are properly updated

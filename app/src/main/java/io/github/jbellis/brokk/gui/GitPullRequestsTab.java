@@ -490,6 +490,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prFilesPanel.add(new JScrollPane(prFilesTable), BorderLayout.CENTER);
 
+        setupPrFilesTableDoubleClick();
+
         // Add panels to split pane
         rightSplitPane.setTopComponent(prCommitsPanel);
         rightSplitPane.setBottomComponent(prFilesPanel);
@@ -735,7 +737,50 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         int modelRow = prCommitsTable.convertRowIndexToModel(row);
                         if (modelRow >= 0 && modelRow < currentPrCommitDetailsList.size()) {
                             ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
+
+                            // Check if there's a selected file in the PR files table
+                            int selectedFileRow = prFilesTable.getSelectedRow();
+                            if (selectedFileRow != -1) {
+                                int selectedFileModelRow = prFilesTable.convertRowIndexToModel(selectedFileRow);
+                                if (selectedFileModelRow >= 0
+                                        && selectedFileModelRow < prFilesTableModel.getRowCount()) {
+                                    Object cellValue = prFilesTableModel.getValueAt(selectedFileModelRow, 0);
+                                    if (cellValue instanceof String filename) {
+                                        // Extract the file path from "filename - full/path" format
+                                        String targetFilePath = GitUiUtil.extractFilePathFromDisplay(filename);
+                                        GitUiUtil.openCommitDiffPanel(
+                                                contextManager, chrome, commitInfo, targetFilePath);
+                                        return;
+                                    }
+                                }
+                            }
+
+                            // Fallback to original behavior if no file selected
                             GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    private void setupPrFilesTableDoubleClick() {
+        prFilesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = prFilesTable.rowAtPoint(e.getPoint());
+                    if (row != -1) {
+                        int modelRow = prFilesTable.convertRowIndexToModel(row);
+                        if (modelRow >= 0 && modelRow < prFilesTableModel.getRowCount()) {
+                            Object cellValue = prFilesTableModel.getValueAt(modelRow, 0);
+                            if (cellValue instanceof String filename) {
+                                int selectedRow = prTable.getSelectedRow();
+                                if (selectedRow != -1 && selectedRow < displayedPrs.size()) {
+                                    GHPullRequest pr = displayedPrs.get(selectedRow);
+                                    GitUiUtil.openPrDiffPanel(contextManager, chrome, pr, filename);
+                                }
+                            }
                         }
                     }
                 }
@@ -1387,7 +1432,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GHPullRequest pr = displayedPrs.get(selectedRow);
         logger.info("Capturing diff for PR #{}", pr.getNumber());
 
-        String sessionName = "Review PR #" + pr.getNumber();
+        String sessionName = PrTitleFormatter.formatReviewSessionName(pr);
 
         // Create a new session before capturing anything into the context
         contextManager.createSessionAsync(sessionName).whenComplete((Object ignored, @Nullable Throwable err) -> {
@@ -1404,8 +1449,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String currentInstructions = chrome.getInstructionsPanel().getInstructions();
                 if (currentInstructions.trim().isEmpty()) {
                     String reviewGuide = contextManager.getProject().getReviewGuide();
-                    String reviewPrompt =
-                            String.format("Review PR #%d: %s\n\n%s", pr.getNumber(), pr.getTitle(), reviewGuide);
+                    String reviewPrompt = PrTitleFormatter.formatReviewPrompt(pr, reviewGuide);
                     chrome.getInstructionsPanel().populateInstructionsArea(reviewPrompt);
                 }
             });
@@ -1514,7 +1558,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     if (!descriptionText.isBlank()) {
                         try {
                             var descriptionFragment = new ContextFragment.StringFragment(
-                                    contextManager, descriptionText, "PR #" + prNumber + " Description", "markdown");
+                                    contextManager,
+                                    descriptionText,
+                                    PrTitleFormatter.formatDescriptionTitle(prNumber),
+                                    "markdown");
                             contextManager.addVirtualFragment(descriptionFragment);
                             logger.info("Added PR description fragment for PR #{}", prNumber);
                         } catch (Exception e) {
@@ -1526,8 +1573,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 } catch (Exception ex) {
                     logger.error("Error capturing diff for PR #{}", pr.getNumber(), ex);
                     chrome.toolError(
-                            "Unable to capture diff for PR #" + pr.getNumber() + ": " + ex.getMessage(),
-                            "Capture Diff Error");
+                            PrTitleFormatter.formatCaptureError(pr.getNumber(), ex.getMessage()), "Capture Diff Error");
                 }
             });
         });
@@ -1574,13 +1620,16 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(
-                            "No changes found in PR #" + pr.getNumber(), "Diff Info", JOptionPane.INFORMATION_MESSAGE);
+                            PrTitleFormatter.formatNoChangesMessage(pr.getNumber()),
+                            "Diff Info",
+                            JOptionPane.INFORMATION_MESSAGE);
                     return null;
                 }
 
                 var builder = new io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel.Builder(
                                 chrome.getTheme(), contextManager)
-                        .setMultipleCommitsContext(true); // Indicate this is a multiple commits context
+                        .setMultipleCommitsContext(true) // Indicate this is a multiple commits context
+                        .setRootTitle(PrTitleFormatter.formatPrRoot(pr));
 
                 for (var mf : modifiedFiles) {
                     var projectFile = mf.file();
@@ -1589,29 +1638,27 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                     if ("deleted".equals(status)) {
                         leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.getFileName());
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
                         rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                "", prHeadSha + " (Deleted)", projectFile.getFileName());
+                                "", prHeadSha + " (Deleted)", projectFile.toString());
                     } else if ("new".equals(status)) {
                         leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                "", prBaseSha + " (New)", projectFile.getFileName());
+                                "", prBaseSha + " (New)", projectFile.toString());
                         rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.getFileName());
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
                     } else { // modified
                         leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.getFileName());
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
                         rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
-                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.getFileName());
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
                     }
                     builder.addComparison(leftSource, rightSource);
                 }
-                SwingUtilities.invokeLater(
-                        () -> builder.build().showInFrame("PR #" + pr.getNumber() + " Diff: " + pr.getTitle()));
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame(PrTitleFormatter.formatDiffTitle(pr)));
 
             } catch (Exception ex) {
                 logger.error("Error opening PR diff viewer for PR #{}", pr.getNumber(), ex);
-                chrome.toolError(
-                        "Unable to open diff for PR #" + pr.getNumber() + ": " + ex.getMessage(), "Diff Error");
+                chrome.toolError(PrTitleFormatter.formatDiffError(pr.getNumber(), ex.getMessage()), "Diff Error");
             }
             return null;
         });

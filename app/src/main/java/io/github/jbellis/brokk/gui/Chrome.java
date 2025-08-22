@@ -191,9 +191,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
         initializeThemeManager();
-
-        loadWindowSizeAndPosition();
-        // Load saved theme, window size, and position
+        // Defer restoring window size and divider positions until after
+        // all split panes are fully constructed.
         frame.setTitle("Brokk: " + getProject().getRoot());
 
         // Show initial system message
@@ -326,14 +325,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         bottomSplitPane.setLeftComponent(leftTabbedPanel);
         bottomSplitPane.setRightComponent(outputStackSplit);
-        bottomSplitPane.setResizeWeight(0.40); // keep roughly 40% for the left tabs when resizing
-        bottomSplitPane.setDividerLocation(0.40); // initial 40% divider
+        // Ensure the right stack can shrink enough so the sidebar can grow
+        outputStackSplit.setMinimumSize(new Dimension(200, 0));
+        // Left panel keeps its preferred width; right panel takes the remaining space
+        bottomSplitPane.setResizeWeight(0.0);
+        int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+        bottomSplitPane.setDividerLocation(initialDividerLocation);
 
         bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
         bottomPanel.repaint();
+
+        // Now that every split pane exists, restore previous window size and
+        // divider locations and hook their listeners.
+        loadWindowSizeAndPosition();
 
         // Set initial enabled state for global actions after all components are ready
         this.globalUndoAction.updateEnabledState();
@@ -384,7 +391,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // After the frame is visible, (re)apply the 30 % divider if no saved position exists yet
         SwingUtilities.invokeLater(() -> {
             if (getProject().getHorizontalSplitPosition() == 0) {
-                bottomSplitPane.setDividerLocation(0.3);
+                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(preferred);
             }
         });
 
@@ -1161,8 +1169,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 4. Specific handling for Git-history snapshots
             if (workingFragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
                 var ghf = (ContextFragment.GitFileFragment) workingFragment;
-                var previewPanel =
-                        new PreviewTextPanel(contextManager, null, ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
+                // pass the actual ProjectFile so dynamic menu items can be built
+                var previewPanel = new PreviewTextPanel(
+                        contextManager, ghf.file(), ghf.text(), ghf.syntaxStyle(), themeManager, ghf);
                 showPreviewFrame(contextManager, title, previewPanel);
                 return;
             }
@@ -1208,9 +1217,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Otherwise – fall back to showing the frozen snapshot.
+                ProjectFile srcFile = null;
+                if (workingFragment instanceof ContextFragment.PathFragment pfFrag
+                        && pfFrag.file() instanceof ProjectFile p) {
+                    srcFile = p; // supply the ProjectFile if we have one
+                }
                 var snapshotPanel = new PreviewTextPanel(
                         contextManager,
-                        null,
+                        srcFile,
                         workingFragment.text(),
                         workingFragment.syntaxStyle(),
                         themeManager,
@@ -1327,15 +1341,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
             });
 
-            // Store reference to bottom split pane for position saving
-            JSplitPane bottomSplitPane = (JSplitPane) mainVerticalSplitPane.getBottomComponent();
-
             // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
             int bottomHorizPos = project.getHorizontalSplitPosition();
             if (bottomHorizPos > 0) {
                 bottomSplitPane.setDividerLocation(bottomHorizPos);
             } else {
-                bottomSplitPane.setDividerLocation(0.3);
+                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(preferred);
             }
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (bottomSplitPane.isShowing()) {
@@ -1392,9 +1404,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /** Hides the inline loading spinner in the output panel. */
     @Override
     public void hideOutputSpinner() {
-        SwingUtilities.invokeLater(() -> {
-            historyOutputPanel.hideSpinner();
-        });
+        SwingUtilities.invokeLater(historyOutputPanel::hideSpinner);
     }
 
     /** Shows the session switching spinner in the history panel. */
@@ -1410,7 +1420,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void focusInput() {
-        SwingUtilities.invokeLater(() -> instructionsPanel.requestCommandInputFocus());
+        SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
     }
 
     public void toggleGitPanel() {
@@ -1865,5 +1875,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setHorizontalAlignment(SwingConstants.CENTER);
         label.setToolTipText(tooltip);
         return label;
+    }
+
+    /** Calculates an appropriate initial width for the left sidebar based on content and window size. */
+    private int computeInitialSidebarWidth() {
+        int ideal = projectFilesPanel.getPreferredSize().width;
+        int frameWidth = frame.getWidth();
+
+        // Allow between 10 % and 40 % on normal displays.
+        // On very wide screens ( > 2000 px ), 40 % is excessive,
+        // so cap the maximum at 25 %.
+        int min = (int) (frameWidth * 0.10); // 10 % of window width
+        double maxFraction = frameWidth > 2000 ? 0.25 : 0.40;
+        int max = (int) (frameWidth * maxFraction);
+
+        return Math.max(min, Math.min(ideal, max));
     }
 }

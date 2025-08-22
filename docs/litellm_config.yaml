@@ -120,11 +120,12 @@ model_list:
       is_private: false
       max_concurrent_requests: 100
 
-  - model_name: deepseek-v3
+  - model_name: deepseek-v3.1
     litellm_params:
       model: deepseek/deepseek-chat
       api_key: "os.environ/DEEPSEEK_API_KEY"
     model_info:
+      max_input_tokens: 128000
       free_tier_eligible: true
       is_private: false
       max_concurrent_requests: 100
@@ -160,6 +161,44 @@ model_list:
     model_info:
       free_tier_eligible: true
       is_private: true
+
+  - model_name: gpt-oss-120b
+    litellm_params:
+      model: openrouter/openai/gpt-oss-120b
+      api_key: "os.environ/OPENROUTER_API_KEY"
+    model_info:
+      free_tier_eligible: true
+      is_private: true
+      max_tokens: 131072
+      max_input_tokens: 131072
+      max_output_tokens: 32766
+      input_cost_per_token: 1.5e-07
+      output_cost_per_token: 6.0e-07
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      tokens_per_minute: 8000000
+
+  - model_name: gpt-oss-20b
+    litellm_params:
+      model: openrouter/openai/gpt-oss-20b
+      api_key: "os.environ/OPENROUTER_API_KEY"
+    model_info:
+      free_tier_eligible: true
+      is_private: true
+      max_tokens: 131072
+      max_input_tokens: 131072
+      max_output_tokens: 32766
+      input_cost_per_token: 1.5e-07
+      output_cost_per_token: 6.0e-07
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      tokens_per_minute: 8000000
 
 litellm_settings:
   num_retries: 0

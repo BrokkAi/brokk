@@ -94,18 +94,14 @@ public class MenuBar {
         undoItem = new JMenuItem(chrome.getGlobalUndoAction());
         redoItem = new JMenuItem(chrome.getGlobalRedoAction());
 
-        undoItem.setText("Undo"); // Ensure text is set if Action's name is different or null
+        undoItem.setText("Undo");
         undoItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         editMenu.add(undoItem);
 
-        redoItem.setText("Redo"); // Ensure text is set
-        // Standard accelerators for redo
-        // Ctrl+Shift+Z or Cmd+Shift+Z
+        redoItem.setText("Redo");
         redoItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        // For Windows/Linux, Ctrl+Y is also common. Adding it as an alternative if the Action itself doesn't set it.
-        // However, JMenuItem only supports one accelerator. The global keyboard shortcut in Chrome handles Ctrl+Y.
         editMenu.add(redoItem);
 
         editMenu.addSeparator();
@@ -132,10 +128,10 @@ public class MenuBar {
         var contextMenu = new JMenu("Workspace");
 
         var refreshItem = new JMenuItem("Refresh Code Intelligence");
-        refreshItem.addActionListener(e -> {
+        refreshItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.contextManager.requestRebuild();
             chrome.systemOutput("Code intelligence will refresh in the background");
-        });
+        }));
         refreshItem.setEnabled(true);
         contextMenu.add(refreshItem);
 
@@ -234,24 +230,24 @@ public class MenuBar {
         var newSessionItem = new JMenuItem("New Session");
         newSessionItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        newSessionItem.addActionListener(e -> {
+        newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager()
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
                     .thenRun(() -> SwingUtilities.invokeLater(
                             () -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
-        });
+        }));
         contextMenu.add(newSessionItem);
 
         var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
         newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        newSessionCopyWorkspaceItem.addActionListener(e -> {
+        newSessionCopyWorkspaceItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager()
                     .createSessionFromContextAsync(
                             chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
                     .thenRun(() -> SwingUtilities.invokeLater(
                             () -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
-        });
+        }));
         contextMenu.add(newSessionCopyWorkspaceItem);
 
         contextMenu.addSeparator();
@@ -260,21 +256,21 @@ public class MenuBar {
         var clearTaskHistoryItem = new JMenuItem("Clear Task History");
         clearTaskHistoryItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-        clearTaskHistoryItem.addActionListener(e -> {
+        clearTaskHistoryItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager().submitContextTask("Clear Task History", () -> chrome.getContextManager()
                     .clearHistory());
-        });
+        }));
         clearTaskHistoryItem.setEnabled(true);
         contextMenu.add(clearTaskHistoryItem);
 
         var dropAllItem = new JMenuItem("Drop All");
         dropAllItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
-        dropAllItem.addActionListener(e -> {
+        dropAllItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager().submitContextTask("Drop All", () -> {
                 chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of());
             });
-        });
+        }));
         dropAllItem.setEnabled(true);
         contextMenu.add(dropAllItem);
 
@@ -462,6 +458,11 @@ public class MenuBar {
         menuBar.add(helpMenu);
 
         return menuBar;
+    }
+
+    private static void runWithRefocus(Chrome chrome, Runnable action) {
+        action.run();
+        SwingUtilities.invokeLater(chrome::focusInput);
     }
 
     /**

@@ -35,11 +35,11 @@ javafx {
 }
 
 node {
-    version.set("22.13.1")
-    npmVersion.set("10.9.2")
+    version.set(libs.versions.nodejs.get())
+    npmVersion.set(libs.versions.npm.get())
     download.set(true)
-    workDir.set(file("${project.rootDir}/frontend-mop/.gradle/nodejs"))
-    npmWorkDir.set(file("${project.rootDir}/frontend-mop/.gradle/npm"))
+    workDir.set(file("${project.rootDir}/.gradle/nodejs"))
+    npmWorkDir.set(file("${project.rootDir}/.gradle/npm"))
     nodeProjectDir.set(file("${project.rootDir}/frontend-mop"))
 }
 
@@ -78,6 +78,7 @@ dependencies {
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
     implementation(libs.picocli)
+    implementation(libs.bundles.apache)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -91,6 +92,9 @@ dependencies {
 
     // TreeSitter parsers
     implementation(libs.bundles.treesitter)
+
+    // Eclipse LSP
+    implementation(libs.bundles.eclipse.lsp)
 
     // Java Decompiler
     implementation(libs.java.decompiler)
@@ -120,8 +124,12 @@ buildConfig {
     className("BuildInfo")
 }
 
+tasks.named("generateBuildConfig") {
+    inputs.file("${project.rootDir}/build/version.txt").optional(true)
+}
+
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
-    args.set(listOf("install"))
+    args.set(listOf("install", "--silent"))
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
     outputs.dir("${project.rootDir}/frontend-mop/node_modules")
@@ -131,7 +139,6 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
 tasks.register("frontendPatch") {
     dependsOn("frontendInstall")
 
-    inputs.file("${project.rootDir}/frontend-mop/package-lock.json")
     inputs.dir("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown").optional(true)
     outputs.file("${project.rootDir}/frontend-mop/node_modules/svelte-exmarkdown/package.json").optional(true)
 
@@ -150,10 +157,10 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
     description = "Build frontend with Vite"
     group = "frontend"
     dependsOn("frontendInstall", "frontendPatch")
+
     args.set(listOf("run", "build"))
 
     inputs.dir("${project.rootDir}/frontend-mop/src")
-    inputs.dir("${project.rootDir}/frontend-mop/public")
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/vite.config.mjs")
     inputs.file("${project.rootDir}/frontend-mop/vite.worker.config.mjs")
@@ -163,13 +170,6 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
     inputs.file("${project.rootDir}/frontend-mop/dev.html")
 
     outputs.dir("${project.projectDir}/src/main/resources/mop-web")
-}
-
-tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendDev") {
-    description = "Start frontend development server"
-    group = "frontend"
-    dependsOn("frontendInstall")
-    args.set(listOf("run", "dev"))
 }
 
 tasks.register<Delete>("frontendClean") {
@@ -279,7 +279,7 @@ tasks.withType<Test> {
     useJUnitPlatform()
 
     // Use a single forked JVM for all tests (for TreeSitter native library isolation)
-    maxParallelForks = 1
+    maxParallelForks = 6
     forkEvery = 0  // Never fork new JVMs during test execution
 
     jvmArgs = listOf(

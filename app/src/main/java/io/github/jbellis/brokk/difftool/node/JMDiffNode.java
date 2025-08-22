@@ -136,19 +136,19 @@ public class JMDiffNode implements TreeNode {
         try {
             int numberOfLines = doc.getNumberOfLines();
             long contentLength = doc.getDocument().getLength();
+            long averageLineLength = contentLength / Math.max(1, numberOfLines);
 
             // Skip if few lines with huge average line length
-            if (numberOfLines <= 3 && contentLength > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES) {
-                long averageLineLength = contentLength / Math.max(1, numberOfLines);
-                if (averageLineLength > PerformanceConstants.MAX_DIFF_LINE_LENGTH_BYTES) {
-                    logger.info(
-                            "JMDiffNode: Detected huge single-line file {}: {} lines, {}KB total, avg {}KB/line - SKIPPING DIFF",
-                            doc.getName(),
-                            numberOfLines,
-                            contentLength / 1024,
-                            averageLineLength / 1024);
-                    return true;
-                }
+            if (averageLineLength > PerformanceConstants.MAX_DIFF_LINE_LENGTH_BYTES
+                    || doc.getLineList().stream()
+                            .anyMatch(s -> s.length() > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES)) {
+                logger.info(
+                        "JMDiffNode: Detected huge single-line file {}: {} lines, {}KB total, avg {}KB/line - SKIPPING DIFF",
+                        doc.getName(),
+                        numberOfLines,
+                        contentLength / 1024,
+                        averageLineLength / 1024);
+                return true;
             }
 
             logger.trace(

@@ -2,6 +2,19 @@
   "catalogs": {},
   "aliases": {
     "brokk": {
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.13.3/brokk-0.13.3.jar",
+      "java": "21",
+      "java-options": [
+        "--add-modules=jdk.incubator.vector"
+      ],
+      "dependencies": [
+        "org.openjfx:javafx-controls:22.0.1",
+        "org.openjfx:javafx-fxml:22.0.1",
+        "org.openjfx:javafx-swing:22.0.1",
+        "org.openjfx:javafx-web:22.0.1"
+      ]
+    },
+    "brokk-0.12.5.3": {
       "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.5.3/brokk-0.12.5.3.jar",
       "java": "21",
       "java-options": [
@@ -10,20 +23,6 @@
     },
     "brokk-0.12.4.3": {
       "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.4.3/brokk-0.12.4.3.jar",
-      "java": "21",
-      "java-options": [
-        "--add-modules=jdk.incubator.vector"
-      ]
-    },
-    "brokk-0.12.1": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.1/brokk-assembly-0.12.1.jar",
-      "java": "21",
-      "java-options": [
-        "--add-modules=jdk.incubator.vector"
-      ]
-    },
-    "brokk-0.11.1": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.11.1/brokk-assembly-0.11.1.jar",
       "java": "21",
       "java-options": [
         "--add-modules=jdk.incubator.vector"

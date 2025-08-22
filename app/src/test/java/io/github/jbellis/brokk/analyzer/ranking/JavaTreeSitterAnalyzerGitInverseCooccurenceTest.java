@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.git.GitDistance;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -44,7 +43,7 @@ public class JavaTreeSitterAnalyzerGitInverseCooccurenceTest {
         logger.debug(
                 "Setting up analyzer with test code from {}",
                 testPath.toAbsolutePath().normalize());
-        analyzer = new JavaTreeSitterAnalyzer(testProject, new HashSet<>());
+        analyzer = new JavaTreeSitterAnalyzer(testProject);
     }
 
     @AfterAll

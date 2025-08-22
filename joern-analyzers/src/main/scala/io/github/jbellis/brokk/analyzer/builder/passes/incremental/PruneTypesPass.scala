@@ -19,7 +19,7 @@ class PruneTypesPass(cpg: Cpg) extends CpgPass(cpg) {
     logger.info(s"Found ${typesToPrune.size} types no longer referenced")
     typesToPrune
       .flatMap { t =>
-        logger.debug(s"Pruning type ${t.fullName}")
+        logger.trace(s"Pruning type ${t.fullName}")
         t :: t.referencedTypeDecl.l
       }
       .foreach(diffGraph.removeNode)

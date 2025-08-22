@@ -5,9 +5,11 @@ import io.github.jbellis.brokk.IssueProvider;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.dialogs.analyzer.AnalyzerSettingsPanel;
 import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
@@ -15,9 +17,9 @@ import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.IOException;
-import java.util.HashSet;
+import java.nio.file.Path;
+import java.util.*;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
@@ -105,6 +107,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JButton testJiraConnectionButton = new JButton("Test Jira Connection");
     private final JPanel bannerPanel;
 
+    // Holds the analyzer configuration panels so we can persist their settings when the user clicks Apply/OK.
+    private final List<AnalyzerSettingsPanel> analyzerSettingsPanels = new ArrayList<>();
+
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -157,6 +162,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Issues Tab (New)
         var issuesPanel = createIssuesPanel();
         projectSubTabbedPane.addTab("Issues", null, issuesPanel, "Issue tracker integration settings");
+
+        // Analyzers Tab (New)
+        var analyzersPanel = createAnalyzersPanel();
+        projectSubTabbedPane.addTab("Analyzers", null, analyzersPanel, "Code analyzers configured for this project");
 
         // Data Retention Tab
         dataRetentionPanelInner = new DataRetentionPanel(project, this);
@@ -573,6 +582,48 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         });
         return issuesPanel;
+    }
+
+    /**
+     * Creates the Analyzers tab that lists the languages for which analyzers are currently configured in the project.
+     * This is read-only for now but provides a foundation for adding per-analyzer options in the future.
+     */
+    private JPanel createAnalyzersPanel() {
+        final var analyzersPanel = new JPanel(new BorderLayout(5, 5));
+        analyzersPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        final Set<Language> analyzerLanguages = chrome.getProject().getAnalyzerLanguages();
+        final Path projectRoot = chrome.getProject().getRoot();
+
+        if (analyzerLanguages.isEmpty()) {
+            final var noneLabel = new JLabel("No analyzers configured for this project.");
+            noneLabel.setHorizontalAlignment(SwingConstants.CENTER);
+            analyzersPanel.add(noneLabel, BorderLayout.CENTER);
+        } else {
+            /* Build a vertical list of sub-panels – one per analyzer */
+            final var container = new JPanel();
+            container.setLayout(new BoxLayout(container, BoxLayout.PAGE_AXIS));
+            container.setBorder(BorderFactory.createEmptyBorder());
+
+            analyzerLanguages.forEach(language -> {
+                final AnalyzerSettingsPanel panel = AnalyzerSettingsPanel.createAnalyzersPanel(
+                        SettingsProjectPanel.this,
+                        language,
+                        projectRoot,
+                        chrome.getContextManager().getIo());
+                analyzerSettingsPanels.add(panel);
+                final var languageLabel = new JLabel(language.name());
+                languageLabel.setHorizontalAlignment(SwingConstants.LEFT);
+                container.add(languageLabel);
+                container.add(panel);
+            });
+
+            final JScrollPane scrollPane = new JScrollPane(container);
+            scrollPane.setBorder(BorderFactory.createEmptyBorder());
+            analyzersPanel.add(scrollPane, BorderLayout.CENTER);
+        }
+
+        return analyzersPanel;
     }
 
     private void testJiraConnectionAction() {
@@ -1256,6 +1307,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Data Retention Tab
         if (dataRetentionPanelInner != null) dataRetentionPanelInner.applyPolicy();
+
+        /* Persist any analyzer-specific settings (currently only the Java JDK home). */
+        for (AnalyzerSettingsPanel panel : analyzerSettingsPanels) {
+            panel.saveSettings();
+        }
 
         // After applying data retention, model list might need refresh
         chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {

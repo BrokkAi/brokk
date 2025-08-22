@@ -9,8 +9,8 @@ export interface ChunkMsg {
 }
 
 export interface ClearMsg {
-    type: 'clear';
-    seq: Seq;
+    type: 'clear-state';
+    flushBeforeClear: boolean;s
 }
 
 export interface ParseMsg {
@@ -18,6 +18,7 @@ export interface ParseMsg {
     text: string;
     seq: Seq;
     fast: boolean;
+    updateBuffer: boolean;
 }
 
 export interface ExpandDiffMsg {
@@ -80,7 +81,13 @@ export interface ProcessorStateChangeMsg {
     state: 'base-ready' | 'shiki-initializing' | 'shiki-ready';
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | ProcessorStateChangeMsg;
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | ProcessorStateChangeMsg | LogMsg;
+
+export interface LogMsg {
+    type: 'log';
+    level: 'log' | 'warn' | 'error' | 'debug' | 'info';
+    message: string;
+}
 
 // shared by both
 

@@ -179,7 +179,8 @@ public class Service {
     public static KeyParts parseKey(String key) {
         var parts = Splitter.on(Pattern.compile("\\+")).splitToList(key);
         if (parts.size() != 3 || !"brk".equals(parts.get(0))) {
-            throw new IllegalArgumentException("Key must have format 'brk+<userId>+<token>'");
+            throw new IllegalArgumentException(
+                    "Key must have format `brk+<userId>+<token>`; found `%s`".formatted(key));
         }
 
         java.util.UUID userId;
@@ -812,6 +813,10 @@ public class Service {
             return true;
         }
 
+        if (location.contains("gpt-5")) {
+            return true;
+        }
+
         // if it doesn't support function calling then we need to emulate
         var b = info.get("supports_function_calling");
         return !(b instanceof Boolean bVal) || !bVal;
@@ -827,16 +832,18 @@ public class Service {
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
-        // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with
-        // that
-        // that serial calls is the lesser evil
-        // Update 08/10/25: gpt-5 is also bad at using emulated calls, we need to get "requests" api working so we can
-        // do parallel calls
         var location = model.defaultRequestParameters().modelName();
-        return !location.contains("gemini")
-                && !location.contains("o3")
-                && !location.contains("o4-mini")
-                && !location.contains("gpt-5");
+        var info = getModelInfo(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming no parallel tool call support.", location);
+            return false;
+        }
+
+        // Check if "parallel_tool_calls" is in the list of supported_openai_params
+        return switch (info.get("supported_openai_params")) {
+            case List<?> list -> list.stream().map(Object::toString).anyMatch("parallel_tool_calls"::equals);
+            case null, default -> false;
+        };
     }
 
     /**
@@ -927,6 +934,27 @@ public class Service {
 
         var supports = info.get("supports_vision");
         return supports instanceof Boolean boolVal && boolVal;
+    }
+
+    /**
+     * Returns true if the named model is marked as eligible for the free tier.
+     *
+     * <p>This looks up the model location from the configured display name, then consults the model info map for the
+     * "free_tier_eligible" boolean flag. Returns false if the model or metadata cannot be found.
+     */
+    public boolean isFreeTier(String modelName) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, assuming not free-tier.", modelName);
+            return false;
+        }
+        var info = getModelInfo(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming not free-tier.", location);
+            return false;
+        }
+        var v = info.get("free_tier_eligible");
+        return v instanceof Boolean b && b;
     }
 
     public StreamingChatModel quickestModel() {

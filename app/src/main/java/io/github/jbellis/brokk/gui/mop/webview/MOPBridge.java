@@ -125,7 +125,9 @@ public final class MOPBridge {
     }
 
     public void clear() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.Clear(e));
+        scheduleSend();
     }
 
     public void refreshSymbolLookup() {
@@ -156,32 +158,40 @@ public final class MOPBridge {
                     } else if (chunk.isNew()
                             || chunk.msgType() != firstChunk.msgType()
                             || chunk.reasoning() != firstChunk.reasoning()) {
-                        sendChunk(
-                                currentText.toString(),
-                                firstChunk.isNew(),
-                                firstChunk.msgType(),
-                                firstChunk.streaming(),
-                                firstChunk.reasoning());
-                        currentText.setLength(0);
+                        // A new bubble is starting, so send the previously buffered one
+                        flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
                     }
                     currentText.append(chunk.text());
+                } else if (event instanceof BrokkEvent.Clear clearEvent) {
+                    // This is a Clear event.
+                    // First, we MUST send any pending text that came before it.
+                    flushCurrentChunk(firstChunk, currentText);
+                    firstChunk = null;
+                    // Now, send the Clear event itself.
+                    sendEvent(clearEvent);
                 }
             }
 
-            if (firstChunk != null) {
-                sendChunk(
-                        currentText.toString(),
-                        firstChunk.isNew(),
-                        firstChunk.msgType(),
-                        firstChunk.streaming(),
-                        firstChunk.reasoning());
-            }
+            // After the loop, send any remaining buffered text
+            flushCurrentChunk(firstChunk, currentText);
         } finally {
             pending.set(false);
             if (!eventQueue.isEmpty()) {
                 scheduleSend();
             }
+        }
+    }
+
+    private void flushCurrentChunk(@Nullable BrokkEvent.Chunk firstChunk, StringBuilder currentText) {
+        if (firstChunk != null) {
+            sendChunk(
+                    currentText.toString(),
+                    firstChunk.isNew(),
+                    firstChunk.msgType(),
+                    firstChunk.streaming(),
+                    firstChunk.reasoning());
+            currentText.setLength(0);
         }
     }
 
@@ -193,9 +203,7 @@ public final class MOPBridge {
 
     private void sendEvent(BrokkEvent event) {
         var e = event.getEpoch();
-        if (e != null) {
-            awaiting.put(e, new CompletableFuture<>());
-        }
+        awaiting.put(e, new CompletableFuture<>());
         var json = toJson(event);
         Platform.runLater(() -> engine.executeScript("window.brokk.onEvent(" + json + ")"));
     }

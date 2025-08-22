@@ -4,8 +4,6 @@ package io.github.jbellis.brokk.analyzer.builder
   */
 package object languages {
 
-  given javaSrcBuilder: JavaSrcBuilder.javaBuilder.type = JavaSrcBuilder.javaBuilder
-
   given cBuilder: CBuilder.cBuilder.type = CBuilder.cBuilder
 
 }

@@ -370,7 +370,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /** The top-level UI for the left & right file panels plus the "diff scroll component". */
     private void init() {
-        var columns = "3px, pref, 3px, 0:grow, 5px, min, 60px, 0:grow, 25px, min, 3px, pref, 3px";
+        var columns = "3px, pref, 3px, 0:grow, 5px, min, 60px, 0:grow, 5px, min, 3px, pref, 3px";
         var rows = "6px, pref, 3px, fill:0:grow, pref";
 
         setLayout(new BorderLayout());
@@ -646,7 +646,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
      * Auto-scroll to the first difference when a diff is opened. Centers the first difference on both panels for
      * optimal user experience.
      */
-    private void scrollToFirstDifference() {
+    protected void scrollToFirstDifference() {
         if (selectedDelta == null || scrollSynchronizer == null) {
             return;
         }

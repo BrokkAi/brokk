@@ -28,12 +28,12 @@ export function pushChunk(text: string, seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
-export function parse(text: string, seq: number, fast = false) {
-  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast });
+export function parse(text: string, seq: number, fast = false, updateBuffer = true) {
+  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast, updateBuffer });
 }
 
-export function clear(seq: number) {
-  worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
+export function clearState(flushBeforeClear: boolean) {
+  worker.postMessage(<InboundToWorker>{ type: 'clear-state', flushBeforeClear });
 }
 
 export function hideSpinner() {
@@ -127,6 +127,9 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
     case 'result':
       log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);
       onWorkerResult(msg);
+      break;
+    case 'log':
+      window.javaBridge?.jsLog(msg.level, msg.message);
       break;
     case 'error':
       log.error('md-worker:', msg.message + '\n' + msg.stack);

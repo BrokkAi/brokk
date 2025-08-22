@@ -19,9 +19,9 @@ public final class FileUtil {
      * Deletes {@code path} and everything beneath it. Does **not** follow symlinks; logs but ignores individual delete
      * failures.
      */
-    public static void deleteRecursively(Path path) throws IOException {
+    public static boolean deleteRecursively(Path path) {
         if (!Files.exists(path)) {
-            return;
+            return false;
         }
 
         try (Stream<Path> walk = Files.walk(path)) {
@@ -32,6 +32,10 @@ public final class FileUtil {
                     logger.warn("Failed to delete {}", p, e);
                 }
             });
+            return !Files.exists(path);
+        } catch (IOException e) {
+            logger.error("Failed to walk or initiate deletion for directory: {}", path, e);
+            return false;
         }
     }
 }

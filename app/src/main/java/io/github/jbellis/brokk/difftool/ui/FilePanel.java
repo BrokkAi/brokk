@@ -586,7 +586,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Minimal protection: Plain text for extreme cases
         if (averageLineLength > PerformanceConstants.MINIMAL_SYNTAX_LINE_LENGTH_BYTES
-                || (numberOfLines <= 3 && contentLength > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES)) {
+                || document.getLineList().stream()
+                        .anyMatch(s -> s.length() > PerformanceConstants.SINGLE_LINE_THRESHOLD_BYTES)) {
             return ProtectionLevel.MINIMAL;
         }
 

@@ -133,14 +133,13 @@ public class CreatePullRequestDialog extends JDialog {
         add(topPanel, BorderLayout.NORTH);
 
         // --- middle: commit browser and file list ---------------------------------------------
-        var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false, false);
         commitBrowserPanel = new GitCommitBrowserPanel(
                 chrome,
                 contextManager,
                 () -> {
                     /* no-op */
                 },
-                commitBrowserOptions);
+                GitCommitBrowserPanel.Options.FOR_PULL_REQUEST);
         // The duplicate initializations that were here have been removed.
         // commitBrowserPanel and fileStatusTable are now initialized once above.
         fileStatusTable = new FileStatusTable();
@@ -613,7 +612,7 @@ public class CreatePullRequestDialog extends JDialog {
     private BufferSource.StringSource createBufferSource(GitRepo repo, String commitSHA, ProjectFile f)
             throws GitAPIException {
         var content = repo.getFileContent(commitSHA, f);
-        return new BufferSource.StringSource(content, commitSHA, f.getFileName());
+        return new BufferSource.StringSource(content, commitSHA, f.toString());
     }
 
     private List<ProjectFile> getOrderedFilesForDiff(@Nullable ProjectFile priorityFile) {
@@ -646,7 +645,7 @@ public class CreatePullRequestDialog extends JDialog {
 
         if ("deleted".equals(status)) {
             leftSrc = createBufferSource(gitRepo, mergeBaseSha, file);
-            rightSrc = new BufferSource.StringSource("", "Source Branch (Deleted)", file.getFileName());
+            rightSrc = new BufferSource.StringSource("", "Source Branch (Deleted)", file.toString());
         } else {
             // For "added" files, createBufferSource(gitRepo, mergeBaseSha, file) will attempt to load from merge base.
             // Assumes GitRepo.getFileContent handles non-existent files gracefully (e.g., returns empty string).

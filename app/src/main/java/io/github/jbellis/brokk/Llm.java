@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -74,6 +75,9 @@ public class Llm {
     private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean tagRetain;
+
+    // Monotonically increasing sequence for emulated tool request IDs
+    private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
 
     public Llm(
             StreamingChatModel model,
@@ -380,9 +384,12 @@ public class Llm {
             }
 
             // don't retry on bad request errors
-            if (lastError != null && requireNonNull(lastError.getMessage()).contains("BadRequestError")) {
-                // logged by doSingleStreamingCallInternal, don't be redundant
-                break;
+            if (lastError != null) {
+                var msg = requireNonNull(lastError.getMessage());
+                if (msg.contains("BadRequestError") || msg.contains("UnsupportedParamsError")) {
+                    // logged by doSingleStreamingCallInternal, don't be redundant
+                    break;
+                }
             }
 
             logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);
@@ -438,6 +445,7 @@ public class Llm {
         // request doesn't involve tools (which makes Anthropic unhappy if it sees it).
         if (tools.isEmpty()) {
             messagesToSend = Llm.emulateToolExecutionResults(messages);
+            validateEmulatedToolMessages(messagesToSend);
         }
 
         if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
@@ -512,6 +520,7 @@ public class Llm {
 
         // Pre-process messages to combine tool results with subsequent user messages for emulation
         List<ChatMessage> initialProcessedMessages = Llm.emulateToolExecutionResults(messages);
+        validateEmulatedToolMessages(initialProcessedMessages);
 
         final int maxTries = 3;
         List<ChatMessage> attemptMessages = new ArrayList<>(initialProcessedMessages);
@@ -520,6 +529,8 @@ public class Llm {
         StreamingResult finalResult; // what we will return (and have logged)
 
         for (int attempt = 1; true; attempt++) {
+            validateEmulatedToolMessages(attemptMessages);
+
             // Perform the request for THIS attempt
             lastRequest = requestBuilder.apply(attemptMessages);
             StreamingResult rawResult = doSingleStreamingCallInternal(lastRequest, echo);
@@ -611,14 +622,15 @@ public class Llm {
                     UserMessage updatedUserMessage = new UserMessage(userMessage.name(), combinedContent);
                     processedMessages.add(updatedUserMessage);
                     logger.debug("Prepended {} tool result(s) to subsequent user message.", pendingTerms.size());
+
+                    pendingTerms.clear();
+                    continue;
                 } else {
                     // Create a UserMessage to hold the tool calls
                     processedMessages.add(new UserMessage(formattedResults));
-                    processedMessages.add(msg);
+                    pendingTerms.clear();
+                    // do not continue, fall through to process the current msg
                 }
-                // Clear pending results as they've been handled
-                pendingTerms.clear();
-                continue;
             }
 
             if (msg instanceof AiMessage) {
@@ -638,7 +650,17 @@ public class Llm {
             processedMessages.add(new UserMessage(formattedResults));
         }
 
+        validateEmulatedToolMessages(processedMessages);
         return processedMessages;
+    }
+
+    /** Verifies that the given messages contain no native ToolExecutionRequests or ToolExecutionResultMessages */
+    private static void validateEmulatedToolMessages(List<ChatMessage> messages) {
+        assert !containsRawToolResultMessages(messages)
+                : "emulateToolExecutionResults failed to fold a ToolExecutionResultMessage: "
+                        + summarizeMessages(messages);
+        assert !containsAiToolExecutionRequests(messages)
+                : "emulateToolExecutionResults left AI tool requests: " + summarizeMessages(messages);
     }
 
     private static String formatToolResults(
@@ -646,13 +668,37 @@ public class Llm {
         return pendingTerms.stream()
                 .map(tr ->
                         """
-                        <toolcall id="%s" name="%s">
-                        %s
-                        </toolcall>
-                        """
+                             <toolcall id="%s" name="%s">
+                             %s
+                             </toolcall>
+                             """
                                 .stripIndent()
                                 .formatted(tr.id(), tr.toolName(), tr.text()))
                 .collect(Collectors.joining("\n"));
+    }
+
+    private static boolean containsRawToolResultMessages(List<ChatMessage> messages) {
+        return messages.stream().anyMatch(m -> m instanceof ToolExecutionResultMessage);
+    }
+
+    private static boolean containsAiToolExecutionRequests(List<ChatMessage> messages) {
+        return messages.stream()
+                .filter(m -> m instanceof AiMessage)
+                .map(m -> (AiMessage) m)
+                .anyMatch(AiMessage::hasToolExecutionRequests);
+    }
+
+    private static String summarizeMessages(List<ChatMessage> messages) {
+        return messages.stream()
+                .map(m -> {
+                    if (m instanceof SystemMessage) return "System";
+                    if (m instanceof UserMessage) return "User";
+                    if (m instanceof ToolExecutionResultMessage trm)
+                        return "TER(" + trm.toolName() + ":" + trm.id() + ")";
+                    if (m instanceof AiMessage ai) return ai.hasToolExecutionRequests() ? "AI(toolCalls)" : "AI";
+                    return m.getClass().getSimpleName();
+                })
+                .collect(Collectors.joining(" -> "));
     }
 
     /** Emulates function calling for models that support structured output with JSON schema */
@@ -819,7 +865,7 @@ public class Llm {
      * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests. Expects the top-level to
      * have a "tool_calls" array (or the root might be that array).
      */
-    private static NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
+    private NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
         // In the primary call path (emulateToolsCommon), if result.error() is null,
         // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
         // This method is called in that context.
@@ -896,7 +942,7 @@ public class Llm {
                 thinkReasoning.add(arguments.get("reasoning").asText());
             }
             var toolExecutionRequest = ToolExecutionRequest.builder()
-                    .id(String.valueOf(i))
+                    .id(String.valueOf(toolRequestIdSeq.getAndIncrement()))
                     .name(toolName)
                     .arguments(argsStr)
                     .build();
