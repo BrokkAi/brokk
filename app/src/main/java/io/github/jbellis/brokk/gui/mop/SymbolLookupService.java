@@ -121,7 +121,8 @@ public class SymbolLookupService {
             // Return empty map on error instead of negative results
         }
 
-        logger.trace("Optimized lookup completed: {} found out of {} requested", foundSymbols.size(), symbolNames.size());
+        logger.trace(
+                "Optimized lookup completed: {} found out of {} requested", foundSymbols.size(), symbolNames.size());
         return foundSymbols;
     }
 
@@ -144,7 +145,6 @@ public class SymbolLookupService {
             // Then try pattern search
             var searchResults = analyzer.searchDefinitions(trimmed);
             logger.trace("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
-
 
             if (!searchResults.isEmpty()) {
                 logger.trace(
@@ -176,7 +176,6 @@ public class SymbolLookupService {
                     return new SymbolInfo(true, bestMatch.fqName());
                 }
             }
-
 
             return new SymbolInfo(false, null);
 

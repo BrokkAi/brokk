@@ -81,19 +81,23 @@ public final class MOPBridge {
     }
 
     public void clearSearch() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }"));
     }
 
     public void nextMatch() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }"));
     }
 
     public void prevMatch() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }"));
     }
 
     public void scrollToCurrent() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
+        Platform.runLater(() -> engine.executeScript(
+                "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
