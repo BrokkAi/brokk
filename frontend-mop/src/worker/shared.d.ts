@@ -33,17 +33,13 @@ export interface SymbolLookupResponseMsg {
     contextId: string;
 }
 
-export interface TestErrorMsg {
-    type: 'test-error';
-    errorType: 'uncaughtError' | 'promiseRejection' | 'syntaxError';
-}
 
 export interface HideSpinnerMsg {
     type: 'hide-spinner';
     contextId?: string;
 }
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | TestErrorMsg | HideSpinnerMsg;
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | HideSpinnerMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';

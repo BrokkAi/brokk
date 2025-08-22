@@ -75,86 +75,27 @@ public final class MOPBridge {
         });
     }
 
-    /** Enhanced executeScript with comprehensive JSException prevention */
-    private void safeExecuteScript(String script, String methodName) {
-        if (engine == null) {
-            logger.debug("{} failed: WebEngine is null", methodName);
-            return;
-        }
-
-        Platform.runLater(() -> {
-            try {
-                engine.executeScript(script);
-            } catch (JSException js) {
-                if (js.getMessage() != null && js.getMessage().contains("undefined is not an object")) {
-                    logger.debug("{} failed: JavaScript context not ready - {}", methodName, js.getMessage());
-                } else {
-                    logger.warn("{} failed with JSException: {}", methodName, js.getMessage());
-                }
-            } catch (IllegalStateException ise) {
-                logger.debug("{} failed: WebView not initialized - {}", methodName, ise.getMessage());
-            } catch (Exception e) {
-                logger.warn("{} failed with unexpected exception: {}", methodName, e.getMessage(), e);
-            }
-        });
-    }
-
-    /** Enhanced executeScript for methods that return values */
-    private CompletableFuture<Object> safeExecuteScriptWithResult(String script, String methodName) {
-        var future = new CompletableFuture<Object>();
-
-        if (engine == null) {
-            logger.debug("{} failed: WebEngine is null", methodName);
-            future.complete(null);
-            return future;
-        }
-
-        Platform.runLater(() -> {
-            try {
-                Object result = engine.executeScript(script);
-                future.complete(result);
-            } catch (JSException js) {
-                if (js.getMessage() != null && js.getMessage().contains("undefined is not an object")) {
-                    logger.debug("{} failed: JavaScript context not ready - {}", methodName, js.getMessage());
-                } else {
-                    logger.warn("{} failed with JSException: {}", methodName, js.getMessage());
-                }
-                future.complete(null);
-            } catch (IllegalStateException ise) {
-                logger.debug("{} failed: WebView not initialized - {}", methodName, ise.getMessage());
-                future.complete(null);
-            } catch (Exception e) {
-                logger.warn("{} failed with unexpected exception: {}", methodName, e.getMessage(), e);
-                future.complete(null);
-            }
-        });
-
-        return future;
-    }
 
     public void setSearch(String query, boolean caseSensitive) {
         var js = "if (window.brokk && window.brokk.setSearch) { window.brokk.setSearch(" + toJson(query) + ", "
                 + caseSensitive + "); }";
-        safeExecuteScript(js, "setSearch");
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void clearSearch() {
-        safeExecuteScript(
-                "if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }", "clearSearch");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }"));
     }
 
     public void nextMatch() {
-        safeExecuteScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }", "nextMatch");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }"));
     }
 
     public void prevMatch() {
-        safeExecuteScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }", "prevMatch");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }"));
     }
 
     public void scrollToCurrent() {
-        safeExecuteScript(
-                "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }",
-                "scrollToCurrent");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
@@ -169,28 +110,25 @@ public final class MOPBridge {
     public void setTheme(boolean isDark, boolean isDevMode) {
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
                 + "); }";
-        safeExecuteScript(js, "setTheme");
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
         var js = "if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner(" + jsonMessage + "); }";
-        safeExecuteScript(js, "showSpinner");
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void hideSpinner() {
-        safeExecuteScript(
-                "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); }", "hideSpinner");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); }"));
     }
 
     public void clear() {
-        safeExecuteScript("if (window.brokk && window.brokk.clear) { window.brokk.clear(); }", "clear");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.clear) { window.brokk.clear(); }"));
     }
 
     public void refreshSymbolLookup() {
-        safeExecuteScript(
-                "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup(); }",
-                "refreshSymbolLookup");
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup(); }"));
     }
 
     private void scheduleSend() {
@@ -259,7 +197,7 @@ public final class MOPBridge {
         }
         var json = toJson(event);
         var js = "if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); }";
-        safeExecuteScript(js, "sendEvent");
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void onAck(int e) {
@@ -270,9 +208,17 @@ public final class MOPBridge {
     }
 
     public CompletableFuture<String> getSelection() {
-        var script = "window.brokk && window.brokk.getSelection ? window.brokk.getSelection() : ''";
-        return safeExecuteScriptWithResult(script, "getSelection")
-                .thenApply(result -> result != null ? result.toString() : "");
+        var future = new CompletableFuture<String>();
+        Platform.runLater(() -> {
+            try {
+                Object result = engine.executeScript("window.brokk && window.brokk.getSelection ? window.brokk.getSelection() : ''");
+                future.complete(result != null ? result.toString() : "");
+            } catch (Exception ex) {
+                logger.error("Failed to get selection from WebView", ex);
+                future.complete("");
+            }
+        });
+        return future;
     }
 
     public CompletableFuture<Void> flushAsync() {
@@ -296,24 +242,7 @@ public final class MOPBridge {
         switch (level.toUpperCase(Locale.ROOT)) {
             case "ERROR" -> logger.error("JS: {}", message);
             case "WARN" -> logger.warn("JS: {}", message);
-            case "INFO" -> {
-                logger.info("JS: {}", message);
-                if (message.contains("CODE-LOGGER")) {
-                    System.out.println("////// " + message);
-                }
-            }
-            case "DEBUG" -> logger.debug("JS: {}", message);
-            default -> {
-                if (message.contains("[WORKER-ERROR]") || message.contains("[WORKER-REJECTION]")) {
-                    logger.error("JS: {}", message);
-                } else if (message.contains("CODE-LOGGER")) {
-                    System.out.println("////// " + message);
-                } else if (message.contains("ERROR") || message.contains("Error") || message.contains("error")) {
-                    logger.warn("JS: {}", message);
-                } else {
-                    logger.debug("JS: {}", message);
-                }
-            }
+            default -> logger.trace("JS: {}", message);
         }
     }
 
@@ -331,10 +260,6 @@ public final class MOPBridge {
 
     public void setHostComponent(@Nullable java.awt.Component hostComponent) {
         this.hostComponent = hostComponent;
-    }
-
-    public void debugLog(String message) {
-        System.out.println(" ------- [JS-DEBUG] " + message);
     }
 
     public String lookupSymbols(String symbolNamesJson) {

@@ -40,8 +40,6 @@ export function rehypeSymbolLookup() {
         let totalCodeElements = 0;
         let validSymbols = 0;
 
-        workerLog('debug', '[SYMBOL-DETECT] Starting symbol detection...');
-
         // Visit all elements in the HAST (HTML AST) - only process inline code, not code fences
         visit(tree, 'element', (node: any, index: number | undefined, parent: Parent | undefined) => {
             // Only process <code> elements that are NOT inside <pre> (i.e., inline code, not code fences)
@@ -60,7 +58,6 @@ export function rehypeSymbolLookup() {
                         if (!node.properties) node.properties = {};
                         node.properties['data-symbol-candidate'] = cleaned;
 
-                        workerLog('debug', `[SYMBOL-DETECT] Valid inline code symbol: "${cleaned}"`);
                     }
                 }
             }
@@ -70,14 +67,8 @@ export function rehypeSymbolLookup() {
         if (symbols.size > 0) {
             tree.data = tree.data || {};
             (tree.data as any).symbolCandidates = symbols;
-            workerLog('info', `[SYMBOL-DETECT] Found ${symbols.size} inline code symbols for lookup`);
         }
     };
-}
-
-// Worker logging helper
-function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) {
-    self.postMessage({ type: 'worker-log', level, message });
 }
 
 /**
@@ -88,8 +79,6 @@ function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) 
 export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string, string>): void {
     let candidatesFound = 0;
     let symbolsEnhanced = 0;
-
-    workerLog('debug', `[ENHANCE] Starting enhancement with ${Object.keys(symbolResults).length} found symbols`);
 
     visit(tree, 'element', (node: any) => {
         const symbolCandidate = node.properties?.['data-symbol-candidate'];
@@ -113,14 +102,10 @@ export function enhanceSymbolCandidates(tree: Root, symbolResults: Record<string
                 node.properties['data-symbol-exists'] = 'true';
                 // Store FQN (always available in optimized format)
                 node.properties['data-symbol-fqn'] = fqn;
-
-                workerLog('debug', `[ENHANCE] Enhanced symbol: ${symbolCandidate} -> ${fqn}`);
             }
 
             // Clean up the candidate marker
             delete node.properties['data-symbol-candidate'];
         }
     });
-
-    workerLog('info', `[ENHANCE] Enhancement complete: Found ${candidatesFound} candidates, enhanced ${symbolsEnhanced} symbols`);
 }

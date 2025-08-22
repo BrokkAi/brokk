@@ -53,11 +53,6 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
   });
 }
 
-/* test error handling ------------------------------------------------ */
-export function testWorkerError(errorType: 'uncaughtError' | 'promiseRejection' | 'syntaxError') {
-  log.info(`Testing worker error: ${errorType}`);
-  worker.postMessage(<InboundToWorker>{ type: 'test-error', errorType });
-}
 
 /* context helper -------------------------------------------------- */
 function getContextId(): string {

@@ -15,20 +15,12 @@ import type {OutboundFromWorker, ShikiLangsReadyMsg} from './shared';
 import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
-import { createLogger } from '../lib/logging';
-
-
-const log = createLogger('md-worker');
 
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
 }
 
-// Worker logging helper
-function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) {
-    self.postMessage({ type: 'worker-log', level, message });
-}
 
 // Track pending symbol lookups
 const pendingSymbolLookups = new Map<number, {symbols: Set<string>, tree: HastRoot}>();
@@ -75,7 +67,7 @@ export function initProcessor(): Promise<void> {
     }
 
     // Asynchronously initialize Shiki and create a new processor with it.
-    log.info('shiki loading lib...');
+    console.log('shiki loading lib...');
     initializationPromise = shikiPluginPromise
         .then(({rehypePlugin}) => {
             const [pluginFn, shikiHighlighter, opts] = rehypePlugin as any;
@@ -92,7 +84,7 @@ export function initProcessor(): Promise<void> {
             post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
         })
         .catch(e => {
-            log.error('Shiki init failed', e);
+            console.error('Shiki init failed', e);
             processorInitialized = false; // Mark as failed
             throw e;
         });
@@ -114,7 +106,7 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     });
 
     const diffLangs = (tree as any).data?.detectedDiffLangs as Set<string> | undefined;
-    log.info('detected langs', detectedLangs, diffLangs);
+    console.log('detected langs', detectedLangs, diffLangs);
     diffLangs?.forEach(l => detectedLangs.add(l));
     return detectedLangs;
 }
@@ -122,9 +114,9 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
 export async function parseMarkdown(seq: number, src: string, fast = false): Promise<HastRoot> {
     // Wait for shiki processor when not using fast mode
     if (!fast && !processorInitialized && initializationPromise) {
-        workerLog('info', `[markdown-worker] Waiting for shiki processor initialization (seq=${seq})`);
+        console.log(`[markdown-worker] Waiting for shiki processor initialization (seq=${seq})`);
         await initializationPromise;
-        workerLog('info', `[markdown-worker] Shiki processor ready, proceeding with parsing (seq=${seq})`);
+        console.log(`[markdown-worker] Shiki processor ready, proceeding with parsing (seq=${seq})`);
     }
 
     const timeLabel = fast ? 'parse (fast)' : 'parse';
@@ -133,12 +125,12 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
 
     // Log which processor is being used
     const processorType = fast ? 'baseProcessor' : (currentProcessor === shikiProcessor ? 'shikiProcessor' : 'baseProcessor');
-    workerLog('info', `[markdown-worker] Using ${processorType} for parsing (fast=${fast})`);
+    console.log(`[markdown-worker] Using ${processorType} for parsing (fast=${fast})`);
 
     // Log if the source contains code elements
     const hasInlineCode = src.includes('`');
     const hasCodeBlock = src.includes('```');
-    workerLog('info', `[markdown-worker] Source contains: ${hasInlineCode ? 'inline code' : 'no inline'}, ${hasCodeBlock ? 'code blocks' : 'no blocks'}`);
+    console.log(`[markdown-worker] Source contains: ${hasInlineCode ? 'inline code' : 'no inline'}, ${hasCodeBlock ? 'code blocks' : 'no blocks'}`);
     let tree: HastRoot = null;
     let mdastTree: Root = null;
     try {
@@ -147,7 +139,7 @@ export async function parseMarkdown(seq: number, src: string, fast = false): Pro
         mdastTree = proc.parse(src) as Root;
         tree = proc.runSync(mdastTree) as HastRoot;
     } catch (e) {
-        log.error('parse failed', e);
+        console.error('parse failed', e);
         throw e;
     }
 
@@ -181,7 +173,7 @@ function handleSymbolLookupWithContextRequest(symbols: Set<string>, tree: HastRo
 }
 
 function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, contextId: string): void {
-    workerLog('info', `symbol-lookup request: ${Array.from(symbols).join(', ')} for context: ${contextId}`);
+    console.log(`symbol-lookup request: ${Array.from(symbols).join(', ')} for context: ${contextId}`);
     try {
         const symbolArray = Array.from(symbols);
 
@@ -200,13 +192,13 @@ function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, c
 
         // If we have cached results, enhance tree immediately
         if (Object.keys(cachedResults).length > 0) {
-            workerLog('info', `Using cached results for ${Object.keys(cachedResults).length} symbols`);
+            console.log(`Using cached results for ${Object.keys(cachedResults).length} symbols`);
             enhanceSymbolCandidates(tree, cachedResults);
         }
 
         // Only lookup uncached symbols
         if (uncachedSymbols.length > 0) {
-            workerLog('info', `Looking up ${uncachedSymbols.length} uncached symbols`);
+            console.log(`Looking up ${uncachedSymbols.length} uncached symbols`);
             // Store the pending lookup with the tree so we can enhance it later
             pendingSymbolLookups.set(seq, { symbols, tree });
 
@@ -218,7 +210,7 @@ function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, c
                 contextId: contextId
             });
         } else {
-            workerLog('info', 'All symbols found in cache, no lookup needed');
+            console.log('All symbols found in cache, no lookup needed');
             // All symbols were cached, send result immediately
             post({
                 type: 'result',
@@ -227,7 +219,7 @@ function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, c
             });
         }
     } catch (e) {
-        log.warn('Error during symbol lookup request:', e);
+        console.warn('Error during symbol lookup request:', e);
     }
 }
 
@@ -245,7 +237,7 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
 }
 
 export function handleSymbolLookupResponse(seq: number, results: Record<string, {exists: boolean, fqn?: string | null}>, contextId: string): void {
-    workerLog('info', `symbol-lookup-response processing: ${Object.keys(results).length} symbols for context: ${contextId}`);
+    console.log(`symbol-lookup-response processing: ${Object.keys(results).length} symbols for context: ${contextId}`);
 
     // Add results to cache with context-specific keys
     for (const [symbol, result] of Object.entries(results)) {
@@ -255,20 +247,20 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
             const firstKey = symbolCache.keys().next().value;
             if (firstKey) {
                 symbolCache.delete(firstKey);
-                workerLog('debug', `Evicted symbol from cache: ${firstKey}`);
+                console.log(`Evicted symbol from cache: ${firstKey}`);
             }
         }
         const cacheKey = `${contextId}:${symbol}`;
         symbolCache.set(cacheKey, result);
     }
-    workerLog('info', `Cached ${Object.keys(results).length} symbol results with context ${contextId}. Cache size: ${symbolCache.size}`);
+    console.log(`Cached ${Object.keys(results).length} symbol results with context ${contextId}. Cache size: ${symbolCache.size}`);
 
     const pending = pendingSymbolLookups.get(seq);
     if (pending) {
-        workerLog('info', `Found pending lookup for seq ${seq}, enhancing tree...`);
+        console.log(`Found pending lookup for seq ${seq}, enhancing tree...`);
         // Enhance the tree with symbol information
         enhanceSymbolCandidates(pending.tree, results);
-        workerLog('info', `Tree enhanced, sending result back to main thread...`);
+        console.log(`Tree enhanced, sending result back to main thread...`);
 
         // Send the enhanced tree back to main thread to trigger DOM update
         post({
@@ -276,13 +268,13 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
             tree: pending.tree,
             seq: seq
         });
-        workerLog('info', `Enhanced tree sent to main thread for seq ${seq}`);
+        console.log(`Enhanced tree sent to main thread for seq ${seq}`);
 
         // Clean up the pending lookup
         pendingSymbolLookups.delete(seq);
-        workerLog('info', `Cleaned up pending lookup for seq ${seq}`);
+        console.log(`Cleaned up pending lookup for seq ${seq}`);
     } else {
-        workerLog('warn', `No pending lookup found for seq ${seq}`);
+        console.warn(`No pending lookup found for seq ${seq}`);
     }
 }
 
@@ -296,11 +288,11 @@ export function clearContextCache(contextId: string): void {
             clearedCount++;
         }
     }
-    workerLog('info', `Cleared ${clearedCount} entries for context: ${contextId}`);
+    console.log(`Cleared ${clearedCount} entries for context: ${contextId}`);
 }
 
 // Export function to clear symbol cache (called on worker reset)
 export function clearSymbolCache(): void {
     symbolCache.clear();
-    workerLog('info', 'Symbol cache cleared');
+    console.log('Symbol cache cleared');
 }

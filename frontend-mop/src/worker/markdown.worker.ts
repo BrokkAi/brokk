@@ -6,40 +6,29 @@ import type {
   ErrorMsg,
 } from './shared';
 import { currentExpandIds } from './expand-state';
-import { createLogger } from '../lib/logging';
+import { createWorkerLogger } from '../lib/logging';
 
-const log = createLogger('md-worker-main');
-
-// Worker logging helper
-function workerLog(level: 'info' | 'warn' | 'error' | 'debug', message: string) {
-  self.postMessage({ type: 'worker-log', level, message });
-}
+const workerLog = createWorkerLogger('md-worker-main');
 
 // Global error handlers for uncaught errors and promise rejections
 self.onerror = (event) => {
   const errorMsg = `[markdown-worker] ${event.message} at ${event.filename}:${event.lineno}:${event.colno}`;
-  workerLog('error', errorMsg);
+  workerLog.error(errorMsg);
   return true;
 };
 
 self.onunhandledrejection = (event) => {
   const errorMsg = `[markdown-worker] ${event.reason}`;
-  workerLog('error', errorMsg + (event.reason?.stack ? `\n${event.reason.stack}` : ''));
+  workerLog.error(errorMsg + (event.reason?.stack ? `\n${event.reason.stack}` : ''));
   event.preventDefault();
 };
 
 // Worker startup logging
-workerLog('info', 'Worker Startup: markdown.worker.ts loaded');
+workerLog.info('Worker Startup: markdown.worker.ts loaded');
 
 // Initialize the processor, which will asynchronously load Shiki.
 initProcessor();
 
-// Test error functions - can be called via postMessage for testing
-const testWorkerErrors = {
-  uncaughtError: () => { throw new Error('Test uncaught worker error'); },
-  promiseRejection: () => { Promise.reject(new Error('Test worker promise rejection')); },
-  syntaxError: () => { eval('invalid javascript syntax in worker'); }
-};
 
 let buffer = '';
 let busy = false;
@@ -52,13 +41,13 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
 
     // Validate message structure
     if (!m || typeof m !== 'object' || !m.type) {
-      workerLog('error', `[markdown-worker] Invalid message structure: ${JSON.stringify(m)}`);
+      workerLog.error(`[markdown-worker] Invalid message structure: ${JSON.stringify(m)}`);
       return;
     }
 
     // Test multiple logging methods to see what works
     if (m.type !== 'chunk') {
-      workerLog('trace', `[markdown-worker] received: ${m.type}`);
+      workerLog.debug(`[markdown-worker] received: ${m.type}`);
     }
 
   switch (m.type) {
@@ -69,12 +58,12 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
         parseMarkdown(m.seq, m.text, m.fast).then(tree => {
           post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
         }).catch(e => {
-          log.error('processing error:', e);
+          console.error('processing error:', e);
           const error = e instanceof Error ? e : new Error(String(e));
           post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: m.seq });
         });
       } catch (e) {
-        log.error('processing error:', e);
+        console.error('processing error:', e);
         const error = e instanceof Error ? e : new Error(String(e));
         post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: m.seq });
       }
@@ -88,7 +77,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
     case 'clear':
-      log.info('--- clear worker state ---')
+      console.log('--- clear worker state ---')
       buffer = '';
       dirty = false;
       busy = false;  // Reset busy flag to prevent old parseAndPost from continuing
@@ -103,31 +92,23 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
     case 'symbol-lookup-response':
-      workerLog('info', `symbol-lookup-response received for seq ${m.seq} with ${Object.keys(m.results).length} symbols`);
+      workerLog.info(`symbol-lookup-response received for seq ${m.seq} with ${Object.keys(m.results).length} symbols`);
       handleSymbolLookupResponse(m.seq, m.results, m.contextId);
       break;
 
-    case 'test-error':
-      workerLog('info', `[WORKER-TEST] Testing error type: ${m.errorType}`);
-      if (testWorkerErrors[m.errorType]) {
-        testWorkerErrors[m.errorType]();
-      } else {
-        workerLog('error', `[WORKER-TEST] Unknown error type: ${m.errorType}`);
-      }
-      break;
 
     case 'hide-spinner':
       if (m.contextId) {
-        workerLog('info', `Spinner hidden - clearing symbol cache for context: ${m.contextId}`);
+        workerLog.info(`Spinner hidden - clearing symbol cache for context: ${m.contextId}`);
         clearContextCache(m.contextId);
       } else {
-        workerLog('info', 'Spinner hidden - clearing all symbol cache');
+        workerLog.info('Spinner hidden - clearing all symbol cache');
         clearSymbolCache();
       }
       break;
   }
   } catch (error) {
-    workerLog('error', `[WORKER-MESSAGE] Error processing message: ${error.message}\n${error.stack}`);
+    workerLog.error(`[WORKER-MESSAGE] Error processing message: ${error.message}\n${error.stack}`);
   }
 };
 
@@ -137,7 +118,7 @@ async function parseAndPost(seq: number): Promise<void> {
     const tree = await parseMarkdown(seq, buffer, false);
     post(<ResultMsg>{ type: 'result', tree, seq });
   } catch (e) {
-    log.error('worker error:', e);
+    console.error('worker error:', e);
     const error = e instanceof Error ? e : new Error(String(e));
     post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq });
   }
