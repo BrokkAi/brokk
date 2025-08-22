@@ -15,7 +15,6 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.SymbolKind;
-import org.jetbrains.annotations.Nullable;
 
 public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvider {
 
@@ -143,7 +142,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
     }
 
     @Override
-    public @Nullable String getClassSource(String classFullName) {
+    public Optional<String> getClassSource(String classFullName) {
         // JSP containers are dot-delimited and get rid of the '$'
         final String cleanedName = classFullName.replace('$', '.');
         return LspAnalyzer.super.getClassSource(cleanedName);

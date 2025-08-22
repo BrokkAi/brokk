@@ -216,10 +216,11 @@ public class AnalyzerUtil {
         for (String methodName : methodNames) {
             if (!methodName.isBlank()) {
                 // Attempt to get the source code for the method
-                var methodSourceOpt = ((SourceCodeProvider) analyzer).getMethodSource(methodName);
-                // If source is found, add it to the map with a header comment
-                methodSourceOpt.ifPresent(
-                        methodSource -> sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
+                analyzer.as(SourceCodeProvider.class)
+                        .flatMap(scp -> scp.getMethodSource(methodName))
+                        // If source is found, add it to the map with a header comment
+                        .ifPresent(methodSource ->
+                                sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
                 // If methodSourceOpt is empty, we simply don't add an entry for this methodName
             }
         }
@@ -247,17 +248,19 @@ public class AnalyzerUtil {
         for (String className : classNames) {
             if (!className.isBlank()) {
                 // Attempt to get the source code for the class
-                var classSource = ((SourceCodeProvider) analyzer).getClassSource(className);
-                if (classSource != null && !classSource.isEmpty()) {
-                    // If source is found, format it with a header and add to the map
-                    String filename = analyzer.getFileFor(className)
-                            .map(ProjectFile::toString)
-                            .orElse("unknown file");
-                    String formattedSource =
-                            "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
-                    sources.put(className, formattedSource);
-                    // If classSource is null or empty, we simply don't add an entry for this className
-                }
+                analyzer.as(SourceCodeProvider.class)
+                        .flatMap(scp -> scp.getClassSource(className))
+                        .filter(classSource -> !classSource.isEmpty())
+                        .ifPresent(classSource -> {
+                            // If source is found, format it with a header and add to the map
+                            String filename = analyzer.getFileFor(className)
+                                    .map(ProjectFile::toString)
+                                    .orElse("unknown file");
+                            String formattedSource =
+                                    "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
+                            sources.put(className, formattedSource);
+                            // If classSource is null or empty, we simply don't add an entry for this className
+                        });
             }
         }
         // Return the map containing formatted sources for all found classes

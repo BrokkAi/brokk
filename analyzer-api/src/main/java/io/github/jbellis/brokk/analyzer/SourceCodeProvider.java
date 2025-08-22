@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
 import java.util.Optional;
-import org.jetbrains.annotations.Nullable;
 
 /** Implemented by analyzers that can readily provide source code snippets. */
 public interface SourceCodeProvider extends CapabilityProvider {
@@ -16,6 +15,5 @@ public interface SourceCodeProvider extends CapabilityProvider {
      * Gets the source code for the entire given class. If the class is partial or has multiple definitions, this
      * typically returns the primary definition.
      */
-    @Nullable
-    String getClassSource(String fqcn);
+    Optional<String> getClassSource(String fqcn);
 }

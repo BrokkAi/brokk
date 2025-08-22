@@ -420,25 +420,27 @@ public class SearchTools {
 
         for (String className : classNames) {
             if (!className.isBlank()) {
-                var classSource = ((SourceCodeProvider) getAnalyzer()).getClassSource(className);
-                if (classSource != null) {
-                    if (!classSource.isEmpty() && processedSources.add(classSource)) {
-                        if (!result.isEmpty()) {
-                            result.append("\n\n");
-                        }
-                        // Include filename from analyzer if possible
-                        String filename = getAnalyzer()
-                                .getFileFor(className)
-                                .map(ProjectFile::toString)
-                                .orElseGet(() -> "unknown file"); // Use orElseGet for Optional
-                        result.append("Source code of ")
-                                .append(className)
-                                .append(" (from ")
-                                .append(filename)
-                                .append("):\n\n")
-                                .append(classSource);
-                    }
-                }
+                getAnalyzer()
+                        .as(SourceCodeProvider.class)
+                        .flatMap(scp -> scp.getClassSource(className))
+                        .filter(source -> !source.isEmpty())
+                        .filter(processedSources::add)
+                        .ifPresent(classSource -> {
+                            if (!result.isEmpty()) {
+                                result.append("\n\n");
+                            }
+                            // Include filename from analyzer if possible
+                            String filename = getAnalyzer()
+                                    .getFileFor(className)
+                                    .map(ProjectFile::toString)
+                                    .orElse("unknown file");
+                            result.append("Source code of ")
+                                    .append(className)
+                                    .append(" (from ")
+                                    .append(filename)
+                                    .append("):\n\n")
+                                    .append(classSource);
+                        });
             }
         }
 

@@ -549,7 +549,7 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public String getClassSource(String fqName) {
+    public Optional<String> getClassSource(String fqName) {
         var cu = getDefinition(fqName)
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
@@ -565,9 +565,9 @@ public abstract class TreeSitterAnalyzer
         try {
             src = cu.source().read();
         } catch (IOException e) {
-            return "";
+            return Optional.empty();
         }
-        return ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+        return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte()));
     }
 
     @Override
