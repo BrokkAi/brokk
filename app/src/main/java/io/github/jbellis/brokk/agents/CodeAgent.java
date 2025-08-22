@@ -129,6 +129,8 @@ public class CodeAgent {
                         loopContext.conversationState().taskMessages(),
                         loopContext.conversationState().nextRequest(),
                         loopContext.editState().changedFiles());
+                allMessagesForLlm = CodePrompts.instance
+                        .ensureFirstSystemFormattingPrefix(contextManager.getService(), model, allMessagesForLlm);
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
@@ -268,6 +270,8 @@ public class CodeAgent {
                     loopContext.conversationState().taskMessages(),
                     loopContext.conversationState().nextRequest(),
                     file);
+            llmMessages = CodePrompts.instance
+                    .ensureFirstSystemFormattingPrefix(contextManager.getService(), model, llmMessages);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
@@ -540,6 +544,8 @@ public class CodeAgent {
         pendingHistory.add(new UserMessage(instructionsMsg));
 
         // No echo for Quick Edit, use instance quickModel
+        messages = CodePrompts.instance
+                .ensureFirstSystemFormattingPrefix(contextManager.getService(), model, messages);
         var result = coder.sendRequest(messages, false);
 
         // Determine stop reason based on LLM response

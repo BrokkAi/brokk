@@ -191,6 +191,8 @@ public class BlitzForgeProgressDialog extends JDialog {
         TaskResult result;
         if (action.equals("Ask")) {
             var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
+            messages = CodePrompts.instance
+                    .ensureFirstSystemFormattingPrefix(cm.getService(), model, messages); // Apply formatting prefix
             var llm = cm.getLlm(model, "Ask", true);
             llm.setOutput(dialogConsoleIO);
             result = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);

@@ -983,18 +983,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     public static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
         List<ChatMessage> messages;
-        try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question, model);
-        } catch (InterruptedException e) {
-            return new TaskResult(
-                    cm,
-                    "Ask: " + question,
-                    List.of(),
-                    Set.of(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
-        }
+        messages = CodePrompts.instance.collectAskMessages(cm, question);
         var llm = cm.getLlm(model, "Ask: " + question);
-
+        messages = CodePrompts.instance.ensureFirstSystemFormattingPrefix(cm.getService(), model, messages);
         return executeAskCommand(llm, messages, cm, question);
     }
 

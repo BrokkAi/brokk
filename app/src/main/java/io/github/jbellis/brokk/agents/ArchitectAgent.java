@@ -842,7 +842,7 @@ public class ArchitectAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
-        var reminder = CodePrompts.instance.architectReminder(contextManager.getService(), model);
+        var reminder = CodePrompts.instance.architectReminder();
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, reminder));
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
@@ -875,6 +875,8 @@ public class ArchitectAgent {
         // Final user message with the goal and specific instructions for this turn, including workspace warnings
         messages.add(new UserMessage(ArchitectPrompts.instance.getFinalInstructions(
                 contextManager, goal, workspaceTokenSize, minInputTokenLimit)));
-        return messages;
+
+        return CodePrompts.instance
+                .ensureFirstSystemFormattingPrefix(contextManager.getService(), model, messages);
     }
 }

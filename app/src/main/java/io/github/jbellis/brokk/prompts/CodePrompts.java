@@ -54,42 +54,33 @@ public abstract class CodePrompts {
             """
                     .stripIndent();
 
-    public static final String GPT5_MARKDOWN_REMINDER =
+    public static final String GPT5_FORMATTING_ENABLE =
             """
-            Use Markdown where appropriate.
-            File, directory, function, and class names should all be formatted as `inline code`.
+            Formatting re-enabled
+            Respond **strictly in Markdown**. Use headings, lists, code blocks, and Markdown tables as needed. Do not include any introductory or concluding remarks—just the content.
             Pseudocode should be formatted in ```code fences```.
+            
+            Here is a mini few-shot example:
 
-            When in doubt, it's better to avoid formatting than to overdo it.
+            ### Example:
+            **Goal:** 2 programming languages with a brief categorization.
+            **Answer:**
+            | Language | Category  | Note                      |
+            |----------|-----------|---------------------------|
+            | Python   | High-level | Very versatile ecosystem |
+            | C++      | System-level | Manual memory management |
             """
                     .stripIndent();
 
     public String codeReminder(Service service, StreamingChatModel model) {
-        var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+        return service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
     }
 
-    public String architectReminder(Service service, StreamingChatModel model) {
-        var baseReminder = ARCHITECT_REMINDER;
-
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return baseReminder + "\n" + GPT5_MARKDOWN_REMINDER;
-        }
-        return baseReminder;
+    public String architectReminder() {
+        return ARCHITECT_REMINDER;
     }
 
-    public String askReminder(IContextManager cm, StreamingChatModel model) {
-        var service = cm.getService();
-        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
-        if (modelName.startsWith("gpt-5")) {
-            return GPT5_MARKDOWN_REMINDER;
-        }
+    public String askReminder() {
         return "";
     }
 
@@ -254,11 +245,10 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input, StreamingChatModel model)
-            throws InterruptedException {
+    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) {
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(systemMessage(cm, askReminder(cm, model)));
+        messages.add(systemMessage(cm, askReminder()));
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
         messages.addAll(getHistoryMessages(cm.topContext()));
         messages.add(askRequest(input));
@@ -306,6 +296,47 @@ public abstract class CodePrompts {
                         .trim();
 
         return new SystemMessage(text);
+    }
+
+    /**
+     * Ensures that the GPT-5 formatting prefix is added to the first SystemMessage in the list if the model is GPT-5.
+     * If no SystemMessage exists, it adds one as the first message.
+     * This method is idempotent and will not duplicate the prefix if it's already present.
+     *
+     * @param service The service to query model information.
+     * @param model The streaming chat model being used.
+     * @param messages The list of chat messages to potentially modify.
+     * @return A new list of chat messages with the formatting prefix applied if applicable.
+     */
+    public List<ChatMessage> ensureFirstSystemFormattingPrefix(
+            Service service, StreamingChatModel model, List<ChatMessage> messages) {
+        var modelName = service.nameOf(model).toLowerCase(Locale.ROOT);
+        if (!modelName.startsWith("gpt-5")) {
+            return messages; // no-op for non-GPT-5 models
+        }
+
+        // clone to avoid mutating caller list
+        var out = new ArrayList<ChatMessage>(messages.size() + 1);
+        boolean prefixed = false;
+
+        for (var m : messages) {
+            if (!prefixed && m instanceof SystemMessage sm) {
+                var text = sm.text();
+                if (!text.startsWith("Formatting re-enabled")) {
+                    sm = new SystemMessage(GPT5_FORMATTING_ENABLE + "\n\n" + text);
+                }
+                out.add(sm);
+                prefixed = true;
+            } else {
+                out.add(m);
+            }
+        }
+
+        // If there was no system message at all, add one with just the formatting header.
+        if (!prefixed) {
+            out.addFirst(new SystemMessage(GPT5_FORMATTING_ENABLE));
+        }
+        return out;
     }
 
     public String systemIntro(String reminder) {
