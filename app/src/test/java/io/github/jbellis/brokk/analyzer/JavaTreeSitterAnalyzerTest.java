@@ -111,8 +111,9 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceTest() {
-        final var source = analyzer.getClassSource("A");
-        assertNotNull(source);
+        final var sourceOpt = analyzer.getClassSource("A");
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get();
         // Verify the source contains class definition and methods
         assertTrue(source.contains("class A {"));
         assertTrue(source.contains("public void method1()"));
@@ -121,9 +122,9 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceNestedTest() {
-        final var maybeSource = analyzer.getClassSource("A$AInner");
-        assertNotNull(maybeSource);
-        final var source = maybeSource.stripIndent();
+        final var sourceOpt = analyzer.getClassSource("A$AInner");
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
         final var expected =
                 """
@@ -142,9 +143,9 @@ public class JavaTreeSitterAnalyzerTest {
 
     @Test
     public void getClassSourceTwiceNestedTest() {
-        final var maybeSource = analyzer.getClassSource("A$AInner$AInnerInner");
-        assertNotNull(maybeSource);
-        final var source = maybeSource.stripIndent();
+        final var sourceOpt = analyzer.getClassSource("A$AInner$AInnerInner");
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get().stripIndent();
         // Verify the source contains inner class definition
         final var expected =
                 """
