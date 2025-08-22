@@ -42,6 +42,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private FileSelectionListener selectionListener;
 
     private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
+    private volatile int pendingInitialSelection = -1;
 
     public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot) {
         this(fileComparisons, projectRoot, null);
@@ -158,6 +159,14 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     treeModel.reload();
                     expandAllNodes();
                     fileTree.revalidate();
+
+                    // Perform pending initial selection if one was requested
+                    var pendingSelection = pendingInitialSelection;
+                    if (pendingSelection >= 0) {
+                        pendingInitialSelection = -1; // Clear it first
+                        selectFile(pendingSelection);
+                    }
+
                     SwingUtilities.invokeLater(() -> {
                         scrollPane.getViewport().setViewPosition(new Point(0, 0));
                     });
@@ -467,6 +476,10 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             if (targetPath != null) {
                 fileTree.setSelectionPath(targetPath);
                 fileTree.scrollPathToVisible(targetPath);
+                pendingInitialSelection = -1; // Clear pending selection since we successfully selected
+            } else {
+                // Tree isn't ready yet, store the pending selection
+                pendingInitialSelection = fileIndex;
             }
         } finally {
             suppressSelectionEvents.set(false);

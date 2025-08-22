@@ -483,6 +483,59 @@ public final class GitUiUtil {
         });
     }
 
+    /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
+    public static void openCommitDiffPanel(
+            ContextManager cm,
+            Chrome chrome,
+            io.github.jbellis.brokk.git.ICommitInfo commitInfo,
+            String targetFileName) {
+        var repo = cm.getProject().getRepo();
+
+        cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
+            try {
+                var files = commitInfo.changedFiles();
+                if (files.isEmpty()) {
+                    chrome.systemOutput("No files changed in this commit.");
+                    return;
+                }
+
+                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, cm);
+                var parentId = commitInfo.id() + "^";
+
+                // Track target file index
+                int targetFileIndex = -1;
+                int currentIndex = 0;
+
+                for (var file : files) {
+                    var oldContent = getFileContentOrEmpty(repo, parentId, file);
+                    var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
+
+                    // Check if this is the target file
+                    if (file.toString().equals(targetFileName)) {
+                        targetFileIndex = currentIndex;
+                    }
+
+                    builder.addComparison(
+                            new BufferSource.StringSource(oldContent, parentId, file.toString()),
+                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
+                    currentIndex++;
+                }
+
+                // Set initial file index to target file if found
+                if (targetFileIndex >= 0) {
+                    builder.setInitialFileIndex(targetFileIndex);
+                }
+
+                var title = "Commit Diff: %s (%s)"
+                        .formatted(
+                                commitInfo.message().lines().findFirst().orElse(""), shortenCommitId(commitInfo.id()));
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+            } catch (Exception ex) {
+                chrome.toolError("Error opening commit diff: " + ex.getMessage());
+            }
+        });
+    }
+
     private static String getFileContentOrEmpty(
             io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
         try {

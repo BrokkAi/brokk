@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
@@ -490,6 +491,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prFilesPanel.add(new JScrollPane(prFilesTable), BorderLayout.CENTER);
 
+        setupPrFilesTableDoubleClick();
+
         // Add panels to split pane
         rightSplitPane.setTopComponent(prCommitsPanel);
         rightSplitPane.setBottomComponent(prFilesPanel);
@@ -735,11 +738,154 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         int modelRow = prCommitsTable.convertRowIndexToModel(row);
                         if (modelRow >= 0 && modelRow < currentPrCommitDetailsList.size()) {
                             ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
+
+                            // Check if there's a selected file in the PR files table
+                            int selectedFileRow = prFilesTable.getSelectedRow();
+                            if (selectedFileRow != -1) {
+                                int selectedFileModelRow = prFilesTable.convertRowIndexToModel(selectedFileRow);
+                                if (selectedFileModelRow >= 0
+                                        && selectedFileModelRow < prFilesTableModel.getRowCount()) {
+                                    Object cellValue = prFilesTableModel.getValueAt(selectedFileModelRow, 0);
+                                    if (cellValue instanceof String filename) {
+                                        // Extract the file path from "filename - full/path" format
+                                        String targetFilePath = extractFilePathFromDisplay(filename);
+                                        GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo, targetFilePath);
+                                        return;
+                                    }
+                                }
+                            }
+
+                            // Fallback to original behavior if no file selected
                             GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
                         }
                     }
                 }
             }
+        });
+    }
+
+    private void setupPrFilesTableDoubleClick() {
+        prFilesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = prFilesTable.rowAtPoint(e.getPoint());
+                    if (row != -1) {
+                        int modelRow = prFilesTable.convertRowIndexToModel(row);
+                        if (modelRow >= 0 && modelRow < prFilesTableModel.getRowCount()) {
+                            Object cellValue = prFilesTableModel.getValueAt(modelRow, 0);
+                            if (cellValue instanceof String filename) {
+                                openPrDiffWithSelectedFile(filename);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    private void openPrDiffWithSelectedFile(String filename) {
+        int selectedRow = prTable.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
+            return;
+        }
+        GHPullRequest pr = displayedPrs.get(selectedRow);
+        // Extract file path from display format if needed
+        String targetFilePath = extractFilePathFromDisplay(filename);
+        logger.info("Opening full diff viewer for PR #{} with file '{}' selected (extracted path: '{}')",
+                   pr.getNumber(), filename, targetFilePath);
+
+        contextManager.submitUserTask("Show PR Diff", () -> {
+            try {
+                var repo = getRepo();
+
+                String prHeadSha = pr.getHead().getSha();
+                String prBaseSha = pr.getBase().getSha();
+                String prHeadFetchRef = String.format(
+                        "+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", pr.getNumber(), pr.getNumber());
+                String prBaseBranchName = pr.getBase().getRef();
+                String prBaseFetchRef =
+                        String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                    chrome.toolError(
+                            "Could not make PR head commit " + GitUiUtil.shortenCommitId(prHeadSha)
+                                    + " available locally.",
+                            "Diff Error");
+                    return null;
+                }
+                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                    logger.warn(
+                            "PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.",
+                            GitUiUtil.shortenCommitId(prBaseSha),
+                            prBaseFetchRef);
+                }
+
+                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+
+                if (modifiedFiles.isEmpty()) {
+                    chrome.systemNotify(
+                            PrTitleFormatter.formatNoChangesMessage(pr.getNumber()),
+                            "Diff Info",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    return null;
+                }
+
+                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                        .setMultipleCommitsContext(true)
+                        .setRootTitle(PrTitleFormatter.formatPrRoot(pr));
+
+                // Add all files in natural order and track target file index
+                int targetFileIndex = -1;
+                int currentIndex = 0;
+
+                for (var mf : modifiedFiles) {
+                    var projectFile = mf.file();
+                    var status = mf.status();
+
+                    io.github.jbellis.brokk.difftool.ui.BufferSource leftSource, rightSource;
+
+                    if ("deleted".equals(status)) {
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                "", prHeadSha + " (Deleted)", projectFile.toString());
+                    } else if ("new".equals(status)) {
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                "", prBaseSha + " (New)", projectFile.toString());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                    } else { // modified
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.toString());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.toString());
+                    }
+
+                    // Check if this is the target file
+                    if (projectFile.toString().equals(targetFilePath)) {
+                        targetFileIndex = currentIndex;
+                    }
+
+                    builder.addComparison(leftSource, rightSource);
+                    currentIndex++;
+                }
+
+                // Set initial file index to target file if found
+                if (targetFileIndex >= 0) {
+                    builder.setInitialFileIndex(targetFileIndex);
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    var diffPanel = builder.build();
+                    diffPanel.showInFrame(PrTitleFormatter.formatDiffTitle(pr));
+                });
+
+            } catch (Exception ex) {
+                logger.error("Error opening PR diff viewer for PR #{} with file '{}'", pr.getNumber(), filename, ex);
+                chrome.toolError(PrTitleFormatter.formatDiffError(pr.getNumber(), ex.getMessage()), "Diff Error");
+            }
+            return null;
         });
     }
 
@@ -2027,5 +2173,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 }
             }
         }
+    }
+
+    /**
+     * Extracts the file path from PR files table display format.
+     * Converts "filename - full/path" to "full/path".
+     */
+    private String extractFilePathFromDisplay(String displayText) {
+        int dashIndex = displayText.indexOf(" - ");
+        if (dashIndex != -1 && dashIndex < displayText.length() - 3) {
+            return displayText.substring(dashIndex + 3);
+        }
+        return displayText; // fallback to original if format doesn't match
     }
 }

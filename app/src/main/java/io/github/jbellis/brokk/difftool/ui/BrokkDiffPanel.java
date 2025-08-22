@@ -43,6 +43,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     final List<FileComparisonInfo> fileComparisons;
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
+    private final int initialFileIndex;
 
     // Thread-safe sliding window cache for loaded diff panels
     private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
@@ -92,6 +93,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         this.theme = theme;
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
+        this.initialFileIndex = builder.initialFileIndex;
 
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
@@ -160,6 +162,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         private final ContextManager contextManager;
         private final List<FileComparisonInfo> fileComparisons;
         private boolean isMultipleCommitsContext = false;
+        private int initialFileIndex = 0;
 
         @Nullable
         private String rootTitle;
@@ -203,6 +206,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         public Builder setRootTitle(String rootTitle) {
             this.rootTitle = rootTitle;
+            return this;
+        }
+
+        public Builder setInitialFileIndex(int initialFileIndex) {
+            this.initialFileIndex = initialFileIndex;
             return this;
         }
 
@@ -675,13 +683,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     public void launchComparison() {
         logger.info(
-                "Navigation Step 0: Launching diff comparison with {} files, starting with file index 0",
-                fileComparisons.size());
-        // Show the first file immediately
-        currentFileIndex = 0;
+                "Navigation Step 0: Launching diff comparison with {} files, starting with file index {}",
+                fileComparisons.size(),
+                initialFileIndex);
+        // Show the initial file
+        currentFileIndex = initialFileIndex;
         loadFileOnDemand(currentFileIndex);
 
-        // Select the first file in the tree (only if multiple files)
+        // Select the initial file in the tree (only if multiple files)
         if (fileComparisons.size() > 1) {
             fileTreePanel.selectFile(currentFileIndex);
         }
