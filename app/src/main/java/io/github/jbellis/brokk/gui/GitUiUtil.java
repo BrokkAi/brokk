@@ -939,6 +939,8 @@ public final class GitUiUtil {
                     e);
             return false;
         }
+    }
+
     /**
      * Builds a concise commit label such as<br>
      * 'First line …' [abcdef1] <br>
