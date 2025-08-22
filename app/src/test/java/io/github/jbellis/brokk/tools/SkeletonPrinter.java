@@ -6,10 +6,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -267,7 +264,9 @@ public class SkeletonPrinter {
                 }
 
                 // Count skeletons for this file - use projectFile from singleFileProject
-                var skeletons = analyzer.getSkeletons(projectFile);
+                var skeletons = analyzer.as(SkeletonProvider.class)
+                        .map(skp -> skp.getSkeletons(projectFile))
+                        .orElse(Collections.emptyMap());
                 skeletonsProduced += skeletons.size();
 
                 // Accumulate TreeSitter statistics
@@ -348,7 +347,9 @@ public class SkeletonPrinter {
             }
 
             // Count skeletons for this file
-            var skeletons = ((SkeletonProvider) analyzer).getSkeletons(projectFile);
+            var skeletons = analyzer.as(SkeletonProvider.class)
+                    .map(skp -> skp.getSkeletons(projectFile))
+                    .orElse(Collections.emptyMap());
             skeletonsProduced += skeletons.size();
         } catch (Exception e) {
             var errorMsg = "Error processing file " + filePath + ": " + e.getMessage();
@@ -372,23 +373,15 @@ public class SkeletonPrinter {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T extends IAnalyzer & SkeletonProvider> @Nullable T createAnalyzer(
-            IProject project, Language language) {
-        final IAnalyzer analyzer =
-                switch (language.internalName()) {
-                    case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
-                    case "JavaScript" -> new JavascriptAnalyzer(project);
-                    case "Java" -> JavaAnalyzer.create(project);
-                    case "Python" -> new PythonAnalyzer(project);
-                    case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
-                    default -> null;
-                };
-        if (analyzer != null) {
-            return (T) analyzer;
-        } else {
-            return null;
-        }
+    private static @Nullable IAnalyzer createAnalyzer(IProject project, Language language) {
+        return switch (language.internalName()) {
+            case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
+            case "JavaScript" -> new JavascriptAnalyzer(project);
+            case "Java" -> JavaAnalyzer.create(project);
+            case "Python" -> new PythonAnalyzer(project);
+            case "CPP_TREESITTER" -> new CppTreeSitterAnalyzer(project, Set.of());
+            default -> null;
+        };
     }
 
     private static void printFileSkeletons(IAnalyzer analyzer, ProjectFile file) {

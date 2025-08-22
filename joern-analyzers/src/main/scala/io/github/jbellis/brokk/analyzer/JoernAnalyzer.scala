@@ -42,7 +42,8 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     with SkeletonProvider
     with SourceCodeProvider
     with UsagesProvider 
-    with CallGraphProvider {
+    with CallGraphProvider
+    with IncrementalUpdateProvider {
 
   // Logger instance for this class
   protected val logger: Logger = LoggerFactory.getLogger(getClass)

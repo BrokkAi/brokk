@@ -323,8 +323,10 @@ public interface ContextFragment {
         @Override
         public String formatSummary() {
             IAnalyzer analyzer = getAnalyzer();
-            if (!analyzer.isEmpty() && analyzer instanceof SkeletonProvider skeletonProvider) {
-                var summary = skeletonProvider.getSkeletons(file).entrySet().stream()
+            if (!analyzer.isEmpty()) {
+                var summary = analyzer.as(SkeletonProvider.class)
+                        .map(skp -> skp.getSkeletons(file).entrySet().stream())
+                        .orElse(Stream.empty())
                         .sorted(Map.Entry.comparingByKey())
                         .map(Map.Entry::getValue)
                         .collect(Collectors.joining("\n"));
@@ -1181,15 +1183,15 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            if (analyzer instanceof UsagesProvider usagesProvider) {
-                List<CodeUnit> uses = usagesProvider.getUses(targetIdentifier);
-                var result = AnalyzerUtil.processUsages(analyzer, uses);
-                return result.code().isEmpty()
-                        ? "No relevant usages found for symbol: " + targetIdentifier
-                        : result.code();
-            } else {
-                return "Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".";
-            }
+            return analyzer.as(UsagesProvider.class)
+                    .map(up -> {
+                        List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        var result = AnalyzerUtil.processUsages(analyzer, uses);
+                        return result.code().isEmpty()
+                                ? "No relevant usages found for symbol: " + targetIdentifier
+                                : result.code();
+                    })
+                    .orElse("Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".");
         }
 
         @Override
@@ -1199,14 +1201,14 @@ public interface ContextFragment {
 
         @Override
         public Set<CodeUnit> sources() {
-            IAnalyzer analyzer = getAnalyzer();
-            if (analyzer instanceof UsagesProvider usagesProvider) {
-                List<CodeUnit> uses = usagesProvider.getUses(targetIdentifier);
-                var result = AnalyzerUtil.processUsages(analyzer, uses);
-                return result.sources();
-            } else {
-                throw new UnsupportedOperationException();
-            }
+            final IAnalyzer analyzer = getAnalyzer();
+            return analyzer.as(UsagesProvider.class)
+                    .map(up -> {
+                        List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        var result = AnalyzerUtil.processUsages(analyzer, uses);
+                        return result.sources();
+                    })
+                    .orElseThrow(UnsupportedOperationException::new);
         }
 
         @Override
@@ -1274,13 +1276,17 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            final Map<String, List<CallSite>> graphData;
-            if (analyzer instanceof CallGraphProvider callGraphProvider) {
-                if (isCalleeGraph) {
-                    graphData = callGraphProvider.getCallgraphFrom(methodName, depth);
-                } else {
-                    graphData = callGraphProvider.getCallgraphTo(methodName, depth);
-                }
+            final Map<String, List<CallSite>> graphData = new HashMap<>();
+            final var maybeCallGraphProvider = analyzer.as(CallGraphProvider.class);
+
+            if (maybeCallGraphProvider.isPresent()) {
+                maybeCallGraphProvider.ifPresent(cpg -> {
+                    if (isCalleeGraph) {
+                        graphData.putAll(cpg.getCallgraphFrom(methodName, depth));
+                    } else {
+                        graphData.putAll(cpg.getCallgraphTo(methodName, depth));
+                    }
+                });
             } else {
                 return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
             }
@@ -1377,7 +1383,7 @@ public interface ContextFragment {
         private Map<CodeUnit, String> fetchSkeletons() {
             IAnalyzer analyzer = getAnalyzer();
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
-            if (analyzer instanceof SkeletonProvider skeletonProvider) {
+            analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
                 switch (summaryType) {
                     case CODEUNIT_SKELETON -> {
                         for (String className : targetIdentifiers) {
@@ -1397,7 +1403,7 @@ public interface ContextFragment {
                         }
                     }
                 }
-            }
+            });
             return skeletonsMap;
         }
 

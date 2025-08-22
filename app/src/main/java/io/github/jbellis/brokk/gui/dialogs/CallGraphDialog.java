@@ -146,21 +146,24 @@ public class CallGraphDialog extends JDialog {
             return;
         }
 
-        // Update the call graph map
-        if (analyzer instanceof CallGraphProvider callGraphProvider) {
-            if (isCallerGraph) {
-                callGraph = callGraphProvider.getCallgraphTo(methodName, depth);
-            } else {
-                callGraph = callGraphProvider.getCallgraphFrom(methodName, depth);
-            }
-        } else {
-            callGraph = Collections.emptyMap();
+        final Map<String, List<CallSite>> callGraph = new HashMap<>();
+        try {
+            analyzer.as(CallGraphProvider.class).ifPresent(cgp -> {
+                if (isCallerGraph) {
+                    callGraph.putAll(cgp.getCallgraphTo(methodName, depth));
+                } else {
+                    callGraph.putAll(cgp.getCallgraphFrom(methodName, depth));
+                }
+            });
+
+            // Count total call sites
+            int totalCallSites =
+                    callGraph.values().stream().mapToInt(List::size).sum();
+
+            updateCallSitesCount(totalCallSites);
+        } finally {
+            this.callGraph = callGraph;
         }
-
-        // Count total call sites
-        int totalCallSites = callGraph.values().stream().mapToInt(List::size).sum();
-
-        updateCallSitesCount(totalCallSites);
     }
 
     /** Updates the call sites count label */

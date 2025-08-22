@@ -2,8 +2,7 @@ package io.github.jbellis.brokk.analyzer;
 
 import java.util.*;
 
-public class DisabledAnalyzer
-        implements IAnalyzer, UsagesProvider, SourceCodeProvider, SkeletonProvider, CallGraphProvider {
+public class DisabledAnalyzer implements IAnalyzer {
 
     @Override
     public boolean isEmpty() {
@@ -31,16 +30,6 @@ public class DisabledAnalyzer
     }
 
     @Override
-    public Optional<String> getSkeleton(String className) {
-        return Optional.empty();
-    }
-
-    @Override
-    public Optional<String> getSkeletonHeader(String className) {
-        return Optional.empty();
-    }
-
-    @Override
     public Optional<ProjectFile> getFileFor(String fqcn) {
         return Optional.empty();
     }
@@ -48,31 +37,6 @@ public class DisabledAnalyzer
     @Override
     public List<CodeUnit> searchDefinitions(String pattern) {
         return Collections.emptyList();
-    }
-
-    @Override
-    public List<CodeUnit> getUses(String symbol) {
-        return Collections.emptyList();
-    }
-
-    @Override
-    public Optional<String> getMethodSource(String methodName) {
-        return Optional.empty();
-    }
-
-    @Override
-    public String getClassSource(String className) {
-        return "";
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        return Collections.emptyMap();
-    }
-
-    @Override
-    public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        return Collections.emptyMap();
     }
 
     @Override

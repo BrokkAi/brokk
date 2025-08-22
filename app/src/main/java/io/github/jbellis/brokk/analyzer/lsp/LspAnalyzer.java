@@ -21,7 +21,13 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public interface LspAnalyzer extends IAnalyzer, AutoCloseable, CallGraphProvider, UsagesProvider, SourceCodeProvider {
+public interface LspAnalyzer
+        extends IAnalyzer,
+                AutoCloseable,
+                CallGraphProvider,
+                UsagesProvider,
+                SourceCodeProvider,
+                IncrementalUpdateProvider {
 
     Logger logger = LoggerFactory.getLogger(LspAnalyzer.class);
 
@@ -148,7 +154,8 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable, CallGraphProvider
      *   <li>? (question mark) matches any single character.
      * </ul>
      *
-     * Thus, we need to "sanitize" more complex operations otherwise these will be interpreted literally by the server.
+     * <p>Thus, we need to "sanitize" more complex operations otherwise these will be interpreted literally by the
+     * server.
      *
      * @param pattern the given search pattern.
      * @return any matching {@link CodeUnit}s.

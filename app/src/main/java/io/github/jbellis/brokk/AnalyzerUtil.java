@@ -15,11 +15,14 @@ public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
     public static CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
-        StringBuilder code = new StringBuilder();
-        Set<CodeUnit> sources = new HashSet<>();
+        final StringBuilder code = new StringBuilder();
+        final Set<CodeUnit> sources = new HashSet<>();
 
-        if (analyzer instanceof SourceCodeProvider sourceCodeProvider) {
-            // method uses
+        final var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
+        if (maybeSourceCodeProvider.isEmpty()) {
+            logger.warn("Analyzer ({}) does not provide source code, skipping", analyzer.getClass());
+        }
+        maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
             var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
 
             if (!methodUses.isEmpty()) {
@@ -54,12 +57,13 @@ public class AnalyzerUtil {
                     }
                 }
             }
-        } else {
-            logger.warn("Analyzer ({}) does not provide source code, skipping", analyzer.getClass());
-        }
+        });
 
-        if (analyzer instanceof SkeletonProvider skeletonProvider) {
-            // type uses
+        final var maybeSkeletonProvider = analyzer.as(SkeletonProvider.class);
+        if (maybeSkeletonProvider.isEmpty()) {
+            logger.warn("Analyzer ({}) does not provide skeletons, skipping", analyzer.getClass());
+        }
+        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
             var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
             if (!typeUses.isEmpty()) {
                 code.append("Type uses:\n\n");
@@ -72,9 +76,7 @@ public class AnalyzerUtil {
                     sources.add(cu);
                 }
             }
-        } else {
-            logger.warn("Analyzer ({}) does not provide skeletons, skipping", analyzer.getClass());
-        }
+        });
 
         return new CodeWithSource(code.toString(), sources);
     }
@@ -187,8 +189,8 @@ public class AnalyzerUtil {
                 .flatMap(Optional::stream) // Convert Optional<CodeUnit> to Stream<CodeUnit>
                 .filter(CodeUnit::isClass) // Ensure it's a class CodeUnit
                 .map(cu -> {
-                    Optional<String> skeletonOpt =
-                            ((SkeletonProvider) analyzer).getSkeleton(cu.fqName()); // Use fqName from CodeUnit
+                    Optional<String> skeletonOpt = analyzer.as(SkeletonProvider.class)
+                            .flatMap(skp -> skp.getSkeleton(cu.fqName())); // Use fqName from CodeUnit
                     return skeletonOpt.map(s -> Map.entry(cu, s)).orElse(null); // Create entry if skeleton exists
                 })
                 .filter(Objects::nonNull) // Filter out null entries (where skeleton wasn't found)

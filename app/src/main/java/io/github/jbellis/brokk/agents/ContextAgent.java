@@ -344,8 +344,10 @@ public class ContextAgent {
                     boolean inWorkspace = analyzer.getFileFor(cu.fqName())
                             .map(existingFiles::contains)
                             .orElse(false);
-                    if (cu.isClass() && !inWorkspace && analyzer instanceof SkeletonProvider skeletonProvider) {
-                        skeletonProvider.getSkeleton(fqn).ifPresent(skel -> tempSummaries.put(cu, skel));
+                    if (cu.isClass() && !inWorkspace) {
+                        analyzer.as(SkeletonProvider.class)
+                                .flatMap(skp -> skp.getSkeleton(fqn))
+                                .ifPresent(skel -> tempSummaries.put(cu, skel));
                     }
                 });
             }
@@ -355,13 +357,9 @@ public class ContextAgent {
             requireNonNull(analyzer);
             rawSummaries = filesToConsider.stream()
                     .parallel()
-                    .flatMap(f -> {
-                        if (analyzer instanceof SkeletonProvider skeletonProvider) {
-                            return skeletonProvider.getSkeletons(f).entrySet().stream();
-                        } else {
-                            return Stream.empty();
-                        }
-                    })
+                    .flatMap(f -> analyzer.as(SkeletonProvider.class)
+                            .map(skp -> skp.getSkeletons(f).entrySet().stream())
+                            .orElse(Stream.empty()))
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
         }
 
@@ -447,12 +445,9 @@ public class ContextAgent {
             stream = stream.parallel();
         }
         return stream.map(cu -> {
-                    final String skeleton;
-                    if (analyzer instanceof SkeletonProvider skeletonProvider) {
-                        skeleton = skeletonProvider.getSkeleton(cu.fqName()).orElse("");
-                    } else {
-                        skeleton = "";
-                    }
+                    final String skeleton = analyzer.as(SkeletonProvider.class)
+                            .flatMap(skp -> skp.getSkeleton(cu.fqName()))
+                            .orElse("");
                     return Map.entry(cu, skeleton);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())

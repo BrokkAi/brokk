@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /** Implemented by analyzers that can readily provide skeletons. */
-public interface SkeletonProvider {
+public interface SkeletonProvider extends CapabilityProvider {
 
     /** return a summary of the given type or method */
     Optional<String> getSkeleton(String fqName);

@@ -20,6 +20,10 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
+        return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
+    }
+
     default List<CodeUnitRelevance> getRelevantCodeUnits(
             Map<String, Double> seedClassWeights, int k, boolean reversed) {
         throw new UnsupportedOperationException();
@@ -204,22 +208,6 @@ public interface IAnalyzer {
      */
     default FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
         throw new UnsupportedOperationException();
-    }
-
-    /**
-     * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is O(M) in the number of
-     * changed files.
-     */
-    default IAnalyzer update(Set<ProjectFile> changedFiles) {
-        return this;
-    }
-
-    /**
-     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) in the total
-     * number of files and relatively heavyweight.
-     */
-    default IAnalyzer update() {
-        return this;
     }
 
     /** Container for a function’s location and current source text. */

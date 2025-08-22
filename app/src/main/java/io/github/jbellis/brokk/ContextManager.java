@@ -1037,7 +1037,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var content = new StringBuilder();
         IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
-        if (getAnalyzerUninterrupted() instanceof SourceCodeProvider sourceCodeProvider) {
+        localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
             for (var element : stacktrace.getFrames()) {
                 var methodFullName = element.getClassName() + "." + element.getMethodName();
                 var methodSource = sourceCodeProvider.getMethodSource(methodFullName);
@@ -1051,7 +1051,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     content.append(methodSource.get()).append("\n\n");
                 }
             }
-        }
+        });
 
         if (content.isEmpty()) {
             logger.debug("No relevant methods found in stacktrace -- adding as text");

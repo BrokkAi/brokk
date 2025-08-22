@@ -4,7 +4,7 @@ import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 /** Implemented by analyzers that can readily provide source code snippets. */
-public interface SourceCodeProvider {
+public interface SourceCodeProvider extends CapabilityProvider {
 
     /**
      * Gets the source code for a given method name. If multiple methods match (e.g. overloads), their source code

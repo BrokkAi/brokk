@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.google.common.io.Files;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -8,7 +9,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class MultiAnalyzer
-        implements IAnalyzer, CallGraphProvider, UsagesProvider, SkeletonProvider, SourceCodeProvider {
+        implements IAnalyzer,
+                CallGraphProvider,
+                UsagesProvider,
+                SkeletonProvider,
+                SourceCodeProvider,
+                IncrementalUpdateProvider {
     private static final Logger logger = LogManager.getLogger(MultiAnalyzer.class);
 
     private final Map<Language, IAnalyzer> delegates;
@@ -48,12 +54,12 @@ public class MultiAnalyzer
     @Override
     public List<CodeUnit> getUses(String fqName) {
         return delegates.values().stream()
-                .flatMap(analyzer1 -> ((Function<IAnalyzer, List<CodeUnit>>) analyzer -> {
-                            if (analyzer instanceof UsagesProvider usagesProvider)
-                                return usagesProvider.getUses(fqName);
-                            else return Collections.emptyList();
-                        })
-                        .apply(analyzer1).stream())
+                .flatMap(
+                        analyzer1 -> analyzer1
+                                .as(UsagesProvider.class)
+                                .map(up -> up.getUses(fqName))
+                                .orElse(Collections.emptyList())
+                                .stream())
                 .distinct()
                 .collect(Collectors.toList());
     }
@@ -88,57 +94,43 @@ public class MultiAnalyzer
 
     @Override
     public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        return mergeMapsFromAnalyzers(analyzer -> {
-            if (analyzer instanceof CallGraphProvider callGraphProvider)
-                return callGraphProvider.getCallgraphTo(methodName, depth);
-            else return Collections.emptyMap();
-        });
+        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphTo(methodName, depth))
+                .orElse(Collections.emptyMap()));
     }
 
     @Override
     public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        return mergeMapsFromAnalyzers(analyzer -> {
-            if (analyzer instanceof CallGraphProvider callGraphProvider)
-                return callGraphProvider.getCallgraphFrom(methodName, depth);
-            else return Collections.emptyMap();
-        });
+        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphFrom(methodName, depth))
+                .orElse(Collections.emptyMap()));
     }
 
     @Override
     public Optional<String> getSkeleton(String fqName) {
-        return findFirst(analyzer -> {
-            if (analyzer instanceof SkeletonProvider skeletonProvider) return skeletonProvider.getSkeleton(fqName);
-            else return Optional.empty();
-        });
+        return findFirst(analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(fqName)));
     }
 
     @Override
     public Optional<String> getSkeletonHeader(String className) {
-        return findFirst(analyzer -> {
-            if (analyzer instanceof SkeletonProvider skeletonProvider)
-                return skeletonProvider.getSkeletonHeader(className);
-            else return Optional.empty();
-        });
+        return findFirst(
+                analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(className)));
     }
 
     @Override
     public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> {
-            if (analyzer instanceof SourceCodeProvider sourceCodeProvider)
-                return sourceCodeProvider.getMethodSource(fqName);
-            else return Optional.empty();
-        });
+        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName)));
     }
 
     @Override
     public String getClassSource(String fqcn) {
         for (var delegate : delegates.values()) {
             try {
-                if (delegate instanceof SourceCodeProvider sourceCodeProvider) {
-                    var source = sourceCodeProvider.getClassSource(fqcn);
-                    if (source != null && !source.isEmpty()) {
-                        return source;
-                    }
+                final var maybeSource = delegate.as(SourceCodeProvider.class)
+                        .map(scp -> scp.getClassSource(fqcn))
+                        .filter(source -> !source.isEmpty());
+                if (maybeSource.isPresent()) {
+                    return maybeSource.get();
                 }
             } catch (SymbolNotFoundException e) {
                 // pass
@@ -149,13 +141,15 @@ public class MultiAnalyzer
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Language.fromExtension(
-                com.google.common.io.Files.getFileExtension(file.absPath().toString()));
+        var lang = Language.fromExtension(Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
-        if (delegate instanceof SkeletonProvider skeletonProvider) {
-            return skeletonProvider.getSkeletons(file);
+        if (delegate == null) {
+            return Collections.emptyMap();
+        } else {
+            return delegate.as(SkeletonProvider.class)
+                    .map(sk -> sk.getSkeletons(file))
+                    .orElse(Collections.emptyMap());
         }
-        return Map.of();
     }
 
     @Override
@@ -220,9 +214,17 @@ public class MultiAnalyzer
     }
 
     @Override
+    public IAnalyzer update() {
+        for (var an : delegates.values()) {
+            an.as(IncrementalUpdateProvider.class).ifPresent(IncrementalUpdateProvider::update);
+        }
+        return this;
+    }
+
+    @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         for (var an : delegates.values()) {
-            an.update(changedFiles);
+            an.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> incAnalyzer.update(changedFiles));
         }
         return this;
     }
