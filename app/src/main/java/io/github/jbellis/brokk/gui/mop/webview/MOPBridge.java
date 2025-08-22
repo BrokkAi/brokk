@@ -20,7 +20,6 @@ import java.util.function.Consumer;
 import javafx.application.Platform;
 import javafx.scene.web.WebEngine;
 import javax.swing.SwingUtilities;
-import netscape.javascript.JSException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -75,7 +74,6 @@ public final class MOPBridge {
         });
     }
 
-
     public void setSearch(String query, boolean caseSensitive) {
         var js = "if (window.brokk && window.brokk.setSearch) { window.brokk.setSearch(" + toJson(query) + ", "
                 + caseSensitive + "); }";
@@ -108,27 +106,26 @@ public final class MOPBridge {
     }
 
     public void setTheme(boolean isDark, boolean isDevMode) {
-        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
-                + "); }";
+        var js = "window.brokk.setTheme(" + isDark + ", " + isDevMode + ")";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
-        var js = "if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner(" + jsonMessage + "); }";
+        var js = "window.brokk.showSpinner(" + jsonMessage + ")";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void hideSpinner() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); }"));
+        Platform.runLater(() -> engine.executeScript("window.brokk.hideSpinner()"));
     }
 
     public void clear() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.clear) { window.brokk.clear(); }"));
+        Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
     }
 
     public void refreshSymbolLookup() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup(); }"));
+        Platform.runLater(() -> engine.executeScript("window.brokk.refreshSymbolLookup()"));
     }
 
     private void scheduleSend() {
@@ -196,8 +193,7 @@ public final class MOPBridge {
             awaiting.put(e, new CompletableFuture<>());
         }
         var json = toJson(event);
-        var js = "if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); }";
-        Platform.runLater(() -> engine.executeScript(js));
+        Platform.runLater(() -> engine.executeScript("window.brokk.onEvent(" + json + ")"));
     }
 
     public void onAck(int e) {
@@ -211,7 +207,7 @@ public final class MOPBridge {
         var future = new CompletableFuture<String>();
         Platform.runLater(() -> {
             try {
-                Object result = engine.executeScript("window.brokk && window.brokk.getSelection ? window.brokk.getSelection() : ''");
+                Object result = engine.executeScript("window.brokk.getSelection()");
                 future.complete(result != null ? result.toString() : "");
             } catch (Exception ex) {
                 logger.error("Failed to get selection from WebView", ex);

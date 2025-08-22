@@ -106,7 +106,7 @@ export function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: nu
             // All symbols were cached, send result with enhanced tree
             postMessage({
                 type: 'result',
-                tree: tree,
+                tree: JSON.parse(JSON.stringify(tree)),
                 seq: seq
             });
             debugLog(`Sent cached result to main thread for seq:${seq}`);
@@ -150,7 +150,7 @@ export function handleSymbolLookupResponse(seq: number, results: Record<string, 
         // Send the enhanced tree back to main thread to trigger DOM update
         postMessage({
             type: 'result',
-            tree: pending.tree,
+            tree: JSON.parse(JSON.stringify(pending.tree)),
             seq: seq
         });
         cacheLog.info(`Enhanced tree sent to main thread for seq:${seq}`);

@@ -132,11 +132,9 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       log.error('md-worker:', msg.message + '\n' + msg.stack);
       break;
     case 'symbol-lookup-request':
-      //log.debugLog("++++++++ symbol");
       handleSymbolLookupRequest(msg.symbols, msg.seq, msg.contextId);
       break;
     case 'worker-log':
-      // Use appropriate console method based on level for JavaFX WebView interception
       const workerMsg = `${msg.message}`;
       switch (msg.level.toLowerCase()) {
         case 'error':
