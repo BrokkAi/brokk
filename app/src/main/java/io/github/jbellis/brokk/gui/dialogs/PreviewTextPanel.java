@@ -43,6 +43,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.TokenTypes;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.Nullable;
 
@@ -329,39 +330,61 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         int lineNum = getLineOfOffset(offset);
                         int lineStartOffset = getLineStartOffset(lineNum);
                         int lineEndOffset = getLineEndOffset(lineNum);
-                        var lineText = getText(lineStartOffset, lineEndOffset - lineStartOffset);
+                        // Determine the identifier (token) that the mouse is currently over
+                        var token = getTokenListForLine(lineNum);
+                        String clickedIdentifier = null;
+                        while (token != null && token.getType() != TokenTypes.NULL) {
+                            int tokenStart = token.getOffset();
+                            int tokenEnd = tokenStart + token.length();
+                            if (offset >= tokenStart && offset < tokenEnd) {
+                                clickedIdentifier = token.getLexeme();
+                                break;
+                            }
+                            token = token.getNextToken();
+                        }
 
-                        if (lineText != null && !lineText.trim().isEmpty()) {
+                        // Fallback: use the entire line text when we cannot determine a single token
+                        if (clickedIdentifier == null) {
+                            clickedIdentifier = getText(lineStartOffset, lineEndOffset - lineStartOffset)
+                                    .trim();
+                        }
+
+                        if (!clickedIdentifier.isEmpty()) {
                             var addedShortNames = new HashMap<String, CodeUnit>();
                             for (CodeUnit unit : codeUnits) {
                                 var identifier = unit.identifier();
-                                var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
-                                if (p.matcher(lineText).find()) {
-                                    if (addedShortNames.containsKey(unit.shortName())) {
-                                        continue; // already have a menu item for this shortName
+
+                                if (identifier.endsWith(clickedIdentifier)) {
+                                    // Exact match with the clicked token
+                                    addedShortNames.putIfAbsent(clickedIdentifier, unit);
+                                } else {
+                                    // Fallback: does the clicked text contain this identifier as a whole word?
+                                    var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
+                                    if (p.matcher(clickedIdentifier).find()) {
+                                        addedShortNames.putIfAbsent(clickedIdentifier, unit);
                                     }
-                                    addedShortNames.put(unit.shortName(), unit);
                                 }
                             }
-                            for (String shortName : addedShortNames.keySet()) {
+
+                            for (String identifier : addedShortNames.keySet()) {
                                 // Specific to some languages, the constructor is the name of the type and may come
                                 // up when clicking on the type. These both refer to the same usages, thus will be
                                 // duplicates.
-                                final var codeUnit = addedShortNames.get(shortName);
+                                final var codeUnit = addedShortNames.get(identifier);
                                 // Check if another code unit shares this name and is a class
                                 final var isConstructor = codeUnit.isFunction()
                                         && addedShortNames.values().stream()
                                                 .anyMatch(x -> !x.equals(codeUnit)
                                                         && x.isClass()
-                                                        && shortName.endsWith(x.shortName()));
+                                                        && identifier.endsWith(x.shortName()));
 
                                 if (!isConstructor) {
                                     var item = new JMenuItem(
-                                            "<html>Capture usages of <code>" + shortName + "</code></html>");
+                                            "<html>Capture usages of <code>" + identifier + "</code></html>");
                                     // Use a local variable for the action listener lambda
                                     item.addActionListener(action -> {
                                         contextManager.submitBackgroundTask(
-                                                "Capture Usages", () -> contextManager.usageForIdentifier(shortName));
+                                                "Capture Usages", () -> contextManager.usageForIdentifier(identifier));
                                     });
                                     dynamicMenuItems.add(item); // Track for removal
                                 }
