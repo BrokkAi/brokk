@@ -76,9 +76,16 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     list = [...list.slice(0, -1), bubble];
                 }
 
+                // Detect streaming end transition
+                const wasStreaming = !needNew ? (list.at(-1)?.streaming ?? false) : false;
+
                 if (isStreaming) {
                     pushChunk(evt.text ?? '', bubble.seq);
+                } else if (wasStreaming && !isStreaming) {
+                    // Stream just ended - trigger final symbol lookup parse
+                    parse(bubble.markdown, bubble.seq, false, true);  // fast=false for symbol lookup, updateBuffer=true
                 } else {
+                    // Regular non-streaming message (like user clicking edit blocks)
                     // first fast pass (to show fast results), then deferred full pass
                     parse(bubble.markdown, bubble.seq, true, true);  // updateBuffer=true for first pass
                     setTimeout(() => parse(bubble.markdown, bubble.seq, false, false), 0);  // updateBuffer=false for second pass

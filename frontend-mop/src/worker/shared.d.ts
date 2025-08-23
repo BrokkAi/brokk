@@ -10,7 +10,7 @@ export interface ChunkMsg {
 
 export interface ClearMsg {
     type: 'clear-state';
-    flushBeforeClear: boolean;s
+    flushBeforeClear: boolean;
 }
 
 export interface ParseMsg {

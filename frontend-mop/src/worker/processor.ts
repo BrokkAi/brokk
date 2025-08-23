@@ -8,7 +8,6 @@ import { rehypeEditDiff } from './rehype/rehype-edit-diff';
 import { rehypeSymbolLookup } from './rehype/rehype-symbol-lookup';
 import {
     handleSymbolLookupWithContextRequest,
-    handleSymbolLookupWithContextRequestStreaming,
     handleSymbolLookupResponse as handleSymbolLookupResponseInternal,
     clearContextCache,
     clearSymbolCache
@@ -99,8 +98,9 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     return detectedLangs;
 }
 
-export function parseMarkdown(seq: number, src: string, fast = false, isStreaming = false): HastRoot {
+export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
     const timeLabel = fast ? 'parse (fast)' : 'parse';
+
     console.time(timeLabel);
     const proc = fast ? fastBaseProcessor : currentProcessor;
     let tree: HastRoot = null;
@@ -120,9 +120,9 @@ export function parseMarkdown(seq: number, src: string, fast = false, isStreamin
     if (!fast && !SKIP_SYMBOL_RESOLUTION) {
         const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
         if (symbolCandidates && symbolCandidates.size > 0) {
-            // Start symbol lookup asynchronously - use streaming-aware lookup
+            // Start symbol lookup asynchronously - single lookup for final content
             setTimeout(() => {
-                handleSymbolLookupWithContextRequestStreaming(symbolCandidates, tree, seq, post, isStreaming);
+                handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq, post);
             }, 0);
         }
     }

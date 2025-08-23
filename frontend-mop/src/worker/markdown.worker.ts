@@ -33,10 +33,7 @@ initProcessor();
 
 
 let buffer = '';
-let busy = false;
-let dirty = false;
 let seq = 0; // this represents the bubble id
-let isCurrentlyStreaming = false; // track if we're in streaming mode
 
 self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   try {
@@ -60,15 +57,6 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       // "true" is only needed if chunks are added via append after the parse
       if (m.updateBuffer) {
         buffer = m.text;
-
-        /* //// <<<<<<< HEAD
-        const tree = parseMarkdown(m.seq, m.text, m.fast);
-        post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
-      } catch (e) {
-        console.error('processing error:', e);
-        const error = e instanceof Error ? e : new Error(String(e));
-        post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: m.seq });
-======= */
         seq = m.seq;
       }
       safeParseAndPost(m.seq, m.text, m.fast);
@@ -78,9 +66,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       log('debug', '[md-worker] chunk', m.seq, m.text);
       buffer += m.text;
       seq = m.seq;
-      isCurrentlyStreaming = true; // Mark that we're in streaming mode
-      if (!busy) { busy = true; void parseAndPost(); }
-      else dirty = true;
+      processChunk(); // Simple immediate processing
       break;
 
     case 'clear-state':
@@ -91,10 +77,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
         safeParseAndPost(seq, buffer);
       }
       buffer = '';
-      dirty = false;
-      busy = false; // Stop any in-flight parseAndPost loops
       seq = 0;
-      isCurrentlyStreaming = false; // Reset streaming state
       currentExpandIds.clear();
       clearSymbolCache();
       break;
@@ -125,58 +108,19 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   }
 };
 
-/* <<<<<<< HEAD
-function parseAndPost(seq: number): void {
-  try {
-    // Force fast=false to ensure symbol lookup runs during streaming
-    const tree = parseMarkdown(seq, buffer, false);
-    post(<ResultMsg>{ type: 'result', tree, seq });
-  } catch (e) {
-    console.error('worker error:', e);
-    const error = e instanceof Error ? e : new Error(String(e));
-    post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq });
-  }
 
-  // this is needed to drain the event loop (queued message in onmessage) => accumulate some buffer
-  setTimeout(() => {
-    if (dirty) { dirty = false; parseAndPost(seq); }
-    else busy = false;
-  }, 5);
-======= */
-
-async function parseAndPost(): Promise<void> {
-  // Capture the sequence number for this run. This acts as a token to detect
-  // if the context has changed (e.g., a new message has started) during the async pause.
-  const seqForThisRun = seq;
-
-  safeParseAndPost(seqForThisRun, buffer);
-
-  // Yield to the event loop to allow more chunks to buffer up.
-  await new Promise(r => setTimeout(r, 5));
-
-  // Cancellation Guard: If the global seq has changed, it means a `clear`
-  // message for a new bubble has arrived. This loop is now stale and must terminate.
-  if (seqForThisRun !== seq) {
-    log('debug', '[md-worker] cancel guard: seqForThisRun !== seq', seqForThisRun, seq);
-    // The `clear` handler will have already set `busy = false`, allowing a new
-    // loop to start for the new bubble. We just need to stop this one.
-    return;
-  }
-
-  if (dirty) {
-    dirty = false;
-    await parseAndPost(); // Recurse
-  } else {
-    busy = false;
-  }
+function processChunk(): void {
+  // Simple immediate processing of current buffer during streaming
+  safeParseAndPost(seq, buffer, true); // Always fast=true for streaming chunks
 }
 
 function post(msg: OutboundFromWorker) { self.postMessage(msg); }
 
 function safeParseAndPost(seq: number, text: string, fast: boolean = false) {
   try {
-    const tree = parseMarkdown(seq, text, fast, isCurrentlyStreaming);
-    post(<ResultMsg>{ type: 'result', tree, seq: seq });
+    // Caller controls symbol lookup behavior via fast parameter
+    const tree = parseMarkdown(seq, text, fast);
+    post(<ResultMsg>{ type: 'result', tree, seq });
   } catch (e) {
     log('error', '[md-worker]', e);
     const error = e instanceof Error ? e : new Error(String(e));
