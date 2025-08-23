@@ -7,30 +7,36 @@ import type {
   LogMsg,
 } from './shared';
 import { currentExpandIds } from './expand-state';
-import { createWorkerLogger } from '../lib/logging';
-
-const workerLog = createWorkerLogger('md-worker-main');
 
 // Global error handlers for uncaught errors and promise rejections
 self.onerror = (event) => {
-  const errorMsg = `[markdown-worker] ${event.message} at ${event.filename}:${event.lineno}:${event.colno}`;
-  workerLog.error(errorMsg);
+  const message = event.message || 'Unknown error';
+  const filename = event.filename || 'unknown';
+  const lineno = event.lineno || 0;
+  const colno = event.colno || 0;
+
+  // Try to get additional error information
+  if (event.error) {
+    unhandledError('[markdown-worker]', event.error.message || message, 'at', `${filename}:${lineno}:${colno}`, event.error.stack);
+  } else {
+    unhandledError('[markdown-worker]', message, 'at', `${filename}:${lineno}:${colno}`);
+  }
   return true;
 };
 
 self.onunhandledrejection = (event) => {
-  const errorMsg = `[markdown-worker] ${event.reason}`;
-  workerLog.error(errorMsg + (event.reason?.stack ? `\n${event.reason.stack}` : ''));
+  const reason = event.reason || 'Unknown rejection';
+  const stack = event.reason?.stack;
+  unhandledError('[markdown-worker]', reason, stack);
   event.preventDefault();
 };
 
-// Worker startup logging
-workerLog.info('Worker Startup: markdown.worker.ts loaded');
-
 // Initialize the processor, which will asynchronously load Shiki.
 const ENABLE_WORKER_LOG = false;
-initProcessor();
 
+// Worker startup logging
+log('info', '[markdown-worker] Worker Startup: markdown.worker.ts loaded');
+initProcessor();
 
 let buffer = '';
 let seq = 0; // this represents the bubble id
@@ -41,14 +47,10 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
 
     // Validate message structure
     if (!m || typeof m !== 'object' || !m.type) {
-      workerLog.error(`[markdown-worker] Invalid message structure: ${JSON.stringify(m)}`);
+      unhandledError('[markdown-worker] Invalid message structure:', JSON.stringify(m));
       return;
     }
 
-    // Test multiple logging methods to see what works
-    if (m.type !== 'chunk') {
-      workerLog.debug(`[markdown-worker] received: ${m.type}`);
-    }
 
   switch (m.type) {
     case 'parse':
@@ -88,23 +90,21 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
     case 'symbol-lookup-response':
-      workerLog.info(`symbol-lookup-response received for seq ${m.seq} with ${Object.keys(m.results).length} symbols`);
+      log('info', `[markdown-worker] symbol-lookup-response received for seq ${m.seq} with ${Object.keys(m.results).length} symbols`);
       handleSymbolLookupResponse(m.seq, m.results, m.contextId);
       break;
 
 
     case 'hide-spinner':
       if (m.contextId) {
-        workerLog.info(`Spinner hidden - clearing symbol cache for context: ${m.contextId}`);
         clearContextCache(m.contextId);
       } else {
-        workerLog.info('Spinner hidden - clearing all symbol cache');
         clearSymbolCache();
       }
       break;
   }
   } catch (error) {
-    workerLog.error(`[WORKER-MESSAGE] Error processing message: ${error.message}\n${error.stack}`);
+    unhandledError('Error processing message:', error.message, error.stack);
   }
 };
 
@@ -126,6 +126,24 @@ function safeParseAndPost(seq: number, text: string, fast: boolean = false) {
     const error = e instanceof Error ? e : new Error(String(e));
     post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: seq });
   }
+}
+
+function unhandledError(...args: unknown[]) {
+  const message = args
+      .map(arg => {
+        if (typeof arg === 'string') {
+          return arg;
+        }
+        if (arg instanceof Error) {
+          return arg.stack || arg.message;
+        }
+        if (typeof arg === 'object' && arg !== null) {
+          return JSON.stringify(arg);
+        }
+        return String(arg);
+      })
+      .join(' ');
+  post(<LogMsg>{ type: 'log', level: 'error', message });
 }
 
 function log(level: LogMsg['level'], ...args: unknown[]) {

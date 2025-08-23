@@ -12,18 +12,8 @@ console.log('MAIN: Worker created successfully');
 // Expose worker globally for Java bridge access
 (window as any).worker = worker;
 
+
 const log = createLogger('worker-bridge');
-
-// Add worker error handling
-worker.onerror = (error) => {
-  console.error('MAIN: Worker error:', error);
-  log.error('Worker error:', error);
-};
-
-worker.onmessageerror = (error) => {
-  console.error('MAIN: Worker message error:', error);
-  log.error('Worker message error:', error);
-};
 
 /* outbound ---------------------------------------------------------- */
 export function pushChunk(text: string, seq: number) {
@@ -43,6 +33,7 @@ export function hideSpinner() {
   const contextId = getContextId();
   worker.postMessage(<InboundToWorker>{ type: 'hide-spinner', contextId });
 }
+
 
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
   // 1. Ask worker to mark this block as "expanded"
@@ -100,8 +91,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
     case 'shiki-langs-ready':
       log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
       reparseAll();
-      // Notify Java side that processor is ready
-      window.javaBridge?.onProcessorStateChanged('shiki-ready');
+     window.javaBridge?.onProcessorStateChanged('shiki-ready');
       break;
     case 'result':
       log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);

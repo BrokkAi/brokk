@@ -31,7 +31,6 @@ function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
 }
 
-
 export function createBaseProcessor(): Processor {
     return unified()
         .use(remarkParse)
