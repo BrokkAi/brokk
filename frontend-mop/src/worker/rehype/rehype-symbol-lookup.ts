@@ -5,8 +5,8 @@ import {visit} from 'unist-util-visit';
  * Rehype plugin for symbol lookup integration.
  * This plugin processes inlineCode elements during the unified transformation pipeline,
  * storing both symbols and node references for later enhancement.
+ * adds attributes to the dom for identificationre
  *
- * PERFORMANCE: Uses single AST traversal with cached node references - 50% improvement over dual traversal.
  */
 
 // Java class name validation - only accept valid Java class names (simple or fully qualified)
@@ -80,7 +80,6 @@ export function rehypeSymbolLookup() {
                     const rawValue = textNode.value;
                     const cleaned = cleanSymbolName(rawValue);
 
-                    // Trust that inline code elements are meaningful - let backend decide validity
                     if (cleaned) {
                         validSymbols++;
                         symbols.add(cleaned);

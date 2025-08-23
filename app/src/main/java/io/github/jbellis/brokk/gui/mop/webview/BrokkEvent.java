@@ -41,4 +41,5 @@ public sealed interface BrokkEvent {
             return epoch;
         }
     }
+
 }

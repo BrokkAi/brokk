@@ -7,7 +7,7 @@ import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log} from './lib/logging';
-import {hideSpinner as notifyWorkerHideSpinner} from './worker/worker-bridge';
+import {hideSpinner as notifyWorkerHideSpinner, onSymbolLookupResponse} from './worker/worker-bridge';
 
 let searchCtrl: SearchController | null = null;
 
@@ -60,7 +60,10 @@ function setupBrokkInterface(): any[] {
         getSearchState: () => searchCtrl?.getState(),
 
         // Symbol lookup refresh API
-        refreshSymbolLookup: refreshSymbolLookup
+        refreshSymbolLookup: refreshSymbolLookup,
+
+        // Symbol lookup response API
+        onSymbolLookupResponse: onSymbolLookupResponse
     };
     return buffer;
 }
@@ -117,6 +120,7 @@ function refreshSymbolLookup(): void {
     log.debugLog('[symbol-lookup] Refreshing symbol lookup for all content');
     reparseAll();
 }
+
 
 function replayBufferedItems(buffer: any[]): void {
     // Replay buffered calls and events in sequence order

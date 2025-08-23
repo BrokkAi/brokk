@@ -36,6 +36,91 @@ let cacheStats = {
     totalSymbolsProcessed: 0
 };
 
+// Streaming symbol throttle for progressive enhancement during streaming
+class StreamingSymbolThrottle {
+    private pendingSymbols = new Set<string>();
+    private pendingTrees = new Map<number, HastRoot>();
+    private throttleTimer: number | null = null;
+    private readonly THROTTLE_DELAY = 100; // ms - resolve every 100ms during streaming
+    private readonly BATCH_SIZE = 5; // Small batches to avoid blocking
+    private postMessage: ((msg: OutboundFromWorker) => void) | null = null;
+    private contextId = 'main-context';
+
+    setPostMessage(postFn: (msg: OutboundFromWorker) => void) {
+        this.postMessage = postFn;
+    }
+
+    queueStreamingSymbols(symbols: Set<string>, tree: HastRoot, seq: number, contextId: string) {
+        debugLog(`Queueing ${symbols.size} streaming symbols for seq:${seq}`);
+
+        // Add symbols to pending queue
+        symbols.forEach(s => this.pendingSymbols.add(s));
+        this.pendingTrees.set(seq, tree);
+        this.contextId = contextId;
+
+        // Schedule batch processing if not already scheduled
+        if (!this.throttleTimer && this.pendingSymbols.size > 0) {
+            this.throttleTimer = setTimeout(() => {
+                this.processBatch();
+                this.throttleTimer = null;
+            }, this.THROTTLE_DELAY);
+        }
+
+        // Force processing if batch gets large to prevent memory buildup
+        if (this.pendingSymbols.size >= this.BATCH_SIZE * 3) {
+            this.processBatch();
+        }
+    }
+
+    private processBatch() {
+        if (!this.postMessage || this.pendingSymbols.size === 0) {
+            return;
+        }
+
+        // Take small batch of symbols
+        const batch = Array.from(this.pendingSymbols).slice(0, this.BATCH_SIZE);
+        debugLog(`Processing streaming batch of ${batch.length} symbols: [${batch.join(', ')}]`);
+
+        // Remove from pending queue
+        batch.forEach(s => this.pendingSymbols.delete(s));
+
+        // Process the batch using existing lookup mechanism
+        handleSymbolLookup(new Set(batch), this.getLatestTree(), this.getLatestSeq(), this.contextId, this.postMessage);
+
+        // Continue processing if more symbols pending
+        if (this.pendingSymbols.size > 0) {
+            this.throttleTimer = setTimeout(() => {
+                this.processBatch();
+                this.throttleTimer = null;
+            }, this.THROTTLE_DELAY);
+        }
+    }
+
+    private getLatestTree(): HastRoot {
+        // Get the most recent tree from pending trees
+        const seqs = Array.from(this.pendingTrees.keys()).sort((a, b) => b - a);
+        return seqs.length > 0 ? this.pendingTrees.get(seqs[0])! : {} as HastRoot;
+    }
+
+    private getLatestSeq(): number {
+        const seqs = Array.from(this.pendingTrees.keys()).sort((a, b) => b - a);
+        return seqs.length > 0 ? seqs[0] : 0;
+    }
+
+    clearPendingSymbols() {
+        this.pendingSymbols.clear();
+        this.pendingTrees.clear();
+        if (this.throttleTimer) {
+            clearTimeout(this.throttleTimer);
+            this.throttleTimer = null;
+        }
+        debugLog('Cleared all pending streaming symbols');
+    }
+}
+
+// Global streaming throttle instance
+const streamingThrottle = new StreamingSymbolThrottle();
+
 export function handleSymbolLookupWithContextRequest(symbols: Set<string>, tree: HastRoot, seq: number, postMessage: (msg: OutboundFromWorker) => void): void {
     // Store the tree and symbols, then immediately proceed with the lookup using a default context for now
     // In practice, the main thread should provide the context ID when making calls
@@ -43,6 +128,22 @@ export function handleSymbolLookupWithContextRequest(symbols: Set<string>, tree:
     const defaultContextId = 'main-context'; // Temporary solution
     debugLog(`Using default context ID '${defaultContextId}' for ${symbols.size} symbols in seq ${seq}`);
     handleSymbolLookup(symbols, tree, seq, defaultContextId, postMessage);
+}
+
+// New streaming-aware symbol lookup function
+export function handleSymbolLookupWithContextRequestStreaming(symbols: Set<string>, tree: HastRoot, seq: number, postMessage: (msg: OutboundFromWorker) => void, isStreaming: boolean = false): void {
+    const defaultContextId = 'main-context';
+    streamingThrottle.setPostMessage(postMessage);
+
+    if (isStreaming) {
+        // During streaming: queue symbols for throttled processing
+        debugLog(`Streaming mode: queueing ${symbols.size} symbols for seq:${seq}`);
+        streamingThrottle.queueStreamingSymbols(symbols, tree, seq, defaultContextId);
+    } else {
+        // Not streaming: immediate lookup
+        debugLog(`Non-streaming mode: immediate lookup for ${symbols.size} symbols in seq ${seq}`);
+        handleSymbolLookup(symbols, tree, seq, defaultContextId, postMessage);
+    }
 }
 
 export function handleSymbolLookup(symbols: Set<string>, tree: HastRoot, seq: number, contextId: string, postMessage: (msg: OutboundFromWorker) => void): void {
@@ -196,6 +297,9 @@ export function clearContextCache(contextId: string): void {
 export function clearSymbolCache(): void {
     const previousSize = symbolCache.size;
     symbolCache.clear();
+
+    // Clear streaming throttle as well
+    streamingThrottle.clearPendingSymbols();
 
     // Reset all statistics
     cacheStats = { requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0 };

@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -270,8 +271,9 @@ public final class MOPBridge {
         this.hostComponent = hostComponent;
     }
 
-    public String lookupSymbols(String symbolNamesJson) {
-        logger.debug("Optimized symbol lookup requested with JSON: {}", symbolNamesJson);
+    public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
+        logger.debug(
+                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
         logger.debug("ContextManager available: {}", contextManager != null);
 
         if (contextManager != null) {
@@ -279,18 +281,49 @@ public final class MOPBridge {
             logger.debug("Project: {}", project != null ? project.getRoot() : "null");
         }
 
+        // Execute symbol lookup on background thread to avoid blocking JavaFX Application Thread
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
+                        logger.debug(
+                                "Parsed {} symbol names for lookup, seq: {}, contextId: {}",
+                                symbolNames.size(),
+                                seq,
+                                contextId);
+
+                        var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
+
+                        logger.debug(
+                                "Async symbol lookup completed, returning {} found symbols out of {} requested, seq: {}, contextId: {}",
+                                results.size(),
+                                symbolNames.size(),
+                                seq,
+                                contextId);
+                        return results;
+                    } catch (Exception e) {
+                        logger.warn("Error in async symbol lookup, seq: {}, contextId: {}", seq, contextId, e);
+                        return new HashMap<String, String>();
+                    }
+                })
+                .thenAccept(results -> {
+                    // Send result directly via dedicated window.brokk method
+                    var resultsJson = toJson(results);
+                    var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { window.brokk.onSymbolLookupResponse("
+                            + resultsJson + ", " + seq + ", " + toJson(contextId) + "); }";
+                    Platform.runLater(() -> engine.executeScript(js));
+                    logger.debug("Symbol lookup result sent directly to window.brokk for seq: {}, contextId: {}", seq, contextId);
+                });
+    }
+
+    // Keep old synchronous method for backward compatibility during transition
+    @Deprecated
+    public String lookupSymbols(String symbolNamesJson) {
+        logger.warn("Deprecated synchronous lookupSymbols called - use lookupSymbolsAsync instead");
+
         try {
             var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
-            logger.debug("Parsed {} symbol names for lookup", symbolNames.size());
-
             var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
-            var jsonResult = MAPPER.writeValueAsString(results);
-
-            logger.debug(
-                    "Optimized symbol lookup completed, returning {} found symbols out of {} requested",
-                    results.size(),
-                    symbolNames.size());
-            return jsonResult;
+            return MAPPER.writeValueAsString(results);
         } catch (Exception e) {
             logger.warn("Error in symbol lookup", e);
             return "{}";

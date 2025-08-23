@@ -9,6 +9,9 @@ console.log('MAIN: Creating worker with URL:', __WORKER_URL__);
 const worker = new Worker(__WORKER_URL__, { type: 'module' });
 console.log('MAIN: Worker created successfully');
 
+// Expose worker globally for Java bridge access
+(window as any).worker = worker;
+
 const log = createLogger('worker-bridge');
 
 // Add worker error handling
@@ -49,10 +52,10 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
     type: 'parse',
     seq: bubbleId,
     text: markdown,
-    fast: false
+    fast: false,
+    updateBuffer: false  // Don't overwrite worker's internal buffer state
   });
 }
-
 
 /* context helper -------------------------------------------------- */
 function getContextId(): string {
@@ -61,52 +64,31 @@ function getContextId(): string {
 }
 
 /* symbol lookup handler ------------------------------------------- */
-async function handleSymbolLookupRequest(symbols: string[], seq: number, contextId: string) {
+async function requestSymbolLookup(symbols: string[], seq: number, contextId: string) {
   try {
-    // Access JavaBridge from main window context
-    const javaBridge = (window as any).javaBridge;
-    if (!javaBridge || typeof javaBridge.lookupSymbols !== 'function') {
-      log.warn('JavaBridge not available for symbol lookup');
-      return;
-    }
+    log.debug(`Processing ${symbols.length} symbols async: ${symbols.join(', ')} for context: ${contextId}, seq: ${seq}`);
 
-    // Log the lookup request
-    log.info(`Processing ${symbols.length} symbols: ${symbols.join(', ')} for context: ${contextId}`);
-
-    // Call JavaBridge to lookup symbols
+    // Call JavaBridge async method - result will come back via window.brokk.onSymbolLookupResponse
     const jsonInput = JSON.stringify(symbols);
-    log.debugLog(`[SYMBOL-LOOKUP] About to call javaBridge.lookupSymbols with: ${jsonInput}`);
-    const resultsJson = javaBridge.lookupSymbols(jsonInput);
-    log.debugLog(`[SYMBOL-LOOKUP] JavaBridge call completed`);
+    window.javaBridge?.lookupSymbolsAsync(jsonInput, seq, contextId);
 
-    // Log the results
-    log.debugLog(`[SYMBOL-LOOKUP] Received results from JavaBridge: ${resultsJson}`);
-    log.debugLog(`[SYMBOL-LOOKUP] Results type: ${typeof resultsJson}, length: ${resultsJson?.length}`);
-
-    if (resultsJson) {
-      log.debugLog(`[SYMBOL-LOOKUP] Parsing JSON results...`);
-      const results = JSON.parse(resultsJson);
-      log.debugLog(`[SYMBOL-LOOKUP] JSON parsed successfully, creating message...`);
-
-      // Send results back to worker
-      const message = <InboundToWorker>{
-        type: 'symbol-lookup-response',
-        results: results,
-        seq: seq,
-        contextId: contextId
-      };
-      log.debugLog(`[SYMBOL-LOOKUP] About to send message to worker: ${JSON.stringify(message)}`);
-      try {
-        worker.postMessage(message);
-        log.debugLog(`[SYMBOL-LOOKUP] Sent symbol lookup response to worker for seq: ${seq}`);
-      } catch (postError) {
-        log.error(`[SYMBOL-LOOKUP] Error sending message to worker:`, postError);
-      }
-    } else {
-      log.warn('No results received from JavaBridge');
-    }
+    // Result will be delivered via window.brokk.onSymbolLookupResponse -> onSymbolLookupResponse
   } catch (e) {
-    log.error('Error in symbol lookup:', e);
+    log.error('Error in async symbol lookup:', e);
+  }
+}
+
+export function onSymbolLookupResponse(results: Record<string, string>, seq: number, contextId: string): void {
+  // Forward symbol lookup response to worker for processing
+  if (worker) {
+    worker.postMessage({
+      type: 'symbol-lookup-response',
+      results: results,
+      seq: seq,
+      contextId: contextId
+    });
+  } else {
+    log.error('Worker not available for symbol lookup response');
   }
 }
 
@@ -119,10 +101,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
       reparseAll();
       // Notify Java side that processor is ready
-      const javaBridge = (window as any).javaBridge;
-      if (javaBridge && typeof javaBridge.onProcessorStateChanged === 'function') {
-        javaBridge.onProcessorStateChanged('shiki-ready');
-      }
+      window.javaBridge?.onProcessorStateChanged('shiki-ready');
       break;
     case 'result':
       log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);
@@ -135,7 +114,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       log.error('md-worker:', msg.message + '\n' + msg.stack);
       break;
     case 'symbol-lookup-request':
-      handleSymbolLookupRequest(msg.symbols, msg.seq, msg.contextId);
+      requestSymbolLookup(msg.symbols, msg.seq, msg.contextId);
       break;
     case 'worker-log':
       const workerMsg = `${msg.message}`;

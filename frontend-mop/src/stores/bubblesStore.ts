@@ -80,11 +80,12 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     pushChunk(evt.text ?? '', bubble.seq);
                 } else {
                     // first fast pass (to show fast results), then deferred full pass
-                    parse(bubble.markdown, bubble.seq, true);
-                    setTimeout(() => parse(bubble.markdown, bubble.seq), 0);
+                    parse(bubble.markdown, bubble.seq, true, true);  // updateBuffer=true for first pass
+                    setTimeout(() => parse(bubble.markdown, bubble.seq, false, false), 0);  // updateBuffer=false for second pass
                 }
                 return list;
             }
+
 
             default:
                 return list;

@@ -43,6 +43,7 @@
     <h3>Symbol Lookup Testing</h3>
     <div id="symbol-test-controls">
         <button onclick="showSymbolTestContent()">Load Symbol Test Content</button>
+        <button onclick="streamSymbolTestContent()">Stream Symbol Test Content</button>
         <button onclick="showJavaSymbols()">Show Java Symbols</button>
         <button onclick="showPythonSymbols()">Show Python Symbols</button>
         <button onclick="showJavaScriptSymbols()">Show JavaScript Symbols</button>
@@ -122,22 +123,52 @@
             'handler', 'callback', 'iterator', 'stream', 'buffer'
         ]),
 
-        // Symbol lookup implementation - Updated for FQN support
+        // Symbol lookup implementation - Updated for FQN support (synchronous - deprecated)
         lookupSymbols: function(jsonInput) {
-            console.log('[Mock JavaBridge] Looking up symbols:', jsonInput);
+            console.log('[Mock JavaBridge] Looking up symbols (sync - deprecated):', jsonInput);
             const symbols = JSON.parse(jsonInput);
             const results = {};
 
             symbols.forEach(symbol => {
                 const exists = this._mockSymbols.has(symbol);
-                results[symbol] = {
-                    exists: exists,
-                    fqn: exists ? `com.example.mock.${symbol}` : null
-                };
+                if (exists) {
+                    results[symbol] = `com.example.mock.${symbol}`;  // Optimized format: only existing symbols
+                }
             });
 
             console.log('[Mock JavaBridge] Symbol lookup results:', results);
             return JSON.stringify(results);
+        },
+
+        // Async symbol lookup implementation (preferred)
+        lookupSymbolsAsync: function(jsonInput, seq, contextId) {
+            console.log(`[Mock JavaBridge] Looking up symbols async:`, jsonInput, `seq:`, seq, `contextId:`, contextId);
+            const symbols = JSON.parse(jsonInput);
+            const results = {};
+
+            symbols.forEach(symbol => {
+                const exists = this._mockSymbols.has(symbol);
+                if (exists) {
+                    results[symbol] = `com.example.mock.${symbol}`;  // Optimized format: only existing symbols
+                }
+            });
+
+            console.log(`[Mock JavaBridge] Async symbol lookup results for seq ${seq}, contextId ${contextId}:`, results);
+
+            // Simulate async behavior with setTimeout, then send directly to worker
+            setTimeout(() => {
+                if (window.worker && window.worker.postMessage) {
+                    window.worker.postMessage({
+                        type: 'symbol-lookup-response',
+                        results: results,
+                        seq: seq,
+                        contextId: contextId
+                    });
+                    console.log(`[Mock JavaBridge] Sent async result to worker for seq ${seq}`);
+                } else {
+                    console.error('[Mock JavaBridge] Worker not available for async response');
+                }
+            }, 50); // 50ms delay to simulate async behavior
         },
 
         // Helper for debugging
@@ -935,6 +966,53 @@ Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\
         });
     }
 
+    function streamSymbolTestContent() {
+        const content = `# Streaming Symbol Lookup Test
+
+## Java Symbols (Should be highlighted progressively)
+Common classes: \`String\`, \`List\`, \`Map\`, \`ArrayList\`, \`HashMap\`, \`Set\`
+Methods: \`toString\`, \`size\`, \`add\`, \`get\`, \`put\`, \`remove\`, \`contains\`
+Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
+
+## Python Symbols (Should be highlighted progressively)
+Built-ins: \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`len\`, \`range\`
+Methods: \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
+Functions: \`print\`, \`input\`, \`open\`, \`close\`, \`read\`, \`write\`
+
+## JavaScript Symbols (Should be highlighted progressively)
+Keywords: \`var\`, \`let\`, \`const\`, \`function\`, \`class\`, \`interface\`, \`async\`, \`await\`
+Built-ins: \`Array\`, \`Object\`, \`Promise\`, \`console\`, \`document\`, \`window\`
+
+## Programming Terms (Should be highlighted progressively)
+Concepts: \`parser\`, \`lexer\`, \`token\`, \`node\`, \`tree\`, \`visitor\`
+Patterns: \`handler\`, \`callback\`, \`iterator\`, \`stream\`, \`buffer\`
+
+## Mixed Test - Streaming
+Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\` and \`invalid\`
+
+**Instructions:** This tests the throttled symbol resolution during streaming. Symbols should appear unhighlighted first, then get highlighted in batches as the streaming throttle processes them!`;
+
+        window.brokk.clear();
+
+        // Split content into chunks and stream them with delays
+        const chunks = content.match(/[\s\S]{1,50}/g) || [];
+        let index = 0;
+
+        const streamInterval = setInterval(() => {
+            if (index < chunks.length) {
+                simulateEvent('chunk', {
+                    text: chunks[index],
+                    msgType: 'AI',
+                    streaming: true
+                });
+                index++;
+            } else {
+                clearInterval(streamInterval);
+                console.log('[Dev] Streaming symbol test completed - should see throttled symbol resolution');
+            }
+        }, 50); // 50ms between chunks to simulate real streaming
+    }
+
     function showJavaSymbols() {
         const content = `# Java Symbol Test
 
@@ -1088,6 +1166,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 
     // Ensure functions are available globally for onclick handlers
     window.showSymbolTestContent = showSymbolTestContent;
+    window.streamSymbolTestContent = streamSymbolTestContent;
     window.showJavaSymbols = showJavaSymbols;
     window.showPythonSymbols = showPythonSymbols;
     window.showJavaScriptSymbols = showJavaScriptSymbols;

@@ -8,6 +8,7 @@ import { rehypeEditDiff } from './rehype/rehype-edit-diff';
 import { rehypeSymbolLookup } from './rehype/rehype-symbol-lookup';
 import {
     handleSymbolLookupWithContextRequest,
+    handleSymbolLookupWithContextRequestStreaming,
     handleSymbolLookupResponse as handleSymbolLookupResponseInternal,
     clearContextCache,
     clearSymbolCache
@@ -21,6 +22,11 @@ import type {OutboundFromWorker, ShikiLangsReadyMsg} from './shared';
 import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
+import { createWorkerLogger } from '../lib/logging';
+
+const workerLog = createWorkerLogger('processor');
+// Flag to disable symbol resolution for testing
+const SKIP_SYMBOL_RESOLUTION = false;
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
@@ -34,7 +40,7 @@ export function createBaseProcessor(): Processor {
         .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
         .use(remarkGfm)
         .use(remarkBreaks)
-        .use(remarkRehype, {allowDangerousHtml: true})
+        .use(remarkRehype, {allowDangerousHtml: true})// as any;
         .use(rehypeSymbolLookup) as any;
 }
 
@@ -57,7 +63,6 @@ let currentProcessor: Processor = baseProcessor;
 export let highlighter: HighlighterCore | null = null;
 
 export function initProcessor() {
-    // Asynchronously initialize Shiki and create a new processor with it.
     console.log('[shiki] loading lib...');
     shikiPluginPromise
         .then(({rehypePlugin}) => {
@@ -94,12 +99,13 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     return detectedLangs;
 }
 
-export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
+export function parseMarkdown(seq: number, src: string, fast = false, isStreaming = false): HastRoot {
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? fastBaseProcessor : currentProcessor;
     let tree: HastRoot = null;
     let mdastTree: Root = null;
+    console.log(proc);
     try {
         // Reset the edit block ID counter before parsing
         resetForBubble(seq);
@@ -111,12 +117,12 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
     }
 
     // Check for symbol candidates from rehype plugin and perform lookup asynchronously (only in non-fast mode)
-    if (!fast) {
+    if (!fast && !SKIP_SYMBOL_RESOLUTION) {
         const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
         if (symbolCandidates && symbolCandidates.size > 0) {
-            // Start symbol lookup asynchronously - don't block parsing
+            // Start symbol lookup asynchronously - use streaming-aware lookup
             setTimeout(() => {
-                handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq, post);
+                handleSymbolLookupWithContextRequestStreaming(symbolCandidates, tree, seq, post, isStreaming);
             }, 0);
         }
     }
@@ -131,8 +137,6 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
     console.timeEnd(timeLabel);
     return tree;
 }
-
-
 
 function handlePendingLanguages(detectedLangs: Set<string>): void {
     const pendingPromises = [...detectedLangs].map(ensureLang);

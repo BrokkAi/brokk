@@ -36,6 +36,7 @@ let buffer = '';
 let busy = false;
 let dirty = false;
 let seq = 0; // this represents the bubble id
+let isCurrentlyStreaming = false; // track if we're in streaming mode
 
 self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   try {
@@ -77,6 +78,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       log('debug', '[md-worker] chunk', m.seq, m.text);
       buffer += m.text;
       seq = m.seq;
+      isCurrentlyStreaming = true; // Mark that we're in streaming mode
       if (!busy) { busy = true; void parseAndPost(); }
       else dirty = true;
       break;
@@ -92,6 +94,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       dirty = false;
       busy = false; // Stop any in-flight parseAndPost loops
       seq = 0;
+      isCurrentlyStreaming = false; // Reset streaming state
       currentExpandIds.clear();
       clearSymbolCache();
       break;
@@ -172,7 +175,7 @@ function post(msg: OutboundFromWorker) { self.postMessage(msg); }
 
 function safeParseAndPost(seq: number, text: string, fast: boolean = false) {
   try {
-    const tree = parseMarkdown(seq, text, fast);
+    const tree = parseMarkdown(seq, text, fast, isCurrentlyStreaming);
     post(<ResultMsg>{ type: 'result', tree, seq: seq });
   } catch (e) {
     log('error', '[md-worker]', e);
