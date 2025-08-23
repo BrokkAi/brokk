@@ -193,6 +193,7 @@ public class JavaTreeSitterAnalyzerTest {
                   }
                   public static class AInnerStatic {
                   }
+                  void usesInnerClass()
                 }
                 """
                         .trim()
