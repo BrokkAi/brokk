@@ -95,13 +95,6 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
 
-    case 'hide-spinner':
-      if (m.contextId) {
-        clearContextCache(m.contextId);
-      } else {
-        clearSymbolCache();
-      }
-      break;
   }
   } catch (error) {
     unhandledError('Error processing message:', error.message, error.stack);

@@ -35,12 +35,7 @@ export interface SymbolLookupResponseMsg {
 }
 
 
-export interface HideSpinnerMsg {
-    type: 'hide-spinner';
-    contextId?: string;
-}
-
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg | HideSpinnerMsg;
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
@@ -76,12 +71,7 @@ export interface WorkerLogMsg {
     message: string;
 }
 
-export interface ProcessorStateChangeMsg {
-    type: 'processor-state-changed';
-    state: 'base-ready' | 'shiki-initializing' | 'shiki-ready';
-}
-
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | ProcessorStateChangeMsg | LogMsg;
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | LogMsg;
 
 export interface LogMsg {
     type: 'log';

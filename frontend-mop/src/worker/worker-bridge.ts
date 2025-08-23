@@ -29,10 +29,6 @@ export function clearState(flushBeforeClear: boolean) {
   worker.postMessage(<InboundToWorker>{ type: 'clear-state', flushBeforeClear });
 }
 
-export function hideSpinner() {
-  const contextId = getContextId();
-  worker.postMessage(<InboundToWorker>{ type: 'hide-spinner', contextId });
-}
 
 
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
