@@ -91,7 +91,6 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
     case 'shiki-langs-ready':
       log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
       reparseAll();
-     window.javaBridge?.onProcessorStateChanged('shiki-ready');
       break;
     case 'result':
       log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);

@@ -41,11 +41,9 @@ public final class MOPBridge {
     private volatile @Nullable IContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
-    private final MOPWebViewHost webViewHost;
 
-    public MOPBridge(WebEngine engine, MOPWebViewHost webViewHost) {
+    public MOPBridge(WebEngine engine) {
         this.engine = engine;
-        this.webViewHost = webViewHost;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "MOPBridge-" + this.hashCode());
             t.setDaemon(true);
@@ -129,10 +127,6 @@ public final class MOPBridge {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.Clear(e));
         scheduleSend();
-    }
-
-    public void refreshSymbolLookup() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.refreshSymbolLookup()"));
     }
 
     private void scheduleSend() {
@@ -308,10 +302,14 @@ public final class MOPBridge {
                 .thenAccept(results -> {
                     // Send result directly via dedicated window.brokk method
                     var resultsJson = toJson(results);
-                    var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { window.brokk.onSymbolLookupResponse("
-                            + resultsJson + ", " + seq + ", " + toJson(contextId) + "); }";
+                    var js =
+                            "if (window.brokk && window.brokk.onSymbolLookupResponse) { window.brokk.onSymbolLookupResponse("
+                                    + resultsJson + ", " + seq + ", " + toJson(contextId) + "); }";
                     Platform.runLater(() -> engine.executeScript(js));
-                    logger.debug("Symbol lookup result sent directly to window.brokk for seq: {}, contextId: {}", seq, contextId);
+                    logger.debug(
+                            "Symbol lookup result sent directly to window.brokk for seq: {}, contextId: {}",
+                            seq,
+                            contextId);
                 });
     }
 
@@ -350,11 +348,6 @@ public final class MOPBridge {
                 }
             }
         });
-    }
-
-    public void onProcessorStateChanged(String state) {
-        logger.debug("Received processor state change notification: {}", state);
-        webViewHost.onProcessorStateChanged(state);
     }
 
     public String getContextCacheId() {

@@ -37,8 +37,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private boolean blockClearAndReset = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
-    private volatile @Nullable IContextManager contextManager;
-    private volatile @Nullable Runnable symbolLookupRefreshCallback;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -255,50 +253,15 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void setContextManager(@Nullable IContextManager contextManager) {
-        // Unregister old callback if we had a previous context manager
-        if (this.contextManager != null && symbolLookupRefreshCallback != null) {
-            this.contextManager.removeSymbolLookupRefreshCallback(symbolLookupRefreshCallback);
-        }
-
-        this.contextManager = contextManager;
         webHost.setContextManager(contextManager);
-
-        // Register new callback for symbol lookup refresh
-        if (contextManager != null) {
-            symbolLookupRefreshCallback = this::refreshSymbolLookup;
-            contextManager.addSymbolLookupRefreshCallback(symbolLookupRefreshCallback);
-
-            // If analyzer is already ready, trigger an immediate symbol refresh
-            // Use a background task to avoid blocking the EDT
-            SwingUtilities.invokeLater(() -> {
-                try {
-                    var analyzerWrapper = contextManager.getAnalyzerWrapper();
-                    if (analyzerWrapper.isReady()) {
-                        logger.debug("Analyzer already ready, triggering immediate symbol refresh");
-                        refreshSymbolLookup();
-                    }
-                } catch (Exception e) {
-                    logger.debug("Could not check analyzer status for immediate refresh: {}", e.getMessage());
-                }
-            });
-        }
     }
 
     public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
         webHost.setSymbolRightClickHandler(chrome);
     }
 
-    private void refreshSymbolLookup() {
-        logger.debug("Triggering symbol lookup refresh");
-        webHost.refreshSymbolLookup();
-    }
-
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
-        // Unregister callback before disposing
-        if (contextManager != null && symbolLookupRefreshCallback != null) {
-            contextManager.removeSymbolLookupRefreshCallback(symbolLookupRefreshCallback);
-        }
         webHost.dispose();
     }
 }

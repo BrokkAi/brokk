@@ -148,10 +148,4 @@ public interface IContextManager {
                 allowPartialResponses,
                 getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
-
-    /** Adds a callback to be executed when the analyzer becomes ready */
-    default void addSymbolLookupRefreshCallback(Runnable callback) {}
-
-    /** Removes a symbol lookup refresh callback */
-    default void removeSymbolLookupRefreshCallback(Runnable callback) {}
 }
