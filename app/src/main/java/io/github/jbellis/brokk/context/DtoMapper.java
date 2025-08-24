@@ -16,7 +16,6 @@ import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -214,7 +213,15 @@ public class DtoMapper {
                         CompletableFuture.completedFuture(pasteTextDto.description()));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
-                    byte[] imageBytes = Base64.getDecoder().decode(reader.readContent(pasteImageDto.contentId()));
+                    if (imageBytesMap == null) {
+                        logger.error("imageBytesMap is null, cannot load image for {}", pasteImageDto.id());
+                        yield null;
+                    }
+                    byte[] imageBytes = imageBytesMap.get(pasteImageDto.id());
+                    if (imageBytes == null) {
+                        logger.error("Image bytes not found for fragment: {}", pasteImageDto.id());
+                        yield null;
+                    }
                     var image = FrozenFragment.bytesToImage(imageBytes);
                     yield new ContextFragment.AnonymousImageFragment(
                             pasteImageDto.id(),
@@ -378,14 +385,7 @@ public class DtoMapper {
             }
             case ContextFragment.AnonymousImageFragment aif -> {
                 String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
-                try {
-                    byte[] imageBytes = FrozenFragment.imageToBytes(aif.image());
-                    String content = Base64.getEncoder().encodeToString(imageBytes);
-                    String contentId = writer.writeContent(content, null);
-                    yield new PasteImageFragmentDto(aif.id(), contentId, description);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
+                yield new PasteImageFragmentDto(aif.id(), description);
             }
             case ContextFragment.StacktraceFragment stf -> {
                 var sourcesDto =

@@ -168,14 +168,9 @@ public class FragmentDtos {
             implements VirtualFragmentDto { // id changed to String
     }
 
-    /** DTO for PasteImageFragment - contains base64-encoded image data with resolved description. */
-    public record PasteImageFragmentDto(String id, String contentId, String description)
+    /** DTO for PasteImageFragment - contains image data with resolved description. */
+    public record PasteImageFragmentDto(String id, String description)
             implements VirtualFragmentDto { // id changed to String
-        public PasteImageFragmentDto {
-            if (contentId.isEmpty()) {
-                throw new IllegalArgumentException("contentId cannot be null or empty");
-            }
-        }
     }
 
     /** DTO for StacktraceFragment - contains stacktrace analysis data. */

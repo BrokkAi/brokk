@@ -201,6 +201,7 @@ public final class HistoryIo {
         var collectedVirtualDtos = new HashMap<String, VirtualFragmentDto>();
         var collectedTaskDtos = new HashMap<String, TaskFragmentDto>();
         var imageDomainFragments = new HashSet<FrozenFragment>();
+        var pastedImageFragments = new HashSet<ContextFragment.AnonymousImageFragment>();
 
         for (Context ctx : ch.getHistory()) {
             ctx.editableFiles().forEach(fragment -> {
@@ -229,6 +230,9 @@ public final class HistoryIo {
                     collectedVirtualDtos.put(vf.id(), DtoMapper.toVirtualFragmentDto(vf, writer));
                     if (vf instanceof FrozenFragment ff && !ff.isText()) {
                         imageDomainFragments.add(ff);
+                    }
+                    if (vf instanceof ContextFragment.AnonymousImageFragment aif) {
+                        pastedImageFragments.add(aif);
                     }
                     if (vf instanceof ContextFragment.HistoryFragment hf) {
                         hf.entries().stream()
@@ -372,6 +376,24 @@ public final class HistoryIo {
                     zos.putNextEntry(entry);
                     zos.write(imageBytes);
                     zos.closeEntry();
+                }
+            }
+
+            for (var aif : pastedImageFragments) {
+                try {
+                    byte[] imageBytes = aif.imageBytes();
+                    ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + aif.id() + ".png"); // Assumes PNG
+                    entry.setMethod(ZipEntry.STORED);
+                    entry.setSize(imageBytes.length);
+                    entry.setCompressedSize(imageBytes.length); // If STORED
+                    var crc = new CRC32();
+                    crc.update(imageBytes);
+                    entry.setCrc(crc.getValue());
+                    zos.putNextEntry(entry);
+                    zos.write(imageBytes);
+                    zos.closeEntry();
+                } catch (IOException e) {
+                    logger.warn("Could not write pasted image {} to history zip: {}", aif.id(), e.getMessage());
                 }
             }
         }
