@@ -1232,7 +1232,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // 6. Everything else (virtual fragments, skeletons, etc.)
-            if (workingFragment.isText() && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
+            if (workingFragment.isText()
+                    && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
                 markdownPanel.updateTheme(themeManager.isDarkTheme());
                 markdownPanel.setText(List.of(Messages.customSystem(workingFragment.text())));
