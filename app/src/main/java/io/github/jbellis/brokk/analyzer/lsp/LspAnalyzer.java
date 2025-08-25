@@ -133,7 +133,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @NotNull IAnalyzer update() {
-        getServer().refreshWorkspace().join();
+        getServer().refreshWorkspace(getWorkspace()).join();
         return this;
     }
 
@@ -675,7 +675,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      */
     default Optional<String> getAnonymousName(Location lambdaLocation) {
         final Path filePath = Paths.get(URI.create(lambdaLocation.getUri()));
-        logger.debug("Determining name for anonymous structure at {}", lambdaLocation);
+        logger.trace("Determining name for anonymous structure at {}", lambdaLocation);
         return LspAnalyzerHelper.getSymbolsInFile(getServer(), filePath)
                 .thenApply(eithers -> eithers.stream()
                         .flatMap(either -> {
