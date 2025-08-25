@@ -1,10 +1,23 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
 import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
+import { createLogger } from '../lib/logging';
 
+// Environment detection
+const isDevMode = typeof window !== 'undefined' && !window.javaBridge;
+
+console.log('MAIN: Creating worker with URL:', __WORKER_URL__);
 const worker = new Worker(__WORKER_URL__, { type: 'module' });
+console.log('MAIN: Worker created successfully');
+
+// Expose worker globally for Java bridge access
+(window as any).worker = worker;
+
+
+const log = createLogger('worker-bridge');
 
 /* outbound ---------------------------------------------------------- */
 export function pushChunk(text: string, seq: number) {
+  // log.debugLog(`Sending chunk message to worker, seq: ${seq}`); // Too noisy
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
@@ -16,16 +29,54 @@ export function clearState(flushBeforeClear: boolean) {
   worker.postMessage(<InboundToWorker>{ type: 'clear-state', flushBeforeClear });
 }
 
+
+
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
-  // 1. Ask worker to mark this block as “expanded”
+  // 1. Ask worker to mark this block as "expanded"
   worker.postMessage(<InboundToWorker>{ type: 'expand-diff', bubbleId, blockId });
   // 2. Immediately trigger a slow parse for this single bubble
   worker.postMessage(<InboundToWorker>{
     type: 'parse',
     seq: bubbleId,
     text: markdown,
-    fast: false
+    fast: false,
+    updateBuffer: false  // Don't overwrite worker's internal buffer state
   });
+}
+
+/* context helper -------------------------------------------------- */
+function getContextId(): string {
+  // Use hardcoded context ID for now to ensure cache consistency
+  return 'main-context';
+}
+
+/* symbol lookup handler ------------------------------------------- */
+async function requestSymbolLookup(symbols: string[], seq: number, contextId: string) {
+  try {
+    log.debug(`Processing ${symbols.length} symbols async: ${symbols.join(', ')} for context: ${contextId}, seq: ${seq}`);
+
+    // Call JavaBridge async method - result will come back via window.brokk.onSymbolLookupResponse
+    const jsonInput = JSON.stringify(symbols);
+    window.javaBridge?.lookupSymbolsAsync(jsonInput, seq, contextId);
+
+    // Result will be delivered via window.brokk.onSymbolLookupResponse -> onSymbolLookupResponse
+  } catch (e) {
+    log.error('Error in async symbol lookup:', e);
+  }
+}
+
+export function onSymbolLookupResponse(results: Record<string, string>, seq: number, contextId: string): void {
+  // Forward symbol lookup response to worker for processing
+  if (worker) {
+    worker.postMessage({
+      type: 'symbol-lookup-response',
+      results: results,
+      seq: seq,
+      contextId: contextId
+    });
+  } else {
+    log.error('Worker not available for symbol lookup response');
+  }
 }
 
 /* inbound ----------------------------------------------------------- */
@@ -34,16 +85,40 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
+      log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
       reparseAll();
       break;
     case 'result':
+      log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);
       onWorkerResult(msg);
       break;
     case 'log':
       window.javaBridge?.jsLog(msg.level, msg.message);
       break;
     case 'error':
-      console.error('[md-worker]', msg.message + '\n' + msg.stack);
+      log.error('md-worker:', msg.message + '\n' + msg.stack);
+      break;
+    case 'symbol-lookup-request':
+      requestSymbolLookup(msg.symbols, msg.seq, msg.contextId);
+      break;
+    case 'worker-log':
+      const workerMsg = `${msg.message}`;
+      switch (msg.level.toLowerCase()) {
+        case 'error':
+          log.debugLog(`[bridge] Received error from worker ${workerMsg}`);
+          console.error(workerMsg);
+          break;
+        case 'warn':
+          console.warn(workerMsg);
+          break;
+        case 'info':
+          console.info(workerMsg);
+          break;
+        case 'debug':
+        default:
+          console.log(workerMsg);
+          break;
+      }
       break;
   }
 };

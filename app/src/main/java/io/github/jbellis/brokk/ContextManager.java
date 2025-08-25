@@ -385,6 +385,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     chrome.notifyActionComplete("Analyzer rebuild completed");
                 }
             }
+
+            @Override
+            public void onAnalyzerReady() {
+                logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                // TODO Update the MOP to refresh symbols
+            }
         };
     }
 

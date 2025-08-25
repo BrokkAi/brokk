@@ -5,6 +5,13 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
+import { rehypeSymbolLookup } from './rehype/rehype-symbol-lookup';
+import {
+    handleSymbolLookupWithContextRequest,
+    handleSymbolLookupResponse as handleSymbolLookupResponseInternal,
+    clearContextCache,
+    clearSymbolCache
+} from './symbol-lookup';
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -14,7 +21,11 @@ import type {OutboundFromWorker, ShikiLangsReadyMsg} from './shared';
 import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
+import { createWorkerLogger } from '../lib/logging';
 
+const workerLog = createWorkerLogger('processor');
+// Flag to disable symbol resolution for testing
+const SKIP_SYMBOL_RESOLUTION = false;
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
@@ -27,18 +38,29 @@ export function createBaseProcessor(): Processor {
         .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
         .use(remarkGfm)
         .use(remarkBreaks)
+        .use(remarkRehype, {allowDangerousHtml: true})// as any;
+        .use(rehypeSymbolLookup) as any;
+}
+
+export function createFastProcessor(): Processor {
+    return unified()
+        .use(remarkParse)
+        .data('micromarkExtensions', [gfmEditBlock()])
+        .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
+        .use(remarkGfm)
+        .use(remarkBreaks)
         .use(remarkRehype, {allowDangerousHtml: true}) as any;
 }
+
 // processors
 let baseProcessor: Processor = createBaseProcessor();
+let fastBaseProcessor: Processor = createFastProcessor();
 let shikiProcessor: Processor = null;
 let currentProcessor: Processor = baseProcessor;
-
 // shiki-highlighter
 export let highlighter: HighlighterCore | null = null;
 
 export function initProcessor() {
-    // Asynchronously initialize Shiki and create a new processor with it.
     console.log('[shiki] loading lib...');
     shikiPluginPromise
         .then(({rehypePlugin}) => {
@@ -52,7 +74,7 @@ export function initProcessor() {
             post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
         })
         .catch(e => {
-            console.error('[md-worker] Shiki init failed', e);
+            console.error('[shiki] init failed', e);
         });
 }
 
@@ -70,23 +92,40 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     });
 
     const diffLangs = (tree as any).data?.detectedDiffLangs as Set<string> | undefined;
-    console.log('[md-worker] detected langs', detectedLangs, diffLangs);
+    console.log('detected langs', detectedLangs, diffLangs);
     diffLangs?.forEach(l => detectedLangs.add(l));
     return detectedLangs;
 }
+
 export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
     const timeLabel = fast ? 'parse (fast)' : 'parse';
+
     console.time(timeLabel);
-    const proc = fast ? baseProcessor : currentProcessor;
+    const proc = fast ? fastBaseProcessor : currentProcessor;
     let tree: HastRoot = null;
+    let mdastTree: Root = null;
+    console.log(proc);
     try {
         // Reset the edit block ID counter before parsing
         resetForBubble(seq);
-        tree = proc.runSync(proc.parse(src)) as HastRoot;
+        mdastTree = proc.parse(src) as Root;
+        tree = proc.runSync(mdastTree) as HastRoot;
     } catch (e) {
-        console.error('[md-worker] parse failed', e);
+        console.error('parse failed', e);
         throw e;
     }
+
+    // Check for symbol candidates from rehype plugin and perform lookup asynchronously (only in non-fast mode)
+    if (!fast && !SKIP_SYMBOL_RESOLUTION) {
+        const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
+        if (symbolCandidates && symbolCandidates.size > 0) {
+            // Start symbol lookup asynchronously - single lookup for final content
+            setTimeout(() => {
+                handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq, post);
+            }, 0);
+        }
+    }
+
     if (!fast && highlighter) {
         // detect langs in the shiki highlighting pass to load lang lazy
         const detectedLangs = detectCodeFenceLangs(tree as any);
@@ -109,3 +148,11 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
         });
     }
 }
+
+// Re-export function from symbol-lookup module with post function injection
+export function handleSymbolLookupResponse(seq: number, results: Record<string, string>, contextId: string): void {
+    handleSymbolLookupResponseInternal(seq, results, contextId, post);
+}
+
+// Re-export cache functions from symbol-lookup module
+export { clearSymbolCache, clearContextCache };

@@ -5,6 +5,9 @@ import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
+import {reparseAll} from './stores/bubblesStore';
+import {log} from './lib/logging';
+import {onSymbolLookupResponse} from './worker/worker-bridge';
 
 let searchCtrl: SearchController | null = null;
 
@@ -29,6 +32,11 @@ function initializeApp(): void {
         target: document.getElementById('mop-root')!,
         props: {bubblesStore, spinnerStore}
     } as any);
+
+    // Set initial production class on body for dev mode detection
+    const isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
+    document.body.classList.toggle('production', isProduction);
+
 }
 
 function setupBrokkInterface(): any[] {
@@ -49,7 +57,13 @@ function setupBrokkInterface(): any[] {
         nextMatch: () => searchCtrl?.next(),
         prevMatch: () => searchCtrl?.prev(),
         scrollToCurrent: () => searchCtrl?.scrollCurrent(),
-        getSearchState: () => searchCtrl?.getState()
+        getSearchState: () => searchCtrl?.getState(),
+
+        // Symbol lookup refresh API
+        refreshSymbolLookup: refreshSymbolLookup,
+
+        // Symbol lookup response API
+        onSymbolLookupResponse: onSymbolLookupResponse
     };
     return buffer;
 }
@@ -72,12 +86,24 @@ function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
 }
 
-function setAppTheme(dark: boolean): void {
+function setAppTheme(dark: boolean, isDevMode?: boolean): void {
     themeStore.set(dark);
     const html = document.querySelector('html')!;
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
+    log.debugLog(`info`, `set theme dark: ${dark} dev mode: ${isDevMode}`);
+    let isProduction: boolean;
+    if (isDevMode !== undefined) {
+        // Java explicitly told us dev mode status
+        isProduction = !isDevMode;
+    } else {
+        // Fall back to frontend-only detection (for compatibility)
+        isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
+    }
+    document.body.classList.toggle('production', isProduction);
 }
 
 function showSpinnerMessage(message = ''): void {
@@ -87,6 +113,12 @@ function showSpinnerMessage(message = ''): void {
 function hideSpinnerMessage(): void {
     spinnerStore.hide();
 }
+
+function refreshSymbolLookup(): void {
+    log.debugLog('[symbol-lookup] Refreshing symbol lookup for all content');
+    reparseAll();
+}
+
 
 function replayBufferedItems(buffer: any[]): void {
     // Replay buffered calls and events in sequence order

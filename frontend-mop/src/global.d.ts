@@ -9,7 +9,7 @@ declare global {
       onEvent: (payload: BrokkEvent) => Promise<void>;
       getSelection: () => string;
       clear: () => void;
-      setTheme: (dark: boolean) => void;
+      setTheme: (dark: boolean, isDevMode?: boolean) => void;
       showSpinner: (message?: string) => void;
       hideSpinner: () => void;
 
@@ -25,7 +25,7 @@ declare global {
       onAck: (epoch: number) => void;
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
+      onSymbolRightClick: (symbolName: string, symbolExists: boolean, x: number, y: number) => void;
     };
   }
 }
-

@@ -1,13 +1,19 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -32,6 +38,9 @@ public final class MOPBridge {
     private final AtomicInteger epoch = new AtomicInteger();
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
+    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+    private volatile @Nullable java.awt.Component hostComponent;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -65,24 +74,29 @@ public final class MOPBridge {
     }
 
     public void setSearch(String query, boolean caseSensitive) {
-        var js = "window.brokk.setSearch(" + toJson(query) + ", " + caseSensitive + ")";
+        var js = "if (window.brokk && window.brokk.setSearch) { window.brokk.setSearch(" + toJson(query) + ", "
+                + caseSensitive + "); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void clearSearch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.clearSearch()"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }"));
     }
 
     public void nextMatch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.nextMatch()"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }"));
     }
 
     public void prevMatch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.prevMatch()"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }"));
     }
 
     public void scrollToCurrent() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.scrollToCurrent()"));
+        Platform.runLater(() -> engine.executeScript(
+                "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
@@ -94,13 +108,15 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark) {
-        Platform.runLater(() -> engine.executeScript("window.brokk.setTheme(" + isDark + ")"));
+    public void setTheme(boolean isDark, boolean isDevMode) {
+        var js = "window.brokk.setTheme(" + isDark + ", " + isDevMode + ")";
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
-        Platform.runLater(() -> engine.executeScript("window.brokk.showSpinner(" + jsonMessage + ")"));
+        var js = "window.brokk.showSpinner(" + jsonMessage + ")";
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void hideSpinner() {
@@ -231,6 +247,156 @@ public final class MOPBridge {
             case "WARN" -> logger.warn("JS: {}", message);
             default -> logger.trace("JS: {}", message);
         }
+    }
+
+    public void setProject(IProject project) {
+        // Deprecated: use setContextManager instead
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        this.contextManager = contextManager;
+    }
+
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        this.chrome = chrome;
+    }
+
+    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+        this.hostComponent = hostComponent;
+    }
+
+    public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
+        logger.debug(
+                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
+        logger.debug("ContextManager available: {}", contextManager != null);
+
+        if (contextManager != null) {
+            var project = contextManager.getProject();
+            logger.debug("Project: {}", project != null ? project.getRoot() : "null");
+        }
+
+        // Execute symbol lookup on background thread to avoid blocking JavaFX Application Thread
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
+                        logger.debug(
+                                "Parsed {} symbol names for lookup, seq: {}, contextId: {}",
+                                symbolNames.size(),
+                                seq,
+                                contextId);
+
+                        var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
+
+                        logger.debug(
+                                "Async symbol lookup completed, returning {} found symbols out of {} requested, seq: {}, contextId: {}",
+                                results.size(),
+                                symbolNames.size(),
+                                seq,
+                                contextId);
+                        return results;
+                    } catch (Exception e) {
+                        logger.warn("Error in async symbol lookup, seq: {}, contextId: {}", seq, contextId, e);
+                        return new HashMap<String, String>();
+                    }
+                })
+                .thenAccept(results -> {
+                    // Send result directly via dedicated window.brokk method
+                    var resultsJson = toJson(results);
+                    var js =
+                            "if (window.brokk && window.brokk.onSymbolLookupResponse) { window.brokk.onSymbolLookupResponse("
+                                    + resultsJson + ", " + seq + ", " + toJson(contextId) + "); }";
+                    Platform.runLater(() -> engine.executeScript(js));
+                    logger.debug(
+                            "Symbol lookup result sent directly to window.brokk for seq: {}, contextId: {}",
+                            seq,
+                            contextId);
+                });
+    }
+
+    // Keep old synchronous method for backward compatibility during transition
+    @Deprecated
+    public String lookupSymbols(String symbolNamesJson) {
+        logger.warn("Deprecated synchronous lookupSymbols called - use lookupSymbolsAsync instead");
+
+        try {
+            var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
+            var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
+            return MAPPER.writeValueAsString(results);
+        } catch (Exception e) {
+            logger.warn("Error in symbol lookup", e);
+            return "{}";
+        }
+    }
+
+    public void onSymbolRightClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
+        logger.debug("Symbol right-clicked: {}, exists: {}, fqn: {} at ({}, {})", symbolName, symbolExists, fqn, x, y);
+
+        SwingUtilities.invokeLater(() -> {
+            var component = hostComponent != null
+                    ? hostComponent
+                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                            .getFocusOwner();
+
+            if (component != null && contextManager != null) {
+                if (chrome != null) {
+                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
+                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
+                                            contextManager)
+                            .show(component, x, y);
+                } else {
+                    logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
+                }
+            }
+        });
+    }
+
+    public String getContextCacheId() {
+        if (contextManager == null) {
+            return "no-context";
+        }
+
+        var sb = new StringBuilder();
+
+        // Project identity
+        var project = contextManager.getProject();
+        if (project != null) {
+            sb.append("project:").append(project.getRoot().toString());
+        } else {
+            sb.append("project:null");
+        }
+
+        // Context manager identity
+        sb.append("|cm:").append(System.identityHashCode(contextManager));
+        sb.append("|cm-class:").append(contextManager.getClass().getSimpleName());
+
+        // Analyzer identity
+        try {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            sb.append("|analyzer:").append(System.identityHashCode(analyzer));
+            sb.append("|analyzer-class:").append(analyzer.getClass().getSimpleName());
+        } catch (Exception e) {
+            sb.append("|analyzer:unavailable");
+        }
+
+        // Git state (if available)
+        try {
+            if (project != null) {
+                var repo = project.getRepo();
+                sb.append("|branch:").append(repo.getCurrentBranch());
+                sb.append("|commit:")
+                        .append(repo.getCurrentCommitId()
+                                .substring(
+                                        0, Math.min(8, repo.getCurrentCommitId().length())));
+                var modifiedFiles = repo.getModifiedFiles();
+                sb.append("|dirty:").append(!modifiedFiles.isEmpty());
+            }
+        } catch (Exception e) {
+            sb.append("|git:unavailable");
+        }
+
+        // Hash the context string for compact ID
+        String contextString = sb.toString();
+        return Integer.toHexString(contextString.hashCode());
     }
 
     private static String toJson(Object obj) {

@@ -43,6 +43,7 @@ export const languageAttributeTransformer = {
     }
 };
 
+
 // Singleton promise for the Shiki plugin
 export const shikiPluginPromise: Promise<Plugin> = highlighterPromise.then(highlighter => ({
     rehypePlugin: [
@@ -55,4 +56,3 @@ export const shikiPluginPromise: Promise<Plugin> = highlighterPromise.then(highl
         }
     ]
 }));
-

@@ -1,5 +1,6 @@
 export type Seq = number;
 
+
 /* ---------- main → worker ---------- */
 export interface ChunkMsg {
     type: 'chunk';
@@ -9,7 +10,7 @@ export interface ChunkMsg {
 
 export interface ClearMsg {
     type: 'clear-state';
-    flushBeforeClear: boolean;s
+    flushBeforeClear: boolean;
 }
 
 export interface ParseMsg {
@@ -26,7 +27,15 @@ export interface ExpandDiffMsg {
     bubbleId: number;  // owning bubble
 }
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg;
+export interface SymbolLookupResponseMsg {
+    type: 'symbol-lookup-response';
+    results: Record<string, string>;
+    seq: Seq;
+    contextId: string;
+}
+
+
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
@@ -46,15 +55,29 @@ export interface ErrorMsg {
 
 export interface ShikiLangsReadyMsg {
     type: 'shiki-langs-ready';
+    canHighlight?: string[]; // languages now available
 }
+
+export interface SymbolLookupRequestMsg {
+    type: 'symbol-lookup-request';
+    symbols: string[];
+    seq: Seq;
+    contextId: string;
+}
+
+export interface WorkerLogMsg {
+    type: 'worker-log';
+    level: 'info' | 'warn' | 'error' | 'debug';
+    message: string;
+}
+
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | LogMsg;
 
 export interface LogMsg {
     type: 'log';
     level: 'log' | 'warn' | 'error' | 'debug' | 'info';
     message: string;
 }
-
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | LogMsg;
 
 // shared by both
 

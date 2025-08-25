@@ -5,6 +5,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -22,6 +24,7 @@ import java.util.function.Consumer;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
@@ -77,7 +80,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void updateTheme(boolean isDark) {
-        webHost.setTheme(isDark);
+        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+        webHost.setTheme(isDark, isDevMode);
     }
 
     public void setBlocking(boolean blocked) {
@@ -242,6 +246,18 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
         webHost.removeSearchStateListener(l);
+    }
+
+    public void setProject(IProject project) {
+        webHost.setProject(project);
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        webHost.setContextManager(contextManager);
+    }
+
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        webHost.setSymbolRightClickHandler(chrome);
     }
 
     public void dispose() {
