@@ -1009,6 +1009,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.systemOutput("Added uses of " + identifier);
     }
 
+    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
+        String sourceCode = null;
+        try {
+            if (codeUnit.isFunction()) {
+                sourceCode = getAnalyzer().getMethodSource(codeUnit.fqName()).orElse(null);
+            } else if (codeUnit.isClass()) {
+                sourceCode = getAnalyzer().getClassSource(codeUnit.fqName());
+            }
+        } catch (InterruptedException e) {
+            logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
+        }
+
+        if (sourceCode != null) {
+            var fragment = new ContextFragment.StringFragment(
+                    this,
+                    sourceCode,
+                    "Source code for " + codeUnit.fqName(),
+                    codeUnit.source().getSyntaxStyle());
+            pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+            io.systemOutput("Added source code for " + codeUnit.shortName());
+        }
+    }
+
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.systemOutput("No callers found for " + methodName + " (pre-check).");
