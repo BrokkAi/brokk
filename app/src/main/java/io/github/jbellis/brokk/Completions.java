@@ -5,10 +5,9 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;
@@ -22,21 +21,34 @@ public class Completions {
             return List.of();
         }
 
-        // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
         List<CodeUnit> allDefs;
         try {
-            // fixme: This will have terrible performance implications for large projects. Should this
-            //   fuzzy search rather not be for the analyzers themselves?
-            allDefs = analyzer.searchDefinitions(".*").stream().limit(5000).toList();
+            // Try index-based searches first (cheap). If they return nothing, fall back to a more permissive
+            // searches
+            allDefs = tryIndexSearches(input, analyzer);
         } catch (Exception e) {
-            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
-            // Fall back to using top-level declarations only
+            // fixme: Not ideal to call this for large projects
             allDefs = analyzer.getAllDeclarations();
         }
 
+        // If the user typed a trailing dot (e.g. "Do."), interpret that as "the short name ends here"
+        // and resolve candidates to the class/namespace and its direct members (methods/fields).
+        // For trailing-dot queries we return the class and its members directly (no fuzzy scoring),
+        // so that "Do." yields the class "Do" and its members like "foo", "bar".
+        boolean trailingDot = pattern.endsWith(".");
+        if (trailingDot) {
+            String baseShort = pattern.substring(0, pattern.length() - 1);
+            // Resolve candidates using index queries and fallback logic.
+            allDefs = findCandidatesForTrailingDot(analyzer, baseShort);
+            // Return class + members immediately (deduplicated), capped to 100 results.
+            return allDefs.stream().distinct().limit(100).toList();
+        }
+
+        // Create matcher from the effective pattern (without trailing dot if present).
         var matcher = new FuzzyMatcher(pattern);
-        boolean hierarchicalQuery = pattern.indexOf('.') >= 0 || pattern.indexOf('$') >= 0;
+        // If trailing dot was used, we specifically want to match short names (identifiers) only.
+        boolean hierarchicalQuery = (pattern.indexOf('.') >= 0 || pattern.indexOf('$') >= 0);
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
         record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
@@ -60,6 +72,61 @@ public class Completions {
                 .limit(100)
                 .map(ScoredCU::cu)
                 .toList();
+    }
+
+    /** Try a series of progressively more permissive index queries before falling back to getAllDeclarations(). */
+    private static List<CodeUnit> tryIndexSearches(String input, IAnalyzer analyzer) {
+        var trimmed = input.trim();
+        if (trimmed.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 1) Prefer a quoted, case-insensitive substring search first (handles special chars safely).
+        var result = analyzer.searchDefinitions("(?i).*" + Pattern.quote(trimmed) + ".*").stream()
+                .limit(5000)
+                .toList();
+        if (!result.isEmpty()) {
+            return result;
+        }
+
+        // 2) If the query is short, try a "split-char" fuzzy pattern that matches the characters in order
+        //    with arbitrary stuff in between. This helps camelCase/snake_case short queries (e.g. "cc" -> .*c.*c.*).
+        //    Use Pattern.quote for each character to avoid accidental regex injection.
+        if (trimmed.length() < 5) {
+            var sb = new StringBuilder("(?i).*");
+            for (int i = 0; i < trimmed.length(); i++) {
+                char ch = trimmed.charAt(i);
+                // skip whitespace in the small pattern construction
+                if (Character.isWhitespace(ch)) continue;
+                sb.append(Pattern.quote(Character.toString(ch))).append(".*");
+            }
+            String fuzzyPattern = sb.toString();
+            try {
+                result = analyzer.searchDefinitions(fuzzyPattern).stream()
+                        .limit(5000)
+                        .toList();
+                if (!result.isEmpty()) {
+                    return result;
+                }
+            } catch (Exception ignored) {
+                // If the index doesn't like this pattern, ignore and continue to more permissive fallback.
+            }
+        }
+
+        // 3) Try an unquoted case-insensitive substring search as a permissive index query.
+        try {
+            result = analyzer.searchDefinitions("(?i).*" + trimmed + ".*").stream()
+                    .limit(5000)
+                    .toList();
+            if (!result.isEmpty()) {
+                return result;
+            }
+        } catch (Exception ignored) {
+            // fall through to expensive fallback
+        }
+
+        // 4) Return empty list otherwise
+        return Collections.emptyList();
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
@@ -194,6 +261,102 @@ public class Completions {
                 && Character.isLetter(s.charAt(0))
                 && s.charAt(1) == ':'
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
+    }
+
+    /**
+     * Helper: resolve candidates for queries ending with a dot (e.g. "Do."). Try index queries first (exact end-of-FQN
+     * match, then permissive substring + filter), then only call getAllDeclarations() as a last resort. When we find a
+     * class that matches the short name, include its members as well so that "Do." yields the class "Do" and its
+     * members ("foo","bar", etc.).
+     */
+    private static List<CodeUnit> findCandidatesForTrailingDot(IAnalyzer analyzer, String baseShort) {
+        if (baseShort.isEmpty()) {
+            return List.of();
+        }
+
+        // 1) Prefer exact FQN ending with ".<baseShort>" via index. The analyzer wraps the pattern
+        //    with ^(?i) ... $ so this will be anchored to the end.
+        try {
+            var matched = analyzer.searchDefinitions(".*\\." + Pattern.quote(baseShort)).stream()
+                    .limit(5000)
+                    .toList();
+
+            // Keep only direct declarations whose short name equals baseShort (classes/namespaces).
+            var directClasses = matched.stream()
+                    .filter(cu -> cu.identifier().equalsIgnoreCase(baseShort))
+                    .toList();
+            if (!directClasses.isEmpty()) {
+                return includeMembersForClasses(analyzer, directClasses);
+            }
+
+            // If index returned member entries (e.g. "a.b.Do.foo") but no direct class declaration,
+            // try to derive class FQNs from the matched entries and resolve those classes via the index.
+            var classFqNames = new LinkedHashSet<String>();
+            for (var cu : matched) {
+                String fq = cu.fqName();
+                // Look for ".<baseShort>." (member on a class) and extract "a.b.Do"
+                String marker = "." + baseShort + ".";
+                int idx = fq.indexOf(marker);
+                if (idx != -1) {
+                    classFqNames.add(fq.substring(0, idx + 1 + baseShort.length()));
+                } else if (fq.endsWith("." + baseShort)) {
+                    // defensive: if it actually ends with ".<baseShort>" add it
+                    classFqNames.add(fq);
+                }
+            }
+
+            if (!classFqNames.isEmpty()) {
+                var resolvedClasses = new ArrayList<CodeUnit>(classFqNames.size());
+                for (var classFq : classFqNames) {
+                    try {
+                        // Try to resolve the actual class CodeUnit from the index.
+                        var found = analyzer.searchDefinitions("(?i).*" + Pattern.quote(classFq) + ".*").stream()
+                                .filter(cu -> cu.fqName().equalsIgnoreCase(classFq))
+                                .findFirst();
+                        found.ifPresent(resolvedClasses::add);
+                    } catch (Exception ignored) {
+                        // ignore and continue resolving other classFq names
+                    }
+                }
+                if (!resolvedClasses.isEmpty()) {
+                    return includeMembersForClasses(analyzer, resolvedClasses);
+                }
+            }
+        } catch (Exception ignored) {
+            // fallthrough to next attempts
+        }
+
+        // 2) Try a permissive substring index query but filter by identifier to ensure we only
+        //    return declarations whose short name equals baseShort.
+        try {
+            var filtered = analyzer.searchDefinitions("(?i).*" + Pattern.quote(baseShort) + ".*").stream()
+                    .limit(5000)
+                    .filter(cu -> cu.identifier().equalsIgnoreCase(baseShort))
+                    .toList();
+            if (!filtered.isEmpty()) {
+                return includeMembersForClasses(analyzer, filtered);
+            }
+        } catch (Exception ignored) {
+            // fallback to empty return
+        }
+        return Collections.emptyList();
+    }
+
+    // Given a list of class declarations, return a list containing the classes followed by their members.
+    private static List<CodeUnit> includeMembersForClasses(IAnalyzer analyzer, List<CodeUnit> classes) {
+        var builder = new java.util.ArrayList<CodeUnit>(classes.size() * 2);
+        builder.addAll(classes);
+        for (var cls : classes) {
+            try {
+                var members = analyzer.getMembersInClass(cls.fqName());
+                if (!members.isEmpty()) {
+                    builder.addAll(members);
+                }
+            } catch (Exception ignored) {
+                // ignore member lookup failures and continue
+            }
+        }
+        return java.util.List.copyOf(builder);
     }
 
     private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict
