@@ -53,6 +53,9 @@ public class CodeAgent {
     /** maximum consecutive build failures before giving up */
     @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
+    /** maximum consecutive lint failures before giving up */
+    @VisibleForTesting
+    static final int MAX_LINT_FAILURES = 3;
 
     final IContextManager contextManager;
     private final StreamingChatModel model;
@@ -107,7 +110,15 @@ public class CodeAgent {
 
         var conversationState = new ConversationState(taskMessages, nextRequest);
         var workspaceState = new EditState(
-                blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+                blocks,
+                0,
+                applyFailures,
+                0,
+                0,
+                blocksAppliedWithoutBuild,
+                buildError,
+                changedFiles,
+                originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
@@ -249,7 +260,7 @@ public class CodeAgent {
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
@@ -705,6 +716,52 @@ public class CodeAgent {
             return new Step.Fatal(stopDetails);
         }
 
+        // Lint the changed files for ERROR diagnostics before build verification
+        try {
+            var analyzer = contextManager.getAnalyzer();
+            var lintResult = analyzer.lintFiles(new ArrayList<>(ws.changedFiles()));
+
+            if (lintResult.hasErrors()) {
+                int newConsecutiveLintFailures = ws.consecutiveLintFailures() + 1;
+                if (newConsecutiveLintFailures >= MAX_LINT_FAILURES) {
+                    var errorDiagnostics = lintResult.getErrors();
+                    var errorSummary = errorDiagnostics.stream()
+                            .map(d -> d.file() + ":" + d.line() + " - " + d.message())
+                            .collect(Collectors.joining("\n"));
+                    var msg = "Unable to fix lint errors after %d attempts:\n%s"
+                            .formatted(newConsecutiveLintFailures, errorSummary);
+                    reportComplete(msg);
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, msg));
+                }
+
+                var errorDiagnostics = lintResult.getErrors();
+                var errorMessage = "Linting found " + errorDiagnostics.size()
+                        + " error(s) in the modified files:\n\n"
+                        + errorDiagnostics.stream()
+                                .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
+                                .collect(Collectors.joining("\n"))
+                        + "\n\nPlease fix these errors with SEARCH/REPLACE blocks.";
+
+                var retryRequest = new UserMessage(errorMessage);
+                var retryCs = new ConversationState(cs.taskMessages(), retryRequest);
+                var updatedWs = new EditState(
+                        ws.pendingBlocks(),
+                        ws.consecutiveParseFailures(),
+                        ws.consecutiveApplyFailures(),
+                        ws.consecutiveBuildFailures(),
+                        newConsecutiveLintFailures,
+                        0, // Reset blocksAppliedWithoutBuild since we're retrying
+                        ws.lastBuildError(),
+                        ws.changedFiles(),
+                        ws.originalFileContents());
+                report("Linting found " + errorDiagnostics.size() + " error(s), asking LLM to fix");
+                return new Step.Retry(new LoopContext(retryCs, updatedWs, loopContext.userGoal()));
+            }
+        } catch (Exception e) {
+            // If linting fails for any reason, log and continue - don't block the workflow
+            logger.warn("Failed to lint files during verification", e);
+        }
+
         String latestBuildError;
         try {
             latestBuildError = performBuildVerification();
@@ -733,7 +790,17 @@ public class CodeAgent {
             }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
             var newCs = new ConversationState(cs.taskMessages(), nextRequestForBuildFailure);
-            var newWs = ws.afterBuildFailure(latestBuildError);
+            // Reset lint failures since we're retrying due to build failure
+            var newWs = new EditState(
+                    ws.pendingBlocks(),
+                    ws.consecutiveParseFailures(),
+                    ws.consecutiveApplyFailures(),
+                    newBuildFailures,
+                    0, // Reset consecutive lint failures
+                    0, // Reset blocksAppliedWithoutBuild
+                    latestBuildError,
+                    ws.changedFiles(),
+                    ws.originalFileContents());
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(new LoopContext(newCs, newWs, loopContext.userGoal()));
         }
@@ -814,30 +881,6 @@ public class CodeAgent {
                         updatedConsecutiveApplyFailures,
                         newBlocksAppliedWithoutBuild,
                         nextOriginalFileContents);
-
-                // Lint the changed files for ERROR diagnostics before proceeding
-                try {
-                    var analyzer = contextManager.getAnalyzer();
-                    var lintResult = analyzer.lintFiles(new ArrayList<>(wsForStep.changedFiles()));
-
-                    if (lintResult.hasErrors()) {
-                        var errorDiagnostics = lintResult.getErrors();
-                        var errorMessage = "Linting found " + errorDiagnostics.size()
-                                + " error(s) in the modified files:\n\n"
-                                + errorDiagnostics.stream()
-                                        .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
-                                        .collect(Collectors.joining("\n"))
-                                + "\n\nPlease fix these errors with SEARCH/REPLACE blocks.";
-
-                        var retryRequest = new UserMessage(errorMessage);
-                        var retryCs = new ConversationState(cs.taskMessages(), retryRequest);
-                        report("Linting found " + errorDiagnostics.size() + " error(s), asking LLM to fix");
-                        return new Step.Retry(new LoopContext(retryCs, wsForStep, currentLoopContext.userGoal()));
-                    }
-                } catch (Exception e) {
-                    // If linting fails for any reason, log and continue - don't block the workflow
-                    logger.warn("Failed to lint files after applying blocks", e);
-                }
 
                 return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
             }
@@ -969,6 +1012,7 @@ public class CodeAgent {
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
+            int consecutiveLintFailures,
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
@@ -980,6 +1024,7 @@ public class CodeAgent {
                     newParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
+                    consecutiveLintFailures,
                     blocksAppliedWithoutBuild,
                     lastBuildError,
                     changedFiles,
@@ -993,6 +1038,7 @@ public class CodeAgent {
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures + 1,
+                    consecutiveLintFailures,
                     0,
                     newBuildError,
                     changedFiles,
@@ -1010,6 +1056,7 @@ public class CodeAgent {
                     consecutiveParseFailures,
                     newApplyFailures,
                     consecutiveBuildFailures,
+                    consecutiveLintFailures,
                     newBlocksApplied,
                     lastBuildError,
                     changedFiles,
@@ -1026,6 +1073,7 @@ public class CodeAgent {
                     consecutiveParseFailures,
                     0,
                     consecutiveBuildFailures,
+                    consecutiveLintFailures,
                     1,
                     lastBuildError,
                     updatedChangedFiles,
