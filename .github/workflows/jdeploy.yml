@@ -5,6 +5,7 @@ name: jDeploy CI with Gradle
 
 on:
   push:
+    branches: [ '**' ]
     tags:
       - '*'
 
@@ -45,3 +46,7 @@ jobs:
         uses: shannah/jdeploy@master
         with:
           github_token: ${{ github.token }}
+
+      - name: Fix Linux installer permissions
+        run: |
+          find . -name "*linux*" -type f -exec chmod +x {} \;

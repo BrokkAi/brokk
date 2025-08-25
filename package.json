@@ -17,6 +17,7 @@
         "javaVersion": "21",
         "jar": "app/build/libs/brokk-*.jar",
         "javafx": true,
+        "preservePermissions": true,
         "title": "Brokk"
     },
     "dependencies": {
