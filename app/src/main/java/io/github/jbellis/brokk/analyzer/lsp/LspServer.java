@@ -19,7 +19,6 @@ import java.util.stream.Collectors;
 import org.eclipse.lsp4j.*;
 import org.eclipse.lsp4j.jsonrpc.Launcher;
 import org.eclipse.lsp4j.launch.LSPLauncher;
-import org.eclipse.lsp4j.services.LanguageClient;
 import org.eclipse.lsp4j.services.LanguageServer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -77,6 +76,9 @@ public abstract class LspServer {
 
     @NotNull
     private CountDownLatch serverReadyLatch = new CountDownLatch(1);
+
+    @Nullable
+    private LspLanguageClient languageClient;
 
     protected final Set<Path> activeWorkspaces = ConcurrentHashMap.newKeySet();
     private final Map<Path, Set<String>> workspaceExclusions = new ConcurrentHashMap<>();
@@ -187,7 +189,7 @@ public abstract class LspServer {
      * @param language the target programming language.
      * @return a language client to monitor and handle server communication.
      */
-    protected abstract LanguageClient getLanguageClient(
+    protected abstract LspLanguageClient getLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap);
 
     protected void startServer(
@@ -257,8 +259,9 @@ public abstract class LspServer {
 
         // will be reduced by one when server signals readiness
         this.serverReadyLatch = new CountDownLatch(1);
+        this.languageClient = getLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches);
         final Launcher<LanguageServer> launcher = LSPLauncher.createClientLauncher(
-                getLanguageClient(language, this.serverReadyLatch, this.workspaceReadyLatches),
+                languageClient,
                 serverProcess.getInputStream(),
                 serverProcess.getOutputStream(),
                 this.lspExecutor,
@@ -366,12 +369,19 @@ public abstract class LspServer {
         logger.info("Last client disconnected. Shutting down JDT Language Server...");
         try {
             if (languageServer != null) {
-                languageServer.shutdown().get(5, TimeUnit.SECONDS);
+                languageServer.shutdown().get(10, TimeUnit.SECONDS);
                 languageServer.exit();
             }
             logger.info("LSP client shut down successfully.");
-        } catch (Exception e) {
+        } catch (TimeoutException e) {
+            logger.info("Timed out while waiting for client to shut down gracefully.");
+            languageServer.exit();
+        } catch (InterruptedException e) {
+            logger.info("Interrupted while waiting for client to shut down gracefully.");
+            languageServer.exit();
+        } catch (ExecutionException e) {
             logger.error("Error shutting down LSP client", e);
+            languageServer.exit();
         } finally {
             this.languageServer = null;
             this.serverInitialized = null;
@@ -557,10 +567,19 @@ public abstract class LspServer {
         });
     }
 
-    public CompletableFuture<Object> refreshWorkspace() {
+    /**
+     * Needed to cause a "refresh" on the server for the given workspace.
+     *
+     * @param workspacePath the workspace to refresh.
+     * @return a completable future tied to the refresh.
+     * @see <a
+     *     href="https://github.com/eclipse-jdtls/eclipse.jdt.ls/blob/main/org.eclipse.jdt.ls.core/src/org/eclipse/jdt/ls/core/internal/commands/DiagnosticsCommand.java#L47">DiagnosticsCommand</a>
+     */
+    public CompletableFuture<Object> refreshWorkspace(String workspacePath) {
         logger.debug("Refreshing workspace");
         return query((server) -> {
-            ExecuteCommandParams params = new ExecuteCommandParams("java.project.buildWorkspace", List.of());
+            ExecuteCommandParams params = new ExecuteCommandParams(
+                    "java.project.refreshDiagnostics", Arrays.asList(workspacePath, null, false));
             return server.getWorkspaceService().executeCommand(params);
         });
     }

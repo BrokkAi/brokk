@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -92,7 +93,8 @@ class CodeAgentTest {
                 new ArrayList<>(pendingBlocks), // Modifiable copy
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
-                0, // consecutiveBuildFailures (new)
+                0, // consecutiveBuildFailures
+                0, // consecutiveLintFailures
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
                 new HashSet<>(), // changedFiles
@@ -345,7 +347,8 @@ class CodeAgentTest {
                         List.of(), // pending blocks are empty
                         retryStep.loopContext().editState().consecutiveParseFailures(),
                         retryStep.loopContext().editState().consecutiveApplyFailures(),
-                        retryStep.loopContext().editState().consecutiveBuildFailures(), // new
+                        retryStep.loopContext().editState().consecutiveBuildFailures(),
+                        retryStep.loopContext().editState().consecutiveLintFailures(),
                         1, // Simulate one new fix was applied to pass the guard in verifyPhase
                         retryStep.loopContext().editState().lastBuildError(),
                         retryStep.loopContext().editState().changedFiles(),
@@ -455,5 +458,117 @@ class CodeAgentTest {
         assertTrue(
                 continueStep.loopContext().editState().changedFiles().contains(file),
                 "changedFiles should include the edited file");
+    }
+
+    // L-3: Linting check - single lint error causes retry
+    @Test
+    void testVerifyPhase_lintErrorCausesRetry() throws IOException {
+        var file = contextManager.toFile("Test.java");
+        file.write("public class Test { }");
+        contextManager.addEditableFile(file);
+
+        // Configure mock analyzer to return lint errors
+        var lintDiagnostic = new LintResult.LintDiagnostic(
+                file.toString(), 1, 10, LintResult.LintDiagnostic.Severity.ERROR, "Missing semicolon", "CS001");
+        contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
+
+        // one block was applied to trigger verify phase
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        loopContext.editState().changedFiles().add(file);
+
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+        assertEquals(1, retryStep.loopContext().editState().consecutiveLintFailures());
+
+        String retryMessage =
+                Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        assertTrue(retryMessage.contains("Linting found 1 error(s)"));
+        assertTrue(retryMessage.contains("Missing semicolon"));
+        assertTrue(retryMessage.contains(file.toString() + ":1:10"));
+    }
+
+    // L-4: Linting check - MAX_LINT_FAILURES reached
+    @Test
+    void testVerifyPhase_maxLintFailuresReached() throws IOException {
+        var file = contextManager.toFile("Test.java");
+        file.write("public class Test { }");
+        contextManager.addEditableFile(file);
+
+        // Configure mock analyzer to always return lint errors
+        var lintDiagnostic = new LintResult.LintDiagnostic(
+                file.toString(), 1, 10, LintResult.LintDiagnostic.Severity.ERROR, "Syntax error", "CS001");
+        contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of(lintDiagnostic)));
+
+        // Start with consecutive lint failures already at MAX_LINT_FAILURES - 1
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var es = loopContext.editState();
+        var esWithFailures = new CodeAgent.EditState(
+                es.pendingBlocks(),
+                es.consecutiveParseFailures(),
+                es.consecutiveApplyFailures(),
+                es.consecutiveBuildFailures(),
+                CodeAgent.MAX_LINT_FAILURES - 1, // Just below the limit
+                es.blocksAppliedWithoutBuild(),
+                es.lastBuildError(),
+                es.changedFiles(),
+                es.originalFileContents());
+        var lcWithFailures =
+                new CodeAgent.LoopContext(loopContext.conversationState(), esWithFailures, loopContext.userGoal());
+        lcWithFailures.editState().changedFiles().add(file);
+
+        var result = codeAgent.verifyPhase(lcWithFailures, null);
+
+        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
+        var fatalStep = (CodeAgent.Step.Fatal) result;
+        assertEquals(TaskResult.StopReason.BUILD_ERROR, fatalStep.stopDetails().reason());
+        assertTrue(fatalStep.stopDetails().explanation().contains("Unable to fix lint errors"));
+    }
+
+    // L-5: Linting check - success resets consecutive failures on build failure
+    @Test
+    void testVerifyPhase_lintSuccessResetsFailuresOnBuildFailure() throws IOException {
+        var file = contextManager.toFile("Test.java");
+        file.write("public class Test { }");
+        contextManager.addEditableFile(file);
+
+        // Configure mock analyzer to return no lint errors
+        contextManager.getMockAnalyzer().setLintBehavior(files -> new LintResult(List.of()));
+
+        // Configure build to fail
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", "Some build error");
+        };
+
+        // Start with one prior lint failure
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var es = loopContext.editState();
+        var esWithFailures = new CodeAgent.EditState(
+                es.pendingBlocks(),
+                es.consecutiveParseFailures(),
+                es.consecutiveApplyFailures(),
+                es.consecutiveBuildFailures(),
+                1, // one prior failure
+                es.blocksAppliedWithoutBuild(),
+                es.lastBuildError(),
+                es.changedFiles(),
+                es.originalFileContents());
+        var lcWithFailures =
+                new CodeAgent.LoopContext(loopContext.conversationState(), esWithFailures, loopContext.userGoal());
+        lcWithFailures.editState().changedFiles().add(file);
+
+        // This call should succeed linting, then fail the build, and return a Retry step
+        var result = codeAgent.verifyPhase(lcWithFailures, null);
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+
+        // verify that consecutiveLintFailures is reset to 0
+        assertEquals(0, retryStep.loopContext().editState().consecutiveLintFailures());
+        // and that consecutiveBuildFailures is incremented
+        assertEquals(1, retryStep.loopContext().editState().consecutiveBuildFailures());
     }
 }

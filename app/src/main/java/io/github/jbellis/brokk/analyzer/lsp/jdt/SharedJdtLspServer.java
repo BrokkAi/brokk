@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer.lsp.jdt;
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.lsp.LspFileUtilities;
+import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
 import io.github.jbellis.brokk.analyzer.lsp.SupportedLspServer;
 import io.github.jbellis.brokk.gui.dialogs.analyzer.JavaAnalyzerSettingsPanel;
@@ -90,9 +91,14 @@ public final class SharedJdtLspServer extends LspServer {
     }
 
     @Override
-    protected LanguageClient getLanguageClient(
+    protected LspLanguageClient getLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
         this.languageClient = new JdtLanguageClient(language, serverReadyLatch, workspaceReadyLatchMap);
+        return this.languageClient;
+    }
+
+    /** Returns the current language client, or null if not initialized. */
+    public @Nullable LanguageClient getLanguageClient() {
         return this.languageClient;
     }
 

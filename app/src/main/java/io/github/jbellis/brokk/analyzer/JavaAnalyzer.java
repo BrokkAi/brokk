@@ -103,6 +103,15 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
         }
     }
 
+    @Override
+    public LintResult lintFiles(List<ProjectFile> files) {
+        if (jdtAnalyzer != null) {
+            return jdtAnalyzer.lintFiles(files);
+        } else {
+            return super.lintFiles(files);
+        }
+    }
+
     public Path getProjectRoot() {
         return this.getProject().getRoot();
     }

@@ -18,15 +18,17 @@ public final class JdtProjectHelper {
      * attempts to generate a temporary Eclipse one.
      *
      * @param projectPath the absolute project location.
-     * @return true if the project contains a build tool's configuration file supported by JDT, false if otherwise.
+     * @return true if the project contains a Eclipse configuration files, false if otherwise.
      */
     public static boolean ensureProjectConfiguration(Path projectPath) throws IOException {
         // If a JDT supported build file already exists, we're good.
-        if (Files.exists(projectPath.resolve(".project"))
-                || Files.exists(projectPath.resolve("pom.xml"))
-                || Files.exists(projectPath.resolve("build.gradle"))
-                || Files.exists(projectPath.resolve("build.gradle.kts"))) {
+        if (Files.exists(projectPath.resolve(".project"))) {
             return true;
+        } else if (Files.exists(projectPath.resolve("pom.xml"))
+                || Files.exists(projectPath.resolve("build.gradle"))
+                || Files.exists(projectPath.resolve("build.gradle.kts"))
+                || Files.exists(projectPath.resolve("build.xml"))) {
+            return false;
         }
 
         logger.debug("No standard build file found. Generating default Eclipse configuration.");
