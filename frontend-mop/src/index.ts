@@ -87,6 +87,7 @@ function clearChat(): void {
 }
 
 function setAppTheme(dark: boolean, isDevMode?: boolean): void {
+    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode);
     themeStore.set(dark);
     const html = document.querySelector('html')!;
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
