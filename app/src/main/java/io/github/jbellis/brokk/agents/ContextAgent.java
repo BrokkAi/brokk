@@ -114,7 +114,7 @@ public class ContextAgent {
         static final LlmRecommendation EMPTY = new LlmRecommendation(List.of(), List.of(), "", null);
 
         public LlmRecommendation(List<ProjectFile> files, List<CodeUnit> classes, String reasoning) {
-            this(files, classes, reasoning, null);
+            this(files.stream().distinct().toList(), classes.stream().distinct().toList(), reasoning, null);
         }
     }
 
