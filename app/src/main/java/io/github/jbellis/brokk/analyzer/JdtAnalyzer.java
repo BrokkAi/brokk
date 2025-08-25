@@ -287,6 +287,8 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate {
 
         // Clear existing diagnostics for these files
         languageClient.clearDiagnosticsForFiles(files);
+        // Update files
+        this.update(new HashSet<>(files));
 
         // Trigger analysis by refreshing the workspace
         // This will cause the LSP server to re-analyze the files and generate diagnostics

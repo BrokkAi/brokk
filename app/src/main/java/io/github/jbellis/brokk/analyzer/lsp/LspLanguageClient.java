@@ -33,7 +33,7 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     private final int MAX_DIAGNOSTICS_PER_FILE = 500;
     protected final int ERROR_LOG_LINE_LIMIT = 4;
-    private final int DIAGNOSTIC_SETTLE_INTERVAL = 500;
+    private final int DIAGNOSTIC_SETTLE_INTERVAL = 1000;
 
     private @Nullable IConsoleIO io;
     private final Set<String> accumulatedErrors = new HashSet<>();
@@ -188,13 +188,14 @@ public abstract class LspLanguageClient implements LanguageClient {
     public List<LintResult.LintDiagnostic> getDiagnosticsForFiles(List<ProjectFile> files) {
         return files.stream()
                 .map(ProjectFile::absPath)
+                .map(this::safeResolvePath)
                 .map(Path::toString)
                 .flatMap(filePath -> fileDiagnostics.getOrDefault(filePath, List.of()).stream())
                 .toList();
     }
 
     /**
-     * Returns a CompletableFuture that completes when diagnostics have stopped coming in for at least 500ms. If
+     * Returns a CompletableFuture that completes when diagnostics have stopped coming in for at least 1 second. If
      * diagnostics are already settled, returns a completed future.
      */
     public CompletableFuture<Void> waitForDiagnosticsToSettle() {
