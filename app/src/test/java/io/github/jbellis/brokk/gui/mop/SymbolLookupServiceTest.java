@@ -216,11 +216,19 @@ class SymbolLookupServiceTest {
             var searchResults = List.of(
                     createCodeUnit("com.example.Parser", "Parser"), // CLASS - should match
                     CodeUnit.fn(
-                            new ProjectFile(Path.of("/tmp/test"), "Test.java"),
+                            new ProjectFile(
+                                    Path.of(System.getProperty("java.io.tmpdir"))
+                                            .resolve("test")
+                                            .toAbsolutePath(),
+                                    "Test.java"),
                             "com.example",
                             "Parser.parse"), // METHOD - should NOT match
                     CodeUnit.field(
-                            new ProjectFile(Path.of("/tmp/test"), "Test.java"),
+                            new ProjectFile(
+                                    Path.of(System.getProperty("java.io.tmpdir"))
+                                            .resolve("test")
+                                            .toAbsolutePath(),
+                                    "Test.java"),
                             "com.example",
                             "Config.PARSER_ENABLED")); // FIELD - should NOT match
 
