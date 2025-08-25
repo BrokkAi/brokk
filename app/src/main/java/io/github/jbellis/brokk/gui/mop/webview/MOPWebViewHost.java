@@ -407,6 +407,15 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
+    public void analyzerUpdated() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("analyzerUpdated ignored; bridge not ready");
+            return;
+        }
+        bridge.analyzerUpdated();
+    }
+
     private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
         var bridge = bridgeRef.get();
         if (bridge == null) {

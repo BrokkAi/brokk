@@ -30,13 +30,14 @@ import org.jetbrains.annotations.Nullable;
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
  * alternative to the pure-Swing MarkdownOutputPanel.
  */
-public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable {
+public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
     private final MOPWebViewHost webHost;
     private boolean blockClearAndReset = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+    private @Nullable IContextManager currentContextManager;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -253,6 +254,17 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void setContextManager(@Nullable IContextManager contextManager) {
+        // Unregister from previous context manager if it exists
+        if (currentContextManager != null) {
+            currentContextManager.removeAnalyzerCallback(this);
+        }
+
+        // Register with new context manager if it exists
+        if (contextManager != null) {
+            contextManager.addAnalyzerCallback(this);
+        }
+
+        currentContextManager = contextManager;
         webHost.setContextManager(contextManager);
     }
 
@@ -260,8 +272,20 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.setSymbolRightClickHandler(chrome);
     }
 
+    @Override
+    public void onAnalyzerUpdated() {
+        webHost.analyzerUpdated();
+    }
+
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
+
+        // Unregister analyzer callback before disposing
+        if (currentContextManager != null) {
+            currentContextManager.removeAnalyzerCallback(this);
+            currentContextManager = null;
+        }
+
         webHost.dispose();
     }
 }

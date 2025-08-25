@@ -99,6 +99,11 @@ public final class MOPBridge {
                 "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
     }
 
+    public void analyzerUpdated() {
+        Platform.runLater(() -> engine.executeScript(
+                "if (window.brokk && window.brokk.analyzerUpdated) { window.brokk.analyzerUpdated(); }"));
+    }
+
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         if (text.isEmpty()) {
             return;

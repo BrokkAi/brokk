@@ -62,6 +62,9 @@ function setupBrokkInterface(): any[] {
         // Symbol lookup refresh API
         refreshSymbolLookup: refreshSymbolLookup,
 
+        // Analyzer update API
+        analyzerUpdated: analyzerUpdated,
+
         // Symbol lookup response API
         onSymbolLookupResponse: onSymbolLookupResponse
     };
@@ -117,6 +120,11 @@ function hideSpinnerMessage(): void {
 
 function refreshSymbolLookup(): void {
     log.debugLog('[symbol-lookup] Refreshing symbol lookup for all content');
+    reparseAll();
+}
+
+function analyzerUpdated(): void {
+    log.debugLog('[analyzer] Analyzer updated, refreshing symbol lookup for all content');
     reparseAll();
 }
 
