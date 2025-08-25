@@ -285,8 +285,11 @@ class SymbolLookupServiceTest {
             packageName = fqName.substring(0, lastDot);
         }
 
+        // Use an absolute path that works cross-platform
+        Path absoluteTestPath =
+                Path.of(System.getProperty("java.io.tmpdir")).resolve("test").toAbsolutePath();
         return new CodeUnit(
-                new ProjectFile(Path.of("/tmp/test"), "Test.java"), CodeUnitType.CLASS, packageName, simpleName);
+                new ProjectFile(absoluteTestPath, "Test.java"), CodeUnitType.CLASS, packageName, simpleName);
     }
 
     private CodeUnit invokePrivateFindBestMatch(String searchTerm, List<CodeUnit> searchResults) {
