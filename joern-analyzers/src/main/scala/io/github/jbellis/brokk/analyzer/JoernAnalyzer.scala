@@ -28,7 +28,7 @@ import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
-import scala.jdk.OptionConverters.RichOptional
+import scala.jdk.OptionConverters.*
 import scala.util.matching.Regex
 import scala.util.{Failure, Success, Try, Using}
 
@@ -38,7 +38,12 @@ import scala.util.{Failure, Success, Try, Using}
   */
 abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, private[brokk] var cpg: Cpg)
     extends IAnalyzer
-    with Closeable {
+    with Closeable
+    with SkeletonProvider
+    with SourceCodeProvider
+    with UsagesProvider 
+    with CallGraphProvider
+    with IncrementalUpdateProvider {
 
   // Logger instance for this class
   protected val logger: Logger = LoggerFactory.getLogger(getClass)
@@ -88,9 +93,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
   /** Simplest constructor: build a brand new CPG for the given source path.
     */
   def this(sourcePath: Path) = this(sourcePath, Cpg.empty)
-
-  override def isCpg: Boolean = true
-
+  
   override def update(changedFiles: util.Set[ProjectFile]): IAnalyzer =
     updateFilesInternal(defaultConfig, Option(changedFiles))
 
@@ -241,7 +244,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     if (sources.isEmpty) Optional.empty() else Optional.of(sources.mkString("\n\n"))
   }
 
-  override def getClassSource(fqcn: String): String = {
+  override def getClassSource(fqcn: String): Optional[String] = {
 
     val separatorsRegexGroup      = fullNameSeparators.map(Pattern.quote).mkString("|")
     lazy val simpleClassNameParts = fqcn.split(s"($separatorsRegexGroup)")
@@ -278,7 +281,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
       .orElse(attemptSimpleName)
       .orElse(clearMetaCharacters)
       .orElse(attemptAnyPartMatch)
-      .orNull
+      .asJava
   }
 
   /** Recursively builds a structural "skeleton" for a given TypeDecl. Language-specific details like method signatures

@@ -3,15 +3,13 @@ package io.github.jbellis.brokk.testutil;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 public final class TestContextManager implements IContextManager {
@@ -112,15 +110,10 @@ public final class TestContextManager implements IContextManager {
      * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing without
      * requiring a full CPG.
      */
-    private static class MockAnalyzer implements IAnalyzer {
+    private static class MockAnalyzer implements IAnalyzer, SkeletonProvider, UsagesProvider {
         @Override
         public boolean isEmpty() {
             return false;
-        }
-
-        @Override
-        public boolean isCpg() {
-            return false; // This will cause dynamic fragments to return placeholder text
         }
 
         @Override
@@ -148,6 +141,11 @@ public final class TestContextManager implements IContextManager {
         public java.util.Map<io.github.jbellis.brokk.analyzer.CodeUnit, String> getSkeletons(
                 io.github.jbellis.brokk.analyzer.ProjectFile file) {
             return java.util.Map.of(); // Return empty map for test purposes
+        }
+
+        @Override
+        public Optional<String> getSkeletonHeader(String className) {
+            return Optional.empty();
         }
     }
 }

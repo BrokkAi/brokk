@@ -254,7 +254,9 @@ public class PhpAnalyzerTest {
     void testGetClassSource() {
         Optional<CodeUnit> fooClassCUOpt = analyzer.getDefinition("My.Lib.Foo");
         assertTrue(fooClassCUOpt.isPresent());
-        String classSource = analyzer.getClassSource("My.Lib.Foo");
+        final var sourceOpt = analyzer.getClassSource("My.Lib.Foo");
+        assertTrue(sourceOpt.isPresent());
+        final var classSource = sourceOpt.get().stripIndent();
         String expectedSourceStart = "#[Attribute1]\nclass Foo extends BaseFoo implements IFoo, IBar {";
         assertTrue(classSource.stripIndent().startsWith(expectedSourceStart));
         assertTrue(classSource.stripIndent().endsWith("}")); // Outer class brace

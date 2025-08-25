@@ -341,8 +341,8 @@ public class MultiFileSelectionDialog extends JDialog {
             return List.of();
         }
 
-        if (activeAnalyzer == null || !activeAnalyzer.isCpg()) {
-            logger.warn("Cannot resolve classes: Analyzer is not available or not a CPG analyzer.");
+        if (activeAnalyzer == null) {
+            logger.warn("Cannot resolve classes: Analyzer is not available.");
             return List.of();
         }
 

@@ -108,7 +108,12 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         // 2) If overflowed, assume something changed
         if (batch.isOverflowed) {
             if (listener != null) listener.onTrackedFileChange();
-            refresh(() -> requireNonNull(currentAnalyzer).update());
+            refresh(() -> {
+                final var analyzer = requireNonNull(currentAnalyzer);
+                return analyzer.as(IncrementalUpdateProvider.class)
+                        .map(IncrementalUpdateProvider::update)
+                        .orElse(analyzer);
+            });
         }
 
         // 3) We have an exact files list to check
@@ -145,7 +150,12 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                             .distinct()
                             .map(ProjectFile::toString)
                             .collect(Collectors.joining(", ")));
-            refresh(() -> requireNonNull(currentAnalyzer).update(relevantFiles));
+            refresh(() -> {
+                final var analyzer = requireNonNull(currentAnalyzer);
+                return analyzer.as(IncrementalUpdateProvider.class)
+                        .map(incAnalyzer -> incAnalyzer.update(relevantFiles))
+                        .orElse(analyzer);
+            });
         } else {
             logger.trace(
                     "No tracked files changed for any of the configured analyzer languages; skipping analyzer rebuild");
@@ -252,7 +262,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
-                refresh(finalAnalyzer::update);
+                finalAnalyzer
+                        .as(IncrementalUpdateProvider.class)
+                        .ifPresent(incAnalyzer -> refresh(incAnalyzer::update));
                 return null;
             });
         }
@@ -290,10 +302,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
             var msg =
                     """
-                    Code Intelligence for %s found %d declarations in %,d ms.
-                    Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
-                    You can change this in the Settings -> Project dialog.
-                    """
+                            Code Intelligence for %s found %d declarations in %,d ms.
+                            Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
+                            You can change this in the Settings -> Project dialog.
+                            """
                             .stripIndent()
                             .formatted(langNames, totalDeclarations, durationMs);
             listener.afterFirstBuild(msg);
@@ -302,10 +314,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
             var msg =
                     """
-                    Code Intelligence for %s found %d declarations in %,d ms.
-                    Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
-                    You can change this in the Settings -> Project dialog.
-                    """
+                            Code Intelligence for %s found %d declarations in %,d ms.
+                            Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
+                            You can change this in the Settings -> Project dialog.
+                            """
                             .stripIndent()
                             .formatted(langNames, totalDeclarations, durationMs);
             listener.afterFirstBuild(msg);
@@ -314,11 +326,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
             var msg =
                     """
-                    Code Intelligence for %s found %d declarations in %,d ms.
-                    If this is fewer than expected, it's probably because Brokk only looks for %s files.
-                    If this is not a useful subset of your project, you can change it in the Settings -> Project
-                    dialog, or disable Code Intelligence by setting the language(s) to NONE.
-                    """
+                            Code Intelligence for %s found %d declarations in %,d ms.
+                            If this is fewer than expected, it's probably because Brokk only looks for %s files.
+                            If this is not a useful subset of your project, you can change it in the Settings -> Project
+                            dialog, or disable Code Intelligence by setting the language(s) to NONE.
+                            """
                             .stripIndent()
                             .formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
             listener.afterFirstBuild(msg);
@@ -495,7 +507,10 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
     public void updateFiles(Set<ProjectFile> changedFiles) {
         try {
-            currentAnalyzer = future.get().update(changedFiles);
+            final var analyzer = future.get();
+            currentAnalyzer = analyzer.as(IncrementalUpdateProvider.class)
+                    .map(incAnalyzer -> incAnalyzer.update(changedFiles))
+                    .orElse(analyzer);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }

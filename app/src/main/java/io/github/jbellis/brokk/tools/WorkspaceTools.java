@@ -6,8 +6,7 @@ import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.agents.ContextAgent;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import java.io.BufferedReader;
@@ -279,7 +278,7 @@ public class WorkspaceTools {
             @P(
                             "Fully qualified symbol name (e.g., 'com.example.MyClass', 'com.example.MyClass.myMethod', 'com.example.MyClass.myField') to find usages for.")
                     String symbol) {
-        assert getAnalyzer().isCpg() : "Cannot add usages: Code Intelligence is not available.";
+        assert getAnalyzer() instanceof UsagesProvider : "Cannot add usages: Code Intelligence is not available.";
         if (symbol.isBlank()) {
             return "Cannot add usages: symbol cannot be empty";
         }
@@ -304,7 +303,7 @@ public class WorkspaceTools {
             @P(
                             "List of fully qualified class names (e.g., ['com.example.ClassA', 'org.another.ClassB']) to get summaries for. Must not be empty.")
                     List<String> classNames) {
-        assert getAnalyzer().isCpg() : "Cannot add summary: Code Intelligence is not available.";
+        assert getAnalyzer() instanceof SkeletonProvider : "Cannot add summary: Code Intelligence is not available.";
         if (classNames.isEmpty()) {
             return "Cannot add summary: class names list is empty";
         }
@@ -339,7 +338,7 @@ public class WorkspaceTools {
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']. Must not be empty.")
                     List<String> filePaths) {
-        assert getAnalyzer().isCpg() : "Cannot add summaries: Code Intelligence is not available.";
+        assert getAnalyzer() instanceof SkeletonProvider : "Cannot add summaries: Code Intelligence is not available.";
         if (filePaths.isEmpty()) {
             return "Cannot add summaries: file paths list is empty";
         }
@@ -375,7 +374,8 @@ public class WorkspaceTools {
             @P(
                             "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty.")
                     List<String> methodNames) {
-        assert getAnalyzer().isCpg() : "Cannot add method sources: Code Intelligence is not available.";
+        assert getAnalyzer() instanceof SourceCodeProvider
+                : "Cannot add method sources: Code Intelligence is not available.";
         if (methodNames.isEmpty()) {
             return "Cannot add method sources: method names list is empty";
         }
@@ -409,7 +409,6 @@ public class WorkspaceTools {
             @P(
                             "List of fully qualified class names (e.g., ['com.example.MyClass', 'org.another.Util']). Must not be empty.")
                     List<String> classNames) {
-        assert getAnalyzer().isCpg() : "Cannot get files: Code Intelligence is not available.";
         if (classNames.isEmpty()) {
             return "Class names list cannot be empty.";
         }
@@ -496,7 +495,7 @@ public class WorkspaceTools {
             @P("Maximum depth of the call graph to retrieve (e.g., 3 or 5). Higher depths can be large.")
                     int depth // Added depth parameter
             ) {
-        assert getAnalyzer().isCpg() : "Cannot add call graph: CPG analyzer is not available.";
+        assert (getAnalyzer() instanceof CallGraphProvider) : "Cannot add call graph: CPG analyzer is not available.";
         if (methodName.isBlank()) {
             return "Cannot add call graph: method name is empty";
         }
@@ -523,7 +522,7 @@ public class WorkspaceTools {
             @P("Maximum depth of the call graph to retrieve (e.g., 3 or 5). Higher depths can be large.")
                     int depth // Added depth parameter
             ) {
-        assert getAnalyzer().isCpg() : "Cannot add call graph: CPG analyzer is not available.";
+        assert (getAnalyzer() instanceof CallGraphProvider) : "Cannot add call graph: CPG analyzer is not available.";
         if (methodName.isBlank()) {
             return "Cannot add call graph: method name is empty";
         }

@@ -369,7 +369,7 @@ class CppAnalyzerTest {
 
   @Test
   def getClassSourceTest(): Unit = {
-    val source = an.getClassSource("shapes.Circle").replace(n, "\n").stripIndent()
+    val source = an.getClassSource("shapes.Circle").get().replace(n, "\n").stripIndent()
     val expected =
       """
         |  class Circle {
@@ -387,7 +387,7 @@ class CppAnalyzerTest {
 
   @Test
   def getClassSourceNestedTest(): Unit = {
-    val source = an.getClassSource("Outer::Inner").replace(n, "\n").stripIndent()
+    val source = an.getClassSource("Outer::Inner").get().replace(n, "\n").stripIndent()
     // Verify the source contains inner class definition
     val expected =
       """class Inner {
@@ -400,7 +400,7 @@ class CppAnalyzerTest {
 
   @Test
   def getClassSourceFallbackTest(): Unit = {
-    val source = an.getClassSource("Outer::NonExistent").replace(n, "\n").stripIndent()
+    val source = an.getClassSource("Outer::NonExistent").get().replace(n, "\n").stripIndent()
     // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
     val expected =
       """class Outer {
@@ -417,6 +417,6 @@ class CppAnalyzerTest {
   @Test
   def getClassSourceNonexistentTest(): Unit = {
     val source = an.getClassSource("NonExistentClass")
-    assertEquals(null, source)
+    assertTrue(source.isEmpty)
   }
 }

@@ -46,7 +46,8 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer implements IAnalyzer {
+public abstract class TreeSitterAnalyzer
+        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider {
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
@@ -367,11 +368,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public boolean isCpg() {
-        return false;
-    }
-
-    @Override
     public Optional<String> getSkeletonHeader(String fqName) {
         return withReadLock(() -> getSkeletonImpl(fqName, true));
     }
@@ -553,7 +549,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public String getClassSource(String fqName) {
+    public Optional<String> getClassSource(String fqName) {
         var cu = getDefinition(fqName)
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
@@ -569,9 +565,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         try {
             src = cu.source().read();
         } catch (IOException e) {
-            return "";
+            return Optional.empty();
         }
-        return ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+        return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte()));
     }
 
     @Override

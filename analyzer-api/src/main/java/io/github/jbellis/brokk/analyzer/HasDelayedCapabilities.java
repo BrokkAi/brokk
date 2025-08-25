@@ -6,7 +6,7 @@ import java.util.concurrent.CompletableFuture;
  * Implemented by analyzers that can operate in a lightweight mode, and provide more advanced analysis capabilities once
  * some more expensive analysis or initialization process is completed.
  */
-public interface HasDelayedCapabilities {
+public interface HasDelayedCapabilities extends CapabilityProvider {
 
     /**
      * This is tied to a more advanced analysis process, and will return true if the process is ready, or false if it is

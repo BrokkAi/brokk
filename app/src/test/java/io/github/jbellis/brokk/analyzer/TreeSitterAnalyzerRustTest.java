@@ -488,7 +488,7 @@ public class TreeSitterAnalyzerRustTest {
     @Test
     void testGetClassSource_Rust() {
         // Source for struct Point
-        String pointSource = rsAnalyzer.getClassSource("Point");
+        String pointSource = rsAnalyzer.getClassSource("Point").get();
         String expectedPointSource =
                 """
                                      pub struct Point {
@@ -499,7 +499,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedPointSource), normalizeSource.apply(pointSource));
 
         // Source for trait Drawable
-        String drawableSource = rsAnalyzer.getClassSource("Drawable");
+        String drawableSource = rsAnalyzer.getClassSource("Drawable").get();
         String expectedDrawableSource =
                 """
                                         pub trait Drawable {
@@ -509,7 +509,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedDrawableSource), normalizeSource.apply(drawableSource));
 
         // Source for enum Color
-        String colorSource = rsAnalyzer.getClassSource("Color");
+        String colorSource = rsAnalyzer.getClassSource("Color").get();
         String expectedColorSource =
                 """
                                      pub enum Color {
@@ -523,7 +523,7 @@ public class TreeSitterAnalyzerRustTest {
         assertEquals(normalizeSource.apply(expectedColorSource), normalizeSource.apply(colorSource));
 
         // Source for trait Shape
-        String shapeSource = rsAnalyzer.getClassSource("Shape");
+        String shapeSource = rsAnalyzer.getClassSource("Shape").get();
         String expectedShapeSource =
                 """
                                      pub trait Shape {
