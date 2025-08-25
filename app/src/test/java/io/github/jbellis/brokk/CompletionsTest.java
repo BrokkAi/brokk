@@ -138,4 +138,12 @@ public class CompletionsTest {
         var completions = Completions.completeSymbols("Do", mock);
         assertEquals(Set.of("Do", "Do$Re", "Do$Re$Sub"), toShortValues(completions));
     }
+
+    @Test
+    public void testClassWithDotSuffix() {
+        var mock = new MockAnalyzer(tempDir);
+
+        var completions = Completions.completeSymbols("Do.", mock);
+        assertEquals(Set.of("Do", "foo", "bar"), toShortValues(completions));
+    }
 }
