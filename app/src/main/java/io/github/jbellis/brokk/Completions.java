@@ -5,10 +5,7 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
@@ -277,16 +274,56 @@ public class Completions {
             return List.of();
         }
 
-        // 1) Prefer exact FQN ending with ".<baseShort>" via index
+        // 1) Prefer exact FQN ending with ".<baseShort>" via index. The analyzer wraps the pattern
+        //    with ^(?i) ... $ so this will be anchored to the end.
         try {
-            var exact = analyzer.searchDefinitions(".*\\." + Pattern.quote(baseShort)).stream()
+            var matched = analyzer.searchDefinitions(".*\\." + Pattern.quote(baseShort)).stream()
                     .limit(5000)
                     .toList();
-            if (!exact.isEmpty()) {
-                return includeMembersForClasses(analyzer, exact);
+
+            // Keep only direct declarations whose short name equals baseShort (classes/namespaces).
+            var directClasses = matched.stream()
+                    .filter(cu -> cu.identifier().equalsIgnoreCase(baseShort))
+                    .toList();
+            if (!directClasses.isEmpty()) {
+                return includeMembersForClasses(analyzer, directClasses);
+            }
+
+            // If index returned member entries (e.g. "a.b.Do.foo") but no direct class declaration,
+            // try to derive class FQNs from the matched entries and resolve those classes via the index.
+            var classFqNames = new LinkedHashSet<String>();
+            for (var cu : matched) {
+                String fq = cu.fqName();
+                // Look for ".<baseShort>." (member on a class) and extract "a.b.Do"
+                String marker = "." + baseShort + ".";
+                int idx = fq.indexOf(marker);
+                if (idx != -1) {
+                    classFqNames.add(fq.substring(0, idx + 1 + baseShort.length()));
+                } else if (fq.endsWith("." + baseShort)) {
+                    // defensive: if it actually ends with ".<baseShort>" add it
+                    classFqNames.add(fq);
+                }
+            }
+
+            if (!classFqNames.isEmpty()) {
+                var resolvedClasses = new ArrayList<CodeUnit>(classFqNames.size());
+                for (var classFq : classFqNames) {
+                    try {
+                        // Try to resolve the actual class CodeUnit from the index.
+                        var found = analyzer.searchDefinitions("(?i).*" + Pattern.quote(classFq) + ".*").stream()
+                                .filter(cu -> cu.fqName().equalsIgnoreCase(classFq))
+                                .findFirst();
+                        found.ifPresent(resolvedClasses::add);
+                    } catch (Exception ignored) {
+                        // ignore and continue resolving other classFq names
+                    }
+                }
+                if (!resolvedClasses.isEmpty()) {
+                    return includeMembersForClasses(analyzer, resolvedClasses);
+                }
             }
         } catch (Exception ignored) {
-            // fallthrough to next attempt
+            // fallthrough to next attempts
         }
 
         // 2) Try a permissive substring index query but filter by identifier to ensure we only
