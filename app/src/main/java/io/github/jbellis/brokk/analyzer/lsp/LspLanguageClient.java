@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer.lsp;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -116,7 +117,20 @@ public abstract class LspLanguageClient implements LanguageClient {
 
     /** Clears diagnostics for the specified files. */
     public void clearDiagnosticsForFiles(List<ProjectFile> files) {
-        files.stream().map(ProjectFile::absPath).map(Path::toString).forEach(fileDiagnostics::remove);
+        files.stream()
+                .map(ProjectFile::absPath)
+                .map(this::safeResolvePath)
+                .map(Path::toString)
+                .forEach(fileDiagnostics::remove);
+    }
+
+    protected Path safeResolvePath(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (IOException e) {
+            logger.error("Cannot resolve path {}", path, e);
+        }
+        return path;
     }
 
     @Override

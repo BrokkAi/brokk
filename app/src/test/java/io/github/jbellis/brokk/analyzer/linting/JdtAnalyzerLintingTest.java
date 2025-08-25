@@ -38,6 +38,7 @@ class JdtAnalyzerLintingTest {
 
     @BeforeEach
     void setUp() throws IOException {
+        tempDir = tempDir.toRealPath();
         Path testFile = tempDir.resolve("ErrorTest.java");
         Files.writeString(
                 testFile,
