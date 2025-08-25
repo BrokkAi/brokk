@@ -814,6 +814,31 @@ public class CodeAgent {
                         updatedConsecutiveApplyFailures,
                         newBlocksAppliedWithoutBuild,
                         nextOriginalFileContents);
+
+                // Lint the changed files for ERROR diagnostics before proceeding
+                try {
+                    var analyzer = contextManager.getAnalyzer();
+                    var lintResult = analyzer.lintFiles(new ArrayList<>(wsForStep.changedFiles()));
+
+                    if (lintResult.hasErrors()) {
+                        var errorDiagnostics = lintResult.getErrors();
+                        var errorMessage = "Linting found " + errorDiagnostics.size()
+                                + " error(s) in the modified files:\n\n"
+                                + errorDiagnostics.stream()
+                                        .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
+                                        .collect(Collectors.joining("\n"))
+                                + "\n\nPlease fix these errors with SEARCH/REPLACE blocks.";
+
+                        var retryRequest = new UserMessage(errorMessage);
+                        var retryCs = new ConversationState(cs.taskMessages(), retryRequest);
+                        report("Linting found " + errorDiagnostics.size() + " error(s), asking LLM to fix");
+                        return new Step.Retry(new LoopContext(retryCs, wsForStep, currentLoopContext.userGoal()));
+                    }
+                } catch (Exception e) {
+                    // If linting fails for any reason, log and continue - don't block the workflow
+                    logger.warn("Failed to lint files after applying blocks", e);
+                }
+
                 return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
             }
         } catch (EditStopException e) {
