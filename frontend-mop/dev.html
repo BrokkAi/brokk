@@ -178,6 +178,25 @@
 
         debugLog: function(message) {
             console.log(`[Mock JavaBridge DEBUG] ${message}`);
+        },
+
+        // Mock symbol right-click implementation
+        onSymbolRightClick: function(symbolName, symbolExists, symbolFqn, x, y) {
+            console.log(`[Mock JavaBridge] Symbol right-clicked: ${symbolName}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, at (${x}, ${y})`);
+
+            // Simulate context menu with basic actions
+            const actions = [];
+            if (symbolExists) {
+                actions.push('Open in Preview');
+                actions.push('Open in Project Tree');
+            }
+            actions.push('Copy Symbol Name');
+
+            const selectedAction = confirm(`Symbol: ${symbolName} (${symbolExists ? 'exists' : 'does not exist'})\nFQN: ${symbolFqn || 'N/A'}\n\nAvailable actions:\n${actions.map((action, i) => `${i + 1}. ${action}`).join('\n')}\n\nClick OK to simulate opening context menu, Cancel to ignore.`);
+
+            if (selectedAction) {
+                console.log(`[Mock JavaBridge] Simulated context menu action for symbol: ${symbolName}`);
+            }
         }
     };
 

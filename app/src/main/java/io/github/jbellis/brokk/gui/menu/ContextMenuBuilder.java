@@ -14,6 +14,7 @@ import java.awt.datatransfer.StringSelection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -193,72 +194,77 @@ public class ContextMenuBuilder {
     }
 
     // Symbol actions
-    private void openInPreview(SymbolMenuContext context) {
-        logger.info("Open in preview for symbol: {}", context.symbolName());
-
+    /** Helper to find a symbol definition using exact FQN lookup with fallback search */
+    private Optional<CodeUnit> findSymbolDefinition(SymbolMenuContext context) {
         if (!context.contextManager().getAnalyzerWrapper().isReady()) {
             context.chrome()
                     .systemNotify(
                             AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
                             AnalyzerWrapper.ANALYZER_BUSY_TITLE,
                             JOptionPane.INFORMATION_MESSAGE);
-            return;
+            return Optional.empty();
         }
 
         var symbolName = context.symbolName();
         var fqn = context.fqn() != null ? context.fqn() : symbolName;
+        var analyzer = context.contextManager().getAnalyzerUninterrupted();
+
+        try {
+            // First try exact FQN match
+            var definition = analyzer.getDefinition(fqn);
+            if (definition.isPresent()) {
+                return definition;
+            }
+        } catch (Exception e) {
+            logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
+            context.chrome().toolError("Failed to find definition: " + e.getMessage(), "Symbol Lookup Error");
+            return Optional.empty();
+        }
+
+        // Fallback: search for candidates with the symbol name
+        List<CodeUnit> candidates;
+        try {
+            candidates = analyzer.searchDefinitions(symbolName);
+            if (candidates.isEmpty()) {
+                context.chrome()
+                        .systemNotify(
+                                "Definition not found for: " + symbolName,
+                                "Symbol Lookup",
+                                JOptionPane.WARNING_MESSAGE);
+                return Optional.empty();
+            }
+        } catch (Exception e) {
+            logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
+            context.chrome().toolError("Search failed: " + e.getMessage(), "Symbol Lookup Error");
+            return Optional.empty();
+        }
+
+        // If multiple candidates, show popup and return first
+        if (candidates.size() > 1) {
+            var matchList = candidates.stream()
+                    .map(candidate -> String.format(
+                            "• %s in %s",
+                            candidate.shortName(), candidate.source().toString()))
+                    .collect(Collectors.joining("\n"));
+
+            var message = String.format(
+                    "Found %d definitions for '%s'. Using the first one:\n\n%s",
+                    candidates.size(), symbolName, matchList);
+
+            context.chrome().systemNotify(message, "Multiple Definitions Found", JOptionPane.INFORMATION_MESSAGE);
+        }
+
+        return Optional.of(candidates.get(0));
+    }
+
+    private void openInPreview(SymbolMenuContext context) {
+        logger.info("Open in preview for symbol: {}", context.symbolName());
+
+        var symbolName = context.symbolName();
         context.contextManager().submitContextTask("Open in preview for " + symbolName, () -> {
-            var analyzer = context.contextManager().getAnalyzerUninterrupted();
-
-            System.out.println("*********** " + context);
-            try {
-                // First try exact FQN match
-                var definition = analyzer.getDefinition(fqn);
-                if (definition.isPresent()) {
-                    openPreview(definition.get(), context);
-                    return;
-                }
-            } catch (Exception e) {
-                logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
-                context.chrome().toolError("Failed to find definition: " + e.getMessage(), "Open in Preview Error");
-                return;
-            }
-
-            // Fallback: search for candidates with the symbol name
-            List<CodeUnit> candidates;
-            try {
-                candidates = analyzer.searchDefinitions(symbolName);
-                if (candidates.isEmpty()) {
-                    context.chrome()
-                            .systemNotify(
-                                    "Definition not found for: " + symbolName,
-                                    "Open in Preview",
-                                    JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-            } catch (Exception e) {
-                logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
-                context.chrome().toolError("Search failed: " + e.getMessage(), "Open in Preview Error");
-                return;
-            }
-
-            System.out.println("*********** " + candidates);
-
-            // If only one candidate, open directly; if multiple, show popup then open first
-            if (candidates.size() == 1) {
-                openPreview(candidates.get(0), context);
-            } else {
-                var matchList = candidates.stream()
-                        .map(candidate -> String.format(
-                                "• %s in %s",
-                                candidate.shortName(), candidate.source().toString()))
-                        .collect(Collectors.joining("\n"));
-
-                var message = String.format(
-                        "Found %d definitions for '%s'. Opening the first one:\n\n%s",
-                        candidates.size(), symbolName, matchList);
-
-                context.chrome().systemNotify(message, "Multiple Definitions Found", JOptionPane.INFORMATION_MESSAGE);
+            var definition = findSymbolDefinition(context);
+            if (definition.isPresent()) {
+                openPreview(definition.get(), context);
             }
         });
     }
@@ -266,60 +272,15 @@ public class ContextMenuBuilder {
     private void openInProjectTree(SymbolMenuContext context) {
         logger.info("Open in project tree for symbol: {}", context.symbolName());
 
-        if (!context.contextManager().getAnalyzerWrapper().isReady()) {
-            context.chrome()
-                    .systemNotify(
-                            AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
-                            AnalyzerWrapper.ANALYZER_BUSY_TITLE,
-                            JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
         var symbolName = context.symbolName();
-        var fqn = context.fqn() != null ? context.fqn() : symbolName;
         context.contextManager().submitContextTask("Open in project tree for " + symbolName, () -> {
-            var analyzer = context.contextManager().getAnalyzerUninterrupted();
-
-            try {
-                // First try exact FQN match
-                var definition = analyzer.getDefinition(fqn);
-                if (definition.isPresent()) {
-                    var projectFile = definition.get().source();
-                    SwingUtilities.invokeLater(() -> {
-                        context.chrome().getProjectFilesPanel().showFileInTree(projectFile);
-                    });
-                    return;
-                }
-            } catch (Exception e) {
-                logger.warn("Error during exact FQN lookup for '{}': {}", fqn, e.getMessage());
-                context.chrome()
-                        .toolError("Failed to find definition: " + e.getMessage(), "Open in Project Tree Error");
-                return;
+            var definition = findSymbolDefinition(context);
+            if (definition.isPresent()) {
+                var projectFile = definition.get().source();
+                SwingUtilities.invokeLater(() -> {
+                    context.chrome().getProjectFilesPanel().showFileInTree(projectFile);
+                });
             }
-
-            // Fallback: search for candidates with the symbol name
-            List<CodeUnit> candidates;
-            try {
-                candidates = analyzer.searchDefinitions(symbolName);
-                if (candidates.isEmpty()) {
-                    context.chrome()
-                            .systemNotify(
-                                    "Definition not found for: " + symbolName,
-                                    "Open in Project Tree",
-                                    JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-            } catch (Exception e) {
-                logger.warn("Error during fallback search for '{}': {}", symbolName, e.getMessage());
-                context.chrome().toolError("Search failed: " + e.getMessage(), "Open in Project Tree Error");
-                return;
-            }
-
-            // If candidates found, use the first one
-            var projectFile = candidates.get(0).source();
-            SwingUtilities.invokeLater(() -> {
-                context.chrome().getProjectFilesPanel().showFileInTree(projectFile);
-            });
         });
     }
 

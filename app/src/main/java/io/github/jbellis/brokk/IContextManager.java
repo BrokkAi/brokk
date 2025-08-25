@@ -19,11 +19,10 @@ public interface IContextManager {
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
-        /**
-         * Called when the analyzer is updated (becomes ready, rebuilt, etc.).
-         */
+        /** Called when the analyzer is updated (becomes ready, rebuilt, etc.). */
         void onAnalyzerUpdated();
     }
+
     default EditBlockParser getParserForWorkspace() {
         throw new UnsupportedOperationException();
     }

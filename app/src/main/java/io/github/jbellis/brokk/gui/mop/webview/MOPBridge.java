@@ -114,7 +114,8 @@ public final class MOPBridge {
     }
 
     public void setTheme(boolean isDark, boolean isDevMode) {
-        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
+        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
+                + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
