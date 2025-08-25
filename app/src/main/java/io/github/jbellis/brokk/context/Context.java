@@ -625,7 +625,7 @@ public class Context {
                 contextManager, editableFiles, readonlyFiles, virtualFragments, taskHistory, parsedOutput, action);
     }
 
-    static Context createWithId(
+    public static Context createWithId(
             UUID id,
             IContextManager cm,
             List<ContextFragment> editable,

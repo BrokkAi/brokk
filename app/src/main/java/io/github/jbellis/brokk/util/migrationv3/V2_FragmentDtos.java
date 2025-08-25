@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.context;
+package io.github.jbellis.brokk.util.migrationv3;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
@@ -7,7 +7,7 @@ import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 /** Sealed interfaces and records for fragment DTOs with Jackson polymorphic support. */
-public class FragmentDtos {
+public class V2_FragmentDtos {
 
     /**
      * Common marker interface for DTOs that can be referenced in editable/readonly lists. This helps Jackson with
@@ -79,14 +79,14 @@ public class FragmentDtos {
     }
 
     /** DTO for TaskEntry - represents a task history entry. */
-    public record TaskEntryDto(int sequence, @Nullable TaskFragmentDto log, @Nullable String summaryContentId) {
+    public record TaskEntryDto(int sequence, @Nullable TaskFragmentDto log, @Nullable String summary) {
         public TaskEntryDto {
             // Exactly one of log or summary must be non-null (same constraint as TaskEntry)
-            if ((log == null) == (summaryContentId == null)) {
+            if ((log == null) == (summary == null)) {
                 throw new IllegalArgumentException("Exactly one of log or summary must be non-null");
             }
-            if (summaryContentId != null && summaryContentId.isEmpty()) {
-                throw new IllegalArgumentException("summaryContentId cannot be empty when present");
+            if (summary != null && summary.isEmpty()) {
+                throw new IllegalArgumentException("summary cannot be empty when present");
             }
         }
     }
@@ -100,7 +100,7 @@ public class FragmentDtos {
     }
 
     /** DTO for ChatMessage - simplified representation with role and content. */
-    public record ChatMessageDto(String role, String contentId) {
+    public record ChatMessageDto(String role, String content) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
@@ -109,7 +109,7 @@ public class FragmentDtos {
     }
 
     /** DTO for StringFragment - contains text content with description and syntax style. */
-    public record StringFragmentDto(String id, String contentId, String description, String syntaxStyle)
+    public record StringFragmentDto(String id, String text, String description, String syntaxStyle)
             implements VirtualFragmentDto { // id changed to String
     }
 
@@ -148,7 +148,7 @@ public class FragmentDtos {
     }
 
     /** DTO for GitFileFragment - represents a specific revision of a file from Git history. */
-    public record GitFileFragmentDto(String id, String repoRoot, String relPath, String revision, String contentId)
+    public record GitFileFragmentDto(String id, String repoRoot, String relPath, String revision, String content)
             implements PathFragmentDto { // id changed to String
         public GitFileFragmentDto {
             if (repoRoot.isEmpty()) {
@@ -164,18 +164,23 @@ public class FragmentDtos {
     }
 
     /** DTO for PasteTextFragment - contains pasted text with resolved description. */
-    public record PasteTextFragmentDto(String id, String contentId, String description)
+    public record PasteTextFragmentDto(String id, String text, String description)
             implements VirtualFragmentDto { // id changed to String
     }
 
-    /** DTO for PasteImageFragment - contains image data with resolved description. */
-    public record PasteImageFragmentDto(String id, String description)
+    /** DTO for PasteImageFragment - contains base64-encoded image data with resolved description. */
+    public record PasteImageFragmentDto(String id, String base64ImageData, String description)
             implements VirtualFragmentDto { // id changed to String
+        public PasteImageFragmentDto {
+            if (base64ImageData.isEmpty()) {
+                throw new IllegalArgumentException("base64ImageData cannot be null or empty");
+            }
+        }
     }
 
     /** DTO for StacktraceFragment - contains stacktrace analysis data. */
     public record StacktraceFragmentDto(
-            String id, Set<CodeUnitDto> sources, String originalContentId, String exception, String codeContentId)
+            String id, Set<CodeUnitDto> sources, String original, String exception, String code)
             implements VirtualFragmentDto { // id changed to String
         public StacktraceFragmentDto {
             sources = Set.copyOf(sources);
@@ -209,7 +214,7 @@ public class FragmentDtos {
             String originalType,
             String description,
             String shortDescription,
-            @Nullable String contentId,
+            @Nullable String textContent,
             boolean isTextFragment,
             String syntaxStyle,
             Set<ProjectFileDto> files,
@@ -279,14 +284,14 @@ public class FragmentDtos {
 
     /** Compact DTO for TaskEntry, referring to its log fragment by ID. Used within CompactContextDto. */
     public record TaskEntryRefDto(
-            int sequence, @Nullable String logId, @Nullable String summaryContentId) { // logId changed to String
+            int sequence, @Nullable String logId, @Nullable String summary) { // logId changed to String
         public TaskEntryRefDto {
             // logId can be null if summary is present, and vice-versa
-            if ((logId == null) == (summaryContentId == null)) {
+            if ((logId == null) == (summary == null)) {
                 throw new IllegalArgumentException("Exactly one of logId or summary must be non-null");
             }
-            if (summaryContentId != null && summaryContentId.isEmpty()) {
-                throw new IllegalArgumentException("summaryContentId cannot be empty when present");
+            if (summary != null && summary.isEmpty()) {
+                throw new IllegalArgumentException("summary cannot be empty when present");
             }
         }
     }

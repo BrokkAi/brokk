@@ -917,6 +917,10 @@ public interface ContextFragment {
         public String toString() {
             return "PasteFragment('%s')".formatted(description());
         }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
     }
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
@@ -962,8 +966,8 @@ public interface ContextFragment {
     class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final Image image;
 
-        // Helper to get bytes for hashing, might throw UncheckedIOException
-        private static byte[] imageToBytesForHash(Image image) {
+        // Helper to get image bytes, might throw UncheckedIOException
+        private static byte[] imageToBytes(Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
                 return FrozenFragment.imageToBytes(image);
@@ -978,7 +982,7 @@ public interface ContextFragment {
                             FragmentType.PASTE_IMAGE,
                             "(Pasting image)", // Initial description for hashing
                             null, // No text content for image
-                            imageToBytesForHash(image), // image bytes for hashing
+                            imageToBytes(image), // image bytes for hashing
                             false, // isTextFragment = false
                             SyntaxConstants.SYNTAX_STYLE_NONE,
                             Set.of(), // No project files
@@ -1015,6 +1019,10 @@ public interface ContextFragment {
         @Override
         public Image image() {
             return image;
+        }
+
+        public byte[] imageBytes() {
+            return imageToBytes(image);
         }
 
         @Override

@@ -321,7 +321,7 @@ public class SessionManager implements AutoCloseable {
                 }
                 return ch;
             } catch (IOException e) {
-                logger.error("Error loading context history for session {}: {}", sessionId, e.getMessage());
+                logger.error("Error loading context history for session {}", sessionId, e);
                 return null;
             }
         });
