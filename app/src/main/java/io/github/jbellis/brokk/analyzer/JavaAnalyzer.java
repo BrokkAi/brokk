@@ -20,7 +20,7 @@ import javax.annotation.Nullable;
  * @see io.github.jbellis.brokk.analyzer.JdtAnalyzer
  */
 public class JavaAnalyzer extends JavaTreeSitterAnalyzer
-        implements HasDelayedCapabilities, CanCommunicate, CallGraphProvider, UsagesProvider {
+        implements HasDelayedCapabilities, CanCommunicate, CallGraphProvider, UsagesProvider, LintingProvider {
 
     private @Nullable JdtAnalyzer jdtAnalyzer;
     private final CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture;

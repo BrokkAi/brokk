@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.SymbolKind;
 
-public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvider {
+public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvider, LintingProvider {
 
     private final Path projectRoot;
     private final String workspace;

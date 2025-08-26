@@ -212,16 +212,4 @@ public interface IAnalyzer {
 
     /** Container for a function’s location and current source text. */
     record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {}
-
-    /**
-     * Lint the specified files and return any diagnostics found. This method should trigger analysis of the files and
-     * collect any compiler/linter errors, warnings, or other diagnostics.
-     *
-     * @param files the files to lint
-     * @return a LintResult containing any diagnostics found
-     */
-    default LintResult lintFiles(List<ProjectFile> files) {
-        // Default implementation returns no diagnostics
-        return new LintResult(List.of());
-    }
 }
