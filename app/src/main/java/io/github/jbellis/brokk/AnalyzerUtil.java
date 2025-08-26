@@ -15,58 +15,68 @@ public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
     public static CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
-        StringBuilder code = new StringBuilder();
-        Set<CodeUnit> sources = new HashSet<>();
+        final StringBuilder code = new StringBuilder();
+        final Set<CodeUnit> sources = new HashSet<>();
 
-        // method uses
-        var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
-        // type uses
-        var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
+        final var maybeSourceCodeProvider = analyzer.as(SourceCodeProvider.class);
+        if (maybeSourceCodeProvider.isEmpty()) {
+            logger.warn("Analyzer ({}) does not provide source code, skipping", analyzer.getClass());
+        }
+        maybeSourceCodeProvider.ifPresent(sourceCodeProvider -> {
+            var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
 
-        if (!methodUses.isEmpty()) {
-            Map<String, List<String>> groupedMethods = new LinkedHashMap<>();
-            for (var cu : methodUses) {
-                var source = analyzer.getMethodSource(cu.fqName());
-                if (source.isPresent()) {
-                    String classname = ContextFragment.toClassname(cu.fqName());
-                    groupedMethods
-                            .computeIfAbsent(classname, k -> new ArrayList<>())
-                            .add(source.get());
-                    sources.add(cu);
+            if (!methodUses.isEmpty()) {
+                Map<String, List<String>> groupedMethods = new LinkedHashMap<>();
+                for (var cu : methodUses) {
+                    var source = sourceCodeProvider.getMethodSource(cu.fqName());
+                    if (source.isPresent()) {
+                        String classname = ContextFragment.toClassname(cu.fqName());
+                        groupedMethods
+                                .computeIfAbsent(classname, k -> new ArrayList<>())
+                                .add(source.get());
+                        sources.add(cu);
+                    }
                 }
-            }
-            if (!groupedMethods.isEmpty()) {
-                code.append("Method uses:\n\n");
-                for (var entry : groupedMethods.entrySet()) {
-                    var methods = entry.getValue();
-                    if (!methods.isEmpty()) {
-                        var fqcn = entry.getKey();
-                        var file = analyzer.getFileFor(fqcn)
-                                .map(ProjectFile::toString)
-                                .orElse("?");
-                        code.append(
-                                """
-                                <methods class="%s" file="%s">
-                                %s
-                                </methods>
-                                """
-                                        .formatted(fqcn, file, String.join("\n\n", methods)));
+                if (!groupedMethods.isEmpty()) {
+                    code.append("Method uses:\n\n");
+                    for (var entry : groupedMethods.entrySet()) {
+                        var methods = entry.getValue();
+                        if (!methods.isEmpty()) {
+                            var fqcn = entry.getKey();
+                            var file = analyzer.getFileFor(fqcn)
+                                    .map(ProjectFile::toString)
+                                    .orElse("?");
+                            code.append(
+                                    """
+                                            <methods class="%s" file="%s">
+                                            %s
+                                            </methods>
+                                            """
+                                            .formatted(fqcn, file, String.join("\n\n", methods)));
+                        }
                     }
                 }
             }
-        }
+        });
 
-        if (!typeUses.isEmpty()) {
-            code.append("Type uses:\n\n");
-            for (var cu : typeUses) {
-                var skeletonHeader = analyzer.getSkeletonHeader(cu.fqName());
-                if (skeletonHeader.isEmpty()) {
-                    continue;
-                }
-                code.append(skeletonHeader.get()).append("\n");
-                sources.add(cu);
-            }
+        final var maybeSkeletonProvider = analyzer.as(SkeletonProvider.class);
+        if (maybeSkeletonProvider.isEmpty()) {
+            logger.warn("Analyzer ({}) does not provide skeletons, skipping", analyzer.getClass());
         }
+        maybeSkeletonProvider.ifPresent(skeletonProvider -> {
+            var typeUses = uses.stream().filter(CodeUnit::isClass).sorted().toList();
+            if (!typeUses.isEmpty()) {
+                code.append("Type uses:\n\n");
+                for (var cu : typeUses) {
+                    var skeletonHeader = skeletonProvider.getSkeletonHeader(cu.fqName());
+                    if (skeletonHeader.isEmpty()) {
+                        continue;
+                    }
+                    code.append(skeletonHeader.get()).append("\n");
+                    sources.add(cu);
+                }
+            }
+        });
 
         return new CodeWithSource(code.toString(), sources);
     }
@@ -141,11 +151,11 @@ public class AnalyzerUtil {
             sites.stream().sorted().forEach(site -> {
                 result.append(
                         """
-                                       %s %s
-                                       ```
-                                       %s
-                                       ```
-                                      """
+                                 %s %s
+                                 ```
+                                 %s
+                                 ```
+                                """
                                 .stripIndent()
                                 .indent(2 * entry.depth)
                                 .formatted(arrow, site.target().fqName(), site.sourceLine()));
@@ -168,7 +178,7 @@ public class AnalyzerUtil {
      * @return A map of CodeUnit to its skeleton string. Returns an empty map if no skeletons are found.
      */
     public static Map<CodeUnit, String> getClassSkeletonsData(IAnalyzer analyzer, List<String> classNames) {
-        assert analyzer.isCpg() : "CPG Analyzer is not available.";
+        assert analyzer instanceof SkeletonProvider : "Analyzer is not available.";
         if (classNames.isEmpty()) {
             return Map.of();
         }
@@ -179,10 +189,9 @@ public class AnalyzerUtil {
                 .flatMap(Optional::stream) // Convert Optional<CodeUnit> to Stream<CodeUnit>
                 .filter(CodeUnit::isClass) // Ensure it's a class CodeUnit
                 .map(cu -> {
-                    Optional<String> skeletonOpt = analyzer.getSkeleton(cu.fqName()); // Use fqName from CodeUnit
-                    return skeletonOpt.isPresent()
-                            ? Map.entry(cu, skeletonOpt.get())
-                            : null; // Create entry if skeleton exists
+                    Optional<String> skeletonOpt = analyzer.as(SkeletonProvider.class)
+                            .flatMap(skp -> skp.getSkeleton(cu.fqName())); // Use fqName from CodeUnit
+                    return skeletonOpt.map(s -> Map.entry(cu, s)).orElse(null); // Create entry if skeleton exists
                 })
                 .filter(Objects::nonNull) // Filter out null entries (where skeleton wasn't found)
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
@@ -196,7 +205,7 @@ public class AnalyzerUtil {
      * @return A map of method name to its source code string. Returns an empty map if no sources are found.
      */
     public static Map<String, String> getMethodSourcesData(IAnalyzer analyzer, List<String> methodNames) {
-        assert analyzer.isCpg() : "CPG Analyzer is not available for getMethodSourcesData.";
+        assert analyzer instanceof SourceCodeProvider : "Analyzer is not available for getMethodSourcesData.";
         if (methodNames.isEmpty()) {
             return Map.of();
         }
@@ -207,12 +216,11 @@ public class AnalyzerUtil {
         for (String methodName : methodNames) {
             if (!methodName.isBlank()) {
                 // Attempt to get the source code for the method
-                var methodSourceOpt = analyzer.getMethodSource(methodName);
-                if (methodSourceOpt.isPresent()) {
-                    // If source is found, add it to the map with a header comment
-                    String methodSource = methodSourceOpt.get();
-                    sources.put(methodName, "// Source for " + methodName + "\n" + methodSource);
-                }
+                analyzer.as(SourceCodeProvider.class)
+                        .flatMap(scp -> scp.getMethodSource(methodName))
+                        // If source is found, add it to the map with a header comment
+                        .ifPresent(methodSource ->
+                                sources.put(methodName, "// Source for " + methodName + "\n" + methodSource));
                 // If methodSourceOpt is empty, we simply don't add an entry for this methodName
             }
         }
@@ -229,7 +237,7 @@ public class AnalyzerUtil {
      *     are found.
      */
     public static Map<String, String> getClassSourcesData(IAnalyzer analyzer, List<String> classNames) {
-        assert analyzer.isCpg() : "CPG Analyzer is not available for getClassSourcesData.";
+        assert analyzer instanceof SourceCodeProvider : "Analyzer is not available for getClassSourcesData.";
         if (classNames.isEmpty()) {
             return Map.of();
         }
@@ -240,17 +248,19 @@ public class AnalyzerUtil {
         for (String className : classNames) {
             if (!className.isBlank()) {
                 // Attempt to get the source code for the class
-                var classSource = analyzer.getClassSource(className);
-                if (classSource != null && !classSource.isEmpty()) {
-                    // If source is found, format it with a header and add to the map
-                    String filename = analyzer.getFileFor(className)
-                            .map(ProjectFile::toString)
-                            .orElse("unknown file");
-                    String formattedSource =
-                            "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
-                    sources.put(className, formattedSource);
-                    // If classSource is null or empty, we simply don't add an entry for this className
-                }
+                analyzer.as(SourceCodeProvider.class)
+                        .flatMap(scp -> scp.getClassSource(className))
+                        .filter(classSource -> !classSource.isEmpty())
+                        .ifPresent(classSource -> {
+                            // If source is found, format it with a header and add to the map
+                            String filename = analyzer.getFileFor(className)
+                                    .map(ProjectFile::toString)
+                                    .orElse("unknown file");
+                            String formattedSource =
+                                    "Source code of %s (from %s):\n\n%s".formatted(className, filename, classSource);
+                            sources.put(className, formattedSource);
+                            // If classSource is null or empty, we simply don't add an entry for this className
+                        });
             }
         }
         // Return the map containing formatted sources for all found classes

@@ -13,7 +13,14 @@
       <Policies>
         <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
       </Policies>
-      <DefaultRolloverStrategy max="7"/>
+
+      <!-- Keep only the 7 most recent rolled files -->
+      <DefaultRolloverStrategy>
+        <Delete basePath="${sys:user.home}/.brokk" maxDepth="1">
+          <IfFileName glob="debug.log.*"/>
+          <IfAccumulatedFileCount exceeds="7"/>
+        </Delete>
+      </DefaultRolloverStrategy>
     </RollingFile>
   </Appenders>
 

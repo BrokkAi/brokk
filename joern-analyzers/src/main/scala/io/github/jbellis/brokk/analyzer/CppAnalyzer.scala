@@ -32,8 +32,6 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
 
   def this(sourcePath: Path) = this(sourcePath, java.util.Collections.emptySet[String]())
 
-  override def isCpg: Boolean = true
-
   override val fullNameSeparators: Seq[String] = Seq(".", "::")
 
   override def defaultConfig: CConfig = CppAnalyzer.defaultConfig

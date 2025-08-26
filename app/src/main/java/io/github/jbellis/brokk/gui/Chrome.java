@@ -40,6 +40,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
@@ -1231,14 +1232,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // 6. Everything else (virtual fragments, skeletons, etc.)
-            var previewPanel = new PreviewTextPanel(
-                    contextManager,
-                    null,
-                    workingFragment.text(),
-                    workingFragment.syntaxStyle(),
-                    themeManager,
-                    workingFragment);
-            showPreviewFrame(contextManager, title, previewPanel);
+            if (workingFragment.isText()
+                    && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
+                var markdownPanel = MarkdownOutputPool.instance().borrow();
+                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.setText(List.of(Messages.customSystem(workingFragment.text())));
+
+                // Use shared utility method to create searchable content panel without scroll pane
+                JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
+
+                showPreviewFrame(contextManager, title, previewContentPanel);
+            } else {
+                var previewPanel = new PreviewTextPanel(
+                        contextManager,
+                        null,
+                        workingFragment.text(),
+                        workingFragment.syntaxStyle(),
+                        themeManager,
+                        workingFragment);
+                showPreviewFrame(contextManager, title, previewPanel);
+            }
         } catch (IOException ex) {
             toolError("Error reading fragment content: " + ex.getMessage());
             logger.error("Error reading fragment content for preview", ex);

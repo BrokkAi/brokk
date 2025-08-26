@@ -438,7 +438,9 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoStruct() {
         // MyStruct in declarations.go
-        String source = analyzer.getClassSource("declpkg.MyStruct");
+        final var sourceOpt = analyzer.getClassSource("declpkg.MyStruct");
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get().stripIndent();
         assertNotNull(source, "Source for declpkg.MyStruct should not be null");
         String expectedSource = "type MyStruct struct {\n\tFieldA int\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(source));
@@ -447,7 +449,9 @@ public class GoAnalyzerTest {
     @Test
     void testGetClassSource_GoInterface() {
         // MyInterface in declarations.go
-        String source = analyzer.getClassSource("declpkg.MyInterface");
+        final var sourceOpt = analyzer.getClassSource("declpkg.MyInterface");
+        assertTrue(sourceOpt.isPresent());
+        final var source = sourceOpt.get().stripIndent();
         assertNotNull(source, "Source for declpkg.MyInterface should not be null");
         String expectedSource = "type MyInterface interface {\n\tDoSomething()\n}";
         assertEquals(normalizeSource(expectedSource), normalizeSource(source));

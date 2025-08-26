@@ -385,15 +385,27 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                         && identifier.endsWith(x.shortName()));
 
                                 if (!isConstructor) {
-                                    var item = new JMenuItem(
+                                    var usageItem = new JMenuItem(
                                             "<html>Capture usages of <code>" + identifier + "</code></html>");
                                     // Use a local variable for the action listener lambda
-                                    item.addActionListener(action -> {
+                                    usageItem.addActionListener(action -> {
                                         contextManager.submitBackgroundTask(
                                                 "Capture Usages",
                                                 () -> contextManager.usageForIdentifier(codeUnit.identifier()));
                                     });
-                                    dynamicMenuItems.add(item); // Track for removal
+                                    dynamicMenuItems.add(usageItem); // Track for removal
+
+                                    if (codeUnit.isFunction() || codeUnit.isClass()) {
+                                        var sourceItem = new JMenuItem(
+                                                "<html>Capture source of <code>" + identifier + "</code></html>");
+                                        dynamicMenuItems.add(sourceItem);
+
+                                        sourceItem.addActionListener(action -> {
+                                            contextManager.submitBackgroundTask(
+                                                    "Capture Source Code",
+                                                    () -> contextManager.sourceCodeForCodeUnit(codeUnit));
+                                        });
+                                    }
                                 }
                             }
                         }

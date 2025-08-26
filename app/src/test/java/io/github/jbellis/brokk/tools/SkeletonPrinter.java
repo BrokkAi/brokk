@@ -6,12 +6,10 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility to print skeleton output for files in a directory or a specific file. Usage: java SkeletonPrinter
@@ -266,7 +264,9 @@ public class SkeletonPrinter {
                 }
 
                 // Count skeletons for this file - use projectFile from singleFileProject
-                var skeletons = analyzer.getSkeletons(projectFile);
+                var skeletons = analyzer.as(SkeletonProvider.class)
+                        .map(skp -> skp.getSkeletons(projectFile))
+                        .orElse(Collections.emptyMap());
                 skeletonsProduced += skeletons.size();
 
                 // Accumulate TreeSitter statistics
@@ -347,7 +347,9 @@ public class SkeletonPrinter {
             }
 
             // Count skeletons for this file
-            var skeletons = analyzer.getSkeletons(projectFile);
+            var skeletons = analyzer.as(SkeletonProvider.class)
+                    .map(skp -> skp.getSkeletons(projectFile))
+                    .orElse(Collections.emptyMap());
             skeletonsProduced += skeletons.size();
         } catch (Exception e) {
             var errorMsg = "Error processing file " + filePath + ": " + e.getMessage();
@@ -371,7 +373,7 @@ public class SkeletonPrinter {
         }
     }
 
-    private static IAnalyzer createAnalyzer(IProject project, Language language) {
+    private static @Nullable IAnalyzer createAnalyzer(IProject project, Language language) {
         return switch (language.internalName()) {
             case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
             case "JavaScript" -> new JavascriptAnalyzer(project);
@@ -409,7 +411,7 @@ public class SkeletonPrinter {
 
         System.out.println(colorize(BOLD + GREEN, "--- SKELETON OUTPUT ---"));
 
-        var skeletons = analyzer.getSkeletons(file);
+        var skeletons = ((SkeletonProvider) analyzer).getSkeletons(file);
         if (skeletons.isEmpty()) {
             System.out.println(colorize(YELLOW, "No skeletons found in this file."));
             return;

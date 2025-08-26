@@ -323,20 +323,23 @@ public interface ContextFragment {
         @Override
         public String formatSummary() {
             IAnalyzer analyzer = getAnalyzer();
-            if (analyzer.isEmpty()) {
-                return PathFragment.formatSummary(file); // Fallback if analyzer not ready or empty
-            }
-            var summary = analyzer.getSkeletons(file).entrySet().stream()
-                    .sorted(Map.Entry.comparingByKey())
-                    .map(Map.Entry::getValue)
-                    .collect(Collectors.joining("\n"));
+            if (!analyzer.isEmpty()) {
+                var summary = analyzer.as(SkeletonProvider.class)
+                        .map(skp -> skp.getSkeletons(file).entrySet().stream())
+                        .orElse(Stream.empty())
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(Map.Entry::getValue)
+                        .collect(Collectors.joining("\n"));
 
-            return """
+                return """
                    <file source="%s" summarized=true>
                    %s
                    </file>
                    """
-                    .formatted(file, summary);
+                        .formatted(file, summary);
+            } else {
+                return PathFragment.formatSummary(file); // Fallback if analyzer not ready, empty, or inappropriate
+            }
         }
 
         @Override
@@ -917,6 +920,10 @@ public interface ContextFragment {
         public String toString() {
             return "PasteFragment('%s')".formatted(description());
         }
+
+        public Future<String> getDescriptionFuture() {
+            return descriptionFuture;
+        }
     }
 
     class PasteTextFragment extends PasteFragment { // Non-dynamic, content-hashed
@@ -962,8 +969,8 @@ public interface ContextFragment {
     class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final Image image;
 
-        // Helper to get bytes for hashing, might throw UncheckedIOException
-        private static byte[] imageToBytesForHash(Image image) {
+        // Helper to get image bytes, might throw UncheckedIOException
+        private static byte[] imageToBytes(Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
                 return FrozenFragment.imageToBytes(image);
@@ -978,7 +985,7 @@ public interface ContextFragment {
                             FragmentType.PASTE_IMAGE,
                             "(Pasting image)", // Initial description for hashing
                             null, // No text content for image
-                            imageToBytesForHash(image), // image bytes for hashing
+                            imageToBytes(image), // image bytes for hashing
                             false, // isTextFragment = false
                             SyntaxConstants.SYNTAX_STYLE_NONE,
                             Set.of(), // No project files
@@ -1015,6 +1022,10 @@ public interface ContextFragment {
         @Override
         public Image image() {
             return image;
+        }
+
+        public byte[] imageBytes() {
+            return imageToBytes(image);
         }
 
         @Override
@@ -1180,12 +1191,15 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            if (!analyzer.isCpg()) {
-                return "Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".";
-            }
-            List<CodeUnit> uses = analyzer.getUses(targetIdentifier);
-            var result = AnalyzerUtil.processUsages(analyzer, uses);
-            return result.code().isEmpty() ? "No relevant usages found for symbol: " + targetIdentifier : result.code();
+            return analyzer.as(UsagesProvider.class)
+                    .map(up -> {
+                        List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        var result = AnalyzerUtil.processUsages(analyzer, uses);
+                        return result.code().isEmpty()
+                                ? "No relevant usages found for symbol: " + targetIdentifier
+                                : result.code();
+                    })
+                    .orElse("Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".");
         }
 
         @Override
@@ -1195,10 +1209,14 @@ public interface ContextFragment {
 
         @Override
         public Set<CodeUnit> sources() {
-            IAnalyzer analyzer = getAnalyzer();
-            List<CodeUnit> uses = analyzer.getUses(targetIdentifier);
-            var result = AnalyzerUtil.processUsages(analyzer, uses);
-            return result.sources();
+            final IAnalyzer analyzer = getAnalyzer();
+            return analyzer.as(UsagesProvider.class)
+                    .map(up -> {
+                        List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        var result = AnalyzerUtil.processUsages(analyzer, uses);
+                        return result.sources();
+                    })
+                    .orElseThrow(UnsupportedOperationException::new);
         }
 
         @Override
@@ -1266,14 +1284,19 @@ public interface ContextFragment {
         @Override
         public String text() {
             var analyzer = getAnalyzer();
-            if (!analyzer.isCpg()) {
-                return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
-            }
-            Map<String, List<CallSite>> graphData;
-            if (isCalleeGraph) {
-                graphData = analyzer.getCallgraphFrom(methodName, depth);
+            final Map<String, List<CallSite>> graphData = new HashMap<>();
+            final var maybeCallGraphProvider = analyzer.as(CallGraphProvider.class);
+
+            if (maybeCallGraphProvider.isPresent()) {
+                maybeCallGraphProvider.ifPresent(cpg -> {
+                    if (isCalleeGraph) {
+                        graphData.putAll(cpg.getCallgraphFrom(methodName, depth));
+                    } else {
+                        graphData.putAll(cpg.getCallgraphTo(methodName, depth));
+                    }
+                });
             } else {
-                graphData = analyzer.getCallgraphTo(methodName, depth);
+                return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
             }
 
             if (graphData.isEmpty()) {
@@ -1368,24 +1391,27 @@ public interface ContextFragment {
         private Map<CodeUnit, String> fetchSkeletons() {
             IAnalyzer analyzer = getAnalyzer();
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
-            switch (summaryType) {
-                case CODEUNIT_SKELETON -> {
-                    for (String className : targetIdentifiers) {
-                        analyzer.getDefinition(className).ifPresent(cu -> {
-                            analyzer.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
-                        });
+            analyzer.as(SkeletonProvider.class).ifPresent(skeletonProvider -> {
+                switch (summaryType) {
+                    case CODEUNIT_SKELETON -> {
+                        for (String className : targetIdentifiers) {
+                            analyzer.getDefinition(className).ifPresent(cu -> {
+                                skeletonProvider.getSkeleton(cu.fqName()).ifPresent(s -> skeletonsMap.put(cu, s));
+                            });
+                        }
+                    }
+                    case FILE_SKELETONS -> {
+                        // This assumes targetIdentifiers are file paths. Expansion of globs should happen before
+                        // fragment
+                        // creation.
+                        for (String filePath : targetIdentifiers) {
+                            IContextManager cm = getContextManager();
+                            ProjectFile projectFile = cm.toFile(filePath);
+                            skeletonsMap.putAll(skeletonProvider.getSkeletons(projectFile));
+                        }
                     }
                 }
-                case FILE_SKELETONS -> {
-                    // This assumes targetIdentifiers are file paths. Expansion of globs should happen before fragment
-                    // creation.
-                    for (String filePath : targetIdentifiers) {
-                        IContextManager cm = getContextManager();
-                        ProjectFile projectFile = cm.toFile(filePath);
-                        skeletonsMap.putAll(analyzer.getSkeletons(projectFile));
-                    }
-                }
-            }
+            });
             return skeletonsMap;
         }
 

@@ -415,23 +415,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         try (var stream = Files.list(historyBaseDir)) {
             stream.filter(Files::isDirectory) // Process only directories
                     .forEach(entry -> {
+                        Instant lastModifiedTime;
                         try {
-                            var lastModifiedTime =
-                                    Files.getLastModifiedTime(entry).toInstant();
-                            if (lastModifiedTime.isBefore(cutoff)) {
-                                logger.trace(
-                                        "Attempting to delete old history directory (modified {}): {}",
-                                        lastModifiedTime,
-                                        entry);
-                                if (FileUtil.deleteRecursively(entry)) {
-                                    deletedCount.incrementAndGet();
-                                } else {
-                                    logger.error("Failed to fully delete old history directory: {}", entry);
-                                }
-                            }
+                            lastModifiedTime = Files.getLastModifiedTime(entry).toInstant();
                         } catch (IOException e) {
                             // Log error getting last modified time for a specific entry, but continue with others
                             logger.error("Error checking last modified time for history entry: {}", entry, e);
+                            return;
+                        }
+                        if (lastModifiedTime.isBefore(cutoff)) {
+                            logger.trace(
+                                    "Attempting to delete old history directory (modified {}): {}",
+                                    lastModifiedTime,
+                                    entry);
+                            if (FileUtil.deleteRecursively(entry)) {
+                                deletedCount.incrementAndGet();
+                            } else {
+                                logger.error("Failed to fully delete old history directory: {}", entry);
+                            }
                         }
                     });
         } catch (IOException e) {
@@ -1009,6 +1010,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.systemOutput("Added uses of " + identifier);
     }
 
+    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
+        String sourceCode = null;
+        try {
+            sourceCode = getAnalyzer()
+                    .as(SourceCodeProvider.class)
+                    .flatMap(provider -> {
+                        if (codeUnit.isFunction()) {
+                            return provider.getMethodSource(codeUnit.fqName());
+                        } else if (codeUnit.isClass()) {
+                            return provider.getClassSource(codeUnit.fqName());
+                        } else {
+                            return Optional.empty();
+                        }
+                    })
+                    .orElse(null);
+        } catch (InterruptedException e) {
+            logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
+        }
+
+        if (sourceCode != null) {
+            var fragment = new ContextFragment.StringFragment(
+                    this,
+                    sourceCode,
+                    "Source code for " + codeUnit.fqName(),
+                    codeUnit.source().getSyntaxStyle());
+            pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+            io.systemOutput("Added source code for " + codeUnit.shortName());
+        }
+    }
+
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.systemOutput("No callers found for " + methodName + " (pre-check).");
@@ -1037,16 +1068,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var content = new StringBuilder();
         IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
-        for (var element : stacktrace.getFrames()) {
-            var methodFullName = element.getClassName() + "." + element.getMethodName();
-            var methodSource = localAnalyzer.getMethodSource(methodFullName);
-            if (methodSource.isPresent()) {
-                String className = ContextFragment.toClassname(methodFullName);
-                localAnalyzer.getDefinition(className).filter(CodeUnit::isClass).ifPresent(sources::add);
-                content.append(methodFullName).append(":\n");
-                content.append(methodSource.get()).append("\n\n");
+        localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
+            for (var element : stacktrace.getFrames()) {
+                var methodFullName = element.getClassName() + "." + element.getMethodName();
+                var methodSource = sourceCodeProvider.getMethodSource(methodFullName);
+                if (methodSource.isPresent()) {
+                    String className = ContextFragment.toClassname(methodFullName);
+                    localAnalyzer
+                            .getDefinition(className)
+                            .filter(CodeUnit::isClass)
+                            .ifPresent(sources::add);
+                    content.append(methodFullName).append(":\n");
+                    content.append(methodSource.get()).append("\n\n");
+                }
             }
-        }
+        });
 
         if (content.isEmpty()) {
             logger.debug("No relevant methods found in stacktrace -- adding as text");

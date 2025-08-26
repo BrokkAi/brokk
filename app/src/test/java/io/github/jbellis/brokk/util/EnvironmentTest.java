@@ -20,7 +20,7 @@ class EnvironmentTest {
         Assumptions.assumeTrue(
                 Environment.isSandboxAvailable(), "Required sandboxing tool not available on this platform");
 
-        Path tmpRoot = Files.createTempDirectory("brokk-sandbox-test");
+        Path tmpRoot = Files.createTempDirectory(Environment.getHomePath(), "brokk-sandbox-test");
         String output = Environment.instance.runShellCommand(
                 "echo hello > test.txt && cat test.txt",
                 tmpRoot,
@@ -40,10 +40,10 @@ class EnvironmentTest {
                 Environment.isSandboxAvailable(), "Required sandboxing tool not available on this platform");
         Assumptions.assumeFalse(Environment.isWindows(), "Sandboxing not supported on Windows for this test");
 
-        Path tmpRoot = Files.createTempDirectory("brokk-sandbox-test");
+        Path tmpRoot = Files.createTempDirectory(Environment.getHomePath(), "brokk-sandbox-test");
         Path outsideTarget = Environment.getHomePath().resolve("brokk-outside-test-" + System.nanoTime() + ".txt");
 
-        String cmd = "echo fail > '" + outsideTarget.toString() + "'";
+        String cmd = "echo fail > '" + outsideTarget + "'";
         assertThrows(
                 Environment.FailureException.class,
                 () -> Environment.instance.runShellCommand(cmd, tmpRoot, true, s -> {}, Environment.UNLIMITED_TIMEOUT));

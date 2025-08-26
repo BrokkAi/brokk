@@ -1,9 +1,6 @@
 package io.github.jbellis.brokk.testutil;
 
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.LintResult;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -16,7 +13,7 @@ import java.util.stream.Stream;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class MockAnalyzer implements IAnalyzer {
+public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider {
     private final ProjectFile mockFile;
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
@@ -49,11 +46,6 @@ public class MockAnalyzer implements IAnalyzer {
     @Override
     public boolean isEmpty() {
         return false;
-    }
-
-    @Override
-    public boolean isCpg() {
-        return false; // This will cause dynamic fragments to return placeholder text
     }
 
     @Override
@@ -106,6 +98,11 @@ public class MockAnalyzer implements IAnalyzer {
 
     @Override
     public Optional<String> getSkeleton(String fqName) {
+        return Optional.empty(); // Return empty for test purposes
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(String className) {
         return Optional.empty(); // Return empty for test purposes
     }
 

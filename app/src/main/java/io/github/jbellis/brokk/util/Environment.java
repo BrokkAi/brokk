@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.util;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
@@ -42,8 +43,8 @@ public class Environment {
 
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
-            (cmd, projectRoot) ->
-                    (outputConsumer, timeout) -> runShellCommandInternal(cmd, projectRoot, timeout, outputConsumer);
+            (cmd, projectRoot) -> (outputConsumer, timeout) ->
+                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -72,71 +73,6 @@ public class Environment {
             String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
         return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer);
-    }
-
-    private static String runShellCommandInternal(
-            String command, Path root, Duration timeout, Consumer<String> outputConsumer)
-            throws SubprocessException, InterruptedException {
-        logger.debug("Running internal `{}` in `{}`", command, root);
-        String shell = isWindows() ? "cmd.exe" : "/bin/sh";
-        String[] shellCommand =
-                isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
-
-        ProcessBuilder pb = createProcessBuilder(root, shellCommand);
-        Process process;
-        try {
-            process = pb.start();
-        } catch (IOException e) {
-            throw new StartupException(
-                    "unable to start %s in %s for command: `%s` (%s)".formatted(shell, root, command, e.getMessage()),
-                    "");
-        }
-
-        // start draining stdout/stderr immediately to avoid pipe-buffer deadlock
-        CompletableFuture<String> stdoutFuture =
-                CompletableFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
-        CompletableFuture<String> stderrFuture =
-                CompletableFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
-
-        String combinedOutput;
-        try {
-            boolean finished;
-            if (timeout.isNegative()) {
-                throw new IllegalArgumentException("Timeout duration cannot be negative: " + timeout);
-            } else if (timeout.equals(UNLIMITED_TIMEOUT)) {
-                process.waitFor();
-                finished = true;
-            } else {
-                finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-            }
-
-            if (!finished) {
-                process.destroyForcibly();
-                String stdout = stdoutFuture.join();
-                String stderr = stderrFuture.join();
-                combinedOutput = formatOutput(stdout, stderr);
-                throw new TimeoutException(
-                        "process '%s' did not complete within %s".formatted(command, timeout), combinedOutput);
-            }
-        } catch (InterruptedException ie) {
-            process.destroyForcibly();
-            stdoutFuture.cancel(true);
-            stderrFuture.cancel(true);
-            logger.warn("Process '{}' interrupted.", command);
-            throw ie; // Propagate InterruptedException
-        }
-
-        // process has exited – collect whatever is left with timeout to avoid indefinite blocking
-        StreamOutput streams = collectStreamOutputs(stdoutFuture, stderrFuture, command);
-        combinedOutput = formatOutput(streams.stdout(), streams.stderr());
-        int exitCode = process.exitValue();
-
-        if (exitCode != 0) {
-            throw new FailureException(
-                    "process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput);
-        }
-
-        return combinedOutput;
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
@@ -182,15 +118,47 @@ public class Environment {
 
                 shellCommand =
                         new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
+            } else if (isLinux()) {
+                // sandbox goals: read-only outside of the project, no network access
+                // (locking it down to ONLY the project for reads is not possible without writing C code)
+                var absPath = root.toAbsolutePath().toString();
+                shellCommand = new String[] {
+                    "systemd-run",
+                    "--quiet",
+                    "--user",
+                    "--wait",
+                    "--collect",
+                    "--pipe",
+                    "-p",
+                    "NoNewPrivileges=true",
+                    "-p",
+                    "RestrictSUIDSGID=true", // prevents “planting” suid/sgid bits on files
+                    "-p",
+                    "RestrictAddressFamilies=AF_UNIX AF_NETLINK", // PrivateNetwork doesn't work for `user` units
+                    "-p",
+                    "ProtectSystem=strict",
+                    "-p",
+                    "PrivateTmp=true",
+                    "-p",
+                    "ProtectHome=read-only",
+                    "-p",
+                    "ReadWritePaths=" + absPath,
+                    "-p",
+                    "WorkingDirectory=" + absPath,
+                    "--setenv=TERM=dumb",
+                    "/bin/sh",
+                    "-c",
+                    command
+                };
             } else {
-                // TODO
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException("sandboxing is not supported on this OS");
             }
         } else {
             shellCommand =
                     isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
         }
 
+        logger.trace(String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
         Process process;
         try {
@@ -443,6 +411,10 @@ public class Environment {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac");
     }
 
+    public static boolean isLinux() {
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
+    }
+
     /** Returns the current user's home directory as a Path. */
     public static Path getHomePath() {
         return Path.of(System.getProperty("user.home"));
@@ -454,9 +426,30 @@ public class Environment {
             return false;
         }
         if (isMacOs()) {
-            return new File("/usr/bin/sandbox-exec").canExecute();
+            if (new File("/usr/bin/sandbox-exec").canExecute()) {
+                return true;
+            }
+            return existsOnPath("sandbox-exec");
         }
-        // TODO Linux
+        if (isLinux()) {
+            // Check common locations and PATH for systemd-run
+            if (new File("/usr/bin/systemd-run").canExecute()) {
+                return true;
+            }
+            return existsOnPath("systemd-run");
+        }
+        return false;
+    }
+
+    private static boolean existsOnPath(String executable) {
+        var path = System.getenv("PATH");
+        if (path != null) {
+            for (var dir : Splitter.on(File.pathSeparatorChar).split(path)) {
+                if (new File(dir, executable).canExecute()) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
