@@ -50,34 +50,22 @@ function getContextId(): string {
   return 'main-context';
 }
 
-/* symbol lookup handler ------------------------------------------- */
-async function requestSymbolLookup(symbols: string[], seq: number, contextId: string) {
-  try {
-    log.debug(`Processing ${symbols.length} symbols async: ${symbols.join(', ')} for context: ${contextId}, seq: ${seq}`);
+// Legacy worker-based symbol lookup removed - now handled by reactive components
 
-    // Call JavaBridge async method - result will come back via window.brokk.onSymbolLookupResponse
-    const jsonInput = JSON.stringify(symbols);
-    window.javaBridge?.lookupSymbolsAsync(jsonInput, seq, contextId);
-
-    // Result will be delivered via window.brokk.onSymbolLookupResponse -> onSymbolLookupResponse
-  } catch (e) {
-    log.error('Error in async symbol lookup:', e);
-  }
-}
-
-export function onSymbolLookupResponse(results: Record<string, string>, seq: number, contextId: string): void {
-  // Forward symbol lookup response to worker for processing
-  if (worker) {
-    worker.postMessage({
-      type: 'symbol-lookup-response',
-      results: results,
-      seq: seq,
-      contextId: contextId
-    });
-  } else {
-    log.error('Worker not available for symbol lookup response');
-  }
-}
+// Legacy worker-based symbol lookup - now handled by reactive components
+// export function onSymbolLookupResponse(results: Record<string, string>, seq: number, contextId: string): void {
+//   // Forward symbol lookup response to worker for processing
+//   if (worker) {
+//     worker.postMessage({
+//       type: 'symbol-lookup-response',
+//       results: results,
+//       seq: seq,
+//       contextId: contextId
+//     });
+//   } else {
+//     log.error('Worker not available for symbol lookup response');
+//   }
+// }
 
 /* inbound ----------------------------------------------------------- */
 worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
@@ -98,9 +86,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
     case 'error':
       log.error('md-worker:', msg.message + '\n' + msg.stack);
       break;
-    case 'symbol-lookup-request':
-      requestSymbolLookup(msg.symbols, msg.seq, msg.contextId);
-      break;
+    // Legacy case removed - symbol lookup now handled by reactive components
     case 'worker-log':
       const workerMsg = `${msg.message}`;
       switch (msg.level.toLowerCase()) {

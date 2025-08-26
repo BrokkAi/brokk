@@ -5,13 +5,7 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
-import { rehypeSymbolLookup } from './rehype/rehype-symbol-lookup';
-import {
-    handleSymbolLookupWithContextRequest,
-    handleSymbolLookupResponse as handleSymbolLookupResponseInternal,
-    clearContextCache,
-    clearSymbolCache
-} from './symbol-lookup';
+// Symbol lookup is now handled by SymbolAwareCode components - no worker imports needed
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -38,8 +32,7 @@ export function createBaseProcessor(): Processor {
         .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
         .use(remarkGfm)
         .use(remarkBreaks)
-        .use(remarkRehype, {allowDangerousHtml: true})// as any;
-        .use(rehypeSymbolLookup) as any;
+        .use(remarkRehype, {allowDangerousHtml: true}) as any;
 }
 
 export function createFastProcessor(): Processor {
@@ -115,16 +108,8 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
         throw e;
     }
 
-    // Check for symbol candidates from rehype plugin and perform lookup asynchronously (only in non-fast mode)
-    if (!fast && !SKIP_SYMBOL_RESOLUTION) {
-        const symbolCandidates = (tree.data as any)?.symbolCandidates as Set<string>;
-        if (symbolCandidates && symbolCandidates.size > 0) {
-            // Start symbol lookup asynchronously - single lookup for final content
-            setTimeout(() => {
-                handleSymbolLookupWithContextRequest(symbolCandidates, tree, seq, post);
-            }, 0);
-        }
-    }
+    // Symbol lookup is now handled by individual SymbolAwareCode components
+    // No need for rehype-based symbol processing
 
     if (!fast && highlighter) {
         // detect langs in the shiki highlighting pass to load lang lazy
@@ -149,10 +134,4 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
     }
 }
 
-// Re-export function from symbol-lookup module with post function injection
-export function handleSymbolLookupResponse(seq: number, results: Record<string, string>, contextId: string): void {
-    handleSymbolLookupResponseInternal(seq, results, contextId, post);
-}
-
-// Re-export cache functions from symbol-lookup module
-export { clearSymbolCache, clearContextCache };
+// Symbol lookup is now handled by SymbolAwareCode components - no worker processing needed

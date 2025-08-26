@@ -7,7 +7,7 @@ import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log} from './lib/logging';
-import {onSymbolLookupResponse} from './worker/worker-bridge';
+import {onSymbolResolutionResponse} from './stores/symbolCacheStore';
 
 let searchCtrl: SearchController | null = null;
 
@@ -36,7 +36,6 @@ function initializeApp(): void {
     // Set initial production class on body for dev mode detection
     const isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
     document.body.classList.toggle('production', isProduction);
-
 }
 
 function setupBrokkInterface(): any[] {
@@ -66,7 +65,7 @@ function setupBrokkInterface(): any[] {
         analyzerUpdated: analyzerUpdated,
 
         // Symbol lookup response API
-        onSymbolLookupResponse: onSymbolLookupResponse
+        onSymbolLookupResponse: onSymbolResolutionResponse
     };
     return buffer;
 }

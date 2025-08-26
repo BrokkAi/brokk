@@ -26,6 +26,8 @@ declare global {
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
       onSymbolRightClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
+      onSymbolLookupRequest?: (symbols: string[], contextId: string) => void;
+      _mockSymbols?: boolean;
     };
   }
 }

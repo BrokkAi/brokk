@@ -1,4 +1,4 @@
-import { initProcessor, parseMarkdown, handleSymbolLookupResponse, clearSymbolCache, clearContextCache } from './processor';
+import { initProcessor, parseMarkdown } from './processor';
 import type {
   InboundToWorker,
   OutboundFromWorker,
@@ -86,7 +86,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       busy = false; // Stop any in-flight parseAndPost loops
       seq = 0;
       currentExpandIds.clear();
-      clearSymbolCache();
+      // Symbol cache is now handled by reactive store, not worker
       break;
 
     case 'expand-diff':
@@ -95,8 +95,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       break;
 
     case 'symbol-lookup-response':
-      log('info', `[markdown-worker] symbol-lookup-response received for seq ${m.seq} with ${Object.keys(m.results).length} symbols`);
-      handleSymbolLookupResponse(m.seq, m.results, m.contextId);
+      log('info', `[markdown-worker] symbol-lookup-response - now handled by reactive components, ignoring`);
       break;
 
 

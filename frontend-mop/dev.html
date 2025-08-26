@@ -101,72 +101,45 @@
             }
         },
 
-        // Mock symbol database for testing
-        _mockSymbols: new Set([
+        // Mock symbols for testing - shared across functions
+        _mockSymbolsSet: new Set([
             // Java symbols
             'String', 'List', 'Map', 'ArrayList', 'HashMap', 'Set', 'Collection',
             'toString', 'size', 'add', 'get', 'put', 'remove', 'contains', 'isEmpty',
             'Object', 'Class', 'Exception', 'Thread', 'Runnable',
-
             // Python symbols
             'list', 'dict', 'str', 'int', 'float', 'bool', 'len', 'range',
             'append', 'keys', 'values', 'items', 'pop', 'extend', 'join',
             'print', 'input', 'open', 'close', 'read', 'write',
-
             // JavaScript/TypeScript symbols
             'var', 'let', 'const', 'function', 'class', 'interface', 'type',
             'Array', 'Object', 'Promise', 'async', 'await', 'console',
             'document', 'window', 'setTimeout', 'setInterval',
-
             // Generic programming terms
             'parser', 'lexer', 'token', 'node', 'tree', 'visitor',
             'handler', 'callback', 'iterator', 'stream', 'buffer'
         ]),
 
-        // Symbol lookup implementation - Updated for FQN support (synchronous - deprecated)
-        lookupSymbols: function(jsonInput) {
-            console.log('[Mock JavaBridge] Looking up symbols (sync - deprecated):', jsonInput);
-            const symbols = JSON.parse(jsonInput);
+        // Reactive symbol lookup implementation for new store-based architecture
+        onSymbolLookupRequest: function(symbol, contextId) {
+            console.log(`[Mock JavaBridge] Symbol lookup request:`, symbol, `contextId:`, contextId);
             const results = {};
 
-            symbols.forEach(symbol => {
-                const exists = this._mockSymbols.has(symbol);
-                if (exists) {
-                    results[symbol] = `com.example.mock.${symbol}`;  // Optimized format: only existing symbols
-                }
-            });
+            // Handle single symbol parameter (not array)
+            const exists = this._mockSymbolsSet.has(symbol);
+            if (exists) {
+                results[symbol] = `com.example.mock.${symbol}`;  // FQN for existing symbols
+            }
 
-            console.log('[Mock JavaBridge] Symbol lookup results:', results);
-            return JSON.stringify(results);
-        },
+            console.log(`[Mock JavaBridge] Symbol lookup results for contextId ${contextId}:`, results);
 
-        // Async symbol lookup implementation (preferred)
-        lookupSymbolsAsync: function(jsonInput, seq, contextId) {
-            console.log(`[Mock JavaBridge] Looking up symbols async:`, jsonInput, `seq:`, seq, `contextId:`, contextId);
-            const symbols = JSON.parse(jsonInput);
-            const results = {};
-
-            symbols.forEach(symbol => {
-                const exists = this._mockSymbols.has(symbol);
-                if (exists) {
-                    results[symbol] = `com.example.mock.${symbol}`;  // Optimized format: only existing symbols
-                }
-            });
-
-            console.log(`[Mock JavaBridge] Async symbol lookup results for seq ${seq}, contextId ${contextId}:`, results);
-
-            // Simulate async behavior with setTimeout, then send directly to worker
+            // Simulate async behavior, then call the reactive store response handler
             setTimeout(() => {
-                if (window.worker && window.worker.postMessage) {
-                    window.worker.postMessage({
-                        type: 'symbol-lookup-response',
-                        results: results,
-                        seq: seq,
-                        contextId: contextId
-                    });
-                    console.log(`[Mock JavaBridge] Sent async result to worker for seq ${seq}`);
+                if (window.brokk?.onSymbolLookupResponse) {
+                    window.brokk.onSymbolLookupResponse(results, contextId);
+                    console.log(`[Mock JavaBridge] Sent results to reactive store for contextId ${contextId}`);
                 } else {
-                    console.error('[Mock JavaBridge] Worker not available for async response');
+                    console.error('[Mock JavaBridge] brokk.onSymbolLookupResponse not available on window');
                 }
             }, 50); // 50ms delay to simulate async behavior
         },
@@ -1154,7 +1127,7 @@ This tests the visual difference between real and fake symbols!`;
     }
 
     function listMockSymbols() {
-        const symbols = Array.from(window.javaBridge._mockSymbols).sort();
+        const symbols = Array.from(window.javaBridge._mockSymbolsSet).sort();
         const symbolList = symbols.map(s => `- \`${s}\``).join('\n');
         const content = `# Mock Symbol Database (${symbols.length} symbols)
 
@@ -1176,7 +1149,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 
     // Update symbol count display
     function updateSymbolCount() {
-        const count = window.javaBridge._mockSymbols.size;
+        const count = window.javaBridge._mockSymbolsSet.size;
         const symbolCountEl = document.getElementById('symbol-count');
         if (symbolCountEl) {
             symbolCountEl.textContent = count;

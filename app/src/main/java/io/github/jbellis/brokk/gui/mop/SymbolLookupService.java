@@ -24,7 +24,7 @@ public class SymbolLookupService {
             Set<String> symbolNames, @Nullable IContextManager contextManager) {
         var results = new HashMap<String, SymbolLookupResult>();
 
-        logger.trace("Starting lookup for {} symbols", symbolNames.size());
+        logger.debug("Starting lookup for {} symbols", symbolNames.size());
 
         if (symbolNames.isEmpty()) {
             return results;
@@ -61,7 +61,7 @@ public class SymbolLookupService {
 
             for (var symbolName : symbolNames) {
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                logger.trace("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
+                logger.debug("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
                 results.put(symbolName, new SymbolLookupResult(symbolName, symbolInfo.exists(), symbolInfo.fqn()));
             }
 
@@ -70,7 +70,7 @@ public class SymbolLookupService {
             symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
         }
 
-        logger.trace("Symbol lookup completed with {} results", results.size());
+        logger.debug("Symbol lookup completed with {} results", results.size());
         return results;
     }
 
@@ -82,7 +82,7 @@ public class SymbolLookupService {
             Set<String> symbolNames, @Nullable IContextManager contextManager) {
         var foundSymbols = new HashMap<String, String>();
 
-        logger.trace("Starting optimized lookup for {} symbols", symbolNames.size());
+        logger.debug("Starting optimized lookup for {} symbols", symbolNames.size());
 
         if (symbolNames.isEmpty() || contextManager == null) {
             return foundSymbols;
@@ -108,7 +108,7 @@ public class SymbolLookupService {
 
             for (var symbolName : symbolNames) {
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                logger.trace("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
+                logger.debug("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
 
                 // Only add symbols that actually exist
                 if (symbolInfo.exists() && symbolInfo.fqn() != null) {
@@ -121,7 +121,7 @@ public class SymbolLookupService {
             // Return empty map on error instead of negative results
         }
 
-        logger.trace(
+        logger.debug(
                 "Optimized lookup completed: {} found out of {} requested", foundSymbols.size(), symbolNames.size());
         return foundSymbols;
     }
@@ -132,19 +132,20 @@ public class SymbolLookupService {
         }
 
         var trimmed = symbolName.trim();
-        logger.trace("Checking symbol existence: '{}'", trimmed);
+        logger.debug("Checking symbol existence: '{}'", trimmed);
 
         try {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
-            logger.trace("getDefinition('{}') found: {}", trimmed, definition.isPresent());
+            logger.debug("getDefinition('{}') found: {}", trimmed, definition.isPresent());
             if (definition.isPresent()) {
+                logger.debug("Found exact definition for '{}': {}", trimmed, definition.get().fqName());
                 return new SymbolInfo(true, definition.get().fqName());
             }
 
             // Then try pattern search
             var searchResults = analyzer.searchDefinitions(trimmed);
-            logger.trace("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
+            logger.debug("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
 
             if (!searchResults.isEmpty()) {
                 logger.trace(

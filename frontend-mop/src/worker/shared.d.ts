@@ -27,15 +27,16 @@ export interface ExpandDiffMsg {
     bubbleId: number;  // owning bubble
 }
 
-export interface SymbolLookupResponseMsg {
-    type: 'symbol-lookup-response';
-    results: Record<string, string>;
-    seq: Seq;
-    contextId: string;
-}
+// Legacy symbol lookup - now handled by reactive components
+// export interface SymbolLookupResponseMsg {
+//     type: 'symbol-lookup-response';
+//     results: Record<string, string>;
+//     seq: Seq;
+//     contextId: string;
+// }
 
 
-export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg | SymbolLookupResponseMsg;
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg;
 
 /* ---------- worker → main ---------- */
 import type {Root as HastRoot} from 'hast';
@@ -58,12 +59,13 @@ export interface ShikiLangsReadyMsg {
     canHighlight?: string[]; // languages now available
 }
 
-export interface SymbolLookupRequestMsg {
-    type: 'symbol-lookup-request';
-    symbols: string[];
-    seq: Seq;
-    contextId: string;
-}
+// Legacy symbol lookup - now handled by reactive components
+// export interface SymbolLookupRequestMsg {
+//     type: 'symbol-lookup-request';
+//     symbols: string[];
+//     seq: Seq;
+//     contextId: string;
+// }
 
 export interface WorkerLogMsg {
     type: 'worker-log';
@@ -71,7 +73,7 @@ export interface WorkerLogMsg {
     message: string;
 }
 
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | SymbolLookupRequestMsg | WorkerLogMsg | LogMsg;
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | WorkerLogMsg | LogMsg;
 
 export interface LogMsg {
     type: 'log';
