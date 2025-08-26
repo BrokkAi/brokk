@@ -262,6 +262,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.enableActionButtons();
             }
         });
+
+        migrateToSessionsV3IfNeeded();
+    }
+
+    private void migrateToSessionsV3IfNeeded() {
+        if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
+            submitBackgroundTask("Migrate sessions to V3", () -> {
+                var sessionsWithUnreadableHistory = new HashSet<UUID>();
+                project.getSessionManager().listSessions().stream()
+                        .map(SessionInfo::id)
+                        .forEach(session -> {
+                            // loading history triggers migration if needed
+                            if (project.getSessionManager().loadHistory(session, this) == null) {
+                                sessionsWithUnreadableHistory.add(session);
+                            }
+                        });
+                mainProject.setMigrationsToSessionsV3Complete(true);
+                logger.info(
+                        "Migrated sessions to V3; {} sessions with unreadable history: {}",
+                        sessionsWithUnreadableHistory.size(),
+                        sessionsWithUnreadableHistory.stream().sorted().toList());
+            });
+        }
     }
 
     /**
