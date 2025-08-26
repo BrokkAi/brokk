@@ -91,6 +91,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private long lastTabToggleTime = 0;
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
+    /**
+     * Handles tab toggle behavior - minimizes panel if tab is already selected, otherwise selects the tab and restores
+     * panel if it was minimized.
+     */
+    private void handleTabToggle(int tabIndex) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
+            return; // Ignore rapid successive clicks
+        }
+        lastTabToggleTime = currentTime;
+
+        if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
+            // Tab already selected, minimize the panel but keep tabs visible
+            leftTabbedPanel.setSelectedIndex(-1);
+            bottomSplitPane.setDividerSize(0);
+            bottomSplitPane.setDividerLocation(40);
+        } else {
+            leftTabbedPanel.setSelectedIndex(tabIndex);
+            // Restore panel if it was minimized
+            if (bottomSplitPane.getDividerLocation() < 50) {
+                bottomSplitPane.setDividerSize(originalBottomDividerSize);
+                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(preferred);
+            }
+        }
+    }
+
     // Store original divider size for hiding/showing divider
     private int originalBottomDividerSize;
 
@@ -222,26 +249,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         projectTabLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                long currentTime = System.currentTimeMillis();
-                if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
-                    return; // Ignore rapid successive clicks
-                }
-                lastTabToggleTime = currentTime;
-
-                if (leftTabbedPanel.getSelectedIndex() == projectTabIdx) {
-                    // Tab already selected, minimize the panel but keep tabs visible
-                    leftTabbedPanel.setSelectedIndex(-1);
-                    bottomSplitPane.setDividerSize(0);
-                    bottomSplitPane.setDividerLocation(40);
-                } else {
-                    leftTabbedPanel.setSelectedIndex(projectTabIdx);
-                    // Restore panel if it was minimized
-                    if (bottomSplitPane.getDividerLocation() < 50) {
-                        bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                        int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                        bottomSplitPane.setDividerLocation(preferred);
-                    }
-                }
+                handleTabToggle(projectTabIdx);
             }
         });
 
@@ -259,26 +267,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             gitTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
-                        return; // Ignore rapid successive clicks
-                    }
-                    lastTabToggleTime = currentTime;
-
-                    if (leftTabbedPanel.getSelectedIndex() == gitTabIdx) {
-                        // Tab already selected, minimize the panel but keep tabs visible
-                        leftTabbedPanel.setSelectedIndex(-1);
-                        bottomSplitPane.setDividerSize(0);
-                        bottomSplitPane.setDividerLocation(40);
-                    } else {
-                        leftTabbedPanel.setSelectedIndex(gitTabIdx);
-                        // Restore panel if it was minimized
-                        if (bottomSplitPane.getDividerLocation() < 50) {
-                            bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                            int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                            bottomSplitPane.setDividerLocation(preferred);
-                        }
-                    }
+                    handleTabToggle(gitTabIdx);
                 }
             });
             gitPanel.updateRepo();
@@ -298,26 +287,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             prLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
-                        return; // Ignore rapid successive clicks
-                    }
-                    lastTabToggleTime = currentTime;
-
-                    if (leftTabbedPanel.getSelectedIndex() == prIdx) {
-                        // Tab already selected, minimize the panel but keep tabs visible
-                        leftTabbedPanel.setSelectedIndex(-1);
-                        bottomSplitPane.setDividerSize(0);
-                        bottomSplitPane.setDividerLocation(40);
-                    } else {
-                        leftTabbedPanel.setSelectedIndex(prIdx);
-                        // Restore panel if it was minimized
-                        if (bottomSplitPane.getDividerLocation() < 50) {
-                            bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                            int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                            bottomSplitPane.setDividerLocation(preferred);
-                        }
-                    }
+                    handleTabToggle(prIdx);
                 }
             });
         }
@@ -334,26 +304,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             issLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    long currentTime = System.currentTimeMillis();
-                    if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
-                        return; // Ignore rapid successive clicks
-                    }
-                    lastTabToggleTime = currentTime;
-
-                    if (leftTabbedPanel.getSelectedIndex() == issIdx) {
-                        // Tab already selected, minimize the panel but keep tabs visible
-                        leftTabbedPanel.setSelectedIndex(-1);
-                        bottomSplitPane.setDividerSize(0);
-                        bottomSplitPane.setDividerLocation(40);
-                    } else {
-                        leftTabbedPanel.setSelectedIndex(issIdx);
-                        // Restore panel if it was minimized
-                        if (bottomSplitPane.getDividerLocation() < 50) {
-                            bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                            int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                            bottomSplitPane.setDividerLocation(preferred);
-                        }
-                    }
+                    handleTabToggle(issIdx);
                 }
             });
         }
