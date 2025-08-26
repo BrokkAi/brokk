@@ -25,15 +25,7 @@ import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -107,14 +99,14 @@ public class ContextAgent {
 
     /** Result record for the LLM tool call, holding recommended files, class names, and the LLM's reasoning. */
     private record LlmRecommendation(
-            List<ProjectFile> recommendedFiles,
-            List<CodeUnit> recommendedClasses,
+            Set<ProjectFile> recommendedFiles,
+            Set<CodeUnit> recommendedClasses,
             String reasoning,
             @Nullable Llm.RichTokenUsage tokenUsage) {
-        static final LlmRecommendation EMPTY = new LlmRecommendation(List.of(), List.of(), "", null);
+        static final LlmRecommendation EMPTY = new LlmRecommendation(Set.of(), Set.of(), "", null);
 
         public LlmRecommendation(List<ProjectFile> files, List<CodeUnit> classes, String reasoning) {
-            this(files.stream().distinct().toList(), classes.stream().distinct().toList(), reasoning, null);
+            this(new HashSet<>(files), new HashSet<>(classes), reasoning, null);
         }
     }
 
@@ -556,7 +548,7 @@ public class ContextAgent {
                 var mergedReasoning = (rec1.reasoning() + "\n" + rec2.reasoning()).strip();
                 var mergedUsage = addTokenUsage(rec1.tokenUsage(), rec2.tokenUsage());
 
-                return new LlmRecommendation(mergedFiles, List.of(), mergedReasoning, mergedUsage);
+                return new LlmRecommendation(new HashSet<>(mergedFiles), Set.of(), mergedReasoning, mergedUsage);
             }
 
             logger.warn(
@@ -570,7 +562,7 @@ public class ContextAgent {
                 .parallel()
                 .filter(f -> result.text().contains(f))
                 .toList();
-        return new LlmRecommendation(toProjectFiles(selected), List.of(), result.text(), tokenUsage);
+        return new LlmRecommendation(toProjectFiles(selected), Set.of(), result.text(), tokenUsage);
     }
 
     /** Execute filename pruning in parallel when the input exceeds the per-request limit. */
@@ -620,7 +612,7 @@ public class ContextAgent {
             futures = executor.invokeAll(tasks);
         }
 
-        var combinedFiles = new ArrayList<ProjectFile>();
+        var combinedFiles = new HashSet<ProjectFile>();
         var combinedReasoning = new StringBuilder();
         @Nullable Llm.RichTokenUsage combinedUsage = null;
 
@@ -637,8 +629,7 @@ public class ContextAgent {
                 logger.warn("Failed to retrieve chunk result", e);
             }
         }
-        return new LlmRecommendation(
-                combinedFiles, List.of(), combinedReasoning.toString().strip(), combinedUsage);
+        return new LlmRecommendation(combinedFiles, Set.of(), combinedReasoning.toString().strip(), combinedUsage);
     }
 
     private LlmRecommendation askLlmDeepRecommendContext(
@@ -772,7 +763,7 @@ public class ContextAgent {
                 .map(analyzer::getDefinition)
                 .flatMap(Optional::stream) // Convert java.util.Optional to Stream
                 .filter(CodeUnit::isClass) // Ensure it's actually a class
-                .toList();
+                .collect(Collectors.toSet());
 
         debug(
                 "Tool recommended files: {}",
@@ -783,7 +774,7 @@ public class ContextAgent {
         return new LlmRecommendation(projectFiles, projectClasses, result.text(), tokenUsage);
     }
 
-    private List<ProjectFile> toProjectFiles(List<String> filenames) {
+    private Set<ProjectFile> toProjectFiles(List<String> filenames) {
         return filenames.stream()
                 .map(fname -> {
                     try {
@@ -795,7 +786,7 @@ public class ContextAgent {
                 })
                 .filter(Objects::nonNull)
                 .filter(ProjectFile::exists)
-                .toList();
+                .collect(Collectors.toSet());
     }
 
     private static class ContextTooLargeException extends Exception {}
@@ -874,7 +865,7 @@ public class ContextAgent {
                     ContextInputType.FILE_PATHS, filenameString, null, workspaceRepresentation); // No topK for pruning
 
             // Convert response strings back to ProjectFile objects
-            recommendedFiles = toProjectFiles(responseLines);
+            recommendedFiles = new ArrayList<>(toProjectFiles(responseLines));
             debug("LLM simple suggested {} relevant files after pruning", recommendedFiles.size());
         }
 
