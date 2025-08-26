@@ -120,23 +120,30 @@
             'handler', 'callback', 'iterator', 'stream', 'buffer'
         ]),
 
-        // Reactive symbol lookup implementation for new store-based architecture
-        onSymbolLookupRequest: function(symbol, contextId) {
-            console.log(`[Mock JavaBridge] Symbol lookup request:`, symbol, `contextId:`, contextId);
+        // Unified symbol lookup implementation for new store-based architecture
+        lookupSymbolsAsync: function(symbolNamesJson, seq, contextId) {
+            console.log(`[Mock JavaBridge] Symbol lookup request:`, symbolNamesJson, `seq:`, seq, `contextId:`, contextId);
             const results = {};
 
-            // Handle single symbol parameter (not array)
-            const exists = this._mockSymbolsSet.has(symbol);
-            if (exists) {
-                results[symbol] = `com.example.mock.${symbol}`;  // FQN for existing symbols
+            // Parse symbols from JSON
+            const symbols = JSON.parse(symbolNamesJson);
+            for (const symbol of symbols) {
+                const exists = this._mockSymbolsSet.has(symbol);
+                if (exists) {
+                    results[symbol] = `com.example.mock.${symbol}`;  // FQN for existing symbols
+                }
             }
 
             console.log(`[Mock JavaBridge] Symbol lookup results for contextId ${contextId}:`, results);
 
-            // Simulate async behavior, then call the reactive store response handler
+            // Simulate async behavior, then call the response handler
             setTimeout(() => {
                 if (window.brokk?.onSymbolLookupResponse) {
-                    window.brokk.onSymbolLookupResponse(results, contextId);
+                    if (seq !== null) {
+                        window.brokk.onSymbolLookupResponse(results, seq, contextId);
+                    } else {
+                        window.brokk.onSymbolLookupResponse(results, contextId);
+                    }
                     console.log(`[Mock JavaBridge] Sent results to reactive store for contextId ${contextId}`);
                 } else {
                     console.error('[Mock JavaBridge] brokk.onSymbolLookupResponse not available on window');

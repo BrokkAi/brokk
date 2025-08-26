@@ -75,16 +75,17 @@ export function requestSymbolResolution(symbol: string, contextId: string = 'mai
 
         // Request symbol lookup from Java bridge
         const bridgeAvailable = !!window.javaBridge;
-        const methodAvailable = !!window.javaBridge?.onSymbolLookupRequest;
+        const methodAvailable = !!window.javaBridge?.lookupSymbolsAsync;
         const bridgeType = typeof window.javaBridge;
         const bridgeMethods = window.javaBridge ? Object.getOwnPropertyNames(window.javaBridge).filter(name => typeof window.javaBridge[name] === 'function') : [];
 
-        console.warn(`🌉 BRIDGE CHECK: javaBridge available = ${bridgeAvailable}, onSymbolLookupRequest = ${methodAvailable}`);
+        console.warn(`🌉 BRIDGE CHECK: javaBridge available = ${bridgeAvailable}, lookupSymbolsAsync = ${methodAvailable}`);
         console.warn(`🌉 BRIDGE TYPE CHECK: javaBridge type = ${bridgeType}, methods = [${bridgeMethods.join(', ')}]`);
 
-        if (window.javaBridge?.onSymbolLookupRequest) {
+        if (window.javaBridge?.lookupSymbolsAsync) {
             console.warn(`📞 CALLING JAVA BRIDGE: symbol="${symbol}", contextId="${contextId}"`);
-            window.javaBridge.onSymbolLookupRequest(symbol, contextId);
+            // Convert single symbol to array and use null sequence for reactive frontend
+            window.javaBridge.lookupSymbolsAsync(JSON.stringify([symbol]), null, contextId);
         } else {
             console.error(`❌ JAVA BRIDGE NOT AVAILABLE: bridgeAvailable=${bridgeAvailable}, methodAvailable=${methodAvailable}`);
             console.error('JavaBridge not available for symbol lookup');
@@ -96,11 +97,17 @@ export function requestSymbolResolution(symbol: string, contextId: string = 'mai
 
 /**
  * Handle symbol resolution response from Java bridge
+ * @param results - Map of symbol names to their FQNs (or undefined for not found)
+ * @param seqOrContextId - Either sequence number (legacy) or contextId (reactive)
+ * @param contextId - Context ID (when sequence is provided)
  */
-export function onSymbolResolutionResponse(results: Record<string, string>, contextId: string = 'main-context'): void {
-    console.warn(`📥 JAVA BRIDGE RESPONSE: ${Object.keys(results).length} symbols for contextId="${contextId}"`);
+export function onSymbolResolutionResponse(results: Record<string, string>, seqOrContextId: number | string = 'main-context', contextId?: string): void {
+    // Handle both signatures: (results, contextId) and (results, seq, contextId)
+    const actualContextId = typeof seqOrContextId === 'string' ? seqOrContextId : (contextId || 'main-context');
+    const seq = typeof seqOrContextId === 'number' ? seqOrContextId : null;
+    console.warn(`📥 JAVA BRIDGE RESPONSE: ${Object.keys(results).length} symbols for contextId="${actualContextId}"${seq !== null ? ` seq=${seq}` : ''}`);
     console.warn(`📄 RESPONSE DETAILS: ${JSON.stringify(results)}`);
-    console.warn(`Symbol resolution response: ${Object.keys(results).length} symbols for context '${contextId}'`);
+    console.warn(`Symbol resolution response: ${Object.keys(results).length} symbols for context '${actualContextId}'`);
 
     symbolCacheStore.update(cache => {
         const newCache = new Map(cache);
@@ -124,12 +131,12 @@ export function onSymbolResolutionResponse(results: Record<string, string>, cont
         // Update cache with resolved symbols
         console.log(`💾 UPDATING CACHE: Processing ${Object.keys(results).length} resolved entries`);
         for (const [symbol, fqn] of Object.entries(results)) {
-            const cacheKey = `${contextId}:${symbol}`;
+            const cacheKey = `${actualContextId}:${symbol}`;
             console.log(`💾 CACHING RESOLVED SYMBOL: symbol="${symbol}" fqn="${fqn}" cacheKey="${cacheKey}"`);
             newCache.set(cacheKey, {
                 fqn,
                 status: 'resolved',
-                contextId
+                contextId: actualContextId
             });
             updatedCount++;
             log.debug(`Cached '${symbol}' (key:'${cacheKey}') -> fqn:${fqn}`);
@@ -139,14 +146,14 @@ export function onSymbolResolutionResponse(results: Record<string, string>, cont
         // Find all pending symbols for this context that weren't in the results
         let notFoundCount = 0;
         for (const [key, entry] of newCache.entries()) {
-            if (entry.status === 'pending' && key.startsWith(contextId + ':')) {
-                const symbolName = key.substring((contextId + ':').length);
+            if (entry.status === 'pending' && key.startsWith(actualContextId + ':')) {
+                const symbolName = key.substring((actualContextId + ':').length);
                 if (!results.hasOwnProperty(symbolName)) {
                     // Symbol was requested but not found in results - mark as resolved with no fqn
                     console.log(`❌ SYMBOL NOT FOUND: symbol="${symbolName}" cacheKey="${key}" - marking as resolved without fqn`);
                     newCache.set(key, {
                         status: 'resolved',
-                        contextId
+                        contextId: actualContextId
                         // Deliberately no fqn property - this indicates symbol doesn't exist
                     });
                     notFoundCount++;
@@ -188,9 +195,10 @@ export function getSymbolCacheEntry(symbol: string, contextId: string = 'main-co
     const cacheKey = `${contextId}:${symbol}`;
     let entry: SymbolCacheEntry | undefined;
 
-    symbolCacheStore.subscribe(cache => {
+    const unsubscribe = symbolCacheStore.subscribe(cache => {
         entry = cache.get(cacheKey);
-    })();
+    });
+    unsubscribe(); // Immediately unsubscribe
 
     return entry;
 }

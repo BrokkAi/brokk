@@ -151,8 +151,8 @@
   });
 
   // Determine if symbol exists and get FQN using derived state
-  let symbolExists = $derived(() => cacheEntry?.status === 'resolved' && !!cacheEntry.fqn);
-  let symbolFqn = $derived(() => cacheEntry?.fqn);
+  let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry.fqn);
+  let symbolFqn = $derived(cacheEntry?.fqn);
 
   // Dev mode detection for tooltip display
   let isDevMode = $derived(() => import.meta.env.DEV);

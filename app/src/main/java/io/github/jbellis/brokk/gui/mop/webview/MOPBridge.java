@@ -319,40 +319,6 @@ public final class MOPBridge {
                 });
     }
 
-    // Bridge method for reactive frontend - single symbol version for WebView compatibility
-    public void onSymbolLookupRequest(String symbol, String contextId) {
-        logger.debug(
-                "Symbol lookup request from reactive frontend: symbol='{}', contextId: '{}'", symbol, contextId);
-
-        // Convert to Set for lookup service
-        var symbolSet = Set.of(symbol);
-
-        // Execute symbol lookup on background thread
-        CompletableFuture.supplyAsync(() -> {
-                    try {
-                        var results = SymbolLookupService.lookupSymbolsOptimized(symbolSet, contextManager);
-
-                        logger.debug(
-                                "Reactive symbol lookup completed, returning {} found symbols for '{}', contextId: {}",
-                                results.size(),
-                                symbol,
-                                contextId);
-                        return results;
-                    } catch (Exception e) {
-                        logger.warn("Error in reactive symbol lookup, contextId: {}", contextId, e);
-                        return new HashMap<String, String>();
-                    }
-                })
-                .thenAccept(results -> {
-                    // Send result directly to reactive store (without sequence number)
-                    var resultsJson = toJson(results);
-                    var js =
-                            "if (window.brokk && window.brokk.onSymbolLookupResponse) { window.brokk.onSymbolLookupResponse("
-                                    + resultsJson + ", " + toJson(contextId) + "); }";
-                    Platform.runLater(() -> engine.executeScript(js));
-                    logger.debug("Reactive symbol lookup result sent to window.brokk for contextId: {}", contextId);
-                });
-    }
 
     // Keep old synchronous method for backward compatibility during transition
     @Deprecated
