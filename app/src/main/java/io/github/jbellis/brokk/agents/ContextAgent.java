@@ -629,7 +629,8 @@ public class ContextAgent {
                 logger.warn("Failed to retrieve chunk result", e);
             }
         }
-        return new LlmRecommendation(combinedFiles, Set.of(), combinedReasoning.toString().strip(), combinedUsage);
+        return new LlmRecommendation(
+                combinedFiles, Set.of(), combinedReasoning.toString().strip(), combinedUsage);
     }
 
     private LlmRecommendation askLlmDeepRecommendContext(
