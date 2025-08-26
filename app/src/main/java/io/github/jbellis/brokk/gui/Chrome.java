@@ -89,7 +89,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Debouncing for tab toggle to prevent duplicate events
     private long lastTabToggleTime = 0;
-    private static final long TAB_TOGGLE_DEBOUNCE_MS = 100;
+    private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
     // Store original divider size for hiding/showing divider
     private int originalBottomDividerSize;
@@ -1493,10 +1493,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             int bottomHorizPos = project.getHorizontalSplitPosition();
             if (bottomHorizPos > 0) {
                 bottomSplitPane.setDividerLocation(bottomHorizPos);
+                // Check if restored position indicates minimized state
+                if (bottomHorizPos < 50) {
+                    bottomSplitPane.setDividerSize(0);
+                    leftTabbedPanel.setSelectedIndex(-1);
+                }
             } else {
                 int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(preferred);
             }
+
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (bottomSplitPane.isShowing()) {
                     var newPos = bottomSplitPane.getDividerLocation();
