@@ -721,7 +721,8 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testGetClassSource() throws IOException {
-        String greeterSource = normalize.apply(analyzer.getClassSource("Greeter"));
+        String greeterSource =
+                normalize.apply(analyzer.getClassSource("Greeter").get());
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
         assertTrue(greeterSource.contains("greeting: string;"));
@@ -729,7 +730,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.endsWith("}"));
 
         // Test with Point interface - could be from Hello.ts or Advanced.ts
-        String pointSource = normalize.apply(analyzer.getClassSource("Point"));
+        String pointSource = normalize.apply(analyzer.getClassSource("Point").get());
         assertNotNull(pointSource);
         assertTrue(
                 pointSource.contains("x: number") && pointSource.contains("y: number"),
@@ -787,7 +788,7 @@ public class TypescriptAnalyzerTest {
                 helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
 
         // With distinct CodeUnits, getClassSource should work correctly without corruption
-        String pointSource = analyzer.getClassSource("Point");
+        String pointSource = analyzer.getClassSource("Point").get();
 
         // The source should be a valid Point interface, not corrupted
         assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");

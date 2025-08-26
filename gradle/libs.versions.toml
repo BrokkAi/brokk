@@ -15,7 +15,7 @@ palantirJavaFormat = "2.73.0"
 picocli = "4.7.7"
 maven-embedder = "3.9.6"
 maven-resolver = "1.9.20"
-dependency-analysis = "2.6.0"
+dependency-analysis = "3.0.0"
 javafx = "22"
 node = "7.1.0"
 nodejs = "22.14.0"
@@ -134,9 +134,9 @@ eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
 apache = ["apache-compress"]
 
 [plugins]
-errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
-shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }
-buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
+errorprone = { id = "net.ltgt.errorprone", version = "4.3.0" }
+shadow = { id = "com.gradleup.shadow", version = "9.0.2" }
+buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.6.7" }
 spotless = { id = "com.diffplug.spotless", version = "7.2.0" }
 javafx = { id = "org.openjfx.javafxplugin", version = "0.1.0" }
 dependency-analysis = { id = "com.autonomousapps.dependency-analysis", version.ref = "dependency-analysis" }

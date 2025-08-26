@@ -125,7 +125,15 @@ buildConfig {
 }
 
 tasks.named("generateBuildConfig") {
-    inputs.file("${project.rootDir}/build/version.txt").optional(true)
+    doFirst {
+        // Ensure build directory exists and version is computed before task execution
+        val versionCacheFile = File(project.rootDir, "build/version.txt")
+        if (!versionCacheFile.exists()) {
+            versionCacheFile.parentFile.mkdirs()
+            // Force version computation which will create the cache file
+            project.rootProject.version.toString()
+        }
+    }
 }
 
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {

@@ -21,7 +21,13 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
+public interface LspAnalyzer
+        extends IAnalyzer,
+                AutoCloseable,
+                CallGraphProvider,
+                UsagesProvider,
+                SourceCodeProvider,
+                IncrementalUpdateProvider {
 
     Logger logger = LoggerFactory.getLogger(LspAnalyzer.class);
 
@@ -42,11 +48,6 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     /** @return the target programming language as per the LSP's setting specs, e.g., "java". */
     @NotNull
     String getLanguage();
-
-    @Override
-    default boolean isCpg() {
-        return false;
-    }
 
     @Override
     default boolean isEmpty() {
@@ -395,7 +396,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     }
 
     @Override
-    default @Nullable String getClassSource(@NotNull String classFullName) {
+    default @NotNull Optional<String> getClassSource(@NotNull String classFullName) {
         final var futureTypeSymbols =
                 LspAnalyzerHelper.findTypesInWorkspace(classFullName, getWorkspace(), getServer(), false);
         final var exactMatch = getClassSource(futureTypeSymbols);
@@ -408,7 +409,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                     .distinct()
                     .sorted()
                     .findFirst()
-                    .orElseGet(() -> {
+                    .or(() -> {
                         // fallback to the whole file, if any partial matches for parent container are present
                         final var classCleanedName = classFullName.replace('$', '.');
                         if (classCleanedName.contains(".")) {
@@ -427,7 +428,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                     .sorted()
                                     .findFirst();
                             if (fallbackExactMatches.isPresent()) {
-                                return fallbackExactMatches.get();
+                                return fallbackExactMatches;
                             } else {
                                 return matches.stream()
                                         .filter(s -> s.getContainerName().endsWith(parentContainer))
@@ -435,15 +436,14 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                         .flatMap(Optional::stream)
                                         .distinct()
                                         .sorted()
-                                        .findFirst()
-                                        .orElse(null);
+                                        .findFirst();
                             }
                         } else {
-                            return null;
+                            return Optional.empty();
                         }
                     });
         } else {
-            return exactMatch;
+            return Optional.of(exactMatch);
         }
     }
 

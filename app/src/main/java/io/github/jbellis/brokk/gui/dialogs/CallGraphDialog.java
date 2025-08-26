@@ -1,13 +1,13 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.analyzer.CallGraphProvider;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -146,17 +146,24 @@ public class CallGraphDialog extends JDialog {
             return;
         }
 
-        // Update the call graph map
-        if (isCallerGraph) {
-            callGraph = analyzer.getCallgraphTo(methodName, depth);
-        } else {
-            callGraph = analyzer.getCallgraphFrom(methodName, depth);
+        final Map<String, List<CallSite>> callGraph = new HashMap<>();
+        try {
+            analyzer.as(CallGraphProvider.class).ifPresent(cgp -> {
+                if (isCallerGraph) {
+                    callGraph.putAll(cgp.getCallgraphTo(methodName, depth));
+                } else {
+                    callGraph.putAll(cgp.getCallgraphFrom(methodName, depth));
+                }
+            });
+
+            // Count total call sites
+            int totalCallSites =
+                    callGraph.values().stream().mapToInt(List::size).sum();
+
+            updateCallSitesCount(totalCallSites);
+        } finally {
+            this.callGraph = callGraph;
         }
-
-        // Count total call sites
-        int totalCallSites = callGraph.values().stream().mapToInt(List::size).sum();
-
-        updateCallSitesCount(totalCallSites);
     }
 
     /** Updates the call sites count label */
