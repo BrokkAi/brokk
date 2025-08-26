@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Constants;
-import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.util.Objects;

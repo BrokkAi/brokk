@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -40,7 +41,6 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import io.github.jbellis.brokk.gui.util.Icons;
 
 /** A component that combines the context history panel with the output panel using BorderLayout. */
 public class HistoryOutputPanel extends JPanel {

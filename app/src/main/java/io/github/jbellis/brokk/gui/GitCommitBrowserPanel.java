@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
@@ -35,7 +36,6 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.CherryPickResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-import io.github.jbellis.brokk.gui.util.Icons;
 
 public class GitCommitBrowserPanel extends JPanel {
 

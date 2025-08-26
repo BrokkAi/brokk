@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -25,7 +26,6 @@ import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.jetbrains.annotations.Nullable;
-import io.github.jbellis.brokk.gui.util.Icons;
 
 public class ProjectFilesPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(ProjectFilesPanel.class);
@@ -62,7 +62,7 @@ public class ProjectFilesPanel extends JPanel {
         searchBarPanel.add(layeredPane, BorderLayout.CENTER);
 
         refreshButton = new JButton();
-refreshButton.setIcon(Icons.REFRESH);
+        refreshButton.setIcon(Icons.REFRESH);
         refreshButton.setToolTipText("Refresh file list");
         refreshButton.addActionListener(e -> refreshProjectFiles());
         searchBarPanel.add(refreshButton, BorderLayout.EAST);

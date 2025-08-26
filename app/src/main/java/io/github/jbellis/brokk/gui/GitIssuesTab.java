@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.HtmlUtil;
@@ -34,7 +35,6 @@ import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import io.github.jbellis.brokk.gui.util.Icons;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);

@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.gui.SwingUtil;
-
 import javax.swing.*;
 
 public class Icons {
