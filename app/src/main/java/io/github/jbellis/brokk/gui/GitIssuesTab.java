@@ -33,6 +33,7 @@ import javax.swing.table.DefaultTableModel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
@@ -140,7 +141,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // --- Left side - Issues table and filters ---
         JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
-        mainIssueAreaPanel.setBorder(BorderFactory.createTitledBorder("Issues"));
+        mainIssueAreaPanel.setBorder(Borders.createTitledBorder("Issues"));
 
         // Panel to hold token message (if any) and search bar
         JPanel topContentPanel = new JPanel();
@@ -386,7 +387,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 return max;
             }
         };
-        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
+        issueDetailPanel.setBorder(Borders.createTitledBorder("Issue Description"));
 
         JScrollPane issueTableScrollPane = new JScrollPane(issueTable);
 

@@ -24,6 +24,7 @@ public class GuiTheme {
     public static final String THEME_DARK = "dark";
     public static final String THEME_LIGHT = "light";
 
+    @SuppressWarnings("unused")
     private final JFrame frame;
 
     @Nullable
@@ -59,6 +60,7 @@ public class GuiTheme {
             // Save preference first so we know the value is stored
             MainProject.setTheme(themeName);
 
+
             // Apply the theme to the Look and Feel
             if (isDark) {
                 com.formdev.flatlaf.FlatDarkLaf.setup();
@@ -79,11 +81,32 @@ public class GuiTheme {
         }
     }
 
-    private void applyThemeToChromeComponents() {
-        // Update the UI
-        SwingUtilities.updateComponentTreeUI(frame);
+    public void applyThemeToChromeComponents() {
+        // Apply custom UI defaults so they take effect when updating the UI.
+        // Make divider large enough to be draggable and visible.
+        UIManager.put("SplitPane.dividerSize", 8);
 
-        // Update registered popup menus
+        // Explicitly make the divider visible. Use MAGENTA for diagnostics so they are easy to spot.
+        // Some FlatLaf versions honor these keys; others may use different keys — we set several
+        // variants to maximize the chance the divider becomes visible.
+        UIManager.put("SplitPane.style", "line");
+        UIManager.put("SplitPane.dividerLineColor", java.awt.Color.MAGENTA);
+
+        // Background and dragging color for the divider (used by some FlatLaf variants)
+        UIManager.put("SplitPaneDivider.background", java.awt.Color.MAGENTA);
+        UIManager.put("SplitPaneDivider.draggingColor", java.awt.Color.MAGENTA);
+
+        // Fallback: provide a matte border object for the divider key if the LAF reads it.
+        // This will give a visible 1px band if the LAF consults this UI default.
+        UIManager.put("SplitPaneDivider.border", javax.swing.BorderFactory.createMatteBorder(0, 0, 0, 0, java.awt.Color.MAGENTA));
+
+        // Keep titled borders flat (no separator drawn below the title)
+        UIManager.put("TitledBorder.paintSeparator", false);
+
+        // Update FlatLaf UI for all windows so the above defaults are applied immediately.
+        com.formdev.flatlaf.FlatLaf.updateUI();
+
+        // Update registered popup menus (keep them in sync)
         for (JPopupMenu menu : popupMenus) {
             SwingUtilities.updateComponentTreeUI(menu);
         }

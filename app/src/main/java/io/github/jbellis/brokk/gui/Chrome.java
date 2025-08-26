@@ -310,8 +310,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
+        // Improve divider visibility and dragging behavior while keeping the panels flat
+        workspaceInstructionsSplit.setContinuousLayout(true);
+        workspaceInstructionsSplit.setBorder(null);
+
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
+
+        // Style the divider explicitly (diagnostic color & thicker hit area). Run later on EDT so the divider component exists.
+        SwingUtilities.invokeLater(() -> styleSplitDivider(workspaceInstructionsSplit, java.awt.Color.MAGENTA, 7));
 
         // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
         JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
@@ -319,8 +326,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
         outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
 
+        // Improve divider visibility and dragging behavior while keeping the panels flat
+        outputStackSplit.setContinuousLayout(true);
+        outputStackSplit.setBorder(null);
+
         // Keep reference so existing persistence logic still works
         mainVerticalSplitPane = outputStackSplit;
+
+        // Style the divider explicitly (diagnostic color & thicker hit area). Run later on EDT so the divider component exists.
+        SwingUtilities.invokeLater(() -> styleSplitDivider(outputStackSplit, java.awt.Color.MAGENTA, 7));
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -330,6 +344,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
         bottomSplitPane.setResizeWeight(0.0);
+
+        // Make divider more visible and easier to grab while panels remain borderless
+        bottomSplitPane.setContinuousLayout(true);
+        bottomSplitPane.setBorder(null);
+
+        // Style the divider explicitly (diagnostic color & thicker hit area). Run later on EDT so the divider component exists.
+        SwingUtilities.invokeLater(() -> styleSplitDivider(bottomSplitPane, java.awt.Color.MAGENTA, 7));
+
         int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
         bottomSplitPane.setDividerLocation(initialDividerLocation);
 
@@ -383,6 +405,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Register global keyboard shortcuts now that actions are fully initialized
         registerGlobalKeyboardShortcuts();
+
+        // Re-apply theme across all constructed components now that the UI tree is complete.
+        // This ensures custom UI defaults (split pane dividers, titled border separators, etc.) are applied.
+        themeManager.applyThemeToChromeComponents();
 
         // Show the window
         frame.setVisible(true);
@@ -1798,6 +1824,129 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return null;
     }
 
+    /**
+     * Applies a visible border, a JSeparator, and proper cursor to a JSplitPane's divider so it becomes plainly
+     * visible and easier to grab. This attempts to use BasicSplitPaneUI.getDivider() when available, and falls back
+     * to inspecting child components.
+     *
+     * The method will add (or replace) a JSeparator centered inside the divider component to guarantee a visible
+     * contrasting line even when the LAF ignores UI defaults.
+     *
+     * @param splitPane the split pane to style
+     * @param color the diagnostic color (e.g. Color.MAGENTA)
+     * @param thickness desired thickness in pixels for the visible band
+     */
+    private static void styleSplitDivider(JSplitPane splitPane, Color color, int thickness) {
+        try {
+            javax.swing.plaf.SplitPaneUI ui = splitPane.getUI();
+            if (ui instanceof javax.swing.plaf.basic.BasicSplitPaneUI basic) {
+                Component divider = basic.getDivider();
+                if (divider != null) {
+                    // For horizontal split (left|right) we want a vertical band; for vertical split (top|bottom) a horizontal band.
+                    if (divider instanceof JComponent jc) {
+                        applyDividerStylingWithSeparator(splitPane, jc, color, thickness);
+                    } else {
+                        // Component is not a JComponent; adjust cursor/preferred size as a best-effort fallback.
+                        if (splitPane.getOrientation() == JSplitPane.HORIZONTAL_SPLIT) {
+                            divider.setCursor(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR));
+                            divider.setPreferredSize(new Dimension(thickness, divider.getPreferredSize().height));
+                        } else {
+                            divider.setCursor(Cursor.getPredefinedCursor(Cursor.S_RESIZE_CURSOR));
+                            divider.setPreferredSize(new Dimension(divider.getPreferredSize().width, thickness));
+                        }
+                        divider.revalidate();
+                        divider.repaint();
+                    }
+                    return;
+                }
+            }
+
+            // Fallback: iterate children and look for something that resembles a divider
+            for (Component c : splitPane.getComponents()) {
+                String cls = c.getClass().getName().toLowerCase(java.util.Locale.ROOT);
+                if (cls.contains("divider") || cls.contains("splitpane")) {
+                    if (c instanceof JComponent jc) {
+                        applyDividerStylingWithSeparator(splitPane, jc, color, thickness);
+                    } else {
+                        // Best-effort for non-JComponent children
+                        if (splitPane.getOrientation() == JSplitPane.HORIZONTAL_SPLIT) {
+                            c.setCursor(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR));
+                        } else {
+                            c.setCursor(Cursor.getPredefinedCursor(Cursor.S_RESIZE_CURSOR));
+                        }
+                        c.revalidate();
+                        c.repaint();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Styling is diagnostic — ignore failures to avoid breaking the UI.
+        }
+    }
+
+    /**
+     * Helper that applies consistent styling and inserts an opaque diagnostic band into the provided divider
+     * JComponent. Safe to call multiple times; existing diagnostic bands will be removed first.
+     *
+     * We use a plain JPanel as the band to avoid LAF-specific painting differences where JSeparator or background
+     * painting may be ignored. The band is given a stable name so it can be removed/replaced on subsequent calls.
+     */
+    private static void applyDividerStylingWithSeparator(JSplitPane splitPane, JComponent jc, Color color, int thickness) {
+        // Basic sizing / cursor so area remains draggable and has an explicit hit area.
+        if (splitPane.getOrientation() == JSplitPane.HORIZONTAL_SPLIT) {
+            jc.setBorder(BorderFactory.createMatteBorder(0, 0, 0, thickness, color));
+            jc.setCursor(Cursor.getPredefinedCursor(Cursor.E_RESIZE_CURSOR));
+            jc.setPreferredSize(new Dimension(thickness, jc.getPreferredSize().height));
+        } else {
+            jc.setBorder(BorderFactory.createMatteBorder(thickness, 0, 0, 0, color));
+            jc.setCursor(Cursor.getPredefinedCursor(Cursor.S_RESIZE_CURSOR));
+            jc.setPreferredSize(new Dimension(jc.getPreferredSize().width, thickness));
+        }
+
+        // Best-effort: make the divider opaque and set a background so the band stands out.
+        try {
+            jc.setOpaque(true);
+        } catch (Throwable ignored) {
+            // Some LAF-specific components may not allow making them opaque; ignore.
+        }
+        jc.setBackground(color);
+
+        // Remove any previously added diagnostic bands to avoid duplication
+        for (Component child : jc.getComponents()) {
+            if (child instanceof JComponent childJ) {
+                if ("brokk-divider-band".equals(childJ.getName())) {
+                    jc.remove(childJ);
+                }
+            }
+        }
+
+        // Create an opaque JPanel band that will be visibly colored regardless of LAF painting.
+        JPanel band = new JPanel();
+        band.setName("brokk-divider-band");
+        band.setBackground(color);
+        try {
+            band.setOpaque(true);
+        } catch (Throwable ignored) {
+            // If setOpaque isn't allowed on some implementations, we still try to proceed.
+        }
+
+        if (splitPane.getOrientation() == JSplitPane.HORIZONTAL_SPLIT) {
+            band.setPreferredSize(new Dimension(Math.max(1, thickness), jc.getPreferredSize().height));
+        } else {
+            band.setPreferredSize(new Dimension(jc.getPreferredSize().width, Math.max(1, thickness)));
+        }
+
+        // Ensure the divider uses a layout that lets the band fill the grab area
+        LayoutManager lm = jc.getLayout();
+        if (!(lm instanceof BorderLayout)) {
+            jc.setLayout(new BorderLayout());
+        }
+        jc.add(band, BorderLayout.CENTER);
+
+        jc.revalidate();
+        jc.repaint();
+    }
+
     private static class SearchableContentPanel extends JPanel implements ThemeAware {
         private final List<JComponent> componentsWithChatBackground;
         private final List<MarkdownOutputPanel> markdownPanels;
@@ -1882,6 +2031,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         label.setToolTipText(tooltip);
         return label;
     }
+
 
     /** Calculates an appropriate initial width for the left sidebar based on content and window size. */
     private int computeInitialSidebarWidth() {

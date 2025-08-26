@@ -39,6 +39,7 @@ import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 
 /** A component that combines the context history panel with the output panel using BorderLayout. */
@@ -175,12 +176,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // Output panel with LLM stream
         var outputPanel = new JPanel(new BorderLayout());
-        outputPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Output",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        outputPanel.setBorder(Borders.createTitledBorder("Output"));
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
@@ -196,12 +192,7 @@ public class HistoryOutputPanel extends JPanel {
     private JPanel buildSessionControlsPanel(
             JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton, SplitButton manageSessionsButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
-        panel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Sessions",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        panel.setBorder(Borders.createTitledBorder("Sessions"));
 
         // Session combo box (passed in)
         sessionComboBox.setRenderer(new DefaultListCellRenderer() {
@@ -323,12 +314,7 @@ public class HistoryOutputPanel extends JPanel {
     private JPanel buildActivityPanel(JTable historyTable, JButton undoButton, JButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Activity",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        panel.setBorder(Borders.createTitledBorder("Activity"));
 
         historyTable.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         historyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);

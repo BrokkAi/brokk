@@ -24,6 +24,7 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 
 public class ProjectFilesPanel extends JPanel {
@@ -45,12 +46,7 @@ public class ProjectFilesPanel extends JPanel {
         this.contextManager = contextManager;
         this.project = contextManager.getProject();
 
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Project Files",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(Borders.createTitledBorder("Project Files"));
 
         setupSearchFieldAndAutocomplete();
         setupProjectTree();

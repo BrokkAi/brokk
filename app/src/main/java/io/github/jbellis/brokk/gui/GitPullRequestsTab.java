@@ -30,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.transport.RefSpec;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHIssueComment;
@@ -216,7 +217,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         // --- Left side - Pull Requests table and filters ---
         JPanel mainPrAreaPanel =
                 new JPanel(new BorderLayout(0, Constants.V_GAP)); // Use BorderLayout for overall structure
-        mainPrAreaPanel.setBorder(BorderFactory.createTitledBorder("Pull Requests"));
+        mainPrAreaPanel.setBorder(Borders.createTitledBorder("Pull Requests"));
 
         // Panel for missing token message
         gitHubTokenMissingPanel = new GitHubTokenMissingPanel(chrome);
@@ -320,7 +321,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // vertical split: table (top)  |  PR-details (bottom)
         prCommitsAndFilesPanel = new JPanel(new BorderLayout());
-        prCommitsAndFilesPanel.setBorder(BorderFactory.createTitledBorder("Pull Request Details"));
+        prCommitsAndFilesPanel.setBorder(Borders.createTitledBorder("Pull Request Details"));
         prCommitsAndFilesPanel.setVisible(false); // hidden until a PR is selected
         final JSplitPane tableDetailsSplitPane =
                 new JSplitPane(JSplitPane.VERTICAL_SPLIT, prTableScrollPane, prCommitsAndFilesPanel);
@@ -364,7 +365,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Commits panel
         JPanel prCommitsPanel = new JPanel(new BorderLayout());
-        prCommitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
+        prCommitsPanel.setBorder(Borders.createTitledBorder("Commits"));
 
         prCommitsTableModel = new DefaultTableModel(new Object[] {"Message"}, 0) {
             @Override
@@ -451,7 +452,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Files panel
         JPanel prFilesPanel = new JPanel(new BorderLayout());
-        prFilesPanel.setBorder(BorderFactory.createTitledBorder("Changed Files"));
+        prFilesPanel.setBorder(Borders.createTitledBorder("Changed Files"));
 
         prFilesTableModel = new DefaultTableModel(new Object[] {"File"}, 0) {
             @Override

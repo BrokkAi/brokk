@@ -52,6 +52,7 @@ import javax.swing.table.DefaultTableModel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 
 public class WorkspacePanel extends JPanel {
@@ -685,12 +686,7 @@ public class WorkspacePanel extends JPanel {
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
 
-        workspaceTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                WORKSPACE_TITLE,
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
+        workspaceTitledBorder = Borders.createTitledBorder(WORKSPACE_TITLE);
         setBorder(workspaceTitledBorder);
 
         buildContextPanel();

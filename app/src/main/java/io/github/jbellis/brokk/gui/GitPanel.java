@@ -7,6 +7,7 @@ import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
 import javax.swing.*;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -37,12 +38,7 @@ public class GitPanel extends JPanel {
         this.chrome = chrome;
         this.contextManager = contextManager;
 
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Git",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(Borders.createTitledBorder("Git"));
 
         // Size / layout
         int rows = 15;

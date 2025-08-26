@@ -69,6 +69,7 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import io.github.jbellis.brokk.gui.util.Borders;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -135,12 +136,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
-        setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Instructions",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)));
+        setBorder(Borders.createTitledBorder("Instructions"));
 
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager();
