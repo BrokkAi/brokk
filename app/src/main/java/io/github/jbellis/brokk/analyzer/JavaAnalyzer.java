@@ -109,7 +109,9 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
         if (jdtAnalyzer != null) {
             return jdtAnalyzer.lintFiles(files);
         } else {
-            return super.lintFiles(files);
+            return super.as(LintingProvider.class)
+                    .map(provider -> provider.lintFiles(files))
+                    .orElse(new LintResult(Collections.emptyList()));
         }
     }
 

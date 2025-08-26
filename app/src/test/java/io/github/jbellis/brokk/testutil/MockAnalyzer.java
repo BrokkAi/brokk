@@ -13,7 +13,7 @@ import java.util.stream.Stream;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider {
+public class MockAnalyzer implements IAnalyzer, UsagesProvider, SkeletonProvider, LintingProvider {
     private final ProjectFile mockFile;
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
