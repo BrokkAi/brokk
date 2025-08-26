@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import java.awt.*;
@@ -331,7 +332,7 @@ public class SessionsDialog extends JDialog {
             boolean hasAiMessages = ctx.getParsedOutput() != null
                     && ctx.getParsedOutput().messages().stream()
                             .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
-            Icon iconEmoji = hasAiMessages ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
+            Icon iconEmoji = hasAiMessages ? Icons.AI_ROBOT : null;
             activityTableModel.addRow(
                     new Object[] {iconEmoji, ctx.getAction(), ctx // Store the actual context object in hidden column
                     });

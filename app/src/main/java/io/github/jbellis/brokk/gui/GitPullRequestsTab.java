@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.transport.RefSpec;
 import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.gui.util.Icons;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
@@ -335,7 +336,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.setLayout(new BoxLayout(prButtonPanel, BoxLayout.X_AXIS));
 
         viewPrDiffButton = new JButton(); // This button remains
-        viewPrDiffButton.setIcon(SwingUtil.uiIcon("Brokk.difference"));
+viewPrDiffButton.setIcon(Icons.DIFFERENCE);
         viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
         viewPrDiffButton.setEnabled(false);
         viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
@@ -344,7 +345,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
 
         refreshPrButton = new JButton();
-        refreshPrButton.setIcon(SwingUtil.uiIcon("Brokk.refresh"));
+refreshPrButton.setIcon(Icons.REFRESH);
         refreshPrButton.addActionListener(e -> updatePrList());
         prButtonPanel.add(refreshPrButton);
 

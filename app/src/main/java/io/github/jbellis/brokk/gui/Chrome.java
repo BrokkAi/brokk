@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -207,7 +208,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
-        var projectIcon = requireNonNull(SwingUtil.uiIcon("Brokk.folder_code"));
+        var projectIcon = requireNonNull(Icons.FOLDER_CODE);
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
@@ -227,7 +228,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Add Git tab if available
         if (getProject().hasGit()) {
             gitPanel = new GitPanel(this, contextManager);
-            var gitIcon = requireNonNull(SwingUtil.uiIcon("Brokk.commit"));
+            var gitIcon = requireNonNull(Icons.COMMIT);
 
             // Create badged icon for the git tab
             gitTabBadgedIcon = new BadgedIcon(gitIcon, themeManager);
@@ -255,7 +256,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // --- New top-level Pull-Requests panel ---------------------------------
         if (getProject().isGitHubRepo() && gitPanel != null) {
             pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitPanel);
-            var prIcon = requireNonNull(SwingUtil.uiIcon("Brokk.pull_request"));
+            var prIcon = requireNonNull(Icons.PULL_REQUEST);
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
             var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
@@ -277,7 +278,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (getProject().getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE
                 && gitPanel != null) {
             issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
-            var issIcon = requireNonNull(SwingUtil.uiIcon("Brokk.adjust"));
+            var issIcon = requireNonNull(Icons.ADJUST);
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var issLabel = createSquareTabLabel(issIcon, "Issues");
@@ -675,7 +676,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
             if (gitPanel == null) return; // safety
             issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
-            var icon = requireNonNull(SwingUtil.uiIcon("Brokk.assignment"));
+            var icon = requireNonNull(Icons.ASSIGNMENT);
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var label = createSquareTabLabel(icon, "Issues");

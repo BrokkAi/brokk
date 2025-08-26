@@ -40,6 +40,7 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.gui.util.Icons;
 
 /** A component that combines the context history panel with the output panel using BorderLayout. */
 public class HistoryOutputPanel extends JPanel {
@@ -555,7 +556,7 @@ public class HistoryOutputPanel extends JPanel {
                 boolean hasAiMessages = ctx.getParsedOutput() != null
                         && ctx.getParsedOutput().messages().stream()
                                 .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
-                Icon iconEmoji = hasAiMessages ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
+                Icon iconEmoji = hasAiMessages ? Icons.AI_ROBOT : null;
                 historyModel.addRow(new Object[] {
                     iconEmoji, ctx.getAction(), ctx // We store the actual context object in hidden column
                 });

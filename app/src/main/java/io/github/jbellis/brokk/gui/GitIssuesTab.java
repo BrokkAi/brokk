@@ -34,6 +34,7 @@ import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.gui.util.Icons;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
@@ -163,7 +164,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         // ── Refresh button ──────────────────────────────────────────────────────
         // Use a clockwise-arrow glyph directly; the old Tree icon looked like a down-arrow
         JButton refreshButton = new JButton(); // Unicode clockwise arrow
-        final Icon refreshIcon = SwingUtil.uiIcon("Brokk.refresh");
+        final Icon refreshIcon = Icons.REFRESH;
         refreshButton.setIcon(refreshIcon);
         refreshButton.setText("");
         refreshButton.setMargin(new Insets(2, 2, 2, 2)); // small padding
@@ -434,12 +435,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         captureButton = new JButton(captureAction);
 
         // ── compact icon-style buttons ───────────────────────────────────────
-        final Icon copyIcon = SwingUtil.uiIcon("Brokk.content_copy");
+        final Icon copyIcon = Icons.CONTENT_COPY;
         copyIssueDescriptionButton.setIcon(copyIcon);
         copyIssueDescriptionButton.setText("");
         copyIssueDescriptionButton.setMargin(new Insets(2, 2, 2, 2));
 
-        final Icon browserIcon = SwingUtil.uiIcon("Brokk.open_in_browser");
+        final Icon browserIcon = Icons.OPEN_IN_BROWSER;
         openInBrowserButton.setIcon(browserIcon);
         openInBrowserButton.setText("");
         openInBrowserButton.setMargin(new Insets(2, 2, 2, 2));
