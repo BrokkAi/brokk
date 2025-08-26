@@ -20,7 +20,7 @@ import javax.annotation.Nullable;
  * @see io.github.jbellis.brokk.analyzer.JdtAnalyzer
  */
 public class JavaAnalyzer extends JavaTreeSitterAnalyzer
-        implements HasDelayedCapabilities, CanCommunicate, CallGraphProvider, UsagesProvider {
+        implements HasDelayedCapabilities, CanCommunicate, CallGraphProvider, UsagesProvider, LintingProvider {
 
     private @Nullable JdtAnalyzer jdtAnalyzer;
     private final CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture;
@@ -101,6 +101,17 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
             return jdtAnalyzer.update();
         } else {
             return super.update();
+        }
+    }
+
+    @Override
+    public LintResult lintFiles(List<ProjectFile> files) {
+        if (jdtAnalyzer != null) {
+            return jdtAnalyzer.lintFiles(files);
+        } else {
+            return super.as(LintingProvider.class)
+                    .map(provider -> provider.lintFiles(files))
+                    .orElse(new LintResult(Collections.emptyList()));
         }
     }
 

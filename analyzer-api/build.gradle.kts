@@ -19,6 +19,9 @@ dependencies {
     compileOnly(libs.checker.qual)
     compileOnly(libs.jetbrains.annotations)
 
+    // Console and logging
+    implementation(libs.bundles.logging)
+
     // For JSON serialization interfaces (used by CodeUnit)
     runtimeOnly(libs.jackson.databind)
     api(libs.jackson.annotations)

@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzer;
 import io.github.jbellis.brokk.analyzer.lsp.LspAnalyzerHelper;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
+import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtLanguageClient;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtProjectHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.JdtSkeletonHelper;
 import io.github.jbellis.brokk.analyzer.lsp.jdt.SharedJdtLspServer;
@@ -16,7 +17,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.eclipse.lsp4j.SymbolKind;
 
-public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvider {
+public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvider, LintingProvider {
 
     private final Path projectRoot;
     private final String workspace;
@@ -30,23 +31,30 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
      * @throws IOException if the server cannot be started.
      */
     public JdtAnalyzer(IProject project) throws IOException {
-        this.projectRoot = project.getRoot().toAbsolutePath().normalize();
+        Path projectRoot = project.getRoot().toAbsolutePath().normalize();
+        try {
+            // Follow symlinks to "canonical" path if possible
+            projectRoot = project.getRoot().toAbsolutePath().normalize().toRealPath();
+        } catch (IOException e) {
+            logger.warn("Unable to resolve real path for {}", projectRoot);
+        }
+        this.projectRoot = projectRoot;
+
         if (!this.projectRoot.toFile().exists()) {
-            throw new FileNotFoundException("Project directory does not exist: " + projectRoot);
+            throw new FileNotFoundException("Project directory does not exist: " + this.projectRoot);
         } else {
             try {
                 useEclipseBuildFiles = JdtProjectHelper.ensureProjectConfiguration(this.projectRoot);
             } catch (Exception e) {
                 logger.warn(
                         "Error validating and creating project build files for: {}. Attempting to continue.",
-                        projectRoot,
+                        this.projectRoot,
                         e);
             }
             this.workspace = this.projectRoot.toUri().toString();
             this.sharedServer = SharedJdtLspServer.getInstance();
             this.sharedServer.registerClient(
                     this.projectRoot, project.getExcludedDirectories(), getInitializationOptions(), getLanguage());
-            this.sharedServer.refreshWorkspace().join();
             try {
                 // Indexing generally completes within a couple of seconds, but larger projects need grace
                 final var maybeWorkspaceReadyLatch = this.getWorkspaceReadyLatch(this.workspace);
@@ -91,6 +99,7 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         final var references = new HashMap<String, Object>();
         final var configuration = new HashMap<String, Object>();
         final var imporT = new HashMap<String, Object>();
+        final var autobuild = new HashMap<String, Object>();
 
         server.put("launchMode", "Hybrid");
         // Include method declarations from source files in symbol search.
@@ -105,12 +114,14 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
             imporT.put("maven", Map.of("enabled", true, "wrapper", Map.of("enabled", true)));
             imporT.put("gradle", Map.of("enabled", true, "wrapper", Map.of("enabled", true)));
         }
+        autobuild.put("enabled", true);
 
         javaOptions.put("server", server);
         javaOptions.put("symbols", symbols);
         javaOptions.put("references", references);
         javaOptions.put("configuration", configuration);
         javaOptions.put("import", imporT);
+        javaOptions.put("autobuild", autobuild);
 
         options.put("java", javaOptions);
         return options;
@@ -258,6 +269,44 @@ public class JdtAnalyzer implements LspAnalyzer, CanCommunicate, SkeletonProvide
         } else {
             return false;
         }
+    }
+
+    @Override
+    public LintResult lintFiles(List<ProjectFile> files) {
+        if (files.isEmpty()) {
+            return new LintResult(List.of());
+        }
+
+        // Get the language client to access diagnostics
+        var languageClient = (JdtLanguageClient) sharedServer.getLanguageClient();
+        if (languageClient == null) {
+            logger.warn("JDT language client not available for linting");
+            return new LintResult(List.of());
+        }
+
+        // Clear existing diagnostics for these files
+        languageClient.clearDiagnosticsForFiles(files);
+        // Update files
+        this.update(new HashSet<>(files));
+
+        // Trigger analysis by refreshing the workspace
+        // This will cause the LSP server to re-analyze the files and generate diagnostics
+        try {
+            sharedServer.refreshWorkspace(getWorkspace()).join();
+        } catch (Exception e) {
+            logger.warn("Error refreshing workspace for linting", e);
+            return new LintResult(List.of());
+        }
+
+        try {
+            languageClient.waitForDiagnosticsToSettle().join();
+        } catch (Exception e) {
+            logger.warn("Error waiting for diagnostics to settle, continuing", e);
+        }
+
+        // Collect diagnostics for the specified files
+        var diagnostics = languageClient.getDiagnosticsForFiles(files);
+        return new LintResult(diagnostics);
     }
 
     @Override

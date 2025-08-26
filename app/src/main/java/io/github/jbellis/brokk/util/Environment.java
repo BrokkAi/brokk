@@ -119,37 +119,8 @@ public class Environment {
                 shellCommand =
                         new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
             } else if (isLinux()) {
-                // sandbox goals: read-only outside of the project, no network access
-                // (locking it down to ONLY the project for reads is not possible without writing C code)
-                var absPath = root.toAbsolutePath().toString();
-                shellCommand = new String[] {
-                    "systemd-run",
-                    "--quiet",
-                    "--user",
-                    "--wait",
-                    "--collect",
-                    "--pipe",
-                    "-p",
-                    "NoNewPrivileges=true",
-                    "-p",
-                    "RestrictSUIDSGID=true", // prevents “planting” suid/sgid bits on files
-                    "-p",
-                    "RestrictAddressFamilies=AF_UNIX AF_NETLINK", // PrivateNetwork doesn't work for `user` units
-                    "-p",
-                    "ProtectSystem=strict",
-                    "-p",
-                    "PrivateTmp=true",
-                    "-p",
-                    "ProtectHome=read-only",
-                    "-p",
-                    "ReadWritePaths=" + absPath,
-                    "-p",
-                    "WorkingDirectory=" + absPath,
-                    "--setenv=TERM=dumb",
-                    "/bin/sh",
-                    "-c",
-                    command
-                };
+                // TODO
+                throw new UnsupportedOperationException("sandboxing is not supported yet on Linux");
             } else {
                 throw new UnsupportedOperationException("sandboxing is not supported on this OS");
             }
@@ -432,11 +403,8 @@ public class Environment {
             return existsOnPath("sandbox-exec");
         }
         if (isLinux()) {
-            // Check common locations and PATH for systemd-run
-            if (new File("/usr/bin/systemd-run").canExecute()) {
-                return true;
-            }
-            return existsOnPath("systemd-run");
+            // TODO
+            return false;
         }
         return false;
     }

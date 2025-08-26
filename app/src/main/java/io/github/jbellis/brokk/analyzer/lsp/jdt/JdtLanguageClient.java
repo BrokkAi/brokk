@@ -1,85 +1,36 @@
 package io.github.jbellis.brokk.analyzer.lsp.jdt;
 
-import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.analyzer.lsp.LspLanguageClient;
 import io.github.jbellis.brokk.analyzer.lsp.LspServer;
-import io.github.jbellis.brokk.analyzer.lsp.LspStatus;
+import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
-import org.eclipse.lsp4j.*;
-import org.eclipse.lsp4j.jsonrpc.services.JsonNotification;
-import org.eclipse.lsp4j.services.LanguageClient;
-import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.eclipse.lsp4j.MessageParams;
+import org.eclipse.lsp4j.PublishDiagnosticsParams;
 
-public final class JdtLanguageClient implements LanguageClient {
-
-    private final Logger logger = LoggerFactory.getLogger(JdtLanguageClient.class);
-    private final CountDownLatch serverReadyLatch;
-    private final Map<String, CountDownLatch> workspaceReadyLatchMap;
-    private final String language;
-    private final int ERROR_LOG_LINE_LIMIT = 4;
-    private @Nullable IConsoleIO io;
-    private final Set<String> accumulatedErrors = new HashSet<>();
+public final class JdtLanguageClient extends LspLanguageClient {
 
     public JdtLanguageClient(
             String language, CountDownLatch serverReadyLatch, Map<String, CountDownLatch> workspaceReadyLatchMap) {
-        this.language = language;
-        this.serverReadyLatch = serverReadyLatch;
-        this.workspaceReadyLatchMap = workspaceReadyLatchMap;
-    }
-
-    /**
-     * Sets the IO to report client-facing diagnostics with.
-     *
-     * @param io the IO object to use.
-     */
-    public void setIo(@Nullable IConsoleIO io) {
-        this.io = io;
-        if (!accumulatedErrors.isEmpty()) {
-            final var accumulatedMessage = String.join(System.lineSeparator(), accumulatedErrors);
-            alertUser(accumulatedMessage);
-            accumulatedErrors.clear();
-        }
-    }
-
-    private void alertUser(String message) {
-        if (io != null) {
-            io.systemOutput(message);
-        } else {
-            accumulatedErrors.add(message);
-        }
-    }
-
-    @Override
-    public void telemetryEvent(Object object) {}
-
-    @Override
-    public void showMessage(MessageParams messageParams) {
-        logger.info("[LSP-SERVER-SHOW-MESSAGE] {}", messageParams);
+        super(language, serverReadyLatch, workspaceReadyLatchMap);
     }
 
     @Override
     public void publishDiagnostics(PublishDiagnosticsParams diagnostics) {
-        // These diagnostics are the server reporting linting/compiler issues related to the code itself
-        diagnostics.getDiagnostics().forEach(diagnostic -> {
-            // Errors might be useful to understand if certain symbols are not resolved properly
-            logger.trace("[LSP-SERVER-DIAGNOSTICS] [{}] {}", diagnostic.getSeverity(), diagnostic.getMessage());
-        });
-    }
-
-    @Override
-    @Nullable
-    public CompletableFuture<MessageActionItem> showMessageRequest(ShowMessageRequestParams r) {
-        return null;
-    }
-
-    @JsonNotification("language/eventNotification")
-    public void languageEvent(Object params) {
-        logger.info("Language Event {}", params);
+        String uri = diagnostics.getUri();
+        try {
+            final var path = Path.of(uri);
+            if (!path.getFileName().toString().endsWith(".java")) {
+                return; // early exit
+            }
+        } catch (Exception e) {
+            logger.error("Unable to determine validity of diagnostic path argument {}", diagnostics, e);
+        }
+        super.publishDiagnostics(diagnostics);
     }
 
     @Override
@@ -92,7 +43,7 @@ public final class JdtLanguageClient implements LanguageClient {
 
                 if (message.getMessage().endsWith("build jobs finished")) {
                     // This is a good way we can tell when the server is ready
-                    serverReadyLatch.countDown();
+                    this.getServerReadyLatch().countDown();
                 } else if (message.getMessage().lines().findFirst().orElse("").contains("Projects:")) {
                     // The server gives a project dump when a workspace is added, and this is a good way we can tell
                     // when indexing is done. We need to parse these, and countdown any workspaces featured, e.g.
@@ -102,11 +53,21 @@ public final class JdtLanguageClient implements LanguageClient {
                             .map(s -> s.split(": "))
                             .filter(arr -> arr.length == 2 && !arr[0].startsWith(" "))
                             .forEach(arr -> {
-                                final var workspace =
+                                String workspace =
                                         Path.of(arr[1].trim()).toUri().toString();
-                                Optional.ofNullable(workspaceReadyLatchMap.get(workspace))
+                                try {
+                                    // Follow symlinks to "canonical" path if possible
+                                    workspace = Path.of(arr[1].trim())
+                                            .toRealPath()
+                                            .toUri()
+                                            .toString();
+                                } catch (IOException e) {
+                                    logger.warn("Unable to resolve real path for {}", workspace);
+                                }
+                                final var finalWorkspace = workspace;
+                                Optional.ofNullable(workspaceReadyLatchMap.get(finalWorkspace))
                                         .ifPresent(latch -> {
-                                            logger.info("Marking {} as ready", workspace);
+                                            logger.info("Marking {} as ready", finalWorkspace);
                                             latch.countDown();
                                         });
                             });
@@ -151,21 +112,6 @@ public final class JdtLanguageClient implements LanguageClient {
         } else if (isUnhandledError(message)) {
             alertUser("Failed to import Java project due to unknown error. Please look at $HOME/.brokk/debug.log.");
         }
-    }
-
-    @JsonNotification("language/status")
-    public void languageStatus(LspStatus message) {
-        final var kind = message.type();
-        final var msg = message.message();
-        logger.debug("[LSP-SERVER-STATUS] {}: {}", kind, msg);
-    }
-
-    @Override
-    public CompletableFuture<Void> registerCapability(RegistrationParams params) {
-        // Acknowledge the server's request and return a completed future.
-        // This satisfies the protocol and prevents an exception.
-        logger.trace("Server requested to register capabilities: {}", params.getRegistrations());
-        return CompletableFuture.completedFuture(null);
     }
 
     private boolean failedToImportProject(MessageParams message) {

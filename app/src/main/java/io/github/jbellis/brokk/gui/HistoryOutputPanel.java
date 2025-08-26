@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -555,7 +556,7 @@ public class HistoryOutputPanel extends JPanel {
                 boolean hasAiMessages = ctx.getParsedOutput() != null
                         && ctx.getParsedOutput().messages().stream()
                                 .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
-                Icon iconEmoji = hasAiMessages ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
+                Icon iconEmoji = hasAiMessages ? Icons.AI_ROBOT : null;
                 historyModel.addRow(new Object[] {
                     iconEmoji, ctx.getAction(), ctx // We store the actual context object in hidden column
                 });

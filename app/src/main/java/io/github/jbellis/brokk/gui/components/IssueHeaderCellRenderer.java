@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Constants;
-import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.util.Objects;
 import javax.swing.*;
@@ -82,7 +82,7 @@ public class IssueHeaderCellRenderer extends JPanel implements TableCellRenderer
         if (name.isBlank()) {
             return;
         }
-        Icon userIcon = SwingUtil.uiIcon("Brokk.person");
+        Icon userIcon = Icons.PERSON;
         JLabel lbl = new JLabel(name, userIcon, SwingConstants.LEFT);
         lbl.setFont(lbl.getFont().deriveFont(Font.PLAIN, lbl.getFont().getSize() - 1));
         avatarPanel.add(lbl);

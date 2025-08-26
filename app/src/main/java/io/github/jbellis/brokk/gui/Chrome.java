@@ -21,6 +21,7 @@ import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -86,6 +87,40 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // necessary for undo/redo because clicking on menubar takes focus from whatever had it
     @Nullable
     private Component lastRelevantFocusOwner = null;
+
+    // Debouncing for tab toggle to prevent duplicate events
+    private long lastTabToggleTime = 0;
+    private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
+
+    /**
+     * Handles tab toggle behavior - minimizes panel if tab is already selected, otherwise selects the tab and restores
+     * panel if it was minimized.
+     */
+    private void handleTabToggle(int tabIndex) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
+            return; // Ignore rapid successive clicks
+        }
+        lastTabToggleTime = currentTime;
+
+        if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
+            // Tab already selected, minimize the panel but keep tabs visible
+            leftTabbedPanel.setSelectedIndex(-1);
+            bottomSplitPane.setDividerSize(0);
+            bottomSplitPane.setDividerLocation(40);
+        } else {
+            leftTabbedPanel.setSelectedIndex(tabIndex);
+            // Restore panel if it was minimized
+            if (bottomSplitPane.getDividerLocation() < 50) {
+                bottomSplitPane.setDividerSize(originalBottomDividerSize);
+                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(preferred);
+            }
+        }
+    }
+
+    // Store original divider size for hiding/showing divider
+    private int originalBottomDividerSize;
 
     // Swing components:
     final JFrame frame;
@@ -207,27 +242,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
         // Allow the divider to move further left by reducing the minimum width
         leftTabbedPanel.setMinimumSize(new Dimension(120, 0));
-        var projectIcon = requireNonNull(SwingUtil.uiIcon("Brokk.folder_code"));
+        var projectIcon = requireNonNull(Icons.FOLDER_CODE);
         leftTabbedPanel.addTab(null, projectIcon, projectFilesPanel);
         var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
         var projectTabLabel = createSquareTabLabel(projectIcon, "Project Files");
         leftTabbedPanel.setTabComponentAt(projectTabIdx, projectTabLabel);
         projectTabLabel.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(MouseEvent e) {
-                leftTabbedPanel.setSelectedIndex(projectTabIdx);
-            }
-
-            @Override
             public void mousePressed(MouseEvent e) {
-                leftTabbedPanel.setSelectedIndex(projectTabIdx);
+                handleTabToggle(projectTabIdx);
             }
         });
 
         // Add Git tab if available
         if (getProject().hasGit()) {
             gitPanel = new GitPanel(this, contextManager);
-            var gitIcon = requireNonNull(SwingUtil.uiIcon("Brokk.commit"));
+            var gitIcon = requireNonNull(Icons.COMMIT);
 
             // Create badged icon for the git tab
             gitTabBadgedIcon = new BadgedIcon(gitIcon, themeManager);
@@ -237,13 +267,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             leftTabbedPanel.setTabComponentAt(gitTabIdx, gitTabLabel);
             gitTabLabel.addMouseListener(new MouseAdapter() {
                 @Override
-                public void mouseClicked(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(gitTabIdx);
-                }
-
-                @Override
                 public void mousePressed(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(gitTabIdx);
+                    handleTabToggle(gitTabIdx);
                 }
             });
             gitPanel.updateRepo();
@@ -255,20 +280,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // --- New top-level Pull-Requests panel ---------------------------------
         if (getProject().isGitHubRepo() && gitPanel != null) {
             pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitPanel);
-            var prIcon = requireNonNull(SwingUtil.uiIcon("Brokk.pull_request"));
+            var prIcon = requireNonNull(Icons.PULL_REQUEST);
             leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
             var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
             var prLabel = createSquareTabLabel(prIcon, "Pull Requests");
             leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
             prLabel.addMouseListener(new MouseAdapter() {
                 @Override
-                public void mouseClicked(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(prIdx);
-                }
-
-                @Override
                 public void mousePressed(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(prIdx);
+                    handleTabToggle(prIdx);
                 }
             });
         }
@@ -277,20 +297,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (getProject().getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE
                 && gitPanel != null) {
             issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
-            var issIcon = requireNonNull(SwingUtil.uiIcon("Brokk.adjust"));
+            var issIcon = requireNonNull(Icons.ADJUST);
             leftTabbedPanel.addTab(null, issIcon, issuesPanel);
             var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var issLabel = createSquareTabLabel(issIcon, "Issues");
             leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
             issLabel.addMouseListener(new MouseAdapter() {
                 @Override
-                public void mouseClicked(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(issIdx);
-                }
-
-                @Override
                 public void mousePressed(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(issIdx);
+                    handleTabToggle(issIdx);
                 }
             });
         }
@@ -332,6 +347,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane.setResizeWeight(0.0);
         int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
         bottomSplitPane.setDividerLocation(initialDividerLocation);
+
+        // Store original divider size
+        originalBottomDividerSize = bottomSplitPane.getDividerSize();
 
         bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
 
@@ -675,17 +693,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
             if (gitPanel == null) return; // safety
             issuesPanel = new GitIssuesTab(this, contextManager, gitPanel);
-            var icon = requireNonNull(SwingUtil.uiIcon("Brokk.assignment"));
+            var icon = requireNonNull(Icons.ASSIGNMENT);
             leftTabbedPanel.addTab(null, icon, issuesPanel);
             var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
             var label = createSquareTabLabel(icon, "Issues");
             leftTabbedPanel.setTabComponentAt(tabIdx, label);
             label.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(tabIdx);
-                }
-
                 @Override
                 public void mousePressed(MouseEvent e) {
                     leftTabbedPanel.setSelectedIndex(tabIdx);
@@ -1355,10 +1368,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             int bottomHorizPos = project.getHorizontalSplitPosition();
             if (bottomHorizPos > 0) {
                 bottomSplitPane.setDividerLocation(bottomHorizPos);
+                // Check if restored position indicates minimized state
+                if (bottomHorizPos < 50) {
+                    bottomSplitPane.setDividerSize(0);
+                    leftTabbedPanel.setSelectedIndex(-1);
+                }
             } else {
                 int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(preferred);
             }
+
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (bottomSplitPane.isShowing()) {
                     var newPos = bottomSplitPane.getDividerLocation();

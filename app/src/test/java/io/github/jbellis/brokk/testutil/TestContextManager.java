@@ -9,12 +9,11 @@ import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.nio.file.Path;
 import java.util.HashSet;
-import java.util.Optional;
 import java.util.Set;
 
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
-    private final IAnalyzer mockAnalyzer;
+    private final MockAnalyzer mockAnalyzer;
     private final InMemoryRepo inMemoryRepo;
     private final Set<ProjectFile> editableFiles = new HashSet<>();
     private final Set<ProjectFile> readonlyFiles = new HashSet<>();
@@ -24,7 +23,7 @@ public final class TestContextManager implements IContextManager {
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
         this.project = new TestProject(projectRoot, Language.JAVA);
-        this.mockAnalyzer = new MockAnalyzer();
+        this.mockAnalyzer = new MockAnalyzer(projectRoot);
         this.inMemoryRepo = new InMemoryRepo();
         this.consoleIO = consoleIO;
         this.stubService = new StubService(this.project);
@@ -59,6 +58,10 @@ public final class TestContextManager implements IContextManager {
     public void addReadonlyFile(ProjectFile file) {
         this.readonlyFiles.add(file);
         this.editableFiles.remove(file); // Cannot be both
+    }
+
+    public MockAnalyzer getMockAnalyzer() {
+        return mockAnalyzer;
     }
 
     @Override
@@ -104,48 +107,5 @@ public final class TestContextManager implements IContextManager {
     @Override
     public EditBlockParser getParserForWorkspace() {
         return EditBlockParser.getParserFor("");
-    }
-
-    /**
-     * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing without
-     * requiring a full CPG.
-     */
-    private static class MockAnalyzer implements IAnalyzer, SkeletonProvider, UsagesProvider {
-        @Override
-        public boolean isEmpty() {
-            return false;
-        }
-
-        @Override
-        public java.util.List<io.github.jbellis.brokk.analyzer.CodeUnit> getUses(String fqName) {
-            return java.util.List.of(); // Return empty list for test purposes
-        }
-
-        @Override
-        public java.util.Optional<io.github.jbellis.brokk.analyzer.CodeUnit> getDefinition(String fqName) {
-            return java.util.Optional.empty(); // Return empty for test purposes
-        }
-
-        @Override
-        public java.util.Set<io.github.jbellis.brokk.analyzer.CodeUnit> getDeclarationsInFile(
-                io.github.jbellis.brokk.analyzer.ProjectFile file) {
-            return java.util.Set.of(); // Return empty set for test purposes
-        }
-
-        @Override
-        public java.util.Optional<String> getSkeleton(String fqName) {
-            return java.util.Optional.empty(); // Return empty for test purposes
-        }
-
-        @Override
-        public java.util.Map<io.github.jbellis.brokk.analyzer.CodeUnit, String> getSkeletons(
-                io.github.jbellis.brokk.analyzer.ProjectFile file) {
-            return java.util.Map.of(); // Return empty map for test purposes
-        }
-
-        @Override
-        public Optional<String> getSkeletonHeader(String className) {
-            return Optional.empty();
-        }
     }
 }
