@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -124,6 +125,93 @@ public class SymbolLookupService {
         logger.debug(
                 "Optimized lookup completed: {} found out of {} requested", foundSymbols.size(), symbolNames.size());
         return foundSymbols;
+    }
+
+    /**
+     * Streaming symbol lookup that sends results incrementally as they become available. This provides better perceived
+     * performance by not waiting for the slowest symbol in a batch.
+     *
+     * @param symbolNames Set of symbol names to lookup
+     * @param contextManager Context manager for accessing analyzer
+     * @param resultCallback Called for each symbol result (symbolName, fqn). fqn is null for non-existent symbols
+     * @param completionCallback Called when all symbols have been processed
+     */
+    public static void lookupSymbolsStreaming(
+            Set<String> symbolNames,
+            @Nullable IContextManager contextManager,
+            BiConsumer<String, String> resultCallback,
+            @Nullable Runnable completionCallback) {
+
+        logger.debug("Starting streaming lookup for {} symbols", symbolNames.size());
+
+        if (symbolNames.isEmpty() || contextManager == null) {
+            if (completionCallback != null) {
+                completionCallback.run();
+            }
+            return;
+        }
+
+        var project = contextManager.getProject();
+        logger.trace("Using {} with project at {}", contextManager.getClass().getSimpleName(), project.getRoot());
+
+        try {
+            var analyzerWrapper = contextManager.getAnalyzerWrapper();
+            if (!analyzerWrapper.isReady()) {
+                logger.trace("Analyzer not ready");
+                if (completionCallback != null) {
+                    completionCallback.run();
+                }
+                return;
+            }
+
+            var analyzer = analyzerWrapper.getNonBlocking();
+            if (analyzer == null || analyzer.isEmpty()) {
+                logger.trace("No analyzer available for symbol lookup");
+                if (completionCallback != null) {
+                    completionCallback.run();
+                }
+                return;
+            }
+
+            logger.trace("Using analyzer: {}", analyzer.getClass().getSimpleName());
+
+            int processedCount = 0;
+            int foundCount = 0;
+
+            // Process each symbol individually and send result immediately
+            for (var symbolName : symbolNames) {
+                try {
+                    var symbolInfo = checkSymbolExists(analyzer, symbolName);
+                    logger.debug("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
+
+                    // Send result immediately (both found and not found symbols)
+                    if (symbolInfo.exists() && symbolInfo.fqn() != null) {
+                        resultCallback.accept(symbolName, symbolInfo.fqn());
+                        foundCount++;
+                    } else {
+                        // Send null fqn for non-existent symbols so frontend knows they don't exist
+                        resultCallback.accept(symbolName, null);
+                    }
+
+                    processedCount++;
+                } catch (Exception e) {
+                    logger.warn("Error processing symbol '{}' in streaming lookup", symbolName, e);
+                    // Send null result for failed lookups
+                    resultCallback.accept(symbolName, null);
+                    processedCount++;
+                }
+            }
+
+            logger.debug("Streaming lookup completed: {} found out of {} processed", foundCount, processedCount);
+
+        } catch (Exception e) {
+            logger.warn("Error during streaming symbol lookup", e);
+        }
+
+        // Signal completion
+        if (completionCallback != null) {
+            completionCallback.run();
+        }
     }
 
     private static SymbolInfo checkSymbolExists(IAnalyzer analyzer, String symbolName) {

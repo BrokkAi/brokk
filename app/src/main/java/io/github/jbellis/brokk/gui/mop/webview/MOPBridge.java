@@ -305,31 +305,48 @@ public final class MOPBridge {
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 
             try {
-                logger.debug("Starting symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
-
-                // SymbolLookupService methods are synchronous/blocking - run in background
-                var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
-
                 logger.debug(
-                        "Symbol lookup completed. Found {} results: {}",
-                        results.size(),
-                        results.entrySet().stream()
-                                .map(entry -> entry.getKey() + " -> " + entry.getValue())
-                                .collect(java.util.stream.Collectors.joining(", ")));
+                        "Starting streaming symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
 
-                // Return to UI thread for JavaScript bridge communication
-                Platform.runLater(() -> {
-                    try {
-                        var resultsJson = toJson(results);
-                        var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
-                                + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
-                                + toJson(contextId) + "); }";
-                        engine.executeScript(js);
-                        logger.trace("Sent symbol lookup response for context {}", contextId);
-                    } catch (Exception e) {
-                        logger.warn("Failed to send symbol lookup response", e);
-                    }
-                });
+                // Use streaming lookup to send results as they become available
+                SymbolLookupService.lookupSymbolsStreaming(
+                        symbolNames,
+                        contextManager,
+                        // Result callback - called for each individual symbol result
+                        (symbolName, fqn) -> {
+                            logger.debug(
+                                    "Streaming result callback invoked for symbol '{}' with fqn: {}", symbolName, fqn);
+                            // Send individual result immediately on UI thread
+                            Platform.runLater(() -> {
+                                try {
+                                    logger.debug(
+                                            "Platform.runLater executing for symbol '{}' in context {}",
+                                            symbolName,
+                                            contextId);
+                                    var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
+                                    var resultsJson = toJson(singleResult);
+                                    var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
+                                            + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
+                                            + toJson(contextId) + "); }";
+                                    logger.debug("Executing JavaScript for streaming result: {}", js);
+                                    engine.executeScript(js);
+                                    logger.debug(
+                                            "Successfully sent streaming result for symbol '{}' in context {}",
+                                            symbolName,
+                                            contextId);
+                                } catch (Exception e) {
+                                    logger.warn(
+                                            "Failed to send streaming symbol lookup result for '{}'", symbolName, e);
+                                }
+                            });
+                        },
+                        // Completion callback - called when all symbols are processed
+                        () -> {
+                            logger.debug(
+                                    "Streaming symbol lookup completed for {} symbols in context {}",
+                                    symbolNames.size(),
+                                    contextId);
+                        });
 
             } catch (Exception e) {
                 logger.warn("Symbol lookup failed for seq={}, contextId={}", seq, contextId, e);

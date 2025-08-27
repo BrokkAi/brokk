@@ -12,10 +12,13 @@ const contextSequences = new Map<string, number>();
 // Track context switch sequences separately for proper validation
 const contextSwitchSequences = new Map<string, number>();
 
-// Batch coordination for component requests
-const BATCH_DELAY = 50; // milliseconds
+// Adaptive batch coordination for component requests
+const IMMEDIATE_THRESHOLD = 100; // ms - if no requests for 100ms, next one is immediate
+const BATCH_DELAY = 15; // ms - reduced delay for subsequent requests
 let batchTimer: number | null = null;
 const pendingBatchRequests = new Map<string, Set<string>>();
+// Track last request time per context to determine if we should batch
+const lastRequestTime = new Map<string, number>();
 
 // Symbol cache entry with resolution status
 export interface SymbolCacheEntry {
@@ -71,25 +74,55 @@ function isValidSequence(contextId: string, seq: number): boolean {
     return isValid;
 }
 
+function shouldProcessImmediately(contextId: string): boolean {
+    const now = Date.now();
+    const lastRequest = lastRequestTime.get(contextId) || 0;
+    const timeSinceLastRequest = now - lastRequest;
+
+    // Process immediately if:
+    // 1. This is the first request for this context, OR
+    // 2. Enough time has passed since the last request (indicates user is not rapidly typing)
+    const immediate = timeSinceLastRequest >= IMMEDIATE_THRESHOLD;
+
+    log.debug(`Should process immediately for ${contextId}: ${immediate} (${timeSinceLastRequest}ms since last request)`);
+    return immediate;
+}
+
 function addToBatch(contextId: string, symbol: string): void {
+    const now = Date.now();
+
+    // Update last request time for this context
+    lastRequestTime.set(contextId, now);
+
     if (!pendingBatchRequests.has(contextId)) {
         pendingBatchRequests.set(contextId, new Set());
     }
 
     pendingBatchRequests.get(contextId)!.add(symbol);
 
-    // Schedule batch processing if not already scheduled
-    if (batchTimer === null) {
-        batchTimer = window.setTimeout(() => {
-            processBatches();
-            batchTimer = null;
-        }, BATCH_DELAY);
+    // Determine if we should process immediately or batch
+    if (shouldProcessImmediately(contextId) && batchTimer === null) {
+        // Process immediately for first request or after inactivity
+        log.debug(`Processing ${symbol} immediately for context ${contextId}`);
+        processBatches(true); // true = immediate processing
+    } else {
+        // Schedule batch processing with delay for rapid follow-up requests
+        if (batchTimer === null) {
+            log.debug(`Scheduling batched processing in ${BATCH_DELAY}ms for context ${contextId}`);
+            batchTimer = window.setTimeout(() => {
+                processBatches(false); // false = batched processing
+                batchTimer = null;
+            }, BATCH_DELAY);
+        } else {
+            log.debug(`Added ${symbol} to existing batch for context ${contextId}`);
+        }
     }
-
-    log.debug(`Added ${symbol} to batch for context ${contextId}`);
 }
 
-function processBatches(): void {
+function processBatches(immediate: boolean = false): void {
+    if (immediate) {
+        log.debug('Processing batches immediately');
+    }
     for (const [contextId, symbols] of pendingBatchRequests.entries()) {
         if (symbols.size > 0) {
             const symbolArray = Array.from(symbols);
@@ -448,6 +481,9 @@ export function prepareContextSwitch(newContextId: string): void {
     // This ensures any responses from before this context switch are rejected
     contextSwitchSequences.set(newContextId, newSeq);
     log.debug(`Prepared context switch to ${newContextId} with sequence ${newSeq} as minimum valid`);
+
+    // Reset last request time for new context to ensure next request is immediate
+    lastRequestTime.delete(newContextId);
 
     // Clear any pending requests for the new context
     const keysToRemove: string[] = [];
