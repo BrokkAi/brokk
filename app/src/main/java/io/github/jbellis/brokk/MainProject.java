@@ -376,7 +376,14 @@ public final class MainProject extends AbstractProject {
         String jsonString = props.getProperty(typeInfo.configKey());
         if (jsonString != null && !jsonString.isBlank()) {
             try {
-                return objectMapper.readValue(jsonString, ModelConfig.class);
+                var mc = objectMapper.readValue(jsonString, ModelConfig.class);
+                // Null Away doesn't prevent Jackson from reading a null via reflection. All the
+                // "official" Jackson ways to fix this are horrible.
+                @SuppressWarnings("RedundantNullCheck")
+                ModelConfig checkedMc = (mc.tier() == null)
+                        ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
+                        : mc;
+                return checkedMc;
             } catch (JsonProcessingException e) {
                 logger.warn(
                         "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
