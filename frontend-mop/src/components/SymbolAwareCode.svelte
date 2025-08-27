@@ -1,22 +1,22 @@
 <script lang="ts">
   import {onMount} from 'svelte';
   import {symbolCacheStore, requestSymbolResolution, type SymbolCacheEntry} from '../stores/symbolCacheStore';
-  import {createWorkerLogger} from '../lib/logging';
+  import {createLogger} from '../lib/logging';
 
   let {children, ...rest} = $props();
 
-  const log = createWorkerLogger('symbol-aware-code');
+  const log = createLogger('symbol-aware-code');
 
   // Extract symbol text from children
   let symbolText = $state('');
   let isValidSymbol = $state(false);
   let cacheEntry: SymbolCacheEntry | undefined = $state(undefined);
-  let contextId = 'main-context'; // TODO: Get from context if needed
+  let contextId = 'main-context';
 
   // Unique identifier for this component instance
   const componentId = `symbol-${Math.random().toString(36).substr(2, 9)}`;
 
-  // Java class name validation - matches the worker logic
+  // Clean and validate Java class names
   function cleanSymbolName(raw: string): string {
     const trimmed = raw.trim();
 
@@ -25,34 +25,6 @@
     }
 
     return trimmed;
-    /*
-    if (isValidJavaClassName(trimmed)) {
-      return trimmed;
-    }
-
-    return '';
-    */
-  }
-
-  function isValidJavaClassName(name: string): boolean {
-    const segments = name.split('.');
-
-    for (const segment of segments) {
-      if (!isValidJavaIdentifier(segment)) {
-        return false;
-      }
-    }
-
-    if (segments.length > 1) {
-      const className = segments[segments.length - 1];
-      return /^[A-Z]/.test(className);
-    }
-
-    return /^[A-Z]/.test(name);
-  }
-
-  function isValidJavaIdentifier(identifier: string): boolean {
-    return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(identifier);
   }
 
   // Extract text from children - for inline code, this should be simple text
@@ -116,7 +88,7 @@
         const thisElement = document.querySelector(`code[data-symbol-id="${componentId}"]`);
         if (thisElement) {
           const textContent = thisElement.textContent?.trim() || '';
-          log.debug(`DOM extraction for ${componentId} - textContent: "${textContent}", innerHTML: "${thisElement.innerHTML}"`);
+          log.debug(`Symbol extracted: "${textContent}"`);
           symbolText = textContent;
           validateAndRequestSymbol();
         }
@@ -183,7 +155,7 @@
 
     if (event.button === 0) { // Left click
       log.info(`Left-clicked symbol: ${symbolText}, exists: ${symbolExists}`);
-      // TODO: Add navigation logic if needed
+      // Navigation logic can be added here if needed
     } else if (event.button === 2) { // Right click
       event.preventDefault();
       log.info(`Right-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);

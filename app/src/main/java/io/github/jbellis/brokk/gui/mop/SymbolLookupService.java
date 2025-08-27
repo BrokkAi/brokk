@@ -139,7 +139,10 @@ public class SymbolLookupService {
             var definition = analyzer.getDefinition(trimmed);
             logger.debug("getDefinition('{}') found: {}", trimmed, definition.isPresent());
             if (definition.isPresent()) {
-                logger.debug("Found exact definition for '{}': {}", trimmed, definition.get().fqName());
+                logger.debug(
+                        "Found exact definition for '{}': {}",
+                        trimmed,
+                        definition.get().fqName());
                 return new SymbolInfo(true, definition.get().fqName());
             }
 

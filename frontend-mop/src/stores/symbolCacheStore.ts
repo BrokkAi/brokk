@@ -1,7 +1,7 @@
 import {writable} from 'svelte/store';
-import {createWorkerLogger} from '../lib/logging';
+import {createLogger} from '../lib/logging';
 
-const log = createWorkerLogger('symbol-cache-store');
+const log = createLogger('symbol-cache-store');
 
 // Symbol cache entry with resolution status
 export interface SymbolCacheEntry {
@@ -31,29 +31,26 @@ let cacheStats = {
 export function requestSymbolResolution(symbol: string, contextId: string = 'main-context'): void {
     const cacheKey = `${contextId}:${symbol}`;
 
-    console.warn(`🔍 SYMBOL LOOKUP REQUEST: symbol="${symbol}", contextId="${contextId}", cacheKey="${cacheKey}"`);
+    log.debug(`Symbol lookup request: ${symbol} (context: ${contextId})`);
 
     symbolCacheStore.update(cache => {
         const newCache = new Map(cache);
 
         // Check if already cached or pending
         const existing = newCache.get(cacheKey);
-        console.warn(`📋 CACHE CHECK: existing=${existing ? `{status:"${existing.status}", fqn:"${existing.fqn}"}` : 'null'}`);
+        log.debug(`Cache check for ${symbol}: ${existing ? 'found' : 'not found'}`);
 
         if (existing) {
             if (existing.status === 'resolved' && existing.fqn) {
                 // Only cache hit for symbols that actually exist (have fqn)
                 cacheStats.hits++;
-                console.warn(`✅ CACHE HIT: symbol="${symbol}" already resolved with fqn="${existing.fqn}"`);
-                log.debug(`Cache HIT for '${symbol}' -> fqn:${existing.fqn}`);
+                log.debug(`Cache hit for ${symbol}: ${existing.fqn}`);
                 return cache; // No change needed
             } else if (existing.status === 'resolved' && !existing.fqn) {
                 // Symbol was previously not found - allow re-lookup in case codebase changed
-                console.warn(`🔄 CACHE MISS (NOT FOUND): symbol="${symbol}" was not found before, re-trying lookup`);
-                log.debug(`Cache MISS for '${symbol}' - symbol was not found, allowing re-lookup`);
+                log.debug(`Cache miss for '${symbol}' - symbol was not found, allowing re-lookup`);
                 // Fall through to request new lookup
             } else if (existing.status === 'pending') {
-                console.warn(`⏳ ALREADY PENDING: symbol="${symbol}" lookup already in progress`);
                 log.debug(`Symbol '${symbol}' already pending resolution`);
                 return cache; // No change needed
             }
@@ -68,27 +65,15 @@ export function requestSymbolResolution(symbol: string, contextId: string = 'mai
             status: 'pending',
             contextId
         });
-        console.warn(`🚀 MARKED AS PENDING: symbol="${symbol}" cacheKey="${cacheKey}" - NO fqn property yet`);
-
-        console.warn(`🔄 CACHE MISS: symbol="${symbol}" marked as pending, requesting lookup`);
-        log.debug(`Cache MISS for '${symbol}' (key: '${cacheKey}') - requesting lookup`);
+        log.debug(`Cache miss for '${symbol}' (key: '${cacheKey}') - requesting lookup`);
 
         // Request symbol lookup from Java bridge
-        const bridgeAvailable = !!window.javaBridge;
-        const methodAvailable = !!window.javaBridge?.lookupSymbolsAsync;
-        const bridgeType = typeof window.javaBridge;
-        const bridgeMethods = window.javaBridge ? Object.getOwnPropertyNames(window.javaBridge).filter(name => typeof window.javaBridge[name] === 'function') : [];
-
-        console.warn(`🌉 BRIDGE CHECK: javaBridge available = ${bridgeAvailable}, lookupSymbolsAsync = ${methodAvailable}`);
-        console.warn(`🌉 BRIDGE TYPE CHECK: javaBridge type = ${bridgeType}, methods = [${bridgeMethods.join(', ')}]`);
-
         if (window.javaBridge?.lookupSymbolsAsync) {
-            console.warn(`📞 CALLING JAVA BRIDGE: symbol="${symbol}", contextId="${contextId}"`);
+            log.debug(`Calling Java bridge for symbol: ${symbol}`);
             // Convert single symbol to array and use null sequence for reactive frontend
             window.javaBridge.lookupSymbolsAsync(JSON.stringify([symbol]), null, contextId);
         } else {
-            console.error(`❌ JAVA BRIDGE NOT AVAILABLE: bridgeAvailable=${bridgeAvailable}, methodAvailable=${methodAvailable}`);
-            console.error('JavaBridge not available for symbol lookup');
+            log.error('JavaBridge not available for symbol lookup');
         }
 
         return newCache;
@@ -105,9 +90,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
     // Handle both signatures: (results, contextId) and (results, seq, contextId)
     const actualContextId = typeof seqOrContextId === 'string' ? seqOrContextId : (contextId || 'main-context');
     const seq = typeof seqOrContextId === 'number' ? seqOrContextId : null;
-    console.warn(`📥 JAVA BRIDGE RESPONSE: ${Object.keys(results).length} symbols for contextId="${actualContextId}"${seq !== null ? ` seq=${seq}` : ''}`);
-    console.warn(`📄 RESPONSE DETAILS: ${JSON.stringify(results)}`);
-    console.warn(`Symbol resolution response: ${Object.keys(results).length} symbols for context '${actualContextId}'`);
+    log.debug(`Symbol resolution response: ${Object.keys(results).length} symbols for context '${actualContextId}' ${seq !== null ? `seq=${seq}` : ''}`);
 
     symbolCacheStore.update(cache => {
         const newCache = new Map(cache);
@@ -129,10 +112,8 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         }
 
         // Update cache with resolved symbols
-        console.log(`💾 UPDATING CACHE: Processing ${Object.keys(results).length} resolved entries`);
         for (const [symbol, fqn] of Object.entries(results)) {
             const cacheKey = `${actualContextId}:${symbol}`;
-            console.log(`💾 CACHING RESOLVED SYMBOL: symbol="${symbol}" fqn="${fqn}" cacheKey="${cacheKey}"`);
             newCache.set(cacheKey, {
                 fqn,
                 status: 'resolved',
@@ -150,7 +131,6 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
                 const symbolName = key.substring((actualContextId + ':').length);
                 if (!results.hasOwnProperty(symbolName)) {
                     // Symbol was requested but not found in results - mark as resolved with no fqn
-                    console.log(`❌ SYMBOL NOT FOUND: symbol="${symbolName}" cacheKey="${key}" - marking as resolved without fqn`);
                     newCache.set(key, {
                         status: 'resolved',
                         contextId: actualContextId
@@ -163,25 +143,24 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         }
 
         if (notFoundCount > 0) {
-            console.warn(`🚫 MARKED ${notFoundCount} SYMBOLS AS NOT FOUND`);
+            log.debug(`Marked ${notFoundCount} symbols as not found`);
         }
 
         // Check for any pending symbols that weren't resolved
         let pendingCount = 0;
         for (const [key, entry] of newCache.entries()) {
-            if (entry.status === 'pending' && key.startsWith(contextId + ':')) {
+            if (entry.status === 'pending' && key.startsWith(actualContextId + ':')) {
                 pendingCount++;
-                console.warn(`⏳ STILL PENDING: key="${key}" entry=${JSON.stringify(entry)}`);
+                log.debug(`Still pending: ${key}`);
             }
         }
 
-        console.warn(`✨ CACHE UPDATE COMPLETE: Updated ${updatedCount} symbols. ${pendingCount} still pending. Total size: ${newCache.size}/${SYMBOL_CACHE_LIMIT}`);
-        console.warn(`Updated ${updatedCount} symbols in cache. Total size: ${newCache.size}/${SYMBOL_CACHE_LIMIT}`);
+        log.debug(`Cache update complete: Updated ${updatedCount} symbols. ${pendingCount} still pending. Total size: ${newCache.size}/${SYMBOL_CACHE_LIMIT}`);
 
         // Log cache statistics periodically
         if (cacheStats.requests % 10 === 0) {
             const hitRate = ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1);
-            console.warn(`Cache Stats: requests:${cacheStats.requests} hits:${cacheStats.hits} misses:${cacheStats.misses} hit-rate:${hitRate}% size:${newCache.size}/${SYMBOL_CACHE_LIMIT} evictions:${cacheStats.evictions}`);
+            log.debug(`Cache stats: requests:${cacheStats.requests} hits:${cacheStats.hits} misses:${cacheStats.misses} hit-rate:${hitRate}% size:${newCache.size}/${SYMBOL_CACHE_LIMIT} evictions:${cacheStats.evictions}`);
         }
 
         return newCache;
@@ -219,7 +198,7 @@ export function clearContextCache(contextId: string): void {
             }
         }
 
-        console.warn(`Cleared ${clearedCount} entries for context: '${contextId}'. Remaining cache size: ${newCache.size}`);
+        log.debug(`Cleared ${clearedCount} entries for context: '${contextId}'. Remaining cache size: ${newCache.size}`);
 
         // Reset stats if cache is empty
         if (newCache.size === 0) {
@@ -241,7 +220,7 @@ export function clearSymbolCache(): void {
         // Reset statistics
         cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0};
 
-        console.warn(`Symbol cache completely cleared. Removed ${previousSize} entries. Stats reset.`);
+        log.debug(`Symbol cache completely cleared. Removed ${previousSize} entries. Stats reset.`);
 
         return new Map();
     });
@@ -270,7 +249,7 @@ export function getCacheSize(): number {
  */
 export function debugCache(): void {
     symbolCacheStore.subscribe(cache => {
-        console.log('🔍 CACHE DEBUG - Total entries:', cache.size);
+        console.log('CACHE DEBUG - Total entries:', cache.size);
         for (const [key, entry] of cache.entries()) {
             console.log(`  ${key}: status="${entry.status}" fqn="${entry.fqn}" contextId="${entry.contextId}"`);
         }

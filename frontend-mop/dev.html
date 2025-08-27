@@ -122,7 +122,7 @@
 
         // Unified symbol lookup implementation for new store-based architecture
         lookupSymbolsAsync: function(symbolNamesJson, seq, contextId) {
-            console.log(`[Mock JavaBridge] Symbol lookup request:`, symbolNamesJson, `seq:`, seq, `contextId:`, contextId);
+            console.log(`[Mock JavaBridge] Lookup request received`);
             const results = {};
 
             // Parse symbols from JSON
@@ -134,8 +134,6 @@
                 }
             }
 
-            console.log(`[Mock JavaBridge] Symbol lookup results for contextId ${contextId}:`, results);
-
             // Simulate async behavior, then call the response handler
             setTimeout(() => {
                 if (window.brokk?.onSymbolLookupResponse) {
@@ -144,9 +142,9 @@
                     } else {
                         window.brokk.onSymbolLookupResponse(results, contextId);
                     }
-                    console.log(`[Mock JavaBridge] Sent results to reactive store for contextId ${contextId}`);
+                    console.log(`[Mock JavaBridge] Response sent`);
                 } else {
-                    console.error('[Mock JavaBridge] brokk.onSymbolLookupResponse not available on window');
+                    console.error('[Mock JavaBridge] Response handler not available');
                 }
             }, 50); // 50ms delay to simulate async behavior
         },
@@ -162,7 +160,7 @@
 
         // Mock symbol right-click implementation
         onSymbolRightClick: function(symbolName, symbolExists, symbolFqn, x, y) {
-            console.log(`[Mock JavaBridge] Symbol right-clicked: ${symbolName}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, at (${x}, ${y})`);
+            console.log(`[Mock JavaBridge] Right-click on ${symbolName}`);
 
             // Simulate context menu with basic actions
             const actions = [];
@@ -175,7 +173,7 @@
             const selectedAction = confirm(`Symbol: ${symbolName} (${symbolExists ? 'exists' : 'does not exist'})\nFQN: ${symbolFqn || 'N/A'}\n\nAvailable actions:\n${actions.map((action, i) => `${i + 1}. ${action}`).join('\n')}\n\nClick OK to simulate opening context menu, Cancel to ignore.`);
 
             if (selectedAction) {
-                console.log(`[Mock JavaBridge] Simulated context menu action for symbol: ${symbolName}`);
+                console.log(`[Mock JavaBridge] Context menu opened`);
             }
         }
     };

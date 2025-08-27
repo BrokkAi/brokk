@@ -319,22 +319,6 @@ public final class MOPBridge {
                 });
     }
 
-
-    // Keep old synchronous method for backward compatibility during transition
-    @Deprecated
-    public String lookupSymbols(String symbolNamesJson) {
-        logger.warn("Deprecated synchronous lookupSymbols called - use lookupSymbolsAsync instead");
-
-        try {
-            var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
-            var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
-            return MAPPER.writeValueAsString(results);
-        } catch (Exception e) {
-            logger.warn("Error in symbol lookup", e);
-            return "{}";
-        }
-    }
-
     public void onSymbolRightClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
         logger.debug("Symbol right-clicked: {}, exists: {}, fqn: {} at ({}, {})", symbolName, symbolExists, fqn, x, y);
 

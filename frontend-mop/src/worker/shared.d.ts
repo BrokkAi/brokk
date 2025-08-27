@@ -9,7 +9,7 @@ export interface ChunkMsg {
 
 export interface ClearMsg {
     type: 'clear-state';
-    flushBeforeClear: boolean;s
+    flushBeforeClear: boolean;
 }
 
 export interface ParseMsg {
@@ -49,13 +49,6 @@ export interface ShikiLangsReadyMsg {
     canHighlight?: string[]; // languages now available
 }
 
-// Legacy symbol lookup - now handled by reactive components
-// export interface SymbolLookupRequestMsg {
-//     type: 'symbol-lookup-request';
-//     symbols: string[];
-//     seq: Seq;
-//     contextId: string;
-// }
 
 export interface WorkerLogMsg {
     type: 'worker-log';
