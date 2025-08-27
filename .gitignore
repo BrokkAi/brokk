@@ -54,6 +54,7 @@ project/project/
 .brokk/**
 !.brokk/style.md
 !.brokk/review.md
+!.brokk/project.properties
 
 ### JOERN'S CONFIGURATION ###
 cpg.bin
