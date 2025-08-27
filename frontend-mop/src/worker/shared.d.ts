@@ -1,6 +1,5 @@
 export type Seq = number;
 
-
 /* ---------- main → worker ---------- */
 export interface ChunkMsg {
     type: 'chunk';
@@ -10,7 +9,7 @@ export interface ChunkMsg {
 
 export interface ClearMsg {
     type: 'clear-state';
-    flushBeforeClear: boolean;
+    flushBeforeClear: boolean;s
 }
 
 export interface ParseMsg {
@@ -26,15 +25,6 @@ export interface ExpandDiffMsg {
     blockId: string;   // <edit-block data-id="…">
     bubbleId: number;  // owning bubble
 }
-
-// Legacy symbol lookup - now handled by reactive components
-// export interface SymbolLookupResponseMsg {
-//     type: 'symbol-lookup-response';
-//     results: Record<string, string>;
-//     seq: Seq;
-//     contextId: string;
-// }
-
 
 export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg | ExpandDiffMsg;
 

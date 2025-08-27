@@ -44,16 +44,7 @@ let dirty = false;
 let seq = 0; // this represents the bubble id
 
 self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
-  try {
-    const m: InboundToWorker = ev.data;
-
-    // Validate message structure
-    if (!m || typeof m !== 'object' || !m.type) {
-      unhandledError('[markdown-worker] Invalid message structure:', JSON.stringify(m));
-      return;
-    }
-
-
+  const m: InboundToWorker = ev.data;
   switch (m.type) {
     case 'parse':
       log('debug', '[md-worker] parse', m.seq, m.updateBuffer, m.text);
@@ -86,32 +77,21 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       busy = false; // Stop any in-flight parseAndPost loops
       seq = 0;
       currentExpandIds.clear();
-      // Symbol cache is now handled by reactive store, not worker
       break;
 
     case 'expand-diff':
       currentExpandIds.add(m.blockId);
       // no parsing here – the main thread already sent a targeted parse
       break;
-
-    case 'symbol-lookup-response':
-      log('info', `[markdown-worker] symbol-lookup-response - now handled by reactive components, ignoring`);
-      break;
-
-
-  }
-  } catch (error) {
-    unhandledError('Error processing message:', error.message, error.stack);
   }
 };
-
 
 async function parseAndPost(): Promise<void> {
   // Capture the sequence number for this run. This acts as a token to detect
   // if the context has changed (e.g., a new message has started) during the async pause.
   const seqForThisRun = seq;
 
-  safeParseAndPost(seqForThisRun, buffer, true); // Always fast=true for streaming chunks
+  safeParseAndPost(seqForThisRun, buffer);
 
   // Yield to the event loop to allow more chunks to buffer up.
   await new Promise(r => setTimeout(r, 5));
@@ -137,9 +117,8 @@ function post(msg: OutboundFromWorker) { self.postMessage(msg); }
 
 function safeParseAndPost(seq: number, text: string, fast: boolean = false) {
   try {
-    // Caller controls symbol lookup behavior via fast parameter
     const tree = parseMarkdown(seq, text, fast);
-    post(<ResultMsg>{ type: 'result', tree, seq });
+    post(<ResultMsg>{ type: 'result', tree, seq: seq });
   } catch (e) {
     log('error', '[md-worker]', e);
     const error = e instanceof Error ? e : new Error(String(e));

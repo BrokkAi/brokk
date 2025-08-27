@@ -5,7 +5,6 @@ import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
 import { rehypeEditDiff } from './rehype/rehype-edit-diff';
-// Symbol lookup is now handled by SymbolAwareCode components - no worker imports needed
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -34,26 +33,16 @@ export function createBaseProcessor(): Processor {
         .use(remarkBreaks)
         .use(remarkRehype, {allowDangerousHtml: true}) as any;
 }
-
-export function createFastProcessor(): Processor {
-    return unified()
-        .use(remarkParse)
-        .data('micromarkExtensions', [gfmEditBlock()])
-        .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
-        .use(remarkGfm)
-        .use(remarkBreaks)
-        .use(remarkRehype, {allowDangerousHtml: true}) as any;
-}
-
 // processors
 let baseProcessor: Processor = createBaseProcessor();
-let fastBaseProcessor: Processor = createFastProcessor();
 let shikiProcessor: Processor = null;
 let currentProcessor: Processor = baseProcessor;
+
 // shiki-highlighter
 export let highlighter: HighlighterCore | null = null;
 
 export function initProcessor() {
+    // Asynchronously initialize Shiki and create a new processor with it.
     console.log('[shiki] loading lib...');
     shikiPluginPromise
         .then(({rehypePlugin}) => {
@@ -67,7 +56,7 @@ export function initProcessor() {
             post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
         })
         .catch(e => {
-            console.error('[shiki] init failed', e);
+            console.error('[md-worker] Shiki init failed', e);
         });
 }
 
@@ -85,32 +74,23 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
     });
 
     const diffLangs = (tree as any).data?.detectedDiffLangs as Set<string> | undefined;
-    console.log('detected langs', detectedLangs, diffLangs);
+    console.log('[md-worker] detected langs', detectedLangs, diffLangs);
     diffLangs?.forEach(l => detectedLangs.add(l));
     return detectedLangs;
 }
-
 export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
     const timeLabel = fast ? 'parse (fast)' : 'parse';
-
     console.time(timeLabel);
-    const proc = fast ? fastBaseProcessor : currentProcessor;
+    const proc = fast ? baseProcessor : currentProcessor;
     let tree: HastRoot = null;
-    let mdastTree: Root = null;
-    console.log(proc);
     try {
         // Reset the edit block ID counter before parsing
         resetForBubble(seq);
-        mdastTree = proc.parse(src) as Root;
-        tree = proc.runSync(mdastTree) as HastRoot;
+        tree = proc.runSync(proc.parse(src)) as HastRoot;
     } catch (e) {
-        console.error('parse failed', e);
+        console.error('[md-worker] parse failed', e);
         throw e;
     }
-
-    // Symbol lookup is now handled by individual SymbolAwareCode components
-    // No need for rehype-based symbol processing
-
     if (!fast && highlighter) {
         // detect langs in the shiki highlighting pass to load lang lazy
         const detectedLangs = detectCodeFenceLangs(tree as any);
@@ -133,5 +113,3 @@ function handlePendingLanguages(detectedLangs: Set<string>): void {
         });
     }
 }
-
-// Symbol lookup is now handled by SymbolAwareCode components - no worker processing needed
