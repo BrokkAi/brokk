@@ -134,7 +134,7 @@ treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitte
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
 apache = ["apache-compress"]
-chronicle-map = ["chronicle-map"]
+chronicle = ["chronicle-map"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "4.3.0" }
