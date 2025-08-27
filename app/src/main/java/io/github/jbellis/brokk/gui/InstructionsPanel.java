@@ -659,13 +659,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             SwingUtilities.invokeLater(
                     () -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
         }
-    // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
-    // caller.
+        // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the
+        // caller.
     }
 
     /**
-     * Centralized model selection from the dropdown with fallback and optional vision check.
-     * Returns null if selection fails or vision is required but unsupported.
+     * Centralized model selection from the dropdown with fallback and optional vision check. Returns null if selection
+     * fails or vision is required but unsupported.
      */
     private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel, boolean requireVision) {
         var cm = chrome.getContextManager();
@@ -681,8 +681,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var selectedModel = models.getModel(config);
         if (selectedModel == null) {
-            chrome.toolError(
-                    "Selected model '" + config.name() + "' is not available with reasoning level " + config.reasoning());
+            chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
+                    + config.reasoning());
             selectedModel = castNonNull(models.getModel(Service.GPT_5_MINI));
         }
 
