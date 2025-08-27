@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -286,9 +287,15 @@ public class ContextHistory {
         getEntryInfo(popped.id()).ifPresent(info -> {
             var filesToDelete =
                     info.deletedFiles().stream().map(DeletedFile::file).toList();
-            if (!filesToDelete.isEmpty() && project.hasGit()) {
+            if (!filesToDelete.isEmpty()) {
                 try {
-                    project.getRepo().forceRemoveFiles(filesToDelete);
+                    if (project.hasGit()) {
+                        project.getRepo().forceRemoveFiles(filesToDelete);
+                    } else {
+                        for (var file : filesToDelete) {
+                            Files.deleteIfExists(file.absPath());
+                        }
+                    }
                     io.systemOutput("Deleted files as part of redo: "
                             + String.join(
                                     ", ",
