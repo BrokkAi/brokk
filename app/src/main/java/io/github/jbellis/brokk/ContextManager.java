@@ -270,19 +270,43 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
             submitBackgroundTask("Migrate sessions to V3", () -> {
                 var sessionsWithUnreadableHistory = new HashSet<UUID>();
-                project.getSessionManager().listSessions().stream()
-                        .map(SessionInfo::id)
-                        .forEach(session -> {
-                            // loading history triggers migration if needed
-                            if (project.getSessionManager().loadHistory(session, this) == null) {
-                                sessionsWithUnreadableHistory.add(session);
-                            }
-                        });
+                var sessionManager = project.getSessionManager();
+
+                sessionManager.listSessions().stream().map(SessionInfo::id).forEach(session -> {
+                    // loading history triggers migration if needed
+                    if (sessionManager.loadHistory(session, this) == null) {
+                        sessionsWithUnreadableHistory.add(session);
+                    }
+                });
+
+                // Avoid deleting the currently active session to prevent disrupting the UI/session state
+                boolean skippedActive = sessionsWithUnreadableHistory.remove(currentSessionId);
+
+                int deleted = 0;
+                for (var sessionId : sessionsWithUnreadableHistory) {
+                    try {
+                        sessionManager.deleteSession(sessionId);
+                        deleted++;
+                    } catch (Exception e) {
+                        logger.warn("Failed to delete session {} with unreadable history", sessionId, e);
+                    }
+                }
+
                 mainProject.setMigrationsToSessionsV3Complete(true);
+
                 logger.info(
-                        "Migrated sessions to V3; {} sessions with unreadable history: {}",
-                        sessionsWithUnreadableHistory.size(),
+                        "Migrated sessions to V3; deleted {} sessions with unreadable history: {}",
+                        deleted,
                         sessionsWithUnreadableHistory.stream().sorted().toList());
+                if (skippedActive) {
+                    logger.info(
+                            "Skipped deleting currently active session {} due to unreadable history; user may delete it manually.",
+                            currentSessionId);
+                }
+                if (deleted > 0 && io instanceof Chrome chrome) {
+                    SwingUtilities.invokeLater(
+                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+                }
             });
         }
     }
