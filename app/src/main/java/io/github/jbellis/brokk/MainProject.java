@@ -943,8 +943,11 @@ public final class MainProject extends AbstractProject {
     public Set<ProjectFile> getLiveDependencies() {
         var allDeps = getAllOnDiskDependencies();
         var liveDepsNames = mainWorkspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
-        if (liveDepsNames == null || liveDepsNames.isBlank()) {
+        if (liveDepsNames == null) {
             return allDeps;
+        }
+        if (liveDepsNames.isBlank()) {
+            return Set.of();
         }
 
         var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
