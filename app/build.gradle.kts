@@ -25,7 +25,16 @@ application {
     applicationDefaultJvmArgs = listOf(
         "-ea",  // Enable assertions
         "--add-modules=jdk.incubator.vector",  // Vector API support
-        "-Dbrokk.devmode=true"  // Development mode flag
+        "-Dbrokk.devmode=true",  // Development mode flag
+        "--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED",
+        "--add-exports=java.base/sun.nio.ch=ALL-UNNAMED",
+        "--add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED",
+        "--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+        "--add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED"
     )
 }
 
@@ -79,6 +88,7 @@ dependencies {
     implementation(libs.jspecify)
     implementation(libs.picocli)
     implementation(libs.bundles.apache)
+    implementation(libs.bundles.chronicle.map)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -211,21 +221,25 @@ val errorProneJvmArgs = listOf(
 tasks.named<JavaCompile>("compileJava") {
     options.isIncremental = true
     options.isFork = true
-    options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
-        "-Xmx2g",  // Increase compiler heap size
-        "-XX:+UseG1GC"  // Use G1 GC for compiler
-    ))
+    options.forkOptions.jvmArgs?.addAll(
+        errorProneJvmArgs + listOf(
+            "-Xmx2g",  // Increase compiler heap size
+            "-XX:+UseG1GC"  // Use G1 GC for compiler
+        )
+    )
 
     // Optimized javac options for performance
-    options.compilerArgs.addAll(listOf(
-        "-parameters",  // Preserve method parameter names
-        "-g:source,lines,vars",  // Generate full debugging information
-        "-Xmaxerrs", "500",  // Maximum error count
-        "-XDcompilePolicy=simple",  // Error Prone compilation policy
-        "--should-stop=ifError=FLOW",  // Stop compilation policy
-        "-Werror",  // Treat warnings as errors
-        "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
-    ))
+    options.compilerArgs.addAll(
+        listOf(
+            "-parameters",  // Preserve method parameter names
+            "-g:source,lines,vars",  // Generate full debugging information
+            "-Xmaxerrs", "500",  // Maximum error count
+            "-XDcompilePolicy=simple",  // Error Prone compilation policy
+            "--should-stop=ifError=FLOW",  // Stop compilation policy
+            "-Werror",  // Treat warnings as errors
+            "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
+        )
+    )
 
     // Enhanced ErrorProne configuration with NullAway
     options.errorprone {
@@ -243,15 +257,21 @@ tasks.named<JavaCompile>("compileJava") {
 
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
-        option("NullAway:ExcludedFieldAnnotations",
-               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
-        option("NullAway:ExcludedClassAnnotations",
-               "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
+        option(
+            "NullAway:ExcludedFieldAnnotations",
+            "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test"
+        )
+        option(
+            "NullAway:ExcludedClassAnnotations",
+            "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance"
+        )
         option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
         option("NullAway:JarInferStrictMode", "true")
         option("NullAway:CheckOptionalEmptiness", "true")
-        option("NullAway:KnownInitializers",
-               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
+        option(
+            "NullAway:KnownInitializers",
+            "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll"
+        )
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
 
@@ -264,12 +284,14 @@ tasks.named<JavaCompile>("compileJava") {
 tasks.named<JavaCompile>("compileTestJava") {
     options.isIncremental = true
     options.isFork = false
-    options.compilerArgs.addAll(listOf(
-        "-parameters",
-        "-g:source,lines,vars",
-        "-Xlint:deprecation",
-        "-Xlint:unchecked"
-    ))
+    options.compilerArgs.addAll(
+        listOf(
+            "-parameters",
+            "-g:source,lines,vars",
+            "-Xlint:deprecation",
+            "-Xlint:unchecked"
+        )
+    )
 
     // Completely disable ErrorProne for test compilation
     options.errorprone.isEnabled = false
@@ -317,7 +339,8 @@ tasks.withType<Test> {
         override fun onOutput(testDescriptor: TestDescriptor, outputEvent: TestOutputEvent) {
             val testKey = "${testDescriptor.className}.${testDescriptor.name}"
             if (outputEvent.destination == TestOutputEvent.Destination.StdOut ||
-                outputEvent.destination == TestOutputEvent.Destination.StdErr) {
+                outputEvent.destination == TestOutputEvent.Destination.StdErr
+            ) {
                 testOutputs.merge(testKey, outputEvent.message) { existing, new -> existing + new }
             }
         }
@@ -459,8 +482,8 @@ tasks.shadowJar {
 // Only run shadowJar when explicitly requested or in CI
 tasks.shadowJar {
     enabled = project.hasProperty("enableShadowJar") ||
-              System.getenv("CI") == "true" ||
-              gradle.startParameter.taskNames.contains("shadowJar")
+            System.getenv("CI") == "true" ||
+            gradle.startParameter.taskNames.contains("shadowJar")
 }
 
 // When shadowJar is enabled, disable the regular jar task to avoid creating two JARs

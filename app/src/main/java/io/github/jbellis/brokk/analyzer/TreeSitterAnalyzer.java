@@ -13,7 +13,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayDeque; // Added import
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -26,15 +25,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -56,18 +50,7 @@ public abstract class TreeSitterAnalyzer
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
     private final ThreadLocal<TSQuery> query;
-    private final Map<ProjectFile, List<CodeUnit>> topLevelDeclarations =
-            new ConcurrentHashMap<>(); // package-private for testing
-    private final Map<CodeUnit, List<CodeUnit>> childrenByParent =
-            new ConcurrentHashMap<>(); // package-private for testing
-    private final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
-    private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
-    // SHA-1 hash of each analysed file, used to detect modifications
-    private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
-    private final Map<ProjectFile, TSTree> parsedTreeCache =
-            new ConcurrentHashMap<>(); // Cache parsed trees to avoid redundant parsing
-    // Ensures reads see a consistent view while updates mutate internal maps atomically
-    private final ReentrantReadWriteLock stateRwLock = new ReentrantReadWriteLock();
+    protected final TreeSitterDatabase db;
 
     private final IProject project;
     private final Language language;
@@ -75,63 +58,12 @@ public abstract class TreeSitterAnalyzer
 
     /** Frees memory from the parsed AST cache. */
     public void clearCaches() {
-        withReadLock(parsedTreeCache::clear);
+        db.clearCaches();
     }
 
     /** The number of cached AST entries. */
     public int cacheSize() {
-        return withReadLock(parsedTreeCache::size);
-    }
-
-    /* ------------ read-lock helpers ------------ */
-
-    /** Execute {@code supplier} under the read lock and return its result. */
-    private <T> T withReadLock(Supplier<T> supplier) {
-        var rl = stateRwLock.readLock();
-        rl.lock();
-        try {
-            return supplier.get();
-        } finally {
-            rl.unlock();
-        }
-    }
-
-    /** Execute {@code runnable} under the read lock. */
-    private void withReadLock(Runnable runnable) {
-        var rl = stateRwLock.readLock();
-        rl.lock();
-        try {
-            runnable.run();
-        } finally {
-            rl.unlock();
-        }
-    }
-
-    /**
-     * A thread-safe way to interact with the "signatures" field.
-     *
-     * @param function the callback.
-     */
-    protected <R> R withSignatures(Function<Map<CodeUnit, List<String>>, R> function) {
-        return withReadLock(() -> function.apply(signatures));
-    }
-
-    /**
-     * A thread-safe way to interact with the "childrenByParent" field.
-     *
-     * @param function the callback.
-     */
-    protected <R> R withChildrenByParent(Function<Map<CodeUnit, List<CodeUnit>>, R> function) {
-        return withReadLock(() -> function.apply(childrenByParent));
-    }
-
-    /**
-     * A thread-safe way to interact with the "topLevelDeclarations" field.
-     *
-     * @param function the callback.
-     */
-    public <R> R withTopLevelDeclarations(Function<Map<ProjectFile, List<CodeUnit>>, R> function) {
-        return withReadLock(() -> function.apply(topLevelDeclarations));
+        return db.cacheSize();
     }
 
     /**
@@ -184,7 +116,7 @@ public abstract class TreeSitterAnalyzer
     protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
         this.project = project;
         this.language = language;
-        // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
+        this.db = new TreeSitterDatabase(project, language);
 
         this.normalizedExcludedPaths = excludedFiles.stream()
                 .map(Path::of)
@@ -218,65 +150,69 @@ public abstract class TreeSitterAnalyzer
         var successfullyProcessed = new AtomicInteger(0);
         var failedFiles = new AtomicInteger(0);
 
-        project.getAllFiles().stream()
-                .filter(pf -> {
-                    // Normalize the file path once
-                    var filePath = pf.absPath().toAbsolutePath().normalize();
+        if (db.isEmpty()) {
+            db.withDatabase(database -> {
+                project.getAllFiles().stream()
+                        .filter(pf -> {
+                            // Normalize the file path once
+                            var filePath = pf.absPath().toAbsolutePath().normalize();
 
-                    // Check if file is under any excluded path
-                    var excludedBy = normalizedExcludedPaths.stream()
-                            .filter(filePath::startsWith)
-                            .findFirst();
+                            // Check if file is under any excluded path
+                            var excludedBy = normalizedExcludedPaths.stream()
+                                    .filter(filePath::startsWith)
+                                    .findFirst();
 
-                    if (excludedBy.isPresent()) {
-                        log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
-                        return false;
-                    }
+                            if (excludedBy.isPresent()) {
+                                log.trace("Skipping excluded file due to rule {}: {}", excludedBy.get(), pf);
+                                return false;
+                            }
 
-                    // Check extension
-                    var pathStr = filePath.toString();
-                    return validExtensions.stream().anyMatch(pathStr::endsWith);
-                })
-                .parallel()
-                .forEach(pf -> {
-                    totalFilesAttempted.incrementAndGet();
-                    log.trace("Processing file: {}", pf);
-                    // TSParser is not threadsafe, so we create a parser per thread
-                    var localParser = new TSParser();
-                    try {
-                        if (!localParser.setLanguage(getTSLanguage())) {
-                            log.error(
-                                    "Failed to set language on thread-local TSParser for language {} in file {}",
-                                    getTSLanguage().getClass().getSimpleName(),
-                                    pf);
-                            return; // Skip this file if parser setup fails
-                        }
-                        var analysisResult = analyzeFileDeclarations(pf, localParser);
-                        if (!analysisResult.topLevelCUs().isEmpty()
-                                || !analysisResult.signatures().isEmpty()
-                                || !analysisResult.sourceRanges().isEmpty()) {
-                            topLevelDeclarations.put(
-                                    pf, analysisResult.topLevelCUs()); // Already unmodifiable from result
+                            // Check extension
+                            var pathStr = filePath.toString();
+                            return validExtensions.stream().anyMatch(pathStr::endsWith);
+                        })
+                        .parallel()
+                        .forEach(pf -> {
+                            totalFilesAttempted.incrementAndGet();
+                            log.trace("Processing file: {}", pf);
+                            // TSParser is not threadsafe, so we create a parser per thread
+                            var localParser = new TSParser();
+                            try {
+                                if (!localParser.setLanguage(getTSLanguage())) {
+                                    log.error(
+                                            "Failed to set language on thread-local TSParser for language {} in file {}",
+                                            getTSLanguage().getClass().getSimpleName(),
+                                            pf);
+                                    return; // Skip this file if parser setup fails
+                                }
+                                var analysisResult = analyzeFileDeclarations(pf, localParser);
 
-                            analysisResult
-                                    .children()
-                                    .forEach((parentCU, newChildCUs) -> childrenByParent.compute(
-                                            parentCU, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                                                if (existing == null) {
-                                                    return newChildCUs; // Already unmodifiable
-                                                }
-                                                // Use Set for efficient merging and deduplication
-                                                var combined = new LinkedHashSet<>(existing);
-                                                if (!combined.addAll(newChildCUs)) {
-                                                    return existing; // No change, return original list
-                                                }
-                                                return Collections.unmodifiableList(new ArrayList<>(combined));
-                                            }));
+                                if (!analysisResult.topLevelCUs().isEmpty()
+                                        || !analysisResult.signatures().isEmpty()
+                                        || !analysisResult.sourceRanges().isEmpty()) {
+                                    database.topLevelDeclarations()
+                                            .put(pf, analysisResult.topLevelCUs()); // Already unmodifiable from result
 
-                            analysisResult
-                                    .signatures()
-                                    .forEach((cu, newSignaturesList) ->
-                                            signatures.compute(cu, (CodeUnit key, @Nullable List<String> existing) -> {
+                                    analysisResult
+                                            .children()
+                                            .forEach((parentCU, newChildCUs) -> database.childrenByParent()
+                                                    .compute(
+                                                            parentCU,
+                                                            (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
+                                                                if (existing == null) {
+                                                                    return newChildCUs; // Already unmodifiable
+                                                                }
+                                                                // Use Set for efficient merging and deduplication
+                                                                var combined = new LinkedHashSet<>(existing);
+                                                                if (!combined.addAll(newChildCUs)) {
+                                                                    return existing; // No change, return original list
+                                                                }
+                                                                return Collections.unmodifiableList(
+                                                                        new ArrayList<>(combined));
+                                                            }));
+
+                                    analysisResult.signatures().forEach((cu, newSignaturesList) -> database.signatures()
+                                            .compute(cu, (CodeUnit key, @Nullable List<String> existing) -> {
                                                 if (existing == null) {
                                                     return newSignaturesList; // Already unmodifiable from result
                                                 }
@@ -288,10 +224,8 @@ public abstract class TreeSitterAnalyzer
                                                 return Collections.unmodifiableList(new ArrayList<>(combined));
                                             }));
 
-                            analysisResult
-                                    .sourceRanges()
-                                    .forEach((cu, newRangesList) -> sourceRanges.compute(
-                                            cu, (CodeUnit key, @Nullable List<Range> existingRangesList) -> {
+                                    analysisResult.sourceRanges().forEach((cu, newRangesList) -> database.sourceRanges()
+                                            .compute(cu, (CodeUnit key, @Nullable List<Range> existingRangesList) -> {
                                                 if (existingRangesList == null) {
                                                     return newRangesList; // Already unmodifiable
                                                 }
@@ -300,107 +234,89 @@ public abstract class TreeSitterAnalyzer
                                                 return Collections.unmodifiableList(combined);
                                             }));
 
-                            log.trace(
-                                    "Processed file {}: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
-                                    pf,
-                                    analysisResult.topLevelCUs().size(),
-                                    analysisResult.signatures().size(),
-                                    analysisResult.children().size(),
-                                    analysisResult.sourceRanges().size());
-                        } else {
-                            log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
-                        }
-                        successfullyProcessed.incrementAndGet();
-                    } catch (OutOfMemoryError e) {
-                        // Critical JVM issues that should terminate processing
-                        throw e;
-                    } catch (IOException e) {
-                        failedFiles.incrementAndGet();
-                        log.warn("IO error analyzing {}: {}", pf, e.getMessage());
-                    } catch (Exception e) {
-                        // Handle all other exceptions (including RuntimeException) by logging and continuing
-                        failedFiles.incrementAndGet();
-                        if (e instanceof RuntimeException) {
-                            log.error("Runtime error analyzing {}: {}", pf, e.getMessage(), e);
-                        } else {
-                            log.warn("Error analyzing {}: {}", pf, e.getMessage(), e);
-                        }
-                    }
-                });
+                                    log.trace(
+                                            "Processed file {}: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
+                                            pf,
+                                            analysisResult.topLevelCUs().size(),
+                                            analysisResult.signatures().size(),
+                                            analysisResult.children().size(),
+                                            analysisResult.sourceRanges().size());
+                                } else {
+                                    log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
+                                }
+                                successfullyProcessed.incrementAndGet();
+                            } catch (OutOfMemoryError e) {
+                                // Critical JVM issues that should terminate processing
+                                throw e;
+                            } catch (IOException e) {
+                                failedFiles.incrementAndGet();
+                                log.warn("IO error analyzing {}: {}", pf, e.getMessage());
+                            } catch (Exception e) {
+                                // Handle all other exceptions (including RuntimeException) by logging and continuing
+                                failedFiles.incrementAndGet();
+                                if (e instanceof RuntimeException) {
+                                    log.error("Runtime error analyzing {}: {}", pf, e.getMessage(), e);
+                                } else {
+                                    log.warn("Error analyzing {}: {}", pf, e.getMessage(), e);
+                                }
+                            }
+                        });
 
-        // Log summary of file processing results
-        int totalAttempted = totalFilesAttempted.get();
-        int successful = successfullyProcessed.get();
-        int failed = failedFiles.get();
+                // Log summary of file processing results
+                int totalAttempted = totalFilesAttempted.get();
+                int successful = successfullyProcessed.get();
+                int failed = failedFiles.get();
 
-        if (failed > 0) {
-            log.warn(
-                    "File processing summary: {} attempted, {} successful, {} failed",
-                    totalAttempted,
-                    successful,
-                    failed);
+                if (failed > 0) {
+                    log.warn(
+                            "File processing summary: {} attempted, {} successful, {} failed",
+                            totalAttempted,
+                            successful,
+                            failed);
+                } else {
+                    log.info("File processing summary: {} files processed successfully", successful);
+                }
+                return database;
+            });
         } else {
-            log.info("File processing summary: {} files processed successfully", successful);
+            update();
         }
 
         log.debug(
                 "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
-                topLevelDeclarations.size(),
-                childrenByParent.size(),
-                signatures.size());
+                db.topLevelDeclarationsSize(),
+                db.childrenByParentSize(),
+                db.signaturesSize());
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language) {
         this(project, language, Collections.emptySet());
     }
 
-    /* ---------- Helper methods for accessing CodeUnits ---------- */
-
-    /** All CodeUnits we know about (top-level + children). */
-    private Stream<CodeUnit> allCodeUnits() {
-        // Stream top-level declarations
-        Stream<CodeUnit> topLevelStream = topLevelDeclarations.values().stream().flatMap(Collection::stream);
-
-        // Stream parents from childrenByParent (they might not be in topLevelDeclarations if they are nested)
-        Stream<CodeUnit> parentStream = childrenByParent.keySet().stream();
-
-        // Stream children from childrenByParent
-        Stream<CodeUnit> childrenStream = childrenByParent.values().stream().flatMap(Collection::stream);
-
-        return Stream.of(topLevelStream, parentStream, childrenStream).flatMap(s -> s);
-    }
-
-    /** De-duplicate and materialise into a List once. */
-    private List<CodeUnit> uniqueCodeUnitList() {
-        return withReadLock(() -> allCodeUnits().distinct().toList());
-    }
-
     /* ---------- IAnalyzer ---------- */
     @Override
     public boolean isEmpty() {
-        return withReadLock(() -> topLevelDeclarations.isEmpty()
-                && signatures.isEmpty()
-                && childrenByParent.isEmpty()
-                && sourceRanges.isEmpty());
+        return db.isEmpty();
     }
 
     @Override
     public Optional<String> getSkeletonHeader(String fqName) {
-        return withReadLock(() -> getSkeletonImpl(fqName, true));
+        return getSkeletonImpl(fqName, true);
     }
 
     @Override
     public List<CodeUnit> getMembersInClass(String fqClass) {
-        Optional<CodeUnit> parent = uniqueCodeUnitList().stream()
+        Optional<CodeUnit> parent = db.uniqueCodeUnitList().stream()
                 .filter(cu -> cu.fqName().equals(fqClass) && cu.isClass())
                 .findFirst();
-        return parent.map(p -> List.copyOf(childrenByParent.getOrDefault(p, List.of())))
+        return parent.map(p -> List.copyOf(
+                        db.withChildrenByParent(childrenByParent -> childrenByParent.getOrDefault(p, List.of()))))
                 .orElse(List.of());
     }
 
     @Override
     public Optional<ProjectFile> getFileFor(String fqName) {
-        return uniqueCodeUnitList().stream()
+        return db.uniqueCodeUnitList().stream()
                 .filter(cu -> cu.fqName().equals(fqName))
                 .map(CodeUnit::source)
                 .findFirst();
@@ -408,7 +324,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<CodeUnit> getDefinition(String fqName) {
-        return uniqueCodeUnitList().stream()
+        return db.uniqueCodeUnitList().stream()
                 .filter(cu -> cu.fqName().equals(fqName))
                 .findFirst();
     }
@@ -416,9 +332,9 @@ public abstract class TreeSitterAnalyzer
     @Override
     public List<CodeUnit> getAllDeclarations() {
         Set<CodeUnit> allClasses = new HashSet<>();
-        topLevelDeclarations.values().forEach(allClasses::addAll);
-        childrenByParent.values().forEach(allClasses::addAll); // Children lists
-        allClasses.addAll(childrenByParent.keySet()); // Parent CUs themselves
+        db.withTopLevelDeclarations(Map::values).forEach(allClasses::addAll);
+        db.withChildrenByParent(Map::values).forEach(allClasses::addAll); // Children lists
+        allClasses.addAll(db.withChildrenByParent(Map::keySet)); // Parent CUs themselves
         return allClasses.stream().filter(CodeUnit::isClass).distinct().toList();
     }
 
@@ -427,12 +343,12 @@ public abstract class TreeSitterAnalyzer
             String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
-            return uniqueCodeUnitList().stream()
+            return db.uniqueCodeUnitList().stream()
                     .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(fallbackPattern))
                     .toList();
         } else {
             // Primary search using compiled regex pattern
-            return uniqueCodeUnitList().stream()
+            return db.uniqueCodeUnitList().stream()
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
                     .toList();
         }
@@ -445,12 +361,13 @@ public abstract class TreeSitterAnalyzer
      * @return Map from ProjectFile to List of CodeUnits declared at the top level in that file
      */
     public Map<ProjectFile, List<CodeUnit>> getTopLevelDeclarations() {
-        return Map.copyOf(topLevelDeclarations);
+        return Map.copyOf(db.withTopLevelDeclarations(topLevelDeclarations -> topLevelDeclarations));
     }
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
+        List<CodeUnit> topCUs =
+                db.withTopLevelDeclarations(topLevelDeclarations -> topLevelDeclarations.getOrDefault(file, List.of()));
         if (topCUs.isEmpty()) return Map.of();
 
         Map<CodeUnit, String> resultSkeletons = new HashMap<>();
@@ -469,7 +386,9 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
-        List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
+        List<CodeUnit> topCUs =
+                db.withTopLevelDeclarations(topLevelDeclarations -> topLevelDeclarations.getOrDefault(file, List.of()));
+
         if (topCUs.isEmpty()) return Set.of();
 
         Set<CodeUnit> allDeclarationsInFile = new HashSet<>();
@@ -480,11 +399,12 @@ public abstract class TreeSitterAnalyzer
             CodeUnit current = toProcess.poll();
             allDeclarationsInFile.add(current); // Add all encountered CodeUnits
 
-            childrenByParent.getOrDefault(current, List.of()).forEach(child -> {
-                if (visited.add(child)) { // Add to queue only if not visited
-                    toProcess.add(child);
-                }
-            });
+            db.withChildrenByParent(childrenByParent -> childrenByParent.getOrDefault(current, List.of()))
+                    .forEach(child -> {
+                        if (visited.add(child)) { // Add to queue only if not visited
+                            toProcess.add(child);
+                        }
+                    });
         }
         log.trace("getDeclarationsInFile: file={}, count={}", file, allDeclarationsInFile.size());
         return Collections.unmodifiableSet(allDeclarationsInFile);
@@ -497,7 +417,7 @@ public abstract class TreeSitterAnalyzer
     }
 
     private void reconstructSkeletonRecursive(CodeUnit cu, String indent, boolean headerOnly, StringBuilder sb) {
-        List<String> sigList = signatures.get(cu);
+        List<String> sigList = db.withSignatures(signatures -> signatures.get(cu));
         if (sigList == null || sigList.isEmpty()) {
             // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual
             // signatures.
@@ -520,7 +440,7 @@ public abstract class TreeSitterAnalyzer
             }
         }
 
-        final List<CodeUnit> kids = childrenByParent.getOrDefault(cu, List.of()).stream()
+        final List<CodeUnit> kids = db.withChildrenByParent(children -> children.getOrDefault(cu, List.of())).stream()
                 .filter(child -> !headerOnly || child.isField())
                 .toList();
         // Only add children and closer if the CU can have them (e.g. class, or function that can nest)
@@ -533,7 +453,9 @@ public abstract class TreeSitterAnalyzer
             }
             if (headerOnly && cu.isClass()) {
                 final var nonFieldKidsSize =
-                        childrenByParent.getOrDefault(cu, List.of()).size() - kids.size();
+                        db.withChildrenByParent(childrenByParent -> childrenByParent.getOrDefault(cu, List.of()))
+                                        .size()
+                                - kids.size();
                 if (nonFieldKidsSize > 0) {
                     sb.append(childIndent).append("[...]").append("\n");
                 }
@@ -551,7 +473,7 @@ public abstract class TreeSitterAnalyzer
     }
 
     public Optional<String> getSkeletonImpl(String fqName, Boolean headerOnly) {
-        return withReadLock(() -> {
+        return db.withSignatures(signatures -> {
             Optional<CodeUnit> cuOpt = signatures.keySet().stream()
                     .filter(c -> c.fqName().equals(fqName))
                     .findFirst();
@@ -571,7 +493,7 @@ public abstract class TreeSitterAnalyzer
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
 
-        var ranges = sourceRanges.get(cu);
+        var ranges = db.withSourceRanges(sourceRanges -> sourceRanges.get(cu));
         if (ranges == null || ranges.isEmpty()) {
             throw new SymbolNotFoundException("Source range not found for class: " + fqName);
         }
@@ -593,7 +515,7 @@ public abstract class TreeSitterAnalyzer
                 // overloads)
                 .filter(CodeUnit::isFunction)
                 .flatMap(cu -> {
-                    List<Range> rangesForOverloads = sourceRanges.get(cu);
+                    List<Range> rangesForOverloads = db.withSourceRanges(sourceRanges -> sourceRanges.get(cu));
                     if (rangesForOverloads == null || rangesForOverloads.isEmpty()) {
                         log.warn(
                                 "No source ranges found for CU {} (fqName {}) although definition was found.",
@@ -669,7 +591,7 @@ public abstract class TreeSitterAnalyzer
      * @return The cached TSTree, or null if not available
      */
     protected @Nullable TSTree getCachedTree(ProjectFile file) {
-        return parsedTreeCache.get(file);
+        return db.withParsedTreeCache(cache -> cache.get(file));
     }
 
     /** Provides the language-specific syntax profile. */
@@ -781,7 +703,8 @@ public abstract class TreeSitterAnalyzer
         final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
         // record (or refresh) the file content hash
-        fileHashes.put(file, sha1Hex(fileBytes));
+        final var hash = sha1Hex(fileBytes);
+        db.withFileHashes(fileHashes -> fileHashes.put(file, hash));
 
         List<CodeUnit> localTopLevelCUs = new ArrayList<>();
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
@@ -792,7 +715,7 @@ public abstract class TreeSitterAnalyzer
 
         TSTree tree = localParser.parseString(null, src);
         // Cache the parsed tree for later use to avoid redundant parsing
-        parsedTreeCache.put(file, tree);
+        db.withParsedTreeCache(cache -> cache.put(file, tree));
         TSNode rootNode = tree.getRootNode();
         if (rootNode.isNull()) {
             log.warn("Parsing failed or produced null root node for {}", file);
@@ -2005,7 +1928,7 @@ public abstract class TreeSitterAnalyzer
      */
     @Override
     public List<CodeUnit> directChildren(CodeUnit cu) {
-        return withReadLock(() -> childrenByParent.getOrDefault(cu, List.of()));
+        return db.withChildrenByParent(childrenByParent -> childrenByParent.getOrDefault(cu, List.of()));
     }
 
     /* ---------- incremental updates ---------- */
@@ -2016,9 +1939,14 @@ public abstract class TreeSitterAnalyzer
             return this;
         }
 
-        var writeLock = stateRwLock.writeLock();
-        writeLock.lock();
-        try {
+        return db.withDatabase(database -> {
+            final var parsedTreeCache = database.parsedTreeCache();
+            final var topLevelDeclarations = database.topLevelDeclarations();
+            final var fileHashes = database.fileHashes();
+            final var childrenByParent = database.childrenByParent();
+            final var signatures = database.signatures();
+            final var sourceRanges = database.sourceRanges();
+
             for (var file : changedFiles) {
                 // -------- cleanup ----------
                 parsedTreeCache.remove(file);
@@ -2046,7 +1974,7 @@ public abstract class TreeSitterAnalyzer
                             continue;
                         }
                         var analysisResult = analyzeFileDeclarations(file, localParser);
-                        ingestAnalysisResult(file, analysisResult);
+                        ingestAnalysisResult(file, analysisResult, database);
                     } catch (IOException e) {
                         log.warn("IO error re-analysing {}: {}", file, e.getMessage());
                     } catch (RuntimeException e) {
@@ -2056,10 +1984,8 @@ public abstract class TreeSitterAnalyzer
                     log.debug("File {} deleted; state cleaned.", file);
                 }
             }
-        } finally {
-            writeLock.unlock();
-        }
-        return this;
+            return this;
+        });
     }
 
     /**
@@ -2081,7 +2007,7 @@ public abstract class TreeSitterAnalyzer
         Set<ProjectFile> changed = new HashSet<>();
 
         // deleted or no-longer-relevant files
-        for (ProjectFile known : new HashSet<>(fileHashes.keySet())) {
+        for (ProjectFile known : new HashSet<>(db.withFileHashes(Map::keySet))) {
             if (!currentFiles.contains(known) || !Files.exists(known.absPath())) {
                 changed.add(known);
             }
@@ -2092,7 +2018,7 @@ public abstract class TreeSitterAnalyzer
             try {
                 byte[] bytes = Files.readAllBytes(pf.absPath());
                 String newHash = sha1Hex(bytes);
-                String oldHash = fileHashes.get(pf);
+                String oldHash = db.withFileHashes(fileHashes -> fileHashes.get(pf));
                 if (!newHash.equals(oldHash)) {
                     changed.add(pf);
                 }
@@ -2106,37 +2032,34 @@ public abstract class TreeSitterAnalyzer
         return update(changed);
     }
 
-    private void ingestAnalysisResult(ProjectFile pf, FileAnalysisResult analysisResult) {
+    private void ingestAnalysisResult(
+            ProjectFile pf, FileAnalysisResult analysisResult, TreeSitterDatabase.Database database) {
         if (analysisResult.topLevelCUs().isEmpty()
                 && analysisResult.signatures().isEmpty()
                 && analysisResult.sourceRanges().isEmpty()) {
             return;
         }
 
-        topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
+        database.topLevelDeclarations().put(pf, analysisResult.topLevelCUs());
 
-        analysisResult
-                .children()
-                .forEach((parent, newKids) ->
-                        childrenByParent.compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                            if (existing == null) return newKids;
-                            var merged = new ArrayList<>(existing);
-                            newKids.stream().filter(k -> !merged.contains(k)).forEach(merged::add);
-                            return List.copyOf(merged);
-                        }));
+        analysisResult.children().forEach((parent, newKids) -> database.childrenByParent()
+                .compute(parent, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
+                    if (existing == null) return newKids;
+                    var merged = new ArrayList<>(existing);
+                    newKids.stream().filter(k -> !merged.contains(k)).forEach(merged::add);
+                    return List.copyOf(merged);
+                }));
 
-        analysisResult
-                .signatures()
-                .forEach((cu, newSigs) -> signatures.compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
+        analysisResult.signatures().forEach((cu, newSigs) -> database.signatures()
+                .compute(cu, (CodeUnit c, @Nullable List<String> existing) -> {
                     if (existing == null) return List.copyOf(newSigs);
                     var merged = new ArrayList<>(existing);
                     newSigs.stream().filter(s -> !merged.contains(s)).forEach(merged::add);
                     return List.copyOf(merged);
                 }));
 
-        analysisResult
-                .sourceRanges()
-                .forEach((cu, newRanges) -> sourceRanges.compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
+        analysisResult.sourceRanges().forEach((cu, newRanges) -> database.sourceRanges()
+                .compute(cu, (CodeUnit c, @Nullable List<Range> existing) -> {
                     if (existing == null) return List.copyOf(newRanges);
                     var merged = new ArrayList<>(existing);
                     merged.addAll(newRanges);

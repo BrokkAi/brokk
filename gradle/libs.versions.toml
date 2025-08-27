@@ -20,6 +20,7 @@ javafx = "22"
 node = "7.1.0"
 nodejs = "22.14.0"
 npm = "10.9.2"
+chronicle-map = "3.20.84"
 
 [libraries]
 # Scala
@@ -75,6 +76,7 @@ java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
+chronicle-map = { module = "net.openhft:chronicle-map", version.ref = "chronicle-map" }
 
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
@@ -132,6 +134,7 @@ treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitte
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
 apache = ["apache-compress"]
+chronicle-map = ["chronicle-map"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "4.3.0" }
