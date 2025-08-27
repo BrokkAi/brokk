@@ -70,14 +70,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private JTextArea reviewGuideArea;
 
+    private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
+    private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
+
     private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
     private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
     private JButton addExcludedDirButton = new JButton("Add");
     private JButton removeExcludedDirButton = new JButton("Remove");
-
-    private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
-    private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     private JTextField languagesDisplayField = new JTextField(20);
     private JButton editLanguagesButton = new JButton("Edit");
@@ -180,13 +180,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var analyzersPanel = createAnalyzersPanel();
         projectSubTabbedPane.addTab("Analyzers", null, analyzersPanel, "Code analyzers configured for this project");
 
-        var mcpPanel = createMcpPanel();
-        projectSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
-
         // Data Retention Tab
         dataRetentionPanelInner = new DataRetentionPanel(project, this);
         projectSubTabbedPane.addTab(
                 "Data Retention", null, dataRetentionPanelInner, "Data retention policy for this project");
+
+        // MCP Servers Tab
+        var mcpPanel = createMcpPanel();
+        projectSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
 
         // Jira Tab is now removed, its contents moved to the "Issues" tab's Jira card.
 
@@ -694,11 +695,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Add new MCP server (name + url). Tools can be fetched later.
         addButton.addActionListener(e -> {
-            javax.swing.JTextField nameField = new javax.swing.JTextField();
-            javax.swing.JTextField urlField = new javax.swing.JTextField();
-            javax.swing.JCheckBox useTokenCheckbox = new javax.swing.JCheckBox("Use Bearer Token");
-            javax.swing.JPasswordField tokenField = new javax.swing.JPasswordField();
-            javax.swing.JLabel tokenLabel = new JLabel("Bearer Token:");
+            JTextField nameField = new JTextField();
+            JTextField urlField = new JTextField();
+            JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
+            JPasswordField tokenField = new JPasswordField();
+            JLabel tokenLabel = new JLabel("Bearer Token:");
             var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
             showTokenButton.setToolTipText("Show/Hide token");
             showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
@@ -997,7 +998,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             String name,
             String rawUrl,
             boolean useToken,
-            javax.swing.JPasswordField tokenField,
+            JPasswordField tokenField,
             @Nullable List<String> existingTools) {
 
         // Validate URL presence and format - inline validation will show error
@@ -1595,7 +1596,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // MCP Servers Tab
         mcpServersListModel.clear();
-        var mcpConfig = project.getMcpConfig();
+        var mcpConfig = chrome.getProject().getMcpConfig();
         for (McpServer server : mcpConfig.servers()) {
             mcpServersListModel.addElement(server);
         }
@@ -1731,11 +1732,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             panel.saveSettings();
         }
 
-        // After applying data retention, model list might need refresh
-        chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
-            chrome.getContextManager().reloadModelsAsync();
-        });
-
         // MCP Servers Tab
         var servers = new ArrayList<McpServer>();
         for (int i = 0; i < mcpServersListModel.getSize(); i++) {
@@ -1743,6 +1739,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
         var newMcpConfig = new McpConfig(servers);
         project.setMcpConfig(newMcpConfig);
+
+        // After applying data retention, model list might need refresh
+        chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
+            chrome.getContextManager().reloadModelsAsync();
+        });
 
         return true;
     }

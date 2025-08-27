@@ -942,7 +942,8 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public McpConfig getMcpConfig() {
-        String json = projectProps.getProperty(MCP_CONFIG_JSON_KEY);
+        var props = loadGlobalProperties();
+        String json = props.getProperty(MCP_CONFIG_JSON_KEY);
         if (json == null || json.isBlank()) {
             return McpConfig.EMPTY;
         }
@@ -956,15 +957,16 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setMcpConfig(McpConfig config) {
+        var props = loadGlobalProperties();
         try {
-            String json = objectMapper.writeValueAsString(config);
-            if (json == null || json.isBlank()) {
-                projectProps.remove(MCP_CONFIG_JSON_KEY);
+            if (config.servers().isEmpty()) {
+                props.remove(MCP_CONFIG_JSON_KEY);
             } else {
-                projectProps.setProperty(MCP_CONFIG_JSON_KEY, json);
+                String json = objectMapper.writeValueAsString(config);
+                props.setProperty(MCP_CONFIG_JSON_KEY, json);
             }
-            saveProjectProperties();
-            logger.debug("Saved MCP configuration to project properties.");
+            saveGlobalProperties(props);
+            logger.debug("Saved MCP configuration to global properties.");
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize McpConfig to JSON: {}. Settings not saved.", config, e);
             throw new RuntimeException(e);
