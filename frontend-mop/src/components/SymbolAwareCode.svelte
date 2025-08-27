@@ -99,6 +99,12 @@
   });
 
   function validateAndRequestSymbol() {
+    // Verify we're in browser environment (not server-side rendering)
+    if (typeof window === 'undefined') {
+      log.debug('Skipping symbol validation - no browser environment');
+      return;
+    }
+
     const cleaned = cleanSymbolName(symbolText);
 
     if (cleaned) {
@@ -106,7 +112,9 @@
       symbolText = cleaned;
 
       // Request symbol resolution
-      requestSymbolResolution(symbolText, contextId);
+      requestSymbolResolution(symbolText, contextId).catch(error => {
+        log.warn(`Symbol resolution failed for ${symbolText}:`, error);
+      });
 
       log.debug(`Symbol component mounted for '${symbolText}'`);
     } else {

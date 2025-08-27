@@ -122,11 +122,13 @@
 
         // Unified symbol lookup implementation for new store-based architecture
         lookupSymbolsAsync: function(symbolNamesJson, seq, contextId) {
-            console.log(`[Mock JavaBridge] Lookup request received`);
+            console.log(`[Mock JavaBridge] Lookup request received: symbols=${symbolNamesJson}, seq=${seq}, contextId=${contextId}`);
             const results = {};
 
             // Parse symbols from JSON
             const symbols = JSON.parse(symbolNamesJson);
+            console.log(`[Mock JavaBridge] Processing ${symbols.length} symbols:`, symbols);
+
             for (const symbol of symbols) {
                 const exists = this._mockSymbolsSet.has(symbol);
                 if (exists) {
@@ -134,15 +136,14 @@
                 }
             }
 
+            console.log(`[Mock JavaBridge] Results:`, results);
+
             // Simulate async behavior, then call the response handler
             setTimeout(() => {
                 if (window.brokk?.onSymbolLookupResponse) {
-                    if (seq !== null) {
-                        window.brokk.onSymbolLookupResponse(results, seq, contextId);
-                    } else {
-                        window.brokk.onSymbolLookupResponse(results, contextId);
-                    }
-                    console.log(`[Mock JavaBridge] Response sent`);
+                    // Always use the new signature with sequence and contextId
+                    window.brokk.onSymbolLookupResponse(results, seq, contextId);
+                    console.log(`[Mock JavaBridge] Response sent with seq=${seq}, contextId=${contextId}`);
                 } else {
                     console.error('[Mock JavaBridge] Response handler not available');
                 }

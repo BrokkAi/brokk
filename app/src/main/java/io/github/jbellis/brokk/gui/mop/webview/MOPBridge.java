@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -272,51 +271,84 @@ public final class MOPBridge {
     }
 
     public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
+        // Assert we're not blocking the EDT with this call
+        assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
+
         logger.debug(
                 "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
         logger.debug("ContextManager available: {}", contextManager != null);
 
-        if (contextManager != null) {
-            var project = contextManager.getProject();
-            logger.debug("Project: {}", project != null ? project.getRoot() : "null");
+        // Parse symbol names (keep existing parsing logic)
+        Set<String> symbolNames;
+        try {
+            symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
+        } catch (Exception e) {
+            logger.warn("Failed to parse symbol names JSON: {}", symbolNamesJson, e);
+            sendEmptyResponse(seq, contextId);
+            return;
         }
 
-        // Execute symbol lookup on background thread to avoid blocking JavaFX Application Thread
-        CompletableFuture.supplyAsync(() -> {
+        if (symbolNames.isEmpty()) {
+            sendEmptyResponse(seq, contextId);
+            return;
+        }
+
+        if (contextManager == null) {
+            logger.warn("No context manager available for symbol lookup");
+            sendEmptyResponse(seq, contextId);
+            return;
+        }
+
+        // Use Chrome's background task system instead of raw CompletableFuture.supplyAsync()
+        contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
+            // Assert background task is not running on EDT
+            assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
+
+            try {
+                logger.debug("Starting symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
+
+                // SymbolLookupService methods are synchronous/blocking - run in background
+                var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
+
+                logger.debug(
+                        "Symbol lookup completed. Found {} results: {}",
+                        results.size(),
+                        results.entrySet().stream()
+                                .map(entry -> entry.getKey() + " -> " + entry.getValue())
+                                .collect(java.util.stream.Collectors.joining(", ")));
+
+                // Return to UI thread for JavaScript bridge communication
+                Platform.runLater(() -> {
                     try {
-                        var symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
-                        logger.debug(
-                                "Parsed {} symbol names for lookup, seq: {}, contextId: {}",
-                                symbolNames.size(),
-                                seq,
-                                contextId);
-
-                        var results = SymbolLookupService.lookupSymbolsOptimized(symbolNames, contextManager);
-
-                        logger.debug(
-                                "Async symbol lookup completed, returning {} found symbols out of {} requested, seq: {}, contextId: {}",
-                                results.size(),
-                                symbolNames.size(),
-                                seq,
-                                contextId);
-                        return results;
+                        var resultsJson = toJson(results);
+                        var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
+                                + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
+                                + toJson(contextId) + "); }";
+                        engine.executeScript(js);
+                        logger.trace("Sent symbol lookup response for context {}", contextId);
                     } catch (Exception e) {
-                        logger.warn("Error in async symbol lookup, seq: {}, contextId: {}", seq, contextId, e);
-                        return new HashMap<String, String>();
+                        logger.warn("Failed to send symbol lookup response", e);
                     }
-                })
-                .thenAccept(results -> {
-                    // Send result directly via dedicated window.brokk method
-                    var resultsJson = toJson(results);
-                    var js =
-                            "if (window.brokk && window.brokk.onSymbolLookupResponse) { window.brokk.onSymbolLookupResponse("
-                                    + resultsJson + ", " + seq + ", " + toJson(contextId) + "); }";
-                    Platform.runLater(() -> engine.executeScript(js));
-                    logger.debug(
-                            "Symbol lookup result sent directly to window.brokk for seq: {}, contextId: {}",
-                            seq,
-                            contextId);
                 });
+
+            } catch (Exception e) {
+                logger.warn("Symbol lookup failed for seq={}, contextId={}", seq, contextId, e);
+                Platform.runLater(() -> {
+                    sendEmptyResponse(seq, contextId);
+                });
+            }
+            return null;
+        });
+    }
+
+    private void sendEmptyResponse(int seq, String contextId) {
+        try {
+            var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
+                    + "window.brokk.onSymbolLookupResponse({}, " + seq + ", " + toJson(contextId) + "); }";
+            engine.executeScript(js);
+        } catch (Exception e) {
+            logger.warn("Failed to send empty symbol lookup response", e);
+        }
     }
 
     public void onSymbolRightClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
