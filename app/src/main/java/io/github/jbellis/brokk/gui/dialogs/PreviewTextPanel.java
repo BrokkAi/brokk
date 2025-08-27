@@ -4,6 +4,8 @@ import static java.util.Objects.requireNonNull;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -12,8 +14,7 @@ import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -80,7 +81,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     @Nullable
     private final Future<Set<CodeUnit>> fileDeclarations;
 
+    @Nullable
+    private final Future<Map<Language, AnalyzerCapabilities>> analyzerCapabilities;
+
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
+
+    private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
 
     public PreviewTextPanel(
             ContextManager contextManager,
@@ -218,8 +224,37 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
             });
+            analyzerCapabilities = contextManager.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
+                var analyzer = contextManager.getAnalyzerUninterrupted();
+                final var capabilityMap = new HashMap<Language, AnalyzerCapabilities>();
+                if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
+                    multiAnalyzer.getDelegates().forEach((language, an) -> {
+                        final AnalyzerCapabilities capabilities;
+                        if (an.isEmpty()) {
+                            capabilities = new AnalyzerCapabilities(false, false);
+                        } else {
+                            var hasUsages = an.as(UsagesProvider.class).isPresent();
+                            var hasSource = an.as(SourceCodeProvider.class).isPresent();
+                            capabilities = new AnalyzerCapabilities(hasUsages, hasSource);
+                        }
+                        capabilityMap.put(language, capabilities);
+                    });
+                } else {
+                    contextManager.getProject().getAnalyzerLanguages().stream()
+                            .findFirst()
+                            .ifPresent(language -> {
+                                var hasUsages =
+                                        analyzer.as(UsagesProvider.class).isPresent();
+                                var hasSource =
+                                        analyzer.as(SourceCodeProvider.class).isPresent();
+                                capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
+                            });
+                }
+                return capabilityMap;
+            });
         } else {
             fileDeclarations = null; // Ensure @Nullable field is explicitly null if file is null
+            analyzerCapabilities = null;
         }
     }
 
@@ -292,13 +327,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     if (file == null) {
                         return;
                     }
-                    if (fileDeclarations == null) { // Guard against null fileDeclarations
+                    if (fileDeclarations == null
+                            || analyzerCapabilities == null) { // Guard against null fileDeclarations
                         logger.warn(
-                                "fileDeclarations is null when populating dynamic menu items. This should not happen if file is not null.");
+                                "fileDeclarations or analyzerCapabilities is null when populating dynamic menu items. This should not happen if file is not null.");
                         return;
                     }
 
-                    if (!fileDeclarations.isDone()) {
+                    if (!fileDeclarations.isDone() || !analyzerCapabilities.isDone()) {
                         var item = new JMenuItem("Waiting for Code Intelligence...");
                         item.setEnabled(false);
                         dynamicMenuItems.add(item);
@@ -322,8 +358,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     }
 
                     Set<CodeUnit> codeUnits;
+                    Map<Language, AnalyzerCapabilities> capabilitiesMap;
                     try {
                         codeUnits = fileDeclarations.get();
+                        capabilitiesMap = analyzerCapabilities.get();
                     } catch (InterruptedException | ExecutionException ex) {
                         throw new RuntimeException(ex);
                     }
@@ -385,27 +423,60 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                         && identifier.endsWith(x.shortName()));
 
                                 if (!isConstructor) {
-                                    var usageItem = new JMenuItem(
-                                            "<html>Capture usages of <code>" + identifier + "</code></html>");
-                                    // Use a local variable for the action listener lambda
-                                    usageItem.addActionListener(action -> {
-                                        contextManager.submitBackgroundTask(
-                                                "Capture Usages",
-                                                () -> contextManager.usageForIdentifier(codeUnit.identifier()));
-                                    });
-                                    dynamicMenuItems.add(usageItem); // Track for removal
-
-                                    if (codeUnit.isFunction() || codeUnit.isClass()) {
-                                        var sourceItem = new JMenuItem(
-                                                "<html>Capture source of <code>" + identifier + "</code></html>");
-                                        dynamicMenuItems.add(sourceItem);
-
-                                        sourceItem.addActionListener(action -> {
-                                            contextManager.submitBackgroundTask(
-                                                    "Capture Source Code",
-                                                    () -> contextManager.sourceCodeForCodeUnit(codeUnit));
-                                        });
+                                    final String extension;
+                                    if (file.getFileName().contains(".")) {
+                                        extension =
+                                                Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
+                                    } else {
+                                        extension = null;
                                     }
+
+                                    capabilitiesMap.entrySet().stream()
+                                            .filter(entry -> entry.getKey()
+                                                    .getExtensions()
+                                                    .contains(extension))
+                                            .findFirst()
+                                            .ifPresent(entry -> {
+                                                final var capabilities = entry.getValue();
+                                                var usagesAvailable = capabilities.hasUsages();
+                                                var usageItem = new JMenuItem("<html>Capture usages of <code>"
+                                                        + identifier + "</code></html>");
+                                                dynamicMenuItems.add(usageItem); // Track for removal
+                                                usageItem.setEnabled(usagesAvailable);
+                                                if (usagesAvailable) {
+                                                    // Use a local variable for the action listener lambda
+                                                    usageItem.addActionListener(action -> {
+                                                        contextManager.submitBackgroundTask(
+                                                                "Capture Usages",
+                                                                () -> contextManager.usageForIdentifier(
+                                                                        codeUnit.identifier()));
+                                                    });
+                                                } else {
+                                                    usageItem.setToolTipText(
+                                                            "Code intelligence does not support usage capturing for this language.");
+                                                }
+
+                                                if (codeUnit.isFunction() || codeUnit.isClass()) {
+                                                    var sourceCodeAvailable = capabilities.hasSource();
+                                                    var sourceItem = new JMenuItem("<html>Capture source of <code>"
+                                                            + identifier + "</code></html>");
+                                                    dynamicMenuItems.add(sourceItem);
+
+                                                    sourceItem.setEnabled(sourceCodeAvailable);
+                                                    if (sourceCodeAvailable) {
+                                                        // Use a local variable for the action listener lambda
+                                                        sourceItem.addActionListener(action -> {
+                                                            contextManager.submitBackgroundTask(
+                                                                    "Capture Source Code",
+                                                                    () -> contextManager.sourceCodeForCodeUnit(
+                                                                            codeUnit));
+                                                        });
+                                                    } else {
+                                                        sourceItem.setToolTipText(
+                                                                "Code intelligence does not support source code capturing for this language.");
+                                                    }
+                                                }
+                                            });
                                 }
                             }
                         }

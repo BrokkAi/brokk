@@ -232,4 +232,9 @@ public class MultiAnalyzer
         // TODO -- unused right now
         throw new UnsupportedOperationException();
     }
+
+    /** @return a copy of the delegates of this analyzer. */
+    public Map<Language, IAnalyzer> getDelegates() {
+        return Collections.unmodifiableMap(delegates);
+    }
 }
