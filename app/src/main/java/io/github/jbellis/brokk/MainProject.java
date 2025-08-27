@@ -948,9 +948,13 @@ public final class MainProject extends AbstractProject {
             return McpConfig.EMPTY;
         }
         try {
-            return objectMapper.readValue(json, McpConfig.class);
+            var typeFactory = objectMapper.getTypeFactory();
+            var mapType = typeFactory.constructMapType(HashMap.class, String.class, McpConfig.class);
+            Map<String, McpConfig> allConfigs = objectMapper.readValue(json, mapType);
+            String projectPath = getMasterRootPathForConfig().toAbsolutePath().toString();
+            return allConfigs.getOrDefault(projectPath, McpConfig.EMPTY);
         } catch (JsonProcessingException e) {
-            logger.error("Failed to deserialize McpConfig from JSON: {}. Returning EMPTY.", json, e);
+            logger.error("Failed to deserialize McpConfig from JSON. JSON: {}", json, e);
             return McpConfig.EMPTY;
         }
     }
@@ -958,15 +962,35 @@ public final class MainProject extends AbstractProject {
     @Override
     public void setMcpConfig(McpConfig config) {
         var props = loadGlobalProperties();
+        String json = props.getProperty(MCP_CONFIG_JSON_KEY);
+        Map<String, McpConfig> allConfigs = new HashMap<>();
+
+        if (json != null && !json.isBlank()) {
+            try {
+                var typeFactory = objectMapper.getTypeFactory();
+                var mapType = typeFactory.constructMapType(HashMap.class, String.class, McpConfig.class);
+                allConfigs = objectMapper.readValue(json, mapType);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize existing McpConfig JSON, will overwrite. JSON: {}", json, e);
+            }
+        }
+
+        String projectPath = getMasterRootPathForConfig().toAbsolutePath().toString();
+        if (config.servers().isEmpty()) {
+            allConfigs.remove(projectPath);
+        } else {
+            allConfigs.put(projectPath, config);
+        }
+
         try {
-            if (config.servers().isEmpty()) {
+            if (allConfigs.isEmpty()) {
                 props.remove(MCP_CONFIG_JSON_KEY);
             } else {
-                String json = objectMapper.writeValueAsString(config);
-                props.setProperty(MCP_CONFIG_JSON_KEY, json);
+                String newJson = objectMapper.writeValueAsString(allConfigs);
+                props.setProperty(MCP_CONFIG_JSON_KEY, newJson);
             }
             saveGlobalProperties(props);
-            logger.debug("Saved MCP configuration to global properties.");
+            logger.debug("Saved MCP configuration to global properties for project {}.", projectPath);
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize McpConfig to JSON: {}. Settings not saved.", config, e);
             throw new RuntimeException(e);

@@ -694,222 +694,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         });
 
         // Add new MCP server (name + url). Tools can be fetched later.
-        addButton.addActionListener(e -> {
-            JTextField nameField = new JTextField();
-            JTextField urlField = new JTextField();
-            JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
-            JPasswordField tokenField = new JPasswordField();
-            JLabel tokenLabel = new JLabel("Bearer Token:");
-            var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
-            showTokenButton.setToolTipText("Show/Hide token");
-            showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
-            showTokenButton.setContentAreaFilled(false);
-            showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
-            // Store the default echo character
-            char defaultEchoChar = tokenField.getEchoChar();
-            showTokenButton.addActionListener(ae -> {
-                if (showTokenButton.isSelected()) {
-                    tokenField.setEchoChar((char) 0); // Show text
-                    showTokenButton.setIcon(Icons.VISIBILITY);
-                } else {
-                    tokenField.setEchoChar(defaultEchoChar); // Hide text
-                    showTokenButton.setIcon(Icons.VISIBILITY_OFF);
-                }
-            });
-
-            var tokenPanel = new JPanel(new BorderLayout());
-            tokenPanel.add(tokenField, BorderLayout.CENTER);
-            tokenPanel.add(showTokenButton, BorderLayout.EAST);
-
-            // Initially hide token label and field until checkbox is selected
-            tokenLabel.setVisible(false);
-            tokenPanel.setVisible(false);
-
-            useTokenCheckbox.addActionListener(ae -> {
-                boolean sel = useTokenCheckbox.isSelected();
-                tokenLabel.setVisible(sel);
-                tokenPanel.setVisible(sel);
-                // Refresh the dialog layout if it's already shown
-                SwingUtilities.invokeLater(() -> {
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
-                    if (w != null) {
-                        w.pack();
-                    }
-                    tokenPanel.revalidate();
-                    tokenPanel.repaint();
-                });
-            });
-
-            // Inline URL validation label (hidden by default)
-            JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
-
-            // Attach debounced validation listener
-            urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
-
-            JPanel panel = new JPanel(new GridLayout(0, 1));
-            panel.add(new JLabel("Name:"));
-            panel.add(nameField);
-            panel.add(new JLabel("URL:"));
-            panel.add(urlField);
-            panel.add(urlErrorLabel);
-            panel.add(useTokenCheckbox);
-            panel.add(tokenLabel);
-            panel.add(tokenPanel);
-
-            var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
-            final var dialog = optionPane.createDialog(SettingsProjectPanel.this, "Add MCP Server");
-            optionPane.addPropertyChangeListener(pce -> {
-                if (pce.getSource() == optionPane && pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
-                    var value = optionPane.getValue();
-                    if (value == JOptionPane.UNINITIALIZED_VALUE) {
-                        // This is our reset state, ignore it
-                        return;
-                    }
-
-                    if (value.equals(JOptionPane.OK_OPTION)) {
-                        String name = nameField.getText().trim();
-                        String rawUrl = urlField.getText().trim();
-                        boolean useToken = useTokenCheckbox.isSelected();
-                        McpServer server = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, null);
-                        if (server != null) {
-                            mcpServersListModel.addElement(server);
-                            mcpServersList.setSelectedValue(server, true);
-                            dialog.setVisible(false); // Success, close dialog
-                        } else {
-                            // Validation failed. Show error label, pack dialog, and reset JOptionPane value
-                            // to prevent closing.
-                            urlErrorLabel.setVisible(true);
-                            dialog.pack();
-                            dialog.setVisible(true);
-                            optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
-                        }
-                    } else {
-                        // User clicked Cancel or closed the window
-                        dialog.setVisible(false);
-                    }
-                }
-            });
-
-            dialog.setVisible(true);
-        });
+        addButton.addActionListener(e -> showMcpServerDialog("Add MCP Server", null, server -> {
+            mcpServersListModel.addElement(server);
+            mcpServersList.setSelectedValue(server, true);
+        }));
 
         // Edit selected MCP server
         editButton.addActionListener(e -> {
             int idx = mcpServersList.getSelectedIndex();
             if (idx < 0) return;
             McpServer existing = mcpServersListModel.getElementAt(idx);
-
-            JTextField nameField = new JTextField(existing.name());
-            JTextField urlField = new JTextField(existing.url().toString());
-            JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
-            JPasswordField tokenField = new JPasswordField();
-            JLabel tokenLabel = new JLabel("Bearer Token:");
-            var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
-            showTokenButton.setToolTipText("Show/Hide token");
-            showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
-            showTokenButton.setContentAreaFilled(false);
-            showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
-            // Store the default echo character
-            char defaultEchoChar = tokenField.getEchoChar();
-            showTokenButton.addActionListener(ae -> {
-                if (showTokenButton.isSelected()) {
-                    tokenField.setEchoChar((char) 0); // Show text
-                    showTokenButton.setIcon(Icons.VISIBILITY);
-                } else {
-                    tokenField.setEchoChar(defaultEchoChar); // Hide text
-                    showTokenButton.setIcon(Icons.VISIBILITY_OFF);
-                }
+            showMcpServerDialog("Edit MCP Server", existing, updated -> {
+                mcpServersListModel.setElementAt(updated, idx);
+                mcpServersList.setSelectedIndex(idx);
             });
-
-            var tokenPanel = new JPanel(new BorderLayout());
-            tokenPanel.add(tokenField, BorderLayout.CENTER);
-            tokenPanel.add(showTokenButton, BorderLayout.EAST);
-
-            String existingToken = existing.bearerToken();
-            if (existingToken != null && !existingToken.isEmpty()) {
-                useTokenCheckbox.setSelected(true);
-                // Normalize display: ensure it starts with "Bearer "
-                String displayToken = existingToken;
-                if (!displayToken.regionMatches(true, 0, "Bearer ", 0, 7)) {
-                    displayToken = "Bearer " + displayToken;
-                }
-                tokenField.setText(displayToken);
-                tokenLabel.setVisible(true);
-                tokenPanel.setVisible(true);
-            } else {
-                // Hide the token input unless checkbox is selected
-                tokenLabel.setVisible(false);
-                tokenPanel.setVisible(false);
-            }
-            useTokenCheckbox.addActionListener(ae -> {
-                boolean sel = useTokenCheckbox.isSelected();
-                tokenLabel.setVisible(sel);
-                tokenPanel.setVisible(sel);
-                SwingUtilities.invokeLater(() -> {
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
-                    if (w != null) {
-                        w.pack();
-                    }
-                    tokenPanel.revalidate();
-                    tokenPanel.repaint();
-                });
-            });
-
-            // Inline URL validation label (hidden by default)
-            JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
-
-            // Attach debounced validation listener
-            urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
-
-            JPanel panel = new JPanel(new GridLayout(0, 1));
-            panel.add(new JLabel("Name:"));
-            panel.add(nameField);
-            panel.add(new JLabel("URL:"));
-            panel.add(urlField);
-            panel.add(urlErrorLabel);
-            panel.add(useTokenCheckbox);
-            panel.add(tokenLabel);
-            panel.add(tokenPanel);
-
-            var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
-            final var dialog = optionPane.createDialog(SettingsProjectPanel.this, "Edit MCP Server");
-            optionPane.addPropertyChangeListener(pce -> {
-                if (dialog.isVisible()
-                        && pce.getSource() == optionPane
-                        && pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
-                    var value = optionPane.getValue();
-                    if (value == JOptionPane.UNINITIALIZED_VALUE) {
-                        // This is our reset state, ignore it
-                        return;
-                    }
-
-                    if (value.equals(JOptionPane.OK_OPTION)) {
-                        String name = nameField.getText().trim();
-                        String rawUrl = urlField.getText().trim();
-                        boolean useToken = useTokenCheckbox.isSelected();
-                        McpServer updated =
-                                createMcpServerFromInputs(name, rawUrl, useToken, tokenField, existing.tools());
-                        if (updated != null) {
-                            mcpServersListModel.setElementAt(updated, idx);
-                            mcpServersList.setSelectedIndex(idx);
-                            dialog.setVisible(false); // Success, close dialog
-                        } else {
-                            // Validation failed. Show error label, pack dialog, and reset JOptionPane value
-                            // to prevent closing.
-                            urlErrorLabel.setVisible(true);
-                            dialog.pack();
-                            optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
-                        }
-                    } else {
-                        // User clicked Cancel or closed the window
-                        dialog.setVisible(false);
-                    }
-                }
-            });
-
-            dialog.setVisible(true);
         });
 
         // Remove selected MCP server with confirmation
@@ -933,6 +731,110 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         mcpPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         return mcpPanel;
+    }
+
+    private void showMcpServerDialog(
+            String title, @Nullable McpServer existing, java.util.function.Consumer<McpServer> onSave) {
+        JTextField nameField = new JTextField(existing != null ? existing.name() : "");
+        JTextField urlField = new JTextField(existing != null ? existing.url().toString() : "");
+        JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
+        JPasswordField tokenField = new JPasswordField();
+        JLabel tokenLabel = new JLabel("Bearer Token:");
+        var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
+        showTokenButton.setToolTipText("Show/Hide token");
+        showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+        showTokenButton.setContentAreaFilled(false);
+        showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        char defaultEchoChar = tokenField.getEchoChar();
+        showTokenButton.addActionListener(ae -> {
+            if (showTokenButton.isSelected()) {
+                tokenField.setEchoChar((char) 0);
+                showTokenButton.setIcon(Icons.VISIBILITY);
+            } else {
+                tokenField.setEchoChar(defaultEchoChar);
+                showTokenButton.setIcon(Icons.VISIBILITY_OFF);
+            }
+        });
+
+        var tokenPanel = new JPanel(new BorderLayout());
+        tokenPanel.add(tokenField, BorderLayout.CENTER);
+        tokenPanel.add(showTokenButton, BorderLayout.EAST);
+
+        String existingToken = existing != null ? existing.bearerToken() : null;
+        if (existingToken != null && !existingToken.isEmpty()) {
+            useTokenCheckbox.setSelected(true);
+            String displayToken = existingToken;
+            if (!displayToken.regionMatches(true, 0, "Bearer ", 0, 7)) {
+                displayToken = "Bearer " + displayToken;
+            }
+            tokenField.setText(displayToken);
+            tokenLabel.setVisible(true);
+            tokenPanel.setVisible(true);
+        } else {
+            tokenLabel.setVisible(false);
+            tokenPanel.setVisible(false);
+        }
+
+        useTokenCheckbox.addActionListener(ae -> {
+            boolean sel = useTokenCheckbox.isSelected();
+            tokenLabel.setVisible(sel);
+            tokenPanel.setVisible(sel);
+            SwingUtilities.invokeLater(() -> {
+                java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
+                if (w != null) w.pack();
+                tokenPanel.revalidate();
+                tokenPanel.repaint();
+            });
+        });
+
+        JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
+        urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
+
+        JPanel panel = new JPanel(new GridLayout(0, 1));
+        panel.add(new JLabel("Name:"));
+        panel.add(nameField);
+        panel.add(new JLabel("URL:"));
+        panel.add(urlField);
+        panel.add(urlErrorLabel);
+        panel.add(useTokenCheckbox);
+        panel.add(tokenLabel);
+        panel.add(tokenPanel);
+
+        var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        final var dialog = optionPane.createDialog(SettingsProjectPanel.this, title);
+
+        optionPane.addPropertyChangeListener(pce -> {
+            if (pce.getSource() != optionPane || !pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
+                return;
+            }
+            var value = optionPane.getValue();
+            if (value == JOptionPane.UNINITIALIZED_VALUE) {
+                return;
+            }
+
+            if (value.equals(JOptionPane.OK_OPTION)) {
+                String name = nameField.getText().trim();
+                String rawUrl = urlField.getText().trim();
+                boolean useToken = useTokenCheckbox.isSelected();
+                List<String> existingTools = (existing != null) ? existing.tools() : null;
+                McpServer newServer = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, existingTools);
+
+                if (newServer != null) {
+                    onSave.accept(newServer);
+                    dialog.setVisible(false);
+                } else {
+                    urlErrorLabel.setVisible(true);
+                    dialog.pack();
+                    dialog.setVisible(true);
+                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                }
+            } else {
+                dialog.setVisible(false);
+            }
+        });
+
+        dialog.setVisible(true);
     }
 
     /**
