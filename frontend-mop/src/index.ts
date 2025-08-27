@@ -1,5 +1,6 @@
 import './styles/global.scss';
 import {mount, tick} from 'svelte';
+import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {spinnerStore} from './stores/spinnerStore';
@@ -7,7 +8,7 @@ import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log} from './lib/logging';
-import {onSymbolResolutionResponse} from './stores/symbolCacheStore';
+import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 
 let searchCtrl: SearchController | null = null;
 
@@ -61,8 +62,8 @@ function setupBrokkInterface(): any[] {
         // Symbol lookup refresh API
         refreshSymbolLookup: refreshSymbolLookup,
 
-        // Analyzer update API
-        analyzerUpdated: analyzerUpdated,
+        // Analyzer API
+        onAnalyzerReadyResponse: refreshSymbolLookups,
 
         // Symbol lookup response API
         onSymbolLookupResponse: onSymbolResolutionResponse,
@@ -120,12 +121,24 @@ function hideSpinnerMessage(): void {
 
 function refreshSymbolLookup(): void {
     log.debugLog('[symbol-lookup] Refreshing symbol lookup for all content');
-    reparseAll();
+    reparseAll(); // Uses default 'main-context'
 }
 
-function analyzerUpdated(): void {
-    log.debugLog('[analyzer] Analyzer updated, refreshing symbol lookup for all content');
-    reparseAll();
+/**
+ * Generic symbol refresh mechanism that clears cache and triggers UI refresh.
+ * Can be called from multiple scenarios: analyzer ready, context switch,
+ * manual refresh, configuration changes, error recovery, etc.
+ *
+ * @param contextId - The context ID to refresh symbols for
+ */
+function refreshSymbolLookups(contextId: string): void {
+    log.debugLog(`[symbol-refresh] Refreshing symbols for context: ${contextId}, clearing cache and triggering UI refresh`);
+
+    // Clear symbol cache to ensure fresh lookups
+    clearSymbolCache(contextId);
+
+    // Trigger symbol lookup for visible symbols to highlight them
+    reparseAll(contextId);
 }
 
 

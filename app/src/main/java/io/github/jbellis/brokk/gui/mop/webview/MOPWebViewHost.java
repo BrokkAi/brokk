@@ -407,13 +407,22 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
-    public void analyzerUpdated() {
+    public void onAnalyzerReadyResponse(String contextId) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
-            logger.debug("analyzerUpdated ignored; bridge not ready");
+            logger.debug("onAnalyzerReady ignored; bridge not ready for context: {}", contextId);
             return;
         }
-        bridge.analyzerUpdated();
+        bridge.onAnalyzerReadyResponse(contextId);
+    }
+
+    public String getContextCacheId() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("getContextCacheId ignored; bridge not ready");
+            return "no-bridge";
+        }
+        return bridge.getContextCacheId();
     }
 
     private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {

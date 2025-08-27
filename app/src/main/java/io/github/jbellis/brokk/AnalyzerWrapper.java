@@ -241,12 +241,13 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
             logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
+            // Check if analyzer became ready BEFORE submitting task to avoid race condition
+            boolean isNowReady = (analyzer != null);
+            logger.debug("Checking analyzer ready transition: wasReady={}, isNowReady={}", wasReady, isNowReady);
+
             // always refresh workspace in case there was a race and we shut down
             // after saving a new analyzer but before refreshing the workspace
             runner.submit("Refreshing Workspace", () -> {
-                // Check if analyzer became ready (transition from not-ready to ready)
-                boolean isNowReady = isReady();
-                logger.debug("Checking analyzer ready transition: wasReady={}, isNowReady={}", wasReady, isNowReady);
                 if (!wasReady && isNowReady) {
                     logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
                     listener.onAnalyzerReady();
@@ -433,7 +434,8 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                 currentAnalyzer = supplier.get();
                 logger.debug("Analyzer refresh completed.");
                 if (listener != null) {
-                    boolean isNowReady = isReady();
+                    // Check readiness after analyzer assignment to avoid race condition
+                    boolean isNowReady = (currentAnalyzer != null);
                     logger.debug(
                             "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
                             wasReady,

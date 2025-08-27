@@ -402,7 +402,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
                 for (var callback : analyzerCallbacks) {
                     try {
-                        callback.onAnalyzerUpdated();
+                        callback.onAnalyzerReady();
                     } catch (Exception e) {
                         logger.warn("Analyzer callback failed", e);
                     }

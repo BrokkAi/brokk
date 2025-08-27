@@ -274,7 +274,13 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     @Override
     public void onAnalyzerUpdated() {
-        webHost.analyzerUpdated();
+        // No longer needed - onAnalyzerReady handles symbol highlighting
+    }
+
+    @Override
+    public void onAnalyzerReady() {
+        String contextId = webHost.getContextCacheId();
+        webHost.onAnalyzerReadyResponse(contextId);
     }
 
     public void dispose() {

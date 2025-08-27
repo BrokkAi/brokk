@@ -29,8 +29,6 @@ export function clearState(flushBeforeClear: boolean) {
   worker.postMessage(<InboundToWorker>{ type: 'clear-state', flushBeforeClear });
 }
 
-
-
 export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
   // 1. Ask worker to mark this block as "expanded"
   worker.postMessage(<InboundToWorker>{ type: 'expand-diff', bubbleId, blockId });
@@ -46,26 +44,9 @@ export function expandDiff(markdown: string, bubbleId: number, blockId: string) 
 
 /* context helper -------------------------------------------------- */
 function getContextId(): string {
-  // Use hardcoded context ID for now to ensure cache consistency
+  // Use constant context ID
   return 'main-context';
 }
-
-// Legacy worker-based symbol lookup removed - now handled by reactive components
-
-// Legacy worker-based symbol lookup - now handled by reactive components
-// export function onSymbolLookupResponse(results: Record<string, string>, seq: number, contextId: string): void {
-//   // Forward symbol lookup response to worker for processing
-//   if (worker) {
-//     worker.postMessage({
-//       type: 'symbol-lookup-response',
-//       results: results,
-//       seq: seq,
-//       contextId: contextId
-//     });
-//   } else {
-//     log.error('Worker not available for symbol lookup response');
-//   }
-// }
 
 /* inbound ----------------------------------------------------------- */
 worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
@@ -74,7 +55,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
   switch (msg.type) {
     case 'shiki-langs-ready':
       log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
-      reparseAll();
+      reparseAll(); // Uses default 'main-context'
       break;
     case 'result':
       log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);

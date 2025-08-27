@@ -420,17 +420,27 @@ export function clearContextCache(contextId: string): void {
 /**
  * Clear entire symbol cache
  */
-export function clearSymbolCache(): void {
+export function clearSymbolCache(contextId = 'main-context'): void {
     symbolCacheStore.update(cache => {
         const previousSize = cache.size;
 
         // Reset statistics
         cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0, responses: 0, lastUpdate: 0, symbolsFound: 0, symbolsNotFound: 0};
 
-        log.debug(`Symbol cache completely cleared. Removed ${previousSize} entries. Stats reset.`);
-
         return new Map();
     });
+
+    // CRITICAL: Also clear in-flight requests to allow new requests after analyzer ready
+    const inflightCount = inflightRequests.size;
+    inflightRequests.clear();
+
+    // Clear pending batches and reset timers
+    pendingBatchRequests.clear();
+    if (batchTimer !== null) {
+        clearTimeout(batchTimer);
+        batchTimer = null;
+    }
+    console.log(`[symbol-cache] Cleared pending batches and reset batch timer`);
 }
 
 /**

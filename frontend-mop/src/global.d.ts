@@ -20,6 +20,10 @@ declare global {
       prevMatch: () => void;
       scrollToCurrent: () => void;
       getSearchState: () => { total: number; current: number; query: string; caseSensitive: boolean; };
+
+      // Analyzer API
+      onAnalyzerReadyResponse: (contextId: string) => void;
+      onSymbolLookupResponse?: (results: Record<string, string>, seq: number, contextId: string) => void;
     };
     javaBridge?: {
       onAck: (epoch: number) => void;
