@@ -4,8 +4,10 @@
   import type { BubbleState } from './stores/bubblesStore';
   import MessageBubble from './components/MessageBubble.svelte';
   import AIReasoningBubble from './components/AIReasoningBubble.svelte';
+  import FloatingCacheStats from './components/FloatingCacheStats.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
+  import { debugStore } from './stores/debugStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -56,6 +58,11 @@
     overflow-x: hidden;
   }
 </style>
+
+<!-- Floating cache stats panel -->
+{#if $debugStore.showCacheStats}
+  <FloatingCacheStats />
+{/if}
 
 <div
   class="chat-container"

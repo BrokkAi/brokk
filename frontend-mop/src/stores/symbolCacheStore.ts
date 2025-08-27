@@ -40,7 +40,9 @@ let cacheStats = {
     evictions: 0,
     totalSymbolsProcessed: 0,
     responses: 0,
-    lastUpdate: 0
+    lastUpdate: 0,
+    symbolsFound: 0,
+    symbolsNotFound: 0
 };
 
 // Track sequence for validation
@@ -165,7 +167,7 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
         symbolCacheStore.update(cache => {
             // Check if already resolved while waiting
             const existing = cache.get(cacheKey);
-            if (existing?.status === 'resolved' && existing.fqn) {
+            if (existing?.status === 'resolved') {
                 log.debug(`Symbol already resolved while waiting: ${symbol}`);
                 cacheStats.hits++;
                 resolve();
@@ -186,6 +188,7 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
             cacheStats.requests++;
             cacheStats.misses++;
             cacheStats.totalSymbolsProcessed++;
+
 
             // Add to batch instead of making immediate call
             log.debug(`Adding symbol to batch: ${symbol}`);
@@ -324,6 +327,9 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         // Update cache stats
         cacheStats.responses++;
         cacheStats.lastUpdate = Date.now();
+        cacheStats.symbolsFound += updatedCount;
+        cacheStats.symbolsNotFound += notFoundCount;
+
 
         // Log cache statistics periodically
         if (cacheStats.requests % 10 === 0) {
@@ -368,9 +374,9 @@ export function clearContextCache(contextId: string): void {
 
         log.debug(`Cleared ${clearedCount} entries for context: '${contextId}'. Remaining cache size: ${newCache.size}`);
 
-        // Reset stats if cache is empty
-        if (newCache.size === 0) {
-            cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0};
+        // Reset stats only if cache is completely empty AND we cleared entries
+        if (newCache.size === 0 && clearedCount > 0) {
+            cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0, responses: 0, lastUpdate: 0, symbolsFound: 0, symbolsNotFound: 0};
             log.debug('Cache stats reset after context clear');
         }
 
@@ -386,7 +392,7 @@ export function clearSymbolCache(): void {
         const previousSize = cache.size;
 
         // Reset statistics
-        cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0};
+        cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0, responses: 0, lastUpdate: 0, symbolsFound: 0, symbolsNotFound: 0};
 
         log.debug(`Symbol cache completely cleared. Removed ${previousSize} entries. Stats reset.`);
 
@@ -406,10 +412,18 @@ export function getCacheStats() {
  */
 export function getCacheSize(): number {
     let size = 0;
-    symbolCacheStore.subscribe(cache => {
+    const unsubscribe = symbolCacheStore.subscribe(cache => {
         size = cache.size;
-    })();
+    });
+    unsubscribe();
     return size;
+}
+
+/**
+ * Get current number of in-flight requests
+ */
+export function getInflightRequestsCount(): number {
+    return inflightRequests.size;
 }
 
 /**

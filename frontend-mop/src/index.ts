@@ -65,7 +65,8 @@ function setupBrokkInterface(): any[] {
         analyzerUpdated: analyzerUpdated,
 
         // Symbol lookup response API
-        onSymbolLookupResponse: onSymbolResolutionResponse
+        onSymbolLookupResponse: onSymbolResolutionResponse,
+
     };
     return buffer;
 }
