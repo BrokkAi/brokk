@@ -35,7 +35,7 @@ public class ContextHistory {
 
     public record GitState(String commitHash, @Nullable String diff) {}
 
-    public record DeletedFile(ProjectFile file, String content) {}
+    public record DeletedFile(ProjectFile file, String content, boolean wasTracked) {}
 
     public record ContextHistoryEntryInfo(List<DeletedFile> deletedFiles) {}
 
@@ -220,12 +220,15 @@ public class ContextHistory {
                 return;
             }
 
-            var filesToRestore = new ArrayList<ProjectFile>();
+            var trackedToStage = new ArrayList<ProjectFile>();
+
             for (var deletedFile : info.deletedFiles()) {
                 var pf = deletedFile.file();
                 try {
                     pf.write(deletedFile.content());
-                    filesToRestore.add(pf);
+                    if (deletedFile.wasTracked()) {
+                        trackedToStage.add(pf);
+                    }
                 } catch (IOException e) {
                     var msg = "Failed to restore deleted file during undo: " + pf;
                     io.toolError(msg, "Undo Error");
@@ -233,13 +236,13 @@ public class ContextHistory {
                 }
             }
 
-            if (!filesToRestore.isEmpty() && project.hasGit()) {
+            if (!trackedToStage.isEmpty() && project.hasGit()) {
                 try {
-                    project.getRepo().add(filesToRestore);
+                    project.getRepo().add(trackedToStage);
                     io.systemOutput("Restored and staged files: "
                             + String.join(
                                     ", ",
-                                    filesToRestore.stream()
+                                    trackedToStage.stream()
                                             .map(Object::toString)
                                             .toList()));
                 } catch (Exception e) {

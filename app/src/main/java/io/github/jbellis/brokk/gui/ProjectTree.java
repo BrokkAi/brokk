@@ -4,13 +4,17 @@ import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.FileSystemEventListener;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextHistory;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,6 +22,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -251,6 +256,86 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             });
         });
         contextMenu.add(summarizeItem);
+
+        contextMenu.addSeparator();
+
+        JMenuItem deleteItem = new JMenuItem(selectedFiles.size() == 1 ? "Delete File" : "Delete Files");
+        deleteItem.addActionListener(ev -> {
+            var filesToDelete = selectedFiles;
+
+            contextManager.submitUserTask("Delete files", () -> {
+                try {
+                    var nonText =
+                            filesToDelete.stream().filter(pf -> !pf.isText()).toList();
+                    if (!nonText.isEmpty()) {
+                        SwingUtilities.invokeLater(
+                                () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
+                        return;
+                    }
+
+                    var trackedSet =
+                            project.hasGit() ? project.getRepo().getTrackedFiles() : java.util.Set.<ProjectFile>of();
+                    var deletedInfos = filesToDelete.stream()
+                            .map(pf -> {
+                                try {
+                                    var content = pf.exists() ? pf.read() : "";
+                                    boolean wasTracked = project.hasGit() && trackedSet.contains(pf);
+                                    return new ContextHistory.DeletedFile(pf, content, wasTracked);
+                                } catch (Exception ex) {
+                                    logger.error("Failed to read file before deletion: " + pf, ex);
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .toList();
+
+                    if (project.hasGit()) {
+                        project.getRepo().forceRemoveFiles(filesToDelete);
+                    } else {
+                        for (var pf : filesToDelete) {
+                            try {
+                                Files.deleteIfExists(pf.absPath());
+                            } catch (Exception ex) {
+                                var msg = "Failed to delete file: " + pf;
+                                logger.error(msg, ex);
+                                SwingUtilities.invokeLater(() -> chrome.toolError(msg));
+                            }
+                        }
+                    }
+
+                    String fileList =
+                            filesToDelete.stream().map(Object::toString).collect(Collectors.joining(", "));
+                    var description = "Deleted " + fileList;
+                    var taskResult = new TaskResult(
+                            description,
+                            new ContextFragment.TaskFragment(contextManager, List.of(), description),
+                            new HashSet<>(filesToDelete),
+                            new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+
+                    contextManager.addToHistory(taskResult, false);
+
+                    if (!deletedInfos.isEmpty()) {
+                        var contextHistory = contextManager.getContextHistory();
+                        var frozenContext = contextHistory.topContext();
+                        contextHistory.addEntryInfo(
+                                frozenContext.id(), new ContextHistory.ContextHistoryEntryInfo(deletedInfos));
+                        contextManager
+                                .getProject()
+                                .getSessionManager()
+                                .saveHistory(contextHistory, contextManager.getCurrentSessionId());
+                    }
+
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.systemOutput("Deleted " + fileList + ". Use Ctrl+Z to undo.");
+                    });
+                } catch (Exception ex) {
+                    logger.error("Error deleting selected files", ex);
+                    SwingUtilities.invokeLater(
+                            () -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
+                }
+            });
+        });
+        contextMenu.add(deleteItem);
 
         contextMenu.addSeparator();
         // Add "Run Tests in Shell" item
