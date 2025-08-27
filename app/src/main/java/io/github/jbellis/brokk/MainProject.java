@@ -61,6 +61,7 @@ public final class MainProject extends AbstractProject {
     // Keys for Architect Options persistence
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
+    private static final String MCP_CONFIG_JSON_KEY = "mcpConfigJson";
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
 
@@ -936,6 +937,37 @@ public final class MainProject extends AbstractProject {
             logger.error(
                     "Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
+        }
+    }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        String json = projectProps.getProperty(MCP_CONFIG_JSON_KEY);
+        if (json == null || json.isBlank()) {
+            return McpConfig.EMPTY;
+        }
+        try {
+            return objectMapper.readValue(json, McpConfig.class);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize McpConfig from JSON: {}. Returning EMPTY.", json, e);
+            return McpConfig.EMPTY;
+        }
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {
+        try {
+            String json = objectMapper.writeValueAsString(config);
+            if (json == null || json.isBlank()) {
+                projectProps.remove(MCP_CONFIG_JSON_KEY);
+            } else {
+                projectProps.setProperty(MCP_CONFIG_JSON_KEY, json);
+            }
+            saveProjectProperties();
+            logger.debug("Saved MCP configuration to project properties.");
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize McpConfig to JSON: {}. Settings not saved.", config, e);
+            throw new RuntimeException(e);
         }
     }
 
