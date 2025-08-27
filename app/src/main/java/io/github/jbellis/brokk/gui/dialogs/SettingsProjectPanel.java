@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.dialogs.analyzer.AnalyzerSettingsPanel;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
@@ -641,6 +642,18 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         return analyzersPanel;
     }
 
+    private JLabel createMcpServerUrlErrorLabel() {
+        var urlErrorLabel = new JLabel("Invalid URL");
+        var errorColor = UIManager.getColor("Label.errorForeground");
+        // A fallback to a softer, brownish-red if not defined in the theme
+        if (errorColor == null) {
+            errorColor = new Color(219, 49, 49);
+        }
+        urlErrorLabel.setForeground(errorColor);
+        urlErrorLabel.setVisible(false);
+        return urlErrorLabel;
+    }
+
     private JPanel createMcpPanel() {
         var mcpPanel = new JPanel(new BorderLayout(5, 5));
         mcpPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -686,35 +699,49 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             javax.swing.JCheckBox useTokenCheckbox = new javax.swing.JCheckBox("Use Bearer Token");
             javax.swing.JPasswordField tokenField = new javax.swing.JPasswordField();
             javax.swing.JLabel tokenLabel = new JLabel("Bearer Token:");
+            var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
+            showTokenButton.setToolTipText("Show/Hide token");
+            showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+            showTokenButton.setContentAreaFilled(false);
+            showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+            // Store the default echo character
+            char defaultEchoChar = tokenField.getEchoChar();
+            showTokenButton.addActionListener(ae -> {
+                if (showTokenButton.isSelected()) {
+                    tokenField.setEchoChar((char) 0); // Show text
+                    showTokenButton.setIcon(Icons.VISIBILITY);
+                } else {
+                    tokenField.setEchoChar(defaultEchoChar); // Hide text
+                    showTokenButton.setIcon(Icons.VISIBILITY_OFF);
+                }
+            });
+
+            var tokenPanel = new JPanel(new BorderLayout());
+            tokenPanel.add(tokenField, BorderLayout.CENTER);
+            tokenPanel.add(showTokenButton, BorderLayout.EAST);
 
             // Initially hide token label and field until checkbox is selected
             tokenLabel.setVisible(false);
-            tokenField.setVisible(false);
+            tokenPanel.setVisible(false);
 
             useTokenCheckbox.addActionListener(ae -> {
                 boolean sel = useTokenCheckbox.isSelected();
                 tokenLabel.setVisible(sel);
-                tokenField.setVisible(sel);
+                tokenPanel.setVisible(sel);
                 // Refresh the dialog layout if it's already shown
                 SwingUtilities.invokeLater(() -> {
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(tokenField);
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
                     if (w != null) {
                         w.pack();
                     }
-                    tokenField.revalidate();
-                    tokenField.repaint();
+                    tokenPanel.revalidate();
+                    tokenPanel.repaint();
                 });
             });
 
             // Inline URL validation label (hidden by default)
-            JLabel urlErrorLabel = new JLabel("Invalid URL");
-            var errorColor = UIManager.getColor("Label.errorForeground");
-            // A fallback to a softer, brownish-red if not defined in the theme
-            if (errorColor == null) {
-                errorColor = new Color(165, 42, 42);
-            }
-            urlErrorLabel.setForeground(errorColor);
-            urlErrorLabel.setVisible(false);
+            JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
 
             // Attach debounced validation listener
             urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
@@ -727,15 +754,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             panel.add(urlErrorLabel);
             panel.add(useTokenCheckbox);
             panel.add(tokenLabel);
-            panel.add(tokenField);
+            panel.add(tokenPanel);
 
-            var optionPane = new JOptionPane(panel,
-                                             JOptionPane.PLAIN_MESSAGE,
-                                             JOptionPane.OK_CANCEL_OPTION);
+            var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
             final var dialog = optionPane.createDialog(SettingsProjectPanel.this, "Add MCP Server");
             optionPane.addPropertyChangeListener(pce -> {
-                if (pce.getSource() == optionPane && pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY))
-                {
+                if (pce.getSource() == optionPane && pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
                     var value = optionPane.getValue();
                     if (value == JOptionPane.UNINITIALIZED_VALUE) {
                         // This is our reset state, ignore it
@@ -780,6 +804,27 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
             JPasswordField tokenField = new JPasswordField();
             JLabel tokenLabel = new JLabel("Bearer Token:");
+            var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
+            showTokenButton.setToolTipText("Show/Hide token");
+            showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+            showTokenButton.setContentAreaFilled(false);
+            showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+            // Store the default echo character
+            char defaultEchoChar = tokenField.getEchoChar();
+            showTokenButton.addActionListener(ae -> {
+                if (showTokenButton.isSelected()) {
+                    tokenField.setEchoChar((char) 0); // Show text
+                    showTokenButton.setIcon(Icons.VISIBILITY);
+                } else {
+                    tokenField.setEchoChar(defaultEchoChar); // Hide text
+                    showTokenButton.setIcon(Icons.VISIBILITY_OFF);
+                }
+            });
+
+            var tokenPanel = new JPanel(new BorderLayout());
+            tokenPanel.add(tokenField, BorderLayout.CENTER);
+            tokenPanel.add(showTokenButton, BorderLayout.EAST);
 
             String existingToken = existing.bearerToken();
             if (existingToken != null && !existingToken.isEmpty()) {
@@ -791,35 +836,28 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 }
                 tokenField.setText(displayToken);
                 tokenLabel.setVisible(true);
-                tokenField.setVisible(true);
+                tokenPanel.setVisible(true);
             } else {
                 // Hide the token input unless checkbox is selected
                 tokenLabel.setVisible(false);
-                tokenField.setVisible(false);
+                tokenPanel.setVisible(false);
             }
             useTokenCheckbox.addActionListener(ae -> {
                 boolean sel = useTokenCheckbox.isSelected();
                 tokenLabel.setVisible(sel);
-                tokenField.setVisible(sel);
+                tokenPanel.setVisible(sel);
                 SwingUtilities.invokeLater(() -> {
-                    java.awt.Window w = SwingUtilities.getWindowAncestor(tokenField);
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
                     if (w != null) {
                         w.pack();
                     }
-                    tokenField.revalidate();
-                    tokenField.repaint();
+                    tokenPanel.revalidate();
+                    tokenPanel.repaint();
                 });
             });
 
             // Inline URL validation label (hidden by default)
-            JLabel urlErrorLabel = new JLabel("Invalid URL");
-            var errorColor = UIManager.getColor("Label.errorForeground");
-            // A fallback to a softer, brownish-red if not defined in the theme
-            if (errorColor == null) {
-                errorColor = new Color(165, 42, 42);
-            }
-            urlErrorLabel.setForeground(errorColor);
-            urlErrorLabel.setVisible(false);
+            JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
 
             // Attach debounced validation listener
             urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
@@ -832,16 +870,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             panel.add(urlErrorLabel);
             panel.add(useTokenCheckbox);
             panel.add(tokenLabel);
-            panel.add(tokenField);
+            panel.add(tokenPanel);
 
-            var optionPane = new JOptionPane(panel,
-                                             JOptionPane.PLAIN_MESSAGE,
-                                             JOptionPane.OK_CANCEL_OPTION);
+            var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
             final var dialog = optionPane.createDialog(SettingsProjectPanel.this, "Edit MCP Server");
             optionPane.addPropertyChangeListener(pce -> {
-                if (dialog.isVisible() && pce.getSource() == optionPane &&
-                    pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY))
-                {
+                if (dialog.isVisible()
+                        && pce.getSource() == optionPane
+                        && pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
                     var value = optionPane.getValue();
                     if (value == JOptionPane.UNINITIALIZED_VALUE) {
                         // This is our reset state, ignore it
@@ -852,7 +888,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         String name = nameField.getText().trim();
                         String rawUrl = urlField.getText().trim();
                         boolean useToken = useTokenCheckbox.isSelected();
-                        McpServer updated = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, existing.tools());
+                        McpServer updated =
+                                createMcpServerFromInputs(name, rawUrl, useToken, tokenField, existing.tools());
                         if (updated != null) {
                             mcpServersListModel.setElementAt(updated, idx);
                             mcpServersList.setSelectedIndex(idx);
