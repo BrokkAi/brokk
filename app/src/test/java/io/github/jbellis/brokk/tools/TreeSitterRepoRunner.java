@@ -27,9 +27,10 @@ import java.util.stream.Stream;
  * counts multi-language Multi-language analysis on same project
  *
  * <p>Options: --project <name> Specific project (chromium, llvm, vscode, etc.) --language <lang> Language to analyze
- * (cpp, java, typescript, etc.) --max-files <count> Maximum files to process (default: 1000) --output <path> Output
- * directory for results (default: baseline-results) --memory-profile Enable detailed memory profiling --stress-test Run
- * until OutOfMemoryError to find limits --json Output results in JSON format --verbose Enable verbose logging
+ * (cpp, java, typescript, etc.) --directory <path> Custom directory to analyze (use absolute paths) --max-files <count>
+ * Maximum files to process (default: 1000) --output <path> Output directory for results (default: baseline-results)
+ * --memory-profile Enable detailed memory profiling --stress-test Run until OutOfMemoryError to find limits --json
+ * Output results in JSON format --verbose Enable verbose logging --show-details Show symbols found in each file
  */
 public class TreeSitterRepoRunner {
 
@@ -133,6 +134,7 @@ public class TreeSitterRepoRunner {
     private boolean stressTest = false;
     private boolean jsonOutput = false;
     private boolean verbose = false;
+    private boolean showDetails = false;
     private int maxFiles = 1000;
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
     private String testProject = null;
@@ -338,6 +340,16 @@ public class TreeSitterRepoRunner {
                 // This triggers actual TreeSitter parsing for each file
                 var fileDeclarations = analyzer.getDeclarationsInFile(file);
                 declarations.addAll(fileDeclarations);
+
+                // Show detailed symbol information if requested
+                if (showDetails) {
+                    System.out.printf("📄 %s (%d symbols):%n", file.getRelPath(), fileDeclarations.size());
+                    for (var declaration : fileDeclarations) {
+                        var name = declaration.shortName();
+                        System.out.printf("  - %s: %s%n", declaration.kind(), name);
+                    }
+                    System.out.println();
+                }
             }
 
             var endTime = System.nanoTime();
@@ -381,20 +393,29 @@ public class TreeSitterRepoRunner {
     }
 
     private void testSpecificProject() throws Exception {
-        if (testProject == null || testLanguage == null) {
-            System.err.println("test-project requires --project <name> and --language <lang>");
-            System.err.println(
-                    "Available projects: kafka, hibernate-orm, vscode, spring-framework, elasticsearch, intellij-community, openjdk, llvm, chromium");
+        if (testLanguage == null) {
+            System.err.println("test-project requires --language <lang>");
             System.err.println("Available languages: java, typescript, cpp");
             return;
         }
 
-        System.out.println("Testing project: " + testProject + " with language: " + testLanguage);
+        if (testProject == null && testDirectory == null) {
+            System.err.println("test-project requires either --project <name> or --directory <path>");
+            System.err.println(
+                    "Available projects: kafka, hibernate-orm, vscode, spring-framework, elasticsearch, intellij-community, openjdk, llvm, chromium");
+            return;
+        }
+
+        if (testProject != null) {
+            System.out.println("Testing project: " + testProject + " with language: " + testLanguage);
+        } else {
+            System.out.println("Testing directory: " + testDirectory + " with language: " + testLanguage);
+        }
         System.out.println("Max files: " + maxFiles);
 
         // Debug: show discovered files
-        var projectPath = getProjectPath(testProject);
-        var files = getProjectFiles(testProject, testLanguage, maxFiles);
+        var projectPath = getProjectPath(testProject != null ? testProject : "custom");
+        var files = getProjectFiles(testProject != null ? testProject : "custom", testLanguage, maxFiles);
         System.out.println("Files discovered: " + files.size());
         files.stream()
                 .limit(5)
@@ -402,9 +423,10 @@ public class TreeSitterRepoRunner {
                         + file.absPath().toFile().exists() + ")"));
 
         try {
-            var result = runProjectBaseline(testProject, testLanguage);
+            var result = runProjectBaseline(testProject != null ? testProject : "custom", testLanguage);
 
-            System.out.printf("✅ SUCCESS: %s (%s)%n", testProject, testLanguage);
+            var target = testProject != null ? testProject : testDirectory.toString();
+            System.out.printf("✅ SUCCESS: %s (%s)%n", target, testLanguage);
             System.out.printf("Files processed: %d%n", result.filesProcessed);
             System.out.printf("Analysis time: %.2f seconds%n", result.duration.toMillis() / 1000.0);
             System.out.printf("Peak memory: %.1f MB%n", result.peakMemoryMB);
@@ -416,7 +438,8 @@ public class TreeSitterRepoRunner {
             }
 
         } catch (Exception e) {
-            System.err.printf("❌ FAILED: %s (%s) - %s%n", testProject, testLanguage, e.getMessage());
+            var target = testProject != null ? testProject : testDirectory.toString();
+            System.err.printf("❌ FAILED: %s (%s) - %s%n", target, testLanguage, e.getMessage());
             if (verbose) {
                 e.printStackTrace();
             }
@@ -575,15 +598,16 @@ public class TreeSitterRepoRunner {
         List<String> includePatterns;
         List<String> excludePatterns;
 
-        if (config != null) {
+        if (config != null && testDirectory == null) {
+            // Use predefined project configuration only if --directory is not specified
             includePatterns = config.languagePatterns.get(language);
             if (includePatterns == null) {
                 throw new IllegalArgumentException("Language " + language + " not supported for " + projectName);
             }
             excludePatterns = config.excludePatterns;
         } else {
-            // Unknown project; allow stressing an arbitrary directory if provided
-            if (testDirectory == null) {
+            // Use default patterns for unknown projects or when --directory is specified
+            if (testDirectory == null && config == null) {
                 throw new IllegalArgumentException(
                         "Unknown project: " + projectName + " (use --directory to specify a path)");
             }
@@ -838,6 +862,7 @@ public class TreeSitterRepoRunner {
                 case "--stress-test" -> stressTest = true;
                 case "--json" -> jsonOutput = true;
                 case "--verbose" -> verbose = true;
+                case "--show-details" -> showDetails = true;
             }
         }
 
@@ -889,10 +914,14 @@ public class TreeSitterRepoRunner {
               --max-files <n>   Maximum files to process (default: 1000)
               --output <path>   Output directory (default: baseline-results)
               --projects-dir <path>  Base directory for cloned projects (default: ../test-projects)
+              --directory <path>     Custom directory to analyze (use absolute paths)
+              --project <name>       Specific project to test
+              --language <lang>      Language to analyze (java, typescript, cpp, etc.)
               --memory-profile  Enable detailed memory profiling
               --stress-test     Run until OutOfMemoryError
               --json            Output in JSON format
               --verbose         Enable verbose logging
+              --show-details    Show symbols found in each file
             """);
     }
 

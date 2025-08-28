@@ -32,6 +32,7 @@ scripts/run-treesitter-repos.sh java-frameworks
 ### Setup & Project Testing
 - **`setup`** - Download/clone all test projects (Chromium, OpenJDK, VS Code, etc.)
 - **`test-project`** - Test specific project: requires `--project <name> --language <lang>`
+- **`directory`** - Analyze custom directory: requires `--directory <absolute-path> --language <lang>`
 - **`multi-language`** - Multi-language analysis on Chromium (C++, JavaScript, Python)
 
 ### Predefined Tests
@@ -61,6 +62,7 @@ scripts/run-treesitter-repos.sh java-frameworks
 - **`--output <path>`** - Output directory (default: baseline-results/)
 - **`--json`** - Output results in JSON format
 - **`--verbose`** - Enable detailed logging
+- **`--show-details`** - Show symbols found in each file during analysis
 
 ### Memory Profiling
 - **`--memory-profile`** - Enable detailed memory monitoring
@@ -68,7 +70,7 @@ scripts/run-treesitter-repos.sh java-frameworks
 
 ### Project Configuration
 - **`--projects-dir <path>`** - Base directory for cloned projects (default: ../test-projects/)
-- **`--directory <path>`** - Analyze files in specific directory instead of predefined projects
+- **`--directory <path>`** - Analyze files in specific directory instead of predefined projects (use absolute paths)
 - **`--project <name>`** - Specific project name for test-project command
 - **`--language <lang>`** - Language to analyze (cpp, java, typescript, javascript, python)
 
@@ -124,6 +126,22 @@ Spreadsheet-compatible format for analysis and graphing.
 ### Text Summary (`baseline-TIMESTAMP-summary.txt`)
 Human-readable summary with success/failure breakdown.
 
+### Detailed Symbol Output (`--show-details`)
+When using `--show-details`, each file shows discovered symbols:
+```
+📄 stores/symbolCacheStore.ts (3 symbols):
+  - VARIABLE: symbolCache
+  - FUNCTION: getSymbolsFromCache
+  - FUNCTION: updateSymbolCache
+
+📄 types.ts (5 symbols):
+  - INTERFACE: SymbolInfo
+  - TYPE_ALIAS: FileNode
+  - ENUM: MessageType
+  - FUNCTION: isValidSymbol
+  - CLASS: TreeNode
+```
+
 ## Performance Characteristics
 
 ### Memory Usage Patterns
@@ -169,8 +187,11 @@ scripts/run-treesitter-repos.sh test-project --project chromium --language pytho
 
 ### Analyze Custom Project
 ```bash
-# Test your own codebase
-scripts/run-treesitter-repos.sh test-project --directory /path/to/my/project --language java --max-files 1000
+# Test your own codebase (use absolute paths for --directory)
+scripts/run-treesitter-repos.sh directory --directory /absolute/path/to/my/project --language java --max-files 1000
+
+# Show detailed symbol information for each file
+scripts/run-treesitter-repos.sh directory --directory /absolute/path/to/my/project --language typescript --show-details
 ```
 
 ### Performance Regression Testing
@@ -195,8 +216,14 @@ scripts/run-treesitter-repos.sh openjdk-java --max-files 1000 --json
 - Verify project exists in test-projects/ directory
 - Check language spelling (cpp, java, typescript, javascript, python)
 - Run setup command first: `scripts/run-treesitter-repos.sh setup`
+- For `--directory` flag, ensure you're using absolute paths
 
 ### Analyzer Not Available
 - Some analyzers may not be available on all branches
 - Check console output for "Warning: XAnalyzer not available" messages
 - Simplified version may have reduced analyzer support
+
+### Path Resolution Issues
+- Always use absolute paths with `--directory` flag
+- Relative paths are resolved from the Java application's working directory, not the shell
+- Use `realpath /path/to/directory` to convert relative to absolute paths

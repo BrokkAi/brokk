@@ -40,8 +40,9 @@ print_usage() {
     echo "  --memory-profile  Enable detailed memory profiling"
     echo "  --verbose         Enable verbose logging"
     echo "  --json            Output results in JSON format"
+    echo "  --show-details    Show symbols found in each file"
     echo "  --projects-dir D  Base directory for test projects (default: ../test-projects)"
-    echo "  --directory D     Custom directory to analyze instead of predefined projects"
+    echo "  --directory D     Custom directory to analyze instead of predefined projects (use absolute paths)"
     echo "  --patterns P      File patterns to match, e.g., '*.java,*.cpp'"
     echo
     echo "Examples:"
@@ -52,8 +53,8 @@ print_usage() {
     echo "  $0 chromium-cpp --max-files 500             # Test Chromium with 500 C++ files"
     echo "  $0 java-frameworks                          # Compare Java framework performance"
     echo "  $0 openjdk-java --max-files 2000            # Test OpenJDK with 2000 Java files"
-    echo "  $0 test-project --directory /my/project --language java  # Test custom project"
-    echo "  $0 stress --directory /my/project --language cpp         # Stress test custom project"
+    echo "  $0 directory --directory /absolute/path/to/project --language java    # Test custom directory"
+    echo "  $0 stress --directory /absolute/path/to/project --language cpp       # Stress test custom directory"
     echo
     echo "Note: This is a simplified version compatible with master branch."
     echo "      Some advanced features may not be available."
@@ -161,7 +162,7 @@ case "$COMMAND" in
 
     directory)
         echo -e "${GREEN}Running directory analysis...${NC}"
-        run_java "test-directory" "$@"
+        run_java "test-project" "$@"
         ;;
 
     help|--help|-h)
