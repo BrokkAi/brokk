@@ -201,7 +201,7 @@ public abstract class LspLanguageClient implements LanguageClient {
     public CompletableFuture<Void> waitForDiagnosticsToSettle() {
         try {
             // We need to give diagnostics a moment to start
-            Thread.sleep(250);
+            Thread.sleep(500);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for diagnostics to settle");
         }
