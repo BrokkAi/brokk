@@ -251,22 +251,21 @@ public class SymbolLookupService {
                     return new SymbolInfo(false, null);
                 }
 
-                if (isJavaProject()) {
-                    var javaMatches = findAllJavaClassMatches(trimmed, projectSourceResults);
-                    if (!javaMatches.isEmpty()) {
-                        var commaSeparatedFqns = javaMatches.stream()
-                                .map(CodeUnit::fqName)
-                                .sorted()
-                                .collect(Collectors.joining(","));
-                        logger.trace("Java class matches for '{}': {}", trimmed, commaSeparatedFqns);
-                        return new SymbolInfo(true, commaSeparatedFqns);
-                    }
-                } else {
-                    // For non-Java languages, use the existing best match logic
-                    var bestMatch = findBestMatch(trimmed, projectSourceResults);
-                    logger.trace("Best match for '{}': {}", trimmed, bestMatch.fqName());
-                    return new SymbolInfo(true, bestMatch.fqName());
+                // Try class matching first (handles multiple classes with same name)
+                var classMatches = findAllClassMatches(trimmed, projectSourceResults);
+                if (!classMatches.isEmpty()) {
+                    var commaSeparatedFqns = classMatches.stream()
+                            .map(CodeUnit::fqName)
+                            .sorted()
+                            .collect(Collectors.joining(","));
+                    logger.trace("Class matches for '{}': {}", trimmed, commaSeparatedFqns);
+                    return new SymbolInfo(true, commaSeparatedFqns);
                 }
+
+                // For symbols that are not classes, use best match logic
+                var bestMatch = findBestMatch(trimmed, projectSourceResults);
+                logger.trace("Best match for '{}': {}", trimmed, bestMatch.fqName());
+                return new SymbolInfo(true, bestMatch.fqName());
             }
 
             return new SymbolInfo(false, null);
@@ -362,26 +361,17 @@ public class SymbolLookupService {
         return searchResults;
     }
 
-    /** Check if the current project is a Java project based on analyzer type or file extensions. */
-    private static boolean isJavaProject() {
-        // For now, assume Java project. In the future, this can be determined by:
-        // - Checking analyzer type (JavaAnalyzer, JavaTreeSitterAnalyzer)
-        // - Checking for presence of Java files in project
-        // - Project configuration
-        return true;
-    }
+    /** Find all classes with exact simple name match for the given search term. */
+    private static List<CodeUnit> findAllClassMatches(String searchTerm, List<CodeUnit> searchResults) {
+        logger.trace("Finding all class matches for '{}' among {} results", searchTerm, searchResults.size());
 
-    /** Find all Java classes with exact simple name match for the given search term. */
-    private static List<CodeUnit> findAllJavaClassMatches(String searchTerm, List<CodeUnit> searchResults) {
-        logger.trace("Finding all Java class matches for '{}' among {} results", searchTerm, searchResults.size());
-
-        // For Java, find all classes with exact simple name match (ignoring case for class names)
+        // Find all classes with exact simple name match
         var exactMatches = searchResults.stream()
                 .filter(cu -> cu.isClass()) // Only classes, not methods or fields
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
                 .toList();
 
-        logger.trace("Found {} exact Java class matches for '{}'", exactMatches.size(), searchTerm);
+        logger.trace("Found {} exact class matches for '{}'", exactMatches.size(), searchTerm);
         exactMatches.forEach(cu -> logger.trace("  Match: {}", cu.fqName()));
 
         return exactMatches;

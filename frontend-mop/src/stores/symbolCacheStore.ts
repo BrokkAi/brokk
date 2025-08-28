@@ -509,7 +509,3 @@ export function prepareContextSwitch(newContextId: string): void {
     });
 }
 
-// Make debug function available globally for browser console
-if (typeof window !== 'undefined') {
-    (window as any).debugSymbolCache = debugCache;
-}
