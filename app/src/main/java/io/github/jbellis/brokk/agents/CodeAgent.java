@@ -373,8 +373,16 @@ public class CodeAgent {
             if (newlyParsedBlocks.isEmpty()) {
                 // Pure parse failure
                 updatedConsecutiveParseFailures++;
-                messageForRetry = new UserMessage(parseResult.parseError());
-                consoleLogForRetry = "Failed to parse LLM response; retrying";
+
+                // The bad response is the last message; the user request that caused it is the one before that.
+                // We will remove both, and create a new request that is the original + a reminder.
+                cs.taskMessages().removeLast(); // bad AI response
+                var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
+
+                var reminder = "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
+                var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
+                messageForRetry = new UserMessage(newRequestText);
+                consoleLogForRetry = "Failed to parse LLM response; retrying with format reminder";
             } else {
                 // Partial parse, then an error
                 updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
