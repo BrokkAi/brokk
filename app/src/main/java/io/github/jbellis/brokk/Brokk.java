@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.ModelSupport;
 import com.github.tjake.jlama.safetensors.DType;
@@ -103,6 +104,12 @@ public class Brokk {
 
         if (Boolean.getBoolean("brokk.devmode")) {
             RepaintManager.setCurrentManager(new CheckThreadViolationRepaintManager());
+        }
+
+        // https://www.formdev.com/flatlaf/window-decorations/
+        if (SystemInfo.isLinux) {
+            JFrame.setDefaultLookAndFeelDecorated(true);
+            JDialog.setDefaultLookAndFeelDecorated(true);
         }
 
         var iconUrl = Brokk.class.getResource(ICON_RESOURCE);
