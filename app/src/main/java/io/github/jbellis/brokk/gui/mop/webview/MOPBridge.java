@@ -100,7 +100,8 @@ public final class MOPBridge {
 
     public void onAnalyzerReadyResponse(String contextId) {
         logger.debug("Notifying frontend that analyzer is ready for context: {}", contextId);
-        var js = "if (window.brokk && window.brokk.onAnalyzerReadyResponse) { window.brokk.onAnalyzerReadyResponse(" + toJson(contextId) + "); }";
+        var js = "if (window.brokk && window.brokk.onAnalyzerReadyResponse) { window.brokk.onAnalyzerReadyResponse("
+                + toJson(contextId) + "); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 

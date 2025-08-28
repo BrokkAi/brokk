@@ -185,7 +185,7 @@ class SymbolLookupServiceTest {
     }
 
     @Nested
-    @DisplayName("findAllJavaClassMatches method tests")
+    @DisplayName("findAllClassMatches method tests")
     class FindAllJavaClassMatchesTests {
 
         @Test
@@ -322,14 +322,13 @@ class SymbolLookupServiceTest {
 
     private List<CodeUnit> invokePrivateFindAllJavaClassMatches(String searchTerm, List<CodeUnit> searchResults) {
         try {
-            var method =
-                    SymbolLookupService.class.getDeclaredMethod("findAllJavaClassMatches", String.class, List.class);
+            var method = SymbolLookupService.class.getDeclaredMethod("findAllClassMatches", String.class, List.class);
             method.setAccessible(true);
             @SuppressWarnings("unchecked")
             var result = (List<CodeUnit>) method.invoke(null, searchTerm, searchResults);
             return result;
         } catch (Exception e) {
-            throw new RuntimeException("Failed to invoke private method findAllJavaClassMatches", e);
+            throw new RuntimeException("Failed to invoke private method findAllClassMatches", e);
         }
     }
 }

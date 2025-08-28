@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
@@ -122,7 +123,10 @@ public class ContextMenuBuilder {
         menu.add(copyItem);
     }
 
-    /** Helper method to add symbol actions (Open in Preview, Open in Project Tree) to a container */
+    /**
+     * Helper method to add symbol actions (Open in Preview, Open in Project Tree, Read File, Edit File, Summarize File)
+     * to a container
+     */
     private void addSymbolActions(Container parent, SymbolMenuContext context, boolean analyzerReady) {
         // Open in Preview
         var openInPreviewItem = new JMenuItem("Open in Preview");
@@ -135,6 +139,25 @@ public class ContextMenuBuilder {
         openInTreeItem.setEnabled(analyzerReady);
         openInTreeItem.addActionListener(e -> openInProjectTree(context));
         parent.add(openInTreeItem);
+
+        parent.add(new JPopupMenu.Separator());
+
+        // Read File
+        var readFileItem = new JMenuItem("Read File");
+        readFileItem.addActionListener(e -> readFiles(context));
+        parent.add(readFileItem);
+
+        // Edit File
+        var editFileItem = new JMenuItem("Edit File");
+        editFileItem.setEnabled(analyzerReady);
+        editFileItem.addActionListener(e -> editFiles(context));
+        parent.add(editFileItem);
+
+        // Summarize File
+        var summarizeFileItem = new JMenuItem("Summarize File");
+        summarizeFileItem.setEnabled(analyzerReady);
+        summarizeFileItem.addActionListener(e -> summarizeFiles(context));
+        parent.add(summarizeFileItem);
     }
 
     private void buildFileMenu() {
@@ -359,6 +382,56 @@ public class ContextMenuBuilder {
                 // Use Chrome's centralized preview system
                 context.chrome().previewFile(symbol.source());
             });
+        });
+    }
+
+    // Symbol-based file operations (overloaded versions)
+    private void editFiles(SymbolMenuContext context) {
+        context.contextManager().submitContextTask("Edit file", () -> {
+            var definition = findSymbolDefinition(context);
+            if (definition.isPresent()) {
+                var file = definition.get().source();
+
+                // Check if file is tracked by git
+                var trackedFiles =
+                        context.contextManager().getProject().getRepo().getTrackedFiles();
+                if (!trackedFiles.contains(file)) {
+                    SwingUtilities.invokeLater(() -> {
+                        context.chrome().toolError("Cannot edit file: not tracked by git", "Edit File Error");
+                    });
+                    return;
+                }
+
+                context.contextManager().editFiles(List.of(file));
+            }
+        });
+    }
+
+    private void readFiles(SymbolMenuContext context) {
+        context.contextManager().submitContextTask("Read file", () -> {
+            var definition = findSymbolDefinition(context);
+            if (definition.isPresent()) {
+                var file = definition.get().source();
+                context.contextManager().addReadOnlyFiles(List.of(file));
+            }
+        });
+    }
+
+    private void summarizeFiles(SymbolMenuContext context) {
+        if (!context.contextManager().getAnalyzerWrapper().isReady()) {
+            context.chrome()
+                    .systemNotify(
+                            AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                            AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                            JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        context.contextManager().submitContextTask("Summarize file", () -> {
+            var definition = findSymbolDefinition(context);
+            if (definition.isPresent()) {
+                var file = definition.get().source();
+                context.contextManager().addSummaries(Set.of(file), Collections.emptySet());
+            }
         });
     }
 }

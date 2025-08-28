@@ -254,10 +254,8 @@ public class SymbolLookupService {
                 // Try class matching first (handles multiple classes with same name)
                 var classMatches = findAllClassMatches(trimmed, projectSourceResults);
                 if (!classMatches.isEmpty()) {
-                    var commaSeparatedFqns = classMatches.stream()
-                            .map(CodeUnit::fqName)
-                            .sorted()
-                            .collect(Collectors.joining(","));
+                    var commaSeparatedFqns =
+                            classMatches.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(","));
                     logger.trace("Class matches for '{}': {}", trimmed, commaSeparatedFqns);
                     return new SymbolInfo(true, commaSeparatedFqns);
                 }

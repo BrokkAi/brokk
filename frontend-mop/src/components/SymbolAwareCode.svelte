@@ -140,8 +140,12 @@
     if (!isValidSymbol || !symbolExists) return;
 
     if (event.button === 0) { // Left click
-      log.info(`Left-clicked symbol: ${symbolText}, exists: ${symbolExists}`);
-      // Navigation logic can be added here if needed
+      log.info(`Left-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
+
+      // Call Java bridge for left-click with coordinates
+      if (window.javaBridge?.onSymbolRightClick) {
+        window.javaBridge.onSymbolRightClick(symbolText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+      }
     } else if (event.button === 2) { // Right click
       event.preventDefault();
       log.info(`Right-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
