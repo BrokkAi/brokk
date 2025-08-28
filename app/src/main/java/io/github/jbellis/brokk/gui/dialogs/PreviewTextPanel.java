@@ -449,7 +449,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                         contextManager.submitBackgroundTask(
                                                                 "Capture Usages",
                                                                 () -> contextManager.usageForIdentifier(
-                                                                        codeUnit.identifier()));
+                                                                        codeUnit.fqName()));
                                                     });
                                                 } else {
                                                     usageItem.setToolTipText(

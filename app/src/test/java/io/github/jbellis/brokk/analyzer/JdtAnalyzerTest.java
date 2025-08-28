@@ -427,7 +427,6 @@ public class JdtAnalyzerTest {
     }
 
     @Test
-    @Disabled("JDT LSP does not index field symbols")
     public void getUsesFieldExistingTest() {
         final var symbol = "D.field1"; // fully qualified field name
         final var usages = analyzer.getUses(symbol);
@@ -437,11 +436,18 @@ public class JdtAnalyzerTest {
     }
 
     @Test
-    @Disabled("JDT LSP does not index field symbols")
     public void getUsesFieldNonexistentTest() {
         final var symbol = "D.notAField";
         final var ex = assertThrows(IllegalArgumentException.class, () -> analyzer.getUses(symbol));
         assertTrue(ex.getMessage().contains("not found"));
+    }
+
+    @Test
+    public void getUsesFieldFromUseETest() {
+        final var symbol = "UseE.e";
+        final var usages = analyzer.getUses(symbol);
+        final var refs = usages.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(Set.of("UseE.moreM", "UseE.moreF"), refs);
     }
 
     @Test
