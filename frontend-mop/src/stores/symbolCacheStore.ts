@@ -1,7 +1,14 @@
-import {writable} from 'svelte/store';
+import {writable, get} from 'svelte/store';
 import {createLogger} from '../lib/logging';
 
 const log = createLogger('symbol-cache-store');
+
+// Cache configuration
+export const CACHE_CONFIG = {
+    IMMEDIATE_THRESHOLD: 100, // ms - if no requests for 100ms, next one is immediate
+    BATCH_DELAY: 15, // ms - reduced delay for subsequent requests
+    SYMBOL_CACHE_LIMIT: 1000, // maximum number of cached symbols
+} as const;
 
 // Add request deduplication infrastructure
 const inflightRequests = new Map<string, Promise<void>>();
@@ -13,8 +20,6 @@ const contextSequences = new Map<string, number>();
 const contextSwitchSequences = new Map<string, number>();
 
 // Adaptive batch coordination for component requests
-const IMMEDIATE_THRESHOLD = 100; // ms - if no requests for 100ms, next one is immediate
-const BATCH_DELAY = 15; // ms - reduced delay for subsequent requests
 let batchTimer: number | null = null;
 const pendingBatchRequests = new Map<string, Set<string>>();
 // Track last request time per context to determine if we should batch
@@ -31,9 +36,6 @@ export interface SymbolCacheEntry {
 
 // Create reactive store for symbol cache
 export const symbolCacheStore = writable<Map<string, SymbolCacheEntry>>(new Map());
-
-// Cache configuration
-const SYMBOL_CACHE_LIMIT = 1000;
 
 // Cache statistics for debugging
 let cacheStats = {
@@ -82,7 +84,7 @@ function shouldProcessImmediately(contextId: string): boolean {
     // Process immediately if:
     // 1. This is the first request for this context, OR
     // 2. Enough time has passed since the last request (indicates user is not rapidly typing)
-    const immediate = timeSinceLastRequest >= IMMEDIATE_THRESHOLD;
+    const immediate = timeSinceLastRequest >= CACHE_CONFIG.IMMEDIATE_THRESHOLD;
 
     log.debug(`Should process immediately for ${contextId}: ${immediate} (${timeSinceLastRequest}ms since last request)`);
     return immediate;
@@ -108,11 +110,11 @@ function addToBatch(contextId: string, symbol: string): void {
     } else {
         // Schedule batch processing with delay for rapid follow-up requests
         if (batchTimer === null) {
-            log.debug(`Scheduling batched processing in ${BATCH_DELAY}ms for context ${contextId}`);
+            log.debug(`Scheduling batched processing in ${CACHE_CONFIG.BATCH_DELAY}ms for context ${contextId}`);
             batchTimer = window.setTimeout(() => {
                 processBatches(false); // false = batched processing
                 batchTimer = null;
-            }, BATCH_DELAY);
+            }, CACHE_CONFIG.BATCH_DELAY);
         } else {
             log.debug(`Added ${symbol} to existing batch for context ${contextId}`);
         }
@@ -293,8 +295,8 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         // Handle cache size limit with eviction
         const totalNewEntries = Object.keys(results).length;
         const currentSize = newCache.size;
-        if (currentSize + totalNewEntries > SYMBOL_CACHE_LIMIT) {
-            const toEvict = (currentSize + totalNewEntries) - SYMBOL_CACHE_LIMIT;
+        if (currentSize + totalNewEntries > CACHE_CONFIG.SYMBOL_CACHE_LIMIT) {
+            const toEvict = (currentSize + totalNewEntries) - CACHE_CONFIG.SYMBOL_CACHE_LIMIT;
             const keysToDelete = Array.from(newCache.keys()).slice(0, toEvict);
 
             keysToDelete.forEach(key => {
@@ -302,7 +304,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
                 cacheStats.evictions++;
             });
 
-            log.debug(`Evicted ${keysToDelete.length} entries to stay under limit ${SYMBOL_CACHE_LIMIT}`);
+            log.debug(`Evicted ${keysToDelete.length} entries to stay under limit ${CACHE_CONFIG.SYMBOL_CACHE_LIMIT}`);
         }
 
         // Update cache with resolved symbols
@@ -355,7 +357,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
             }
         }
 
-        log.debug(`Cache update complete: Updated ${updatedCount} symbols. ${pendingCount} still pending. Total size: ${newCache.size}/${SYMBOL_CACHE_LIMIT}`);
+        log.debug(`Cache update complete: Updated ${updatedCount} symbols. ${pendingCount} still pending. Total size: ${newCache.size}/${CACHE_CONFIG.SYMBOL_CACHE_LIMIT}`);
 
         // Update cache stats
         cacheStats.responses++;
@@ -367,7 +369,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         // Log cache statistics periodically
         if (cacheStats.requests % 10 === 0) {
             const hitRate = ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1);
-            log.debug(`Cache stats: requests:${cacheStats.requests} hits:${cacheStats.hits} misses:${cacheStats.misses} hit-rate:${hitRate}% size:${newCache.size}/${SYMBOL_CACHE_LIMIT} evictions:${cacheStats.evictions}`);
+            log.debug(`Cache stats: requests:${cacheStats.requests} hits:${cacheStats.hits} misses:${cacheStats.misses} hit-rate:${hitRate}% size:${newCache.size}/${CACHE_CONFIG.SYMBOL_CACHE_LIMIT} evictions:${cacheStats.evictions}`);
         }
 
         return newCache;
@@ -379,14 +381,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
  */
 export function getSymbolCacheEntry(symbol: string, contextId: string = 'main-context'): SymbolCacheEntry | undefined {
     const cacheKey = `${contextId}:${symbol}`;
-    let entry: SymbolCacheEntry | undefined;
-
-    const unsubscribe = symbolCacheStore.subscribe(cache => {
-        entry = cache.get(cacheKey);
-    });
-    unsubscribe(); // Immediately unsubscribe
-
-    return entry;
+    return get(symbolCacheStore).get(cacheKey);
 }
 
 /**
@@ -454,12 +449,7 @@ export function getCacheStats() {
  * Get current cache size
  */
 export function getCacheSize(): number {
-    let size = 0;
-    const unsubscribe = symbolCacheStore.subscribe(cache => {
-        size = cache.size;
-    });
-    unsubscribe();
-    return size;
+    return get(symbolCacheStore).size;
 }
 
 /**
@@ -509,3 +499,5 @@ export function prepareContextSwitch(newContextId: string): void {
     });
 }
 
+// Export debug function for proper use instead of global pollution
+export { debugCache as debugSymbolCache };

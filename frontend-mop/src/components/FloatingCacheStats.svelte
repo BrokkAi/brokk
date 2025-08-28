@@ -1,10 +1,12 @@
 <script lang="ts">
-  import {symbolCacheStore, getCacheStats, getCacheSize, getInflightRequestsCount} from '../stores/symbolCacheStore';
+  import {symbolCacheStore, getCacheStats, getCacheSize, CACHE_CONFIG} from '../stores/symbolCacheStore';
   import {onMount, onDestroy} from 'svelte';
+
+  // Debug flag - set to true to show cache stats, false to hide
+  const SHOW_CACHE_STATS = false;
 
   let stats = getCacheStats();
   let cacheSize = 0;
-  let inflightCount = 0;
   let hitRate = 0;
 
   // Update stats periodically and reactively
@@ -14,7 +16,6 @@
   function updateStats() {
     stats = getCacheStats();
     cacheSize = getCacheSize();
-    inflightCount = getInflightRequestsCount();
 
     // Calculate hit rate percentage
     const total = stats.hits + stats.misses;
@@ -35,6 +36,7 @@
   });
 </script>
 
+{#if SHOW_CACHE_STATS}
 <div class="floating-cache-stats">
   <div class="stats-header">Cache Stats</div>
   <div class="stats-content">
@@ -52,15 +54,7 @@
     </div>
     <div class="stat-row">
       <span class="stat-label">Cache Size:</span>
-      <span class="stat-value">{cacheSize}/1000</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">Evictions:</span>
-      <span class="stat-value">{stats.evictions}</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">In-flight:</span>
-      <span class="stat-value">{inflightCount}</span>
+      <span class="stat-value">{cacheSize}/{CACHE_CONFIG.SYMBOL_CACHE_LIMIT}</span>
     </div>
     <div class="stat-row">
       <span class="stat-label">Found/Not Found:</span>
@@ -68,6 +62,7 @@
     </div>
   </div>
 </div>
+{/if}
 
 <style>
   .floating-cache-stats {

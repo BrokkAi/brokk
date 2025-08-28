@@ -7,7 +7,6 @@
   import FloatingCacheStats from './components/FloatingCacheStats.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
-  import { debugStore } from './stores/debugStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -60,9 +59,7 @@
 </style>
 
 <!-- Floating cache stats panel -->
-{#if $debugStore.showCacheStats}
-  <FloatingCacheStats />
-{/if}
+<FloatingCacheStats />
 
 <div
   class="chat-container"

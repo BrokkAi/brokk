@@ -134,28 +134,6 @@
   let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry.fqn);
   let symbolFqn = $derived(cacheEntry?.fqn);
 
-  // Dev mode detection for tooltip display
-  let isDevMode = $derived(() => import.meta.env.DEV);
-
-  // Create tooltip value using state instead of nested derived
-  let tooltipText = $state(undefined);
-
-  // Update tooltip text using effect
-  $effect(() => {
-    if (!isDevMode) {
-      tooltipText = undefined;
-      return;
-    }
-
-    const exists = cacheEntry?.status === 'resolved' && !!cacheEntry.fqn;
-    const fqn = cacheEntry?.fqn;
-
-    if (exists && fqn) {
-      tooltipText = `${symbolText} → ${fqn}`;
-    } else {
-      tooltipText = `DEBUG: symbolText="${symbolText}" symbolExists=${exists} symbolFqn="${fqn || 'null'}"`;
-    }
-  });
 
 
   function handleClick(event: MouseEvent) {
@@ -183,7 +161,6 @@
   data-symbol-fqn={symbolFqn}
   data-symbol-component="true"
   data-symbol-id={componentId}
-  title={tooltipText}
   onclick={handleClick}
   oncontextmenu={handleClick}
   role={symbolExists ? 'button' : undefined}
