@@ -7,7 +7,9 @@ import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
-import {log} from './lib/logging';
+import {log, createLogger} from './lib/logging';
+
+const mainLog = createLogger('main');
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 
 let searchCtrl: SearchController | null = null;
@@ -99,7 +101,7 @@ function setAppTheme(dark: boolean, isDevMode?: boolean): void {
     html.classList.remove(removeTheme);
 
     // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
-    log.debugLog(`info`, `set theme dark: ${dark} dev mode: ${isDevMode}`);
+    mainLog.info(`set theme dark: ${dark} dev mode: ${isDevMode}`);
     let isProduction: boolean;
     if (isDevMode !== undefined) {
         // Java explicitly told us dev mode status
@@ -120,7 +122,7 @@ function hideSpinnerMessage(): void {
 }
 
 function refreshSymbolLookup(): void {
-    log.debugLog('[symbol-lookup] Refreshing symbol lookup for all content');
+    mainLog.debug('[symbol-lookup] Refreshing symbol lookup for all content');
     reparseAll(); // Uses default 'main-context'
 }
 
@@ -132,7 +134,7 @@ function refreshSymbolLookup(): void {
  * @param contextId - The context ID to refresh symbols for
  */
 function refreshSymbolLookups(contextId: string): void {
-    log.debugLog(`[symbol-refresh] Refreshing symbols for context: ${contextId}, clearing cache and triggering UI refresh`);
+    mainLog.debug(`[symbol-refresh] Refreshing symbols for context: ${contextId}, clearing cache and triggering UI refresh`);
 
     // Clear symbol cache to ensure fresh lookups
     clearSymbolCache(contextId);

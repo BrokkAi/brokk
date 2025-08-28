@@ -82,29 +82,20 @@ public class SymbolLookupService {
             Set<String> symbolNames, @Nullable IContextManager contextManager) {
         var foundSymbols = new HashMap<String, String>();
 
-        logger.debug("Starting optimized lookup for {} symbols", symbolNames.size());
-
         if (symbolNames.isEmpty() || contextManager == null) {
             return foundSymbols;
         }
 
-        var project = contextManager.getProject();
-        logger.trace("Using {} with project at {}", contextManager.getClass().getSimpleName(), project.getRoot());
-
         try {
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
             if (!analyzerWrapper.isReady()) {
-                logger.trace("Analyzer not ready");
                 return foundSymbols;
             }
 
             var analyzer = analyzerWrapper.getNonBlocking();
             if (analyzer == null || analyzer.isEmpty()) {
-                logger.trace("No analyzer available for symbol lookup");
                 return foundSymbols;
             }
-
-            logger.trace("Using analyzer: {}", analyzer.getClass().getSimpleName());
 
             for (var symbolName : symbolNames) {
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
@@ -120,8 +111,6 @@ public class SymbolLookupService {
             // Return empty map on error instead of negative results
         }
 
-        logger.debug(
-                "Optimized lookup completed: {} found out of {} requested", foundSymbols.size(), symbolNames.size());
         return foundSymbols;
     }
 
@@ -140,8 +129,6 @@ public class SymbolLookupService {
             BiConsumer<String, String> resultCallback,
             @Nullable Runnable completionCallback) {
 
-        logger.debug("Starting streaming lookup for {} symbols", symbolNames.size());
-
         if (symbolNames.isEmpty() || contextManager == null) {
             if (completionCallback != null) {
                 completionCallback.run();
@@ -149,13 +136,9 @@ public class SymbolLookupService {
             return;
         }
 
-        var project = contextManager.getProject();
-        logger.trace("Using {} with project at {}", contextManager.getClass().getSimpleName(), project.getRoot());
-
         try {
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
             if (!analyzerWrapper.isReady()) {
-                logger.trace("Analyzer not ready");
                 if (completionCallback != null) {
                     completionCallback.run();
                 }
@@ -164,17 +147,11 @@ public class SymbolLookupService {
 
             var analyzer = analyzerWrapper.getNonBlocking();
             if (analyzer == null || analyzer.isEmpty()) {
-                logger.trace("No analyzer available for symbol lookup");
                 if (completionCallback != null) {
                     completionCallback.run();
                 }
                 return;
             }
-
-            logger.trace("Using analyzer: {}", analyzer.getClass().getSimpleName());
-
-            int processedCount = 0;
-            int foundCount = 0;
 
             // Process each symbol individually and send result immediately
             for (var symbolName : symbolNames) {
@@ -184,22 +161,18 @@ public class SymbolLookupService {
                     // Send result immediately (both found and not found symbols)
                     if (symbolInfo.exists() && symbolInfo.fqn() != null) {
                         resultCallback.accept(symbolName, symbolInfo.fqn());
-                        foundCount++;
                     } else {
                         // Send null fqn for non-existent symbols so frontend knows they don't exist
                         resultCallback.accept(symbolName, null);
                     }
-
-                    processedCount++;
                 } catch (Exception e) {
                     logger.warn("Error processing symbol '{}' in streaming lookup", symbolName, e);
                     // Send null result for failed lookups
                     resultCallback.accept(symbolName, null);
-                    processedCount++;
                 }
             }
 
-            logger.debug("Streaming lookup completed: {} found out of {} processed", foundCount, processedCount);
+            // Streaming lookup completed silently
 
         } catch (Exception e) {
             logger.warn("Error during streaming symbol lookup", e);

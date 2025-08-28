@@ -17,7 +17,7 @@ const log = createLogger('worker-bridge');
 
 /* outbound ---------------------------------------------------------- */
 export function pushChunk(text: string, seq: number) {
-  // log.debugLog(`Sending chunk message to worker, seq: ${seq}`); // Too noisy
+  // log.debug(`Sending chunk message to worker, seq: ${seq}`); // Too noisy
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
@@ -54,11 +54,11 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
-      log.debugLog(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
+      log.info(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
       reparseAll(); // Uses default 'main-context'
       break;
     case 'result':
-      log.debugLog(`[MAIN] Received result from worker for seq ${msg.seq}`);
+      log.debug(`[MAIN] Received result from worker for seq ${msg.seq}`);
       onWorkerResult(msg);
       break;
     case 'log':
@@ -72,7 +72,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
       const workerMsg = `${msg.message}`;
       switch (msg.level.toLowerCase()) {
         case 'error':
-          log.debugLog(`[bridge] Received error from worker ${workerMsg}`);
+          log.debug(`[bridge] Received error from worker ${workerMsg}`);
           console.error(workerMsg);
           break;
         case 'warn':

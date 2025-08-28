@@ -54,7 +54,6 @@ let cacheStats = {
 function getNextSequence(contextId: string): number {
     const seq = ++currentSequence;
     contextSequences.set(contextId, seq);
-    log.debug(`Generated sequence ${seq} for context ${contextId}`);
     return seq;
 }
 
@@ -68,9 +67,7 @@ function isValidSequence(contextId: string, seq: number): boolean {
     const isValid = seq >= minValidSeq;
 
     if (!isValid) {
-        log.debug(`Stale sequence ${seq} for context ${contextId}, min valid: ${minValidSeq}`);
-    } else if (seq < (contextSequences.get(contextId) || 0)) {
-        log.debug(`Out-of-order sequence ${seq} for context ${contextId}, but still valid (>= ${minValidSeq})`);
+        log.warn(`Ignoring stale sequence ${seq} for context ${contextId}, min valid: ${minValidSeq}`);
     }
 
     return isValid;
@@ -87,7 +84,6 @@ function shouldProcessImmediately(contextId: string): boolean {
     const isFirstRequest = lastRequest === 0;
     const immediate = isFirstRequest || timeSinceLastRequest >= CACHE_CONFIG.IMMEDIATE_THRESHOLD;
 
-    log.debug(`Should process immediately for ${contextId}: ${immediate} (${timeSinceLastRequest}ms since last request, first request: ${isFirstRequest})`);
     return immediate;
 }
 
@@ -111,32 +107,24 @@ function addToBatch(contextId: string, symbol: string): void {
 
     if (shouldProcessNow) {
         // Process immediately for first request or after inactivity
-        log.debug(`Processing ${symbol} immediately for context ${contextId}`);
         processBatches(true); // true = immediate processing
     } else {
         // Schedule batch processing with delay for rapid follow-up requests
         if (batchTimer === null) {
             // Use 0ms delay for the very first batch, normal delay for subsequent batches
             const delay = isFirstRequest ? 0 : CACHE_CONFIG.BATCH_DELAY;
-            log.debug(`Scheduling batched processing in ${delay}ms for context ${contextId} (first request: ${isFirstRequest})`);
             batchTimer = window.setTimeout(() => {
                 processBatches(false); // false = batched processing
                 batchTimer = null;
             }, delay);
-        } else {
-            log.debug(`Added ${symbol} to existing batch for context ${contextId}`);
         }
     }
 }
 
 function processBatches(immediate: boolean = false): void {
-    if (immediate) {
-        log.debug('Processing batches immediately');
-    }
     for (const [contextId, symbols] of pendingBatchRequests.entries()) {
         if (symbols.size > 0) {
             const symbolArray = Array.from(symbols);
-            log.debug(`Processing batch for context ${contextId}: ${symbolArray.length} symbols`);
 
             // Make single batched request
             const sequence = getNextSequence(contextId);
@@ -170,7 +158,6 @@ function processBatches(immediate: boolean = false): void {
 
     // Clear all batches
     pendingBatchRequests.clear();
-    log.debug('Batch processing completed');
 }
 
 /**
@@ -179,11 +166,8 @@ function processBatches(immediate: boolean = false): void {
 export function requestSymbolResolution(symbol: string, contextId: string = 'main-context'): Promise<void> {
     const cacheKey = `${contextId}:${symbol}`;
 
-    log.debug(`Symbol lookup request: ${symbol} (context: ${contextId})`);
-
     // Check if request already in flight
     if (inflightRequests.has(cacheKey)) {
-        log.debug(`Request already in flight for: ${cacheKey}`);
         return inflightRequests.get(cacheKey)!;
     }
 
@@ -196,7 +180,6 @@ export function requestSymbolResolution(symbol: string, contextId: string = 'mai
     // Clean up when done
     requestPromise.finally(() => {
         inflightRequests.delete(cacheKey);
-        log.debug(`Cleaned up in-flight request: ${cacheKey}`);
     });
 
     return requestPromise;
@@ -211,7 +194,6 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
             // Check if already resolved while waiting
             const existing = cache.get(cacheKey);
             if (existing?.status === 'resolved') {
-                log.debug(`Symbol already resolved while waiting: ${symbol}`);
                 cacheStats.hits++;
                 resolve();
                 return cache; // No changes needed
@@ -234,7 +216,6 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
 
 
             // Add to batch instead of making immediate call
-            log.debug(`Adding symbol to batch: ${symbol}`);
             if (window.javaBridge?.lookupSymbolsAsync) {
                 addToBatch(contextId, symbol);
             } else {
@@ -283,16 +264,11 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
 
         // Validate sequence if provided
         if (!isValidSequence(actualContextId, sequence)) {
-            log.debug(`Ignoring stale response seq=${sequence} for context=${actualContextId}`);
-            return; // Discard stale response
+            return; // Discard stale response - already logged in isValidSequence
         }
     }
 
-    log.debug(`Processing symbol resolution response for context: ${actualContextId}${sequence ? ` (seq: ${sequence})` : ''}`);
-    log.debug(`Response contains ${Object.keys(results).length} symbol results`);
-
     if (Object.keys(results).length === 0) {
-        log.debug('Empty results received');
         return;
     }
 
@@ -312,7 +288,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
                 cacheStats.evictions++;
             });
 
-            log.debug(`Evicted ${keysToDelete.length} entries to stay under limit ${CACHE_CONFIG.SYMBOL_CACHE_LIMIT}`);
+            // Cache eviction performed silently
         }
 
         // Update cache with resolved symbols
@@ -327,7 +303,6 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
             };
             newCache.set(cacheKey, resolvedEntry);
             updatedCount++;
-            log.debug(`Cached '${symbol}' (key:'${cacheKey}') -> fqn:${fqn}`);
         }
 
         // Handle symbols that were requested but not resolved (don't exist)
@@ -347,13 +322,8 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
                     };
                     newCache.set(key, notFoundEntry);
                     notFoundCount++;
-                    log.debug(`Symbol '${symbolName}' not found - cached as resolved without fqn`);
                 }
             }
-        }
-
-        if (notFoundCount > 0) {
-            log.debug(`Marked ${notFoundCount} symbols as not found`);
         }
 
         // Check for any pending symbols that weren't resolved
@@ -361,11 +331,8 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         for (const [key, entry] of newCache.entries()) {
             if (entry.status === 'pending' && key.startsWith(actualContextId + ':')) {
                 pendingCount++;
-                log.debug(`Still pending: ${key}`);
             }
         }
-
-        log.debug(`Cache update complete: Updated ${updatedCount} symbols. ${pendingCount} still pending. Total size: ${newCache.size}/${CACHE_CONFIG.SYMBOL_CACHE_LIMIT}`);
 
         // Update cache stats
         cacheStats.responses++;
@@ -374,11 +341,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         cacheStats.symbolsNotFound += notFoundCount;
 
 
-        // Log cache statistics periodically
-        if (cacheStats.requests % 10 === 0) {
-            const hitRate = ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(1);
-            log.debug(`Cache stats: requests:${cacheStats.requests} hits:${cacheStats.hits} misses:${cacheStats.misses} hit-rate:${hitRate}% size:${newCache.size}/${CACHE_CONFIG.SYMBOL_CACHE_LIMIT} evictions:${cacheStats.evictions}`);
-        }
+        // Cache statistics are available via getCacheStats() for debugging
 
         return newCache;
     });
@@ -408,12 +371,9 @@ export function clearContextCache(contextId: string): void {
             }
         }
 
-        log.debug(`Cleared ${clearedCount} entries for context: '${contextId}'. Remaining cache size: ${newCache.size}`);
-
         // Reset stats only if cache is completely empty AND we cleared entries
         if (newCache.size === 0 && clearedCount > 0) {
             cacheStats = {requests: 0, hits: 0, misses: 0, evictions: 0, totalSymbolsProcessed: 0, responses: 0, lastUpdate: 0, symbolsFound: 0, symbolsNotFound: 0};
-            log.debug('Cache stats reset after context clear');
         }
 
         return newCache;
