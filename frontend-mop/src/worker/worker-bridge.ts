@@ -54,11 +54,9 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
-      log.info(`[MAIN] Shiki processor ready (dev mode: ${isDevMode})`);
-      reparseAll(); // Uses default 'main-context'
+      reparseAll();
       break;
     case 'result':
-      log.debug(`[MAIN] Received result from worker for seq ${msg.seq}`);
       onWorkerResult(msg);
       break;
     case 'log':

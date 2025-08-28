@@ -8,9 +8,9 @@ import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
+import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 
 const mainLog = createLogger('main');
-import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 
 let searchCtrl: SearchController | null = null;
 

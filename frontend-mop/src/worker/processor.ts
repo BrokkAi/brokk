@@ -14,11 +14,6 @@ import type {OutboundFromWorker, ShikiLangsReadyMsg} from './shared';
 import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
-import { createWorkerLogger } from '../lib/logging';
-
-const workerLog = createWorkerLogger('processor');
-// Flag to disable symbol resolution for testing
-const SKIP_SYMBOL_RESOLUTION = false;
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
