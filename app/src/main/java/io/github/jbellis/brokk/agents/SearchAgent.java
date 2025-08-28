@@ -316,7 +316,7 @@ public class SearchAgent {
             for follow-on code changes. If you already have enough to answer, use answerSearch. If we cannot answer,
             use abortSearch with a clear explanation.
 
-            You are encouraged to invoke multiple Workspace tools at once (add summaries, drop fragments, etc).
+            You can call multiple tools in a single turn. To do so, provide a list of separate tool calls, each with its own name and arguments (add summaries, drop fragments, etc).
             Do NOT invoke multiple answer/abort actions. Do NOT write code.
 
             %s
