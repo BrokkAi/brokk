@@ -82,16 +82,20 @@ function shouldProcessImmediately(contextId: string): boolean {
     const timeSinceLastRequest = now - lastRequest;
 
     // Process immediately if:
-    // 1. This is the first request for this context, OR
+    // 1. This is the first request for this context (lastRequest === 0), OR
     // 2. Enough time has passed since the last request (indicates user is not rapidly typing)
-    const immediate = timeSinceLastRequest >= CACHE_CONFIG.IMMEDIATE_THRESHOLD;
+    const isFirstRequest = lastRequest === 0;
+    const immediate = isFirstRequest || timeSinceLastRequest >= CACHE_CONFIG.IMMEDIATE_THRESHOLD;
 
-    log.debug(`Should process immediately for ${contextId}: ${immediate} (${timeSinceLastRequest}ms since last request)`);
+    log.debug(`Should process immediately for ${contextId}: ${immediate} (${timeSinceLastRequest}ms since last request, first request: ${isFirstRequest})`);
     return immediate;
 }
 
 function addToBatch(contextId: string, symbol: string): void {
     const now = Date.now();
+
+    // Check if this is the first request for this context BEFORE updating lastRequestTime
+    const isFirstRequest = !lastRequestTime.has(contextId);
 
     // Update last request time for this context
     lastRequestTime.set(contextId, now);
@@ -103,18 +107,22 @@ function addToBatch(contextId: string, symbol: string): void {
     pendingBatchRequests.get(contextId)!.add(symbol);
 
     // Determine if we should process immediately or batch
-    if (shouldProcessImmediately(contextId) && batchTimer === null) {
+    const shouldProcessNow = shouldProcessImmediately(contextId) && batchTimer === null;
+
+    if (shouldProcessNow) {
         // Process immediately for first request or after inactivity
         log.debug(`Processing ${symbol} immediately for context ${contextId}`);
         processBatches(true); // true = immediate processing
     } else {
         // Schedule batch processing with delay for rapid follow-up requests
         if (batchTimer === null) {
-            log.debug(`Scheduling batched processing in ${CACHE_CONFIG.BATCH_DELAY}ms for context ${contextId}`);
+            // Use 0ms delay for the very first batch, normal delay for subsequent batches
+            const delay = isFirstRequest ? 0 : CACHE_CONFIG.BATCH_DELAY;
+            log.debug(`Scheduling batched processing in ${delay}ms for context ${contextId} (first request: ${isFirstRequest})`);
             batchTimer = window.setTimeout(() => {
                 processBatches(false); // false = batched processing
                 batchTimer = null;
-            }, CACHE_CONFIG.BATCH_DELAY);
+            }, delay);
         } else {
             log.debug(`Added ${symbol} to existing batch for context ${contextId}`);
         }

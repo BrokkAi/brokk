@@ -16,11 +16,38 @@
   // Unique identifier for this component instance
   const componentId = `symbol-${Math.random().toString(36).substr(2, 9)}`;
 
-  // Clean and validate Java class names
+  // Common keywords/literals across languages that should never be looked up
+  const COMMON_KEYWORDS = new Set([
+    // Boolean literals
+    'true', 'false',
+    // Null/undefined
+    'null', 'undefined', 'nil', 'none',
+    // Common primitive types
+    'int', 'string', 'boolean', 'void', 'var', 'let', 'const',
+    // Control flow keywords
+    'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
+    'break', 'continue', 'return',
+    // OOP keywords
+    'this', 'super', 'self', 'class', 'interface', 'extends', 'implements',
+    // Access modifiers
+    'public', 'private', 'protected', 'static', 'final', 'abstract',
+    // Exception handling
+    'try', 'catch', 'finally', 'throw', 'throws',
+    // Other common keywords
+    'new', 'delete', 'import', 'export', 'from', 'as', 'function', 'def',
+    'field', 'module'
+  ]);
+
+  // Clean and validate symbol names, filtering out language keywords
   function cleanSymbolName(raw: string): string {
     const trimmed = raw.trim();
 
     if (trimmed.length < 2 || trimmed.length > 200) {
+      return '';
+    }
+
+    // Filter out common keywords and literals
+    if (COMMON_KEYWORDS.has(trimmed.toLowerCase())) {
       return '';
     }
 

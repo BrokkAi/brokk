@@ -62,7 +62,6 @@ public class SymbolLookupService {
 
             for (var symbolName : symbolNames) {
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                logger.debug("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
                 results.put(symbolName, new SymbolLookupResult(symbolName, symbolInfo.exists(), symbolInfo.fqn()));
             }
 
@@ -109,7 +108,6 @@ public class SymbolLookupService {
 
             for (var symbolName : symbolNames) {
                 var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                logger.debug("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
 
                 // Only add symbols that actually exist
                 if (symbolInfo.exists() && symbolInfo.fqn() != null) {
@@ -182,7 +180,6 @@ public class SymbolLookupService {
             for (var symbolName : symbolNames) {
                 try {
                     var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                    logger.debug("Symbol '{}' exists: {}", symbolName, symbolInfo.exists());
 
                     // Send result immediately (both found and not found symbols)
                     if (symbolInfo.exists() && symbolInfo.fqn() != null) {
@@ -220,23 +217,16 @@ public class SymbolLookupService {
         }
 
         var trimmed = symbolName.trim();
-        logger.debug("Checking symbol existence: '{}'", trimmed);
 
         try {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
-            logger.debug("getDefinition('{}') found: {}", trimmed, definition.isPresent());
             if (definition.isPresent()) {
-                logger.debug(
-                        "Found exact definition for '{}': {}",
-                        trimmed,
-                        definition.get().fqName());
                 return new SymbolInfo(true, definition.get().fqName());
             }
 
             // Then try pattern search
             var searchResults = analyzer.searchDefinitions(trimmed);
-            logger.debug("searchDefinitions('{}') returned {} results", trimmed, searchResults.size());
 
             if (!searchResults.isEmpty()) {
                 logger.trace(
@@ -256,13 +246,11 @@ public class SymbolLookupService {
                 if (!classMatches.isEmpty()) {
                     var commaSeparatedFqns =
                             classMatches.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(","));
-                    logger.trace("Class matches for '{}': {}", trimmed, commaSeparatedFqns);
                     return new SymbolInfo(true, commaSeparatedFqns);
                 }
 
                 // For symbols that are not classes, use best match logic
                 var bestMatch = findBestMatch(trimmed, projectSourceResults);
-                logger.trace("Best match for '{}': {}", trimmed, bestMatch.fqName());
                 return new SymbolInfo(true, bestMatch.fqName());
             }
 
@@ -276,21 +264,16 @@ public class SymbolLookupService {
 
     /** Find the best match from search results, prioritizing exact matches over substring matches. */
     private static CodeUnit findBestMatch(String searchTerm, List<CodeUnit> searchResults) {
-        logger.trace("Finding best match for '{}' among {} results", searchTerm, searchResults.size());
-
         // Priority 1: Exact simple name match (class name without package)
         var exactSimpleNameMatches = searchResults.stream()
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
                 .toList();
 
         if (!exactSimpleNameMatches.isEmpty()) {
-            logger.trace("Found {} exact simple name matches for '{}'", exactSimpleNameMatches.size(), searchTerm);
             // If multiple exact matches, prefer the shortest FQN (more specific/direct)
-            var result = exactSimpleNameMatches.stream()
+            return exactSimpleNameMatches.stream()
                     .min(Comparator.comparing(cu -> cu.fqName().length()))
                     .orElseThrow(); // Safe since we check isEmpty() above
-            logger.trace("Selected exact match: '{}'", result.fqName());
-            return result;
         }
 
         // Priority 2: FQN ends with the search term (e.g., searching "TreeSitterAnalyzer" matches
@@ -301,12 +284,9 @@ public class SymbolLookupService {
                 .toList();
 
         if (!endsWithMatches.isEmpty()) {
-            logger.trace("Found {} 'ends with' matches for '{}'", endsWithMatches.size(), searchTerm);
-            var result = endsWithMatches.stream()
+            return endsWithMatches.stream()
                     .min(Comparator.comparing(cu -> cu.fqName().length()))
                     .orElseThrow(); // Safe since we check isEmpty() above
-            logger.trace("Selected 'ends with' match: '{}'", result.fqName());
-            return result;
         }
 
         // Priority 3: Contains the search term - but be more restrictive to avoid misleading matches
@@ -324,25 +304,16 @@ public class SymbolLookupService {
                     .toList();
 
             if (!reasonableMatches.isEmpty()) {
-                logger.trace(
-                        "Using selective fallback 'contains' matching for '{}' with {} reasonable matches",
-                        searchTerm,
-                        reasonableMatches.size());
-                var result = reasonableMatches.stream()
+                return reasonableMatches.stream()
                         .min(Comparator.comparing(cu -> cu.fqName().length()))
                         .orElseThrow();
-                logger.trace("Selected selective fallback match: '{}'", result.fqName());
-                return result;
             }
         }
 
-        // If no reasonable matches, just return the shortest overall match but log a warning
-        logger.trace("No reasonable matches for '{}', using unrestricted fallback", searchTerm);
-        var result = searchResults.stream()
+        // If no reasonable matches, just return the shortest overall match
+        return searchResults.stream()
                 .min(Comparator.comparing(cu -> cu.fqName().length()))
                 .orElseThrow(); // Safe since the caller checks searchResults is not empty
-        logger.trace("Selected unrestricted fallback match: '{}'", result.fqName());
-        return result;
     }
 
     /** Extract the simple class name from a fully qualified name. */
@@ -361,17 +332,10 @@ public class SymbolLookupService {
 
     /** Find all classes with exact simple name match for the given search term. */
     private static List<CodeUnit> findAllClassMatches(String searchTerm, List<CodeUnit> searchResults) {
-        logger.trace("Finding all class matches for '{}' among {} results", searchTerm, searchResults.size());
-
         // Find all classes with exact simple name match
-        var exactMatches = searchResults.stream()
+        return searchResults.stream()
                 .filter(cu -> cu.isClass()) // Only classes, not methods or fields
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
                 .toList();
-
-        logger.trace("Found {} exact class matches for '{}'", exactMatches.size(), searchTerm);
-        exactMatches.forEach(cu -> logger.trace("  Match: {}", cu.fqName()));
-
-        return exactMatches;
     }
 }
