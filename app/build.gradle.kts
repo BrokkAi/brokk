@@ -393,6 +393,23 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     }
 }
 
+tasks.register<JavaExec>("runTreeSitterRepoRunner") {
+    group = "application"
+    description = "Runs the TreeSitterRepoRunner tool for TreeSitter performance analysis"
+    mainClass.set("io.github.jbellis.brokk.tools.TreeSitterRepoRunner")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs = listOf(
+        "-ea",
+        "-Xmx8g",
+        "-XX:+UseZGC",
+        "-XX:+UnlockExperimentalVMOptions",
+        "-Dbrokk.devmode=true"
+    )
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
+}
+
 tasks.shadowJar {
     archiveBaseName.set("brokk")
     archiveClassifier.set("")

@@ -230,6 +230,24 @@ To create a new release:
 
 No manual version updates needed - everything is derived from git tags automatically.
 
+## Performance Baseline Testing
+
+The TreeSitterRepoRunner provides comprehensive performance analysis for TreeSitter analyzers across major open source projects.
+
+For complete documentation, see [baseline-testing.md](baseline-testing.md).
+
+### Quick Start
+```bash
+# Get help and see available commands
+scripts/run-treesitter-repos.sh help
+
+# Set up test projects (downloads major projects)
+scripts/run-treesitter-repos.sh setup
+
+# Test specific project with specific language
+scripts/run-treesitter-repos.sh openjdk-java --max-files 500
+```
+
 ## Icon Browser
 
 To explore available Look and Feel icons for UI development:
