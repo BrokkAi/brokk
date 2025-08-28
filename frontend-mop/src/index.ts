@@ -37,7 +37,7 @@ function initializeApp(): void {
     } as any);
 
     // Set initial production class on body for dev mode detection
-    const isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
+    const isProduction = !import.meta.env.DEV;
     document.body.classList.toggle('production', isProduction);
 }
 
@@ -61,13 +61,8 @@ function setupBrokkInterface(): any[] {
         scrollToCurrent: () => searchCtrl?.scrollCurrent(),
         getSearchState: () => searchCtrl?.getState(),
 
-        // Symbol lookup refresh API
+        // Symbol lookup API
         refreshSymbolLookup: refreshSymbolLookup,
-
-        // Analyzer API
-        onAnalyzerReadyResponse: refreshSymbolLookups,
-
-        // Symbol lookup response API
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
     };
@@ -108,7 +103,7 @@ function setAppTheme(dark: boolean, isDevMode?: boolean): void {
         isProduction = !isDevMode;
     } else {
         // Fall back to frontend-only detection (for compatibility)
-        isProduction = !(import.meta.env.DEV || (window.javaBridge && window.javaBridge._mockSymbols));
+        isProduction = !import.meta.env.DEV;
     }
     document.body.classList.toggle('production', isProduction);
 }
@@ -121,19 +116,14 @@ function hideSpinnerMessage(): void {
     spinnerStore.hide();
 }
 
-function refreshSymbolLookup(): void {
-    mainLog.debug('[symbol-lookup] Refreshing symbol lookup for all content');
-    reparseAll(); // Uses default 'main-context'
-}
-
 /**
  * Generic symbol refresh mechanism that clears cache and triggers UI refresh.
  * Can be called from multiple scenarios: analyzer ready, context switch,
  * manual refresh, configuration changes, error recovery, etc.
  *
- * @param contextId - The context ID to refresh symbols for
+ * @param contextId - The context ID to refresh symbols for (defaults to 'main-context')
  */
-function refreshSymbolLookups(contextId: string): void {
+function refreshSymbolLookup(contextId: string = 'main-context'): void {
     mainLog.debug(`[symbol-refresh] Refreshing symbols for context: ${contextId}, clearing cache and triggering UI refresh`);
 
     // Clear symbol cache to ensure fresh lookups

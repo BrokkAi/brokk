@@ -21,17 +21,16 @@ declare global {
       scrollToCurrent: () => void;
       getSearchState: () => { total: number; current: number; query: string; caseSensitive: boolean; };
 
-      // Analyzer API
-      onAnalyzerReadyResponse: (contextId: string) => void;
+      // Symbol lookup API
+      refreshSymbolLookup: (contextId?: string) => void;
       onSymbolLookupResponse?: (results: Record<string, string>, seq: number, contextId: string) => void;
     };
     javaBridge?: {
       onAck: (epoch: number) => void;
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
-      onSymbolRightClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
+      onSymbolClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
       lookupSymbolsAsync?: (symbolNamesJson: string, seq: number | null, contextId: string) => void;
-      _mockSymbols?: boolean;
     };
   }
 }

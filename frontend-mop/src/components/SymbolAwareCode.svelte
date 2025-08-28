@@ -170,16 +170,16 @@
       log.info(`Left-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
 
       // Call Java bridge for left-click with coordinates
-      if (window.javaBridge?.onSymbolRightClick) {
-        window.javaBridge.onSymbolRightClick(symbolText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+      if (window.javaBridge?.onSymbolClick) {
+        window.javaBridge.onSymbolClick(symbolText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
       }
     } else if (event.button === 2) { // Right click
       event.preventDefault();
       log.info(`Right-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
 
       // Call Java bridge for right-click with coordinates
-      if (window.javaBridge?.onSymbolRightClick) {
-        window.javaBridge.onSymbolRightClick(symbolText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+      if (window.javaBridge?.onSymbolClick) {
+        window.javaBridge.onSymbolClick(symbolText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
       }
     }
   }

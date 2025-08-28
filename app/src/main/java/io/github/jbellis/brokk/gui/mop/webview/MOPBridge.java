@@ -100,7 +100,7 @@ public final class MOPBridge {
 
     public void onAnalyzerReadyResponse(String contextId) {
         logger.debug("Notifying frontend that analyzer is ready for context: {}", contextId);
-        var js = "if (window.brokk && window.brokk.onAnalyzerReadyResponse) { window.brokk.onAnalyzerReadyResponse("
+        var js = "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup("
                 + toJson(contextId) + "); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
@@ -316,26 +316,15 @@ public final class MOPBridge {
                         contextManager,
                         // Result callback - called for each individual symbol result
                         (symbolName, fqn) -> {
-                            logger.debug(
-                                    "Streaming result callback invoked for symbol '{}' with fqn: {}", symbolName, fqn);
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    logger.debug(
-                                            "Platform.runLater executing for symbol '{}' in context {}",
-                                            symbolName,
-                                            contextId);
                                     var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
                                     var resultsJson = toJson(singleResult);
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
                                             + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
                                             + toJson(contextId) + "); }";
-                                    logger.debug("Executing JavaScript for streaming result: {}", js);
                                     engine.executeScript(js);
-                                    logger.debug(
-                                            "Successfully sent streaming result for symbol '{}' in context {}",
-                                            symbolName,
-                                            contextId);
                                 } catch (Exception e) {
                                     logger.warn(
                                             "Failed to send streaming symbol lookup result for '{}'", symbolName, e);
@@ -370,8 +359,8 @@ public final class MOPBridge {
         }
     }
 
-    public void onSymbolRightClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
-        logger.debug("Symbol right-clicked: {}, exists: {}, fqn: {} at ({}, {})", symbolName, symbolExists, fqn, x, y);
+    public void onSymbolClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
+        logger.debug("Symbol clicked: {}, exists: {}, fqn: {} at ({}, {})", symbolName, symbolExists, fqn, x, y);
 
         SwingUtilities.invokeLater(() -> {
             var component = hostComponent != null

@@ -23,8 +23,8 @@
         log.info(`Right-clicked symbol: ${symbolName}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
 
         // Call Java bridge for right-click with coordinates
-        if (window.javaBridge && window.javaBridge.onSymbolRightClick) {
-          window.javaBridge.onSymbolRightClick(symbolName, symbolExists, symbolFqn, event.clientX, event.clientY);
+        if (window.javaBridge && window.javaBridge.onSymbolClick) {
+          window.javaBridge.onSymbolClick(symbolName, symbolExists, symbolFqn, event.clientX, event.clientY);
         }
       } else if (event.button === 0) { // Left click
         log.info(`Left-clicked symbol: ${symbolName}, exists: ${symbolExists}`);

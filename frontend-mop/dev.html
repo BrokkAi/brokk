@@ -156,9 +156,9 @@
         },
 
 
-        // Mock symbol right-click implementation
-        onSymbolRightClick: function(symbolName, symbolExists, symbolFqn, x, y) {
-            console.log(`[Mock JavaBridge] Right-click on ${symbolName}`);
+        // Mock symbol click implementation
+        onSymbolClick: function(symbolName, symbolExists, symbolFqn, x, y) {
+            console.log(`[Mock JavaBridge] Click on ${symbolName}`);
 
             // Simulate context menu with basic actions
             const actions = [];
