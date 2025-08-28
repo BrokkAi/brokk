@@ -386,7 +386,7 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<String> getSkeletonHeader(String fqName) {
-        return withReadLock(() -> getSkeletonImpl(fqName, true));
+        return getSkeletonImpl(fqName, true);
     }
 
     @Override

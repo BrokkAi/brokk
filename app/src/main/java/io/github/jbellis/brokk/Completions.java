@@ -5,10 +5,9 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;
@@ -22,37 +21,23 @@ public class Completions {
             return List.of();
         }
 
-        // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
         List<CodeUnit> allDefs;
         try {
-            // fixme: This will have terrible performance implications for large projects. Should this
-            //   fuzzy search rather not be for the analyzers themselves?
-            allDefs = analyzer.searchDefinitions(".*").stream().limit(5000).toList();
+            allDefs = findAutocompleteCandidates(pattern, analyzer);
         } catch (Exception e) {
-            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
-            // Fall back to using top-level declarations only
+            // fixme: Not ideal to call this for large projects
             allDefs = analyzer.getAllDeclarations();
         }
 
+        // Create matcher from the effective pattern (without trailing dot if present).
         var matcher = new FuzzyMatcher(pattern);
-        boolean hierarchicalQuery = pattern.indexOf('.') >= 0 || pattern.indexOf('$') >= 0;
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
         record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
         }
         return allDefs.stream()
-                .map(cu -> {
-                    int score;
-                    if (hierarchicalQuery) {
-                        // query includes hierarchy separators -> match against full FQN
-                        score = matcher.score(cu.fqName());
-                    } else {
-                        // otherwise match ONLY the trailing symbol (class, method, field)
-                        score = matcher.score(cu.identifier());
-                    }
-                    return new ScoredCU(cu, score);
-                })
+                .map(cu -> new ScoredCU(cu, matcher.score(cu.fqName())))
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparing(sc -> sc.cu().fqName()))
@@ -60,6 +45,77 @@ public class Completions {
                 .limit(100)
                 .map(ScoredCU::cu)
                 .toList();
+    }
+
+    /**
+     * Runs a search for potential symbol completions using a comprehensive regex approach. Generates a single unified
+     * regex pattern that captures all matching strategies.
+     */
+    private static List<CodeUnit> findAutocompleteCandidates(String pattern, IAnalyzer analyzer) {
+        if (pattern.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        var patterns = new LinkedHashSet<String>();
+
+        boolean trailingDot = pattern.endsWith(".");
+        if (trailingDot) {
+            String baseShort = pattern.substring(0, pattern.length() - 1);
+            if (baseShort.isEmpty()) {
+                return List.of();
+            }
+
+            // For trailing dot patterns, we want to find:
+            // 1) Classes whose identifier matches baseShort
+            // 2) Members of those classes
+
+            // Pattern to match classes ending with the base name
+            patterns.add(".*\\." + Pattern.quote(baseShort));
+            // Pattern to match the base name as a standalone identifier
+            patterns.add("(?:^|.*\\.|.*\\$)" + Pattern.quote(baseShort) + "(?:\\.|\\$|$).*");
+            // Permissive substring search for the base
+            patterns.add(".*" + Pattern.quote(baseShort) + ".*");
+        } else {
+            // For regular patterns, use multiple strategies:
+
+            // 1) Quoted substring search (handles special chars safely)
+            patterns.add(".*" + Pattern.quote(pattern) + ".*");
+
+            // 2) Split-char fuzzy pattern for short queries
+            if (pattern.length() < 5) {
+                var sb = new StringBuilder(".*");
+                for (int i = 0; i < pattern.length(); i++) {
+                    char ch = pattern.charAt(i);
+                    if (Character.isWhitespace(ch)) continue;
+                    sb.append(Pattern.quote(Character.toString(ch))).append(".*");
+                }
+                patterns.add(sb.toString());
+            }
+
+            // 3) Unquoted substring search
+            patterns.add(".*" + pattern + ".*");
+        }
+
+        // Combine all patterns into a single regex with ORs
+        String combinedPattern =
+                patterns.stream().map(p -> "(" + p + ")").collect(java.util.stream.Collectors.joining("|"));
+        String finalRegex = "(?i)" + combinedPattern;
+
+        var results =
+                analyzer.searchDefinitions(finalRegex).stream().limit(5000).toList();
+
+        // For trailing dot queries, include members of matching classes
+        if (trailingDot) {
+            String baseShort = pattern.substring(0, pattern.length() - 1);
+            var classes = results.stream()
+                    .filter(cu -> cu.identifier().equalsIgnoreCase(baseShort))
+                    .toList();
+            if (!classes.isEmpty()) {
+                return includeMembersForClasses(analyzer, classes);
+            }
+        }
+
+        return results;
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
@@ -194,6 +250,23 @@ public class Completions {
                 && Character.isLetter(s.charAt(0))
                 && s.charAt(1) == ':'
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
+    }
+
+    // Given a list of class declarations, return a list containing the classes followed by their members.
+    private static List<CodeUnit> includeMembersForClasses(IAnalyzer analyzer, List<CodeUnit> classes) {
+        var builder = new java.util.ArrayList<CodeUnit>(classes.size() * 2);
+        builder.addAll(classes);
+        for (var cls : classes) {
+            try {
+                var members = analyzer.getMembersInClass(cls.fqName());
+                if (!members.isEmpty()) {
+                    builder.addAll(members);
+                }
+            } catch (Exception ignored) {
+                // ignore member lookup failures and continue
+            }
+        }
+        return java.util.List.copyOf(builder);
     }
 
     private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict

@@ -52,6 +52,8 @@ public class FuzzyMatcher {
      */
     private static final int START_MATCH_WEIGHT = 2000; // Reduced from 10000
 
+    private static final int HIERARCHICAL_BONUS = 500;
+
     /** Camel-hump matching is >O(n), so for larger prefixes we fall back to simpler matching to avoid pauses. */
     private static final int MAX_CAMEL_HUMP_MATCHING_LENGTH = 100;
 
@@ -66,6 +68,8 @@ public class FuzzyMatcher {
     private final char[] toLowerCase;
     private final char[] meaningfulCharacters;
     private final int minNameLength;
+    private final boolean patternHasTrailingDot;
+    private final boolean patternHasLeadingDot;
 
     /**
      * Constructs a matcher for the given pattern using default options (case-insensitive, preferring start matches).
@@ -75,6 +79,14 @@ public class FuzzyMatcher {
     public FuzzyMatcher(String pattern) {
         // Equivalent to Strings.trimEnd(pattern, "* ")
         String trimmedPattern = FuzzyMatcherUtil.trimEnd(pattern.trim(), "*");
+        this.patternHasTrailingDot = trimmedPattern.endsWith(".");
+        this.patternHasLeadingDot = trimmedPattern.startsWith(".");
+        if (patternHasTrailingDot) {
+            trimmedPattern = trimmedPattern.substring(0, trimmedPattern.length() - 1);
+        }
+        if (patternHasLeadingDot) {
+            trimmedPattern = trimmedPattern.substring(1);
+        }
         this.patternChars = trimmedPattern.toCharArray();
         this.hardSeparators = ""; // Default behavior
 
@@ -195,6 +207,28 @@ public class FuzzyMatcher {
             // The original `matchingDegree` returns higher for better. We'll calculate it that way
             // and then invert. The START_MATCH_WEIGHT is a large positive bonus.
             degree += START_MATCH_WEIGHT;
+        }
+
+        if (patternHasTrailingDot) {
+            var endOffset = requireNonNull(fragments.getLast()).getEndOffset();
+            boolean isParentMatch = endOffset == name.length();
+            boolean isChildPrefix =
+                    endOffset < name.length() && (name.charAt(endOffset) == '.' || name.charAt(endOffset) == '$');
+
+            if (isChildPrefix) {
+                degree += HIERARCHICAL_BONUS;
+            } else if (!isParentMatch) {
+                degree -= HIERARCHICAL_BONUS;
+            }
+        }
+
+        if (patternHasLeadingDot) {
+            var startOffset = headFragment.getStartOffset();
+            if (startOffset > 0 && (name.charAt(startOffset - 1) == '.' || name.charAt(startOffset - 1) == '$')) {
+                degree += HIERARCHICAL_BONUS;
+            } else {
+                degree -= HIERARCHICAL_BONUS;
+            }
         }
 
         // Invert the score: Higher internal degree means better match, so return a smaller number.

@@ -663,6 +663,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // caller.
     }
 
+    /**
+     * Centralized model selection from the dropdown with fallback and optional vision check. Returns null if selection
+     * fails or vision is required but unsupported.
+     */
+    private @Nullable StreamingChatModel selectDropdownModelOrShowError(String actionLabel, boolean requireVision) {
+        var cm = chrome.getContextManager();
+        var models = cm.getService();
+
+        Service.ModelConfig config;
+        try {
+            config = modelSelector.getModel();
+        } catch (IllegalStateException e) {
+            chrome.toolError("Please finish configuring your custom model or select a favorite first.");
+            return null;
+        }
+
+        var selectedModel = models.getModel(config);
+        if (selectedModel == null) {
+            chrome.toolError("Selected model '" + config.name() + "' is not available with reasoning level "
+                    + config.reasoning());
+            selectedModel = castNonNull(models.getModel(Service.GPT_5_MINI));
+        }
+
+        if (requireVision && contextHasImages() && !models.supportsVision(selectedModel)) {
+            showVisionSupportErrorDialog(models.nameOf(selectedModel) + " (" + actionLabel + ")");
+            return null;
+        }
+
+        return selectedModel;
+    }
+
     // --- Public API ---
 
     /**
@@ -1341,8 +1372,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        var contextManager = chrome.getContextManager();
-        prepareAndRunAskCommand(contextManager.getSearchModel(), input);
+        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
+        if (modelToUse == null) {
+            return;
+        }
+        prepareAndRunAskCommand(modelToUse, input);
     }
 
     // Core method to prepare and submit the Ask action
@@ -1353,12 +1387,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-
-        if (contextHasImages() && !models.supportsVision(modelToUse)) {
-            showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Ask)");
-            return;
-        }
 
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
@@ -1393,13 +1421,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-        var searchModel = contextManager.getSearchModel();
-
-        if (contextHasImages() && !models.supportsVision(searchModel)) {
-            showVisionSupportErrorDialog(models.nameOf(searchModel) + " (Search)");
-            return; // Abort if model doesn't support vision and context has images
+        final var modelToUse = selectDropdownModelOrShowError("Search", true);
+        if (modelToUse == null) {
+            return;
         }
 
         chrome.getProject().addToInstructionsHistory(input, 20);
@@ -1409,7 +1433,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 ChatMessageType.CUSTOM);
         clearCommandInput();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(searchModel, input));
+        submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(modelToUse, input));
     }
 
     public void runRunCommand() {
@@ -1560,19 +1584,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
-        var contextManager = chrome.getContextManager();
-        var models = contextManager.getService();
-        var searchModel = contextManager.getSearchModel();
-
-        if (contextHasImages() && !models.supportsVision(searchModel)) {
-            showVisionSupportErrorDialog(models.nameOf(searchModel) + " (Scan Project)");
+        final var modelToUse = selectDropdownModelOrShowError("Scan Project", true);
+        if (modelToUse == null) {
             return;
         }
 
         chrome.getProject().addToInstructionsHistory(goal, 20);
         clearCommandInput();
 
-        submitAction("Scan Project", goal, () -> executeScanProjectCommand(searchModel, goal));
+        submitAction("Scan Project", goal, () -> executeScanProjectCommand(modelToUse, goal));
     }
 
     private void executeScanProjectCommand(StreamingChatModel model, String goal) {
@@ -1826,7 +1846,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var symbols = Completions.completeSymbols(text, analyzer);
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.identifier(), symbol.fqName()))
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
                         .toList();
             }
 

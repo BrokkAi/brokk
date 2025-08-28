@@ -57,8 +57,8 @@ public class ArchitectAgent {
             boolean includeShellCommand) {
         /** Default options (all enabled, except Git tools and shell command). Uses GPT_5_MINI for both models. */
         public static final ArchitectOptions DEFAULTS = new ArchitectOptions(
-                new Service.ModelConfig(Service.GPT_5_MINI),
-                new Service.ModelConfig(Service.GPT_5_MINI),
+                new Service.ModelConfig(Service.GEMINI_2_5_PRO),
+                new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH),
                 true,
                 true,
                 true,
@@ -520,9 +520,6 @@ public class ArchitectAgent {
             if (options.includeCodeAgent()) {
                 models.add(contextManager.getCodeModel());
             }
-            if (options.includeSearchAgent()) {
-                models.add(contextManager.getSearchModel());
-            }
             int minInputTokenLimit = models.stream()
                     .filter(Objects::nonNull)
                     .mapToInt(modelsService::getMaxInputTokens)
@@ -619,7 +616,7 @@ public class ArchitectAgent {
             }
 
             // Ask the LLM for the next step
-            var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
+            var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, true);
 
             if (result.error() != null) {
                 logger.debug(
@@ -793,7 +790,7 @@ public class ArchitectAgent {
     }
 
     private void addInitialContextToWorkspace() throws InterruptedException {
-        var contextAgent = new ContextAgent(contextManager, contextManager.getSearchModel(), goal, true);
+        var contextAgent = new ContextAgent(contextManager, model, goal, true);
         io.llmOutput("\nExamining initial workspace", ChatMessageType.CUSTOM);
 
         // Execute without a specific limit on recommendations, allowing skip-pruning

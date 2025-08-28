@@ -423,7 +423,7 @@ public class SearchAgent {
     // =======================
 
     private void addInitialContextToWorkspace() throws InterruptedException {
-        var contextAgent = new ContextAgent(cm, cm.getSearchModel(), goal, true);
+        var contextAgent = new ContextAgent(cm, model, goal, true);
         io.llmOutput("\nPerforming initial project scan", ChatMessageType.CUSTOM);
 
         var recommendation = contextAgent.getRecommendations(true);
