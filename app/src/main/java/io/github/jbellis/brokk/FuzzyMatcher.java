@@ -191,10 +191,27 @@ public class FuzzyMatcher {
             return name.isEmpty() ? 0 : Integer.MAX_VALUE;
         }
 
+        if (patternHasTrailingDot) {
+            var endOffset = requireNonNull(fragments.getLast()).getEndOffset();
+            if (endOffset < name.length()) {
+                char nextChar = name.charAt(endOffset);
+                if (nextChar == '$') {
+                    // when user types '.', they are looking for members, not nested classes
+                    return Integer.MAX_VALUE;
+                }
+            }
+        }
+
         // Exclude matches that finish immediately before a '$' when the pattern is simple
         // (all-lowercase without separators). This prevents queries like "do" from matching
         // the outer part of "Do$Re".
         if (isSimpleLowercasePattern() && endsBeforeDollar(name, fragments)) {
+            return Integer.MAX_VALUE;
+        }
+
+        // Exclude matches that are a prefix of a component in the fqname, when the pattern is simple
+        // (no separators). This prevents queries like "Do" from matching "Do" in "a.b.Do.bar".
+        if (!patternHasTrailingDot && isSimplePattern() && endsBeforeDot(name, fragments)) {
             return Integer.MAX_VALUE;
         }
 
@@ -447,8 +464,11 @@ public class FuzzyMatcher {
         // Penalize any unmatched characters left at the end of the name,
         // but only when the entire match is a *single* contiguous fragment.
         // (Keeps adjacency-vs-gap tests working while still preferring exact matches.)
-        int unmatchedTail = name.length() - fragments.getLast().getEndOffset();
-        int unmatchedPenalty = fragments.size() == 1 ? unmatchedTail * 2 : 0;
+        int unmatchedTail = name.length() - requireNonNull(fragments.getLast()).getEndOffset();
+        int unmatchedPenalty = fragments.size() == 1
+                        && name.indexOf('.', requireNonNull(fragments.getLast()).getEndOffset()) == -1
+                ? unmatchedTail * 2
+                : 0;
 
         // Combine components into the final score (higher is better internally before inversion)
         // Realigned with MinusculeMatcherImpl.matchingDegree formula
@@ -1060,6 +1080,16 @@ public class FuzzyMatcher {
     // Additional helpers for nested-class filtering
     // ---------------------------------------------------------------------
 
+    /** Returns true if the pattern does not contain any hierarchy separators ('.' or '$'). */
+    private boolean isSimplePattern() {
+        for (char c : patternChars) {
+            if (c == '.' || c == '$') {
+                return false;
+            }
+        }
+        return patternChars.length > 0;
+    }
+
     /**
      * Returns true if the pattern is made exclusively of lowercase letters and contains no hierarchy or word-separator
      * characters.
@@ -1087,5 +1117,18 @@ public class FuzzyMatcher {
         }
         int end = last.getEndOffset();
         return end < name.length() && name.charAt(end) == '$';
+    }
+
+    /**
+     * Checks whether a '.' exists in the name at or after the end of the last matched fragment. This is used to filter
+     * out member matches for simple (non-hierarchical) patterns.
+     */
+    private static boolean endsBeforeDot(String name, FList<TextRange> fragments) {
+        var last = fragments.getLast();
+        if (last == null) {
+            return false;
+        }
+        int end = last.getEndOffset();
+        return name.indexOf('.', end) >= 0;
     }
 }

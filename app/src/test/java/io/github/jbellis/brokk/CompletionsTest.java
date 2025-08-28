@@ -22,20 +22,21 @@ public class CompletionsTest {
     public void testUnqualifiedInput() {
         var mock = new MockAnalyzer(tempDir);
 
-        // Input "do" -> we want it to match "a.b.Do" and its methods
+        // Input "do" -> we want it to match "a.b.Do"
+        // Because "Do" simple name starts with 'D'
         var completions = Completions.completeSymbols("do", mock);
 
         var values = toValues(completions);
-        assertEquals(List.of("a.b.Do", "a.b.Do.bar", "a.b.Do.foo"), values);
+        assertEquals(List.of("a.b.Do"), values);
     }
 
     @Test
     public void testUnqualifiedRe() {
         var mock = new MockAnalyzer(tempDir);
-        // Input "re" -> user wants to find "a.b.Do$Re" and its methods
+        // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
         var completions = Completions.completeSymbols("re", mock);
         var values = toValues(completions);
-        assertEquals(List.of("a.b.Do$Re", "a.b.Do$Re.baz"), values);
+        assertEquals(List.of("a.b.Do$Re"), values);
     }
 
     @Test
@@ -44,7 +45,7 @@ public class CompletionsTest {
         var completions = Completions.completeSymbols("Re", mock);
         var values = toValues(completions);
 
-        assertEquals(List.of("a.b.Do$Re", "a.b.Do$Re$Sub", "a.b.Do$Re.baz", "a.b.Do$Re$Sub.qux"), values);
+        assertEquals(List.of("a.b.Do$Re", "a.b.Do$Re$Sub"), values);
     }
 
     @Test
@@ -53,11 +54,11 @@ public class CompletionsTest {
         // Input "CC" -> should match "test.CamelClass" and its methods due to camel case matching
         var completions = Completions.completeSymbols("CC", mock);
         var values = toValues(completions);
-        assertEquals(List.of("test.CamelClass", "test.CamelClass.someMethod"), values);
+        assertEquals(List.of("test.CamelClass"), values);
 
         completions = Completions.completeSymbols("cam", mock);
         values = toValues(completions);
-        assertEquals(List.of("test.CamelClass", "test.CamelClass.someMethod"), values);
+        assertEquals(List.of("test.CamelClass"), values);
     }
 
     @Test
@@ -65,16 +66,7 @@ public class CompletionsTest {
         var mock = new MockAnalyzer(tempDir);
 
         var completions = Completions.completeSymbols("Do", mock);
-        assertEquals(
-                List.of(
-                        "a.b.Do",
-                        "a.b.Do$Re",
-                        "a.b.Do.bar",
-                        "a.b.Do.foo",
-                        "a.b.Do$Re$Sub",
-                        "a.b.Do$Re.baz",
-                        "a.b.Do$Re$Sub.qux"),
-                toValues(completions));
+        assertEquals(List.of("a.b.Do", "a.b.Do$Re", "a.b.Do$Re$Sub"), toValues(completions));
     }
 
     @Test

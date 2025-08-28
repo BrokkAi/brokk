@@ -32,12 +32,24 @@ public class Completions {
 
         // Create matcher from the effective pattern (without trailing dot if present).
         var matcher = new FuzzyMatcher(pattern);
+        boolean hierarchicalQuery = pattern.indexOf('.') >= 0 || pattern.indexOf('$') >= 0;
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
         record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
         }
         return allDefs.stream()
-                .map(cu -> new ScoredCU(cu, matcher.score(cu.fqName())))
+                .map(cu -> {
+                    int score;
+                    if (hierarchicalQuery) {
+                        score = matcher.score(cu.fqName());
+                    } else {
+                        var fqName = cu.fqName();
+                        var lastDot = fqName.lastIndexOf('.');
+                        var simpleName = lastDot < 0 ? fqName : fqName.substring(lastDot + 1);
+                        score = matcher.score(simpleName);
+                    }
+                    return new ScoredCU(cu, score);
+                })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparing(sc -> sc.cu().fqName()))
@@ -81,8 +93,8 @@ public class Completions {
             // 1) Quoted substring search (handles special chars safely)
             patterns.add(".*" + Pattern.quote(pattern) + ".*");
 
-            // 2) Split-char fuzzy pattern for short queries
-            if (pattern.length() < 5) {
+            // 2) Split-char fuzzy pattern for short queries with uppercase letters
+            if (pattern.length() < 5 && pattern.chars().anyMatch(Character::isUpperCase)) {
                 var sb = new StringBuilder(".*");
                 for (int i = 0; i < pattern.length(); i++) {
                     char ch = pattern.charAt(i);
@@ -103,17 +115,6 @@ public class Completions {
 
         var results =
                 analyzer.searchDefinitions(finalRegex).stream().limit(5000).toList();
-
-        // For trailing dot queries, include members of matching classes
-        if (trailingDot) {
-            String baseShort = pattern.substring(0, pattern.length() - 1);
-            var classes = results.stream()
-                    .filter(cu -> cu.identifier().equalsIgnoreCase(baseShort))
-                    .toList();
-            if (!classes.isEmpty()) {
-                return includeMembersForClasses(analyzer, classes);
-            }
-        }
 
         return results;
     }
@@ -250,23 +251,6 @@ public class Completions {
                 && Character.isLetter(s.charAt(0))
                 && s.charAt(1) == ':'
                 && (s.charAt(2) == '\\' || s.charAt(2) == '/');
-    }
-
-    // Given a list of class declarations, return a list containing the classes followed by their members.
-    private static List<CodeUnit> includeMembersForClasses(IAnalyzer analyzer, List<CodeUnit> classes) {
-        var builder = new java.util.ArrayList<CodeUnit>(classes.size() * 2);
-        builder.addAll(classes);
-        for (var cls : classes) {
-            try {
-                var members = analyzer.getMembersInClass(cls.fqName());
-                if (!members.isEmpty()) {
-                    builder.addAll(members);
-                }
-            } catch (Exception ignored) {
-                // ignore member lookup failures and continue
-            }
-        }
-        return java.util.List.copyOf(builder);
     }
 
     private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict
