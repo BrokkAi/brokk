@@ -354,6 +354,22 @@ public interface ContextFragment {
         }
 
         @Override
+        public String format() {
+            var content = text();
+            var lines = content.lines().toList();
+            var numbered = java.util.stream.IntStream.range(0, lines.size())
+                    .mapToObj(i -> (i + 1) + ": " + lines.get(i))
+                    .collect(Collectors.joining("\n"));
+            return """
+                   <file path="%s" fragmentid="%s">
+                   %s
+                   </file>
+                   """
+                    .stripIndent()
+                    .formatted(file().toString(), id(), numbered);
+        }
+
+        @Override
         public String toString() {
             return "ProjectPathFragment('%s')".formatted(file);
         }

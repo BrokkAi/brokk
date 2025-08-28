@@ -1404,4 +1404,19 @@ public class ContextSerializationTest {
         assertEquals("test-commit-hash-2", loadedGitState2.get().commitHash());
         assertNull(loadedGitState2.get().diff());
     }
+
+    @Test
+    void testProjectPathFragmentFormatsWithLineNumbers() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/Numbered.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "first line\nsecond line");
+
+        var fragment = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
+        var formatted = fragment.format();
+
+        assertTrue(formatted.contains("1: first line"), "Formatted output should include line 1 with number");
+        assertTrue(formatted.contains("2: second line"), "Formatted output should include line 2 with number");
+        assertTrue(formatted.contains("<file"), "Formatted output should include opening file tag");
+        assertTrue(formatted.contains("</file>"), "Formatted output should include closing file tag");
+    }
 }
