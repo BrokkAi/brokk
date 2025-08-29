@@ -178,8 +178,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Register a Runnable to be invoked when the Service (models / STT) is reinitialized.
-     * The Runnable is executed on the EDT to allow UI updates.
+     * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
+     * the EDT to allow UI updates.
      */
     public void addServiceListener(Runnable listener) {
         serviceListeners.add(listener);

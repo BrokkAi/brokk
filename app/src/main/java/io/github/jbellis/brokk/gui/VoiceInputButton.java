@@ -170,10 +170,7 @@ public class VoiceInputButton extends JButton {
         this(targetTextArea, contextManager, onRecordingStart, null, onError);
     }
 
-    /**
-     * Update the button enabled/tooltip state based on current STT availability.
-     * This is invoked on the EDT.
-     */
+    /** Update the button enabled/tooltip state based on current STT availability. This is invoked on the EDT. */
     private void updateSttAvailability() {
         boolean available = contextManager.getService().hasSttModel();
         model.setEnabled(available);
