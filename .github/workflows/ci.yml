@@ -29,17 +29,11 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
-        npm-version: '10'
+        node-version: '24'
+        cache: npm
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
-
-    - name: Clean npm install (macOS only)
-      if: matrix.os == 'macos-latest'
-      run: |
-        cd frontend-mop
-        npm ci
 
     - name: Run tests
       run: ./gradlew test
