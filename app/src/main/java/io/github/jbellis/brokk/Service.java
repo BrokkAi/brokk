@@ -679,7 +679,8 @@ public class Service {
             logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
             return false;
         }
-        return location.startsWith("openai/"); // FIXME
+        return location.equals("openai/gpt-5")
+                || location.equals("openai/gpt-5-mini"); // TODO move this into a yaml field
     }
 
     /**

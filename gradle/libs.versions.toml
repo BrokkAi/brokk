@@ -76,6 +76,13 @@ jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
 
+# JDKMon
+disco = "io.foojay.api:discoclient:21.0.1"
+jdktools = "eu.hansolo:jdktools:21.0.11"
+osdetector-plugin = "com.google.gradle:osdetector-gradle-plugin:1.7.3"
+commons-compress = "org.apache.commons:commons-compress:1.27.0"
+xz = "org.tukaani:xz:1.10"
+
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
 flexmark-html2md = { module = "com.vladsch.flexmark:flexmark-html2md-converter", version.ref = "flexmark" }
@@ -132,6 +139,7 @@ treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitte
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
 apache = ["apache-compress"]
+jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "4.3.0" }

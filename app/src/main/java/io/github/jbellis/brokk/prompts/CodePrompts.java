@@ -351,7 +351,7 @@ public abstract class CodePrompts {
 
         If a file is read-only or unavailable, ask the user to add it or make it editable.
 
-        If you are struggling to use a dependency or API correctly, stop and ask the user for help.
+        If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
         """
                         .formatted(
                                 GraphicsEnvironment.isHeadless()

@@ -28,11 +28,6 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public Path getMasterRootPathForConfig() {
-        return parent.getMasterRootPathForConfig();
-    }
-
-    @Override
     public Set<Language> getAnalyzerLanguages() {
         return parent.getAnalyzerLanguages();
     }
