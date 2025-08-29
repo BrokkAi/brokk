@@ -349,9 +349,9 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
         contextMenu.addSeparator();
 
-        JMenuItem deleteItem = new JMenuItem(selectedFiles.size() == 1 ? "Delete File" : "Delete Files");
+        JMenuItem deleteItem = new JMenuItem(targetFiles.size() == 1 ? "Delete File" : "Delete Files");
         deleteItem.addActionListener(ev -> {
-            var filesToDelete = selectedFiles;
+            var filesToDelete = targetFiles;
 
             contextManager.submitUserTask("Delete files", () -> {
                 try {
