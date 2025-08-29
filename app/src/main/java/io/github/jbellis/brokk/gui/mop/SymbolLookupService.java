@@ -194,7 +194,7 @@ public class SymbolLookupService {
         try {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
-            if (definition.isPresent()) {
+            if (definition.isPresent() && definition.get().isClass()) {
                 return new SymbolInfo(true, definition.get().fqName());
             }
 
@@ -222,9 +222,8 @@ public class SymbolLookupService {
                     return new SymbolInfo(true, commaSeparatedFqns);
                 }
 
-                // For symbols that are not classes, use best match logic
-                var bestMatch = findBestMatch(trimmed, projectSourceResults);
-                return new SymbolInfo(true, bestMatch.fqName());
+                // Only return true for class symbols, not methods or fields
+                return new SymbolInfo(false, null);
             }
 
             return new SymbolInfo(false, null);
@@ -236,7 +235,7 @@ public class SymbolLookupService {
     }
 
     /** Find the best match from search results, prioritizing exact matches over substring matches. */
-    private static CodeUnit findBestMatch(String searchTerm, List<CodeUnit> searchResults) {
+    protected static CodeUnit findBestMatch(String searchTerm, List<CodeUnit> searchResults) {
         // Priority 1: Exact simple name match (class name without package)
         var exactSimpleNameMatches = searchResults.stream()
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
