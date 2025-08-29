@@ -1458,7 +1458,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
         chrome.setLlmOutput(new ContextFragment.TaskFragment(
-                cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
+                cm, List.of(new UserMessage(finalAction, input)), input));
         return cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + action + " command...");

@@ -423,8 +423,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                             ? List.<ChatMessage>of()
                             : List.of(
                                     new UserMessage(instructions),
-                                    CodePrompts.redactAiMessage(
-                                                    new AiMessage(uiMessageText), EditBlockConflictsParser.instance)
+                                    CodePrompts.redactAiMessage(new AiMessage(uiMessageText))
                                             .orElse(new AiMessage("")));
 
                     List<String> failures = results.stream()

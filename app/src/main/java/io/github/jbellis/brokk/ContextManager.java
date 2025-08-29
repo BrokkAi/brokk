@@ -1621,11 +1621,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    @Override
-    public EditBlockParser getParserForWorkspace() {
-        return CodePrompts.instance.getParser(topContext());
-    }
-
     public void reloadModelsAsync() {
         service.reinit(project);
     }

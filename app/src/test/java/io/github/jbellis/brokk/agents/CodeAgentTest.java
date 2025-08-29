@@ -11,7 +11,6 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.LintResult;
-import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.Environment;
@@ -56,7 +55,6 @@ class CodeAgentTest {
     TestContextManager contextManager;
     TestConsoleIO consoleIO;
     CodeAgent codeAgent;
-    EditBlockParser parser;
     BiFunction<String, Path, Environment.ShellCommandRunner> originalShellCommandRunnerFactory;
 
     @BeforeEach
@@ -68,7 +66,6 @@ class CodeAgentTest {
         // as CodeAgent's constructor doesn't use it directly.
         // Llm instance creation is deferred to runTask/runQuickTask.
         codeAgent = new CodeAgent(contextManager, new Service.UnavailableStreamingModel(), consoleIO);
-        parser = EditBlockParser.getParserFor(""); // Basic parser
 
         // Save original shell command runner factory
         originalShellCommandRunnerFactory = Environment.shellCommandRunnerFactory;
@@ -113,7 +110,7 @@ class CodeAgentTest {
         // This input contains no blocks and should be treated as a successful, empty parse.
         String proseOnlyText = "Okay, I will make the changes now.";
 
-        var result = codeAgent.parsePhase(loopContext, proseOnlyText, false, parser, null);
+        var result = codeAgent.parsePhase(loopContext, proseOnlyText, false, null);
 
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
@@ -141,7 +138,7 @@ class CodeAgentTest {
                          This is some trailing text.
                          """;
 
-        var result = codeAgent.parsePhase(loopContext, llmText, false, parser, null);
+        var result = codeAgent.parsePhase(loopContext, llmText, false, null);
 
         // The parser is lenient; it finds the valid block and ignores the rest.
         // This is not a parse error, so we continue.
@@ -160,7 +157,7 @@ class CodeAgentTest {
         var loopContext = createBasicLoopContext("test goal");
         String llmTextNoBlocks = "Thinking...";
 
-        var result = codeAgent.parsePhase(loopContext, llmTextNoBlocks, true, parser, null);
+        var result = codeAgent.parsePhase(loopContext, llmTextNoBlocks, true, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -185,7 +182,7 @@ class CodeAgentTest {
                                   </block>
                                   """;
 
-        var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, parser, null);
+        var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -203,7 +200,7 @@ class CodeAgentTest {
         var block = new EditBlock.SearchReplaceBlock(readOnlyFile.toString(), "search", "replace");
         var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(block), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;
@@ -224,7 +221,7 @@ class CodeAgentTest {
         var loopContext =
                 createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -253,7 +250,7 @@ class CodeAgentTest {
 
         var loopContext = createLoopContext(
                 "test goal", List.of(), new UserMessage("req"), List.of(successBlock, failureBlock), 0);
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -449,7 +446,7 @@ class CodeAgentTest {
         var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(block), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;

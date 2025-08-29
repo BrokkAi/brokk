@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
@@ -100,48 +101,41 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Redacts SEARCH/REPLACE blocks from an AiMessage. If the message contains S/R blocks, they are replaced with
-     * "[elided SEARCH/REPLACE block]". If the message does not contain S/R blocks, or if the redacted text is blank,
+     * Redacts <brk_...> Line-Edit Tags from an AiMessage. If the message contains Line-Edit Tags, they are replaced with
+     * "[elided line-edit tag]". If the message does not contain Line-Edit Tags, or if the redacted text is blank,
      * Optional.empty() is returned.
      *
      * @param aiMessage The AiMessage to process.
-     * @param parser The EditBlockParser to use for parsing.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
-        // Pass an empty set for trackedFiles as it's not needed for redaction.
-        var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
-        // Check if there are actual S/R block objects, not just text parts
-        boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
+        var parsed = LineEditorParser.instance.parse(aiMessage.text());
+        boolean hasEdits = parsed.hasEdits();
 
-        if (!hasSrBlocks) {
-            // No S/R blocks, return message as is (if not blank)
+        if (!hasEdits) {
             return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
-        } else {
-            // Contains S/R blocks, needs redaction
-            var blocks = parsedResult.blocks();
-            var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
-                if (ob.block() == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
-                }
-            }
-            String redactedText = sb.toString();
-            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
         }
+
+        var redacted = redactAiMessage(parsed);
+        return redacted.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redacted));
+    }
+
+    private static @NotNull String redactAiMessage(LineEditorParser.ExtendedParseResult parsed) {
+        var sb = new StringBuilder();
+        var parts = parsed.parts();
+        for (LineEditorParser.OutputPart p : parts) {
+            if (p instanceof LineEditorParser.OutputPart.Text(String text)) {
+                if (!text.isBlank()) sb.append(text);
+            } else {
+                sb.append("[elided Line-Edit tag]");
+            }
+        }
+        return sb.toString();
     }
 
     public final List<ChatMessage> collectCodeMessages(
             IContextManager cm,
             StreamingChatModel model,
-            EditBlockParser parser,
             List<ChatMessage> taskMessages,
             UserMessage request,
             Set<ProjectFile> changedFiles)
@@ -156,7 +150,7 @@ public abstract class CodePrompts {
         } else {
             messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
         }
-        messages.addAll(parser.exampleMessages());
+        messages.addAll(LineEditorParser.instance.exampleMessages());
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
@@ -169,7 +163,6 @@ public abstract class CodePrompts {
 
     public final List<ChatMessage> getSingleFileCodeMessages(
             String styleGuide,
-            EditBlockParser parser,
             List<ChatMessage> readOnlyMessages,
             List<ChatMessage> taskMessages,
             UserMessage request,
@@ -212,7 +205,7 @@ public abstract class CodePrompts {
             throw new UncheckedIOException(e);
         }
 
-        messages.addAll(parser.exampleMessages());
+        messages.addAll(LineEditorParser.instance.exampleMessages());
         messages.addAll(taskMessages);
         messages.add(request);
 
@@ -326,7 +319,7 @@ public abstract class CodePrompts {
                 .formatted(reminder);
     }
 
-    public UserMessage codeRequest(String input, String reminder, EditBlockParser parser, @Nullable ProjectFile file) {
+    public UserMessage codeRequest(String input, String reminder, @Nullable ProjectFile file) {
         var instructions =
                 """
         <instructions>
@@ -335,7 +328,7 @@ public abstract class CodePrompts {
 
         Once you understand the request you MUST:
 
-        1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
+        1. Decide if you need to propose Line-Edit Tags for any code whose source is not available.
            You can create new files without asking!
            But if you need to propose changes to code you can't see,
            you *MUST* tell the user their full filename names and ask them to *add the files to the chat*;
@@ -345,9 +338,9 @@ public abstract class CodePrompts {
 
         2. Explain the needed changes in a few short sentences.
 
-        3. Describe each change with a *SEARCH/REPLACE* block.
+        3. Describe each change with Line-Edit Tags.
 
-        All changes to files must use this *SEARCH/REPLACE* block format.
+        All changes to files must use the Line-Edit Tag format.
 
         If a file is read-only or unavailable, ask the user to add it or make it editable.
 
@@ -357,7 +350,7 @@ public abstract class CodePrompts {
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions");
-        return new UserMessage(instructions + parser.instructions(input, file, reminder));
+        return new UserMessage(instructions + LineEditorParser.instance.instructions(input, file, reminder));
     }
 
     public UserMessage askRequest(String input) {
@@ -811,7 +804,6 @@ public abstract class CodePrompts {
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
-        EditBlockParser parser = getParser(ctx);
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
@@ -823,7 +815,7 @@ public abstract class CodePrompts {
             messages.add(new AiMessage("Ok, I see the history."));
         }
 
-        // Uncompressed messages: process for S/R block redaction
+        // Uncompressed messages: process for Line-Edit Tag redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
             var entryRawMessages = castNonNull(e.log()).messages();
             // Determine the messages to include from the entry
@@ -834,7 +826,7 @@ public abstract class CodePrompts {
             List<ChatMessage> processedMessages = new ArrayList<>();
             for (var chatMessage : relevantEntryMessages) {
                 if (chatMessage instanceof AiMessage aiMessage) {
-                    redactAiMessage(aiMessage, parser).ifPresent(processedMessages::add);
+                    redactAiMessage(aiMessage).ifPresent(processedMessages::add);
                 } else {
                     // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
                     processedMessages.add(chatMessage);
@@ -846,11 +838,4 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public EditBlockParser getParser(Context ctx) {
-        var allText = ctx.allFragments()
-                .filter(ContextFragment::isText)
-                .map(ContextFragment::text)
-                .collect(Collectors.joining("\n"));
-        return EditBlockParser.getParserFor(allText);
-    }
 }
