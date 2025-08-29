@@ -584,8 +584,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (historyItems.isEmpty()) {
             model.addElement(noHistory);
         } else {
-            for (int i = historyItems.size() - 1; i >= 0; i--) {
-                String item = historyItems.get(i);
+            for (String item : historyItems) {
                 String itemWithoutNewlines = item.replace('\n', ' ');
                 String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
                         ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
@@ -604,16 +603,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof HistoryItem(String displayText, String fullText)) {
                     setText(displayText);
-                    if (displayText.equals(noHistory.displayText())) {
-                        setEnabled(false);
-                        setToolTipText(null);
-                    } else if (displayText.equals(placeholder.displayText())) {
-                        setEnabled(true);
+                    setEnabled(true);
+                    if (displayText.equals(noHistory.displayText()) || displayText.equals(placeholder.displayText())) {
                         setToolTipText(null);
                     } else {
-                        setEnabled(true);
-                        String escapedItem = fullText
-                                .replace("&", "&amp;")
+                        String escapedItem = fullText.replace("&", "&amp;")
                                 .replace("<", "&lt;")
                                 .replace(">", "&gt;")
                                 .replace("\"", "&quot;");
@@ -626,9 +620,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         dropdown.addActionListener(e -> {
             var selected = dropdown.getSelectedItem();
-            if (selected instanceof HistoryItem(
-                    String displayText, String fullText
-            ) && !displayText.equals(placeholder.displayText) && !displayText.equals(noHistory.displayText())) {
+            if (selected instanceof HistoryItem(String displayText, String fullText)
+                    && !displayText.equals(placeholder.displayText)
+                    && !displayText.equals(noHistory.displayText())) {
                 // This is a valid history item
                 commandInputOverlay.hideOverlay();
                 instructionsArea.setEnabled(true);
