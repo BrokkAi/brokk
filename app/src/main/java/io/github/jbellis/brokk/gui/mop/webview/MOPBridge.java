@@ -393,6 +393,12 @@ public final class MOPBridge {
         }
     }
 
+    public void onBridgeReady() {
+        if (hostComponent instanceof MOPWebViewHost host) {
+            host.onBridgeReady();
+        }
+    }
+
     public void shutdown() {
         xmit.shutdownNow();
     }

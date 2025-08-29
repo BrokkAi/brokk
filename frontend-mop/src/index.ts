@@ -66,6 +66,12 @@ function setupBrokkInterface(): any[] {
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
     };
+
+    // Signal to Java that the bridge is ready
+    if (window.javaBridge && window.javaBridge.onBridgeReady) {
+        window.javaBridge.onBridgeReady();
+    }
+
     return buffer;
 }
 

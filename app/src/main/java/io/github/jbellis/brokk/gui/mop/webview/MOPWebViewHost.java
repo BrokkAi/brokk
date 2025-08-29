@@ -38,6 +38,10 @@ public final class MOPWebViewHost extends JPanel {
     private volatile @Nullable IContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
 
+    // Bridge readiness tracking
+    private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
+    private volatile boolean bridgeInitialized = false;
+
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
         static Theme create(boolean isDark) {
@@ -427,9 +431,14 @@ public final class MOPWebViewHost extends JPanel {
 
     private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
         var bridge = bridgeRef.get();
-        if (bridge == null) {
+
+        // Only SetTheme commands need to wait for bridge ready; other commands can execute once bridge exists
+        boolean needsBridgeReady = command instanceof HostCommand.SetTheme;
+        boolean canExecute = bridge != null && (!needsBridgeReady || bridgeInitialized);
+
+        if (!canExecute) {
             pendingCommands.add(command);
-            logger.debug("Buffered command, bridge not ready yet: {}", command);
+            logger.debug("Buffered command, waiting for bridge ready: {}", command);
         } else {
             action.accept(bridge);
         }
@@ -467,6 +476,12 @@ public final class MOPWebViewHost extends JPanel {
             });
             pendingCommands.clear();
         }
+    }
+
+    public void onBridgeReady() {
+        bridgeInitialized = true;
+        bridgeReadyFuture.complete(null);
+        flushBufferedCommands();
     }
 
     public void setProject(IProject project) {
