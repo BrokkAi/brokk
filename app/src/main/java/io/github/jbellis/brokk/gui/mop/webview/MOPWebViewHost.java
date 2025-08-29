@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
@@ -32,6 +34,9 @@ public final class MOPWebViewHost extends JPanel {
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile boolean darkTheme = true; // Default to dark theme
+    private volatile @Nullable IProject project;
+    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
 
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
@@ -48,7 +53,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
@@ -91,6 +96,16 @@ public final class MOPWebViewHost extends JPanel {
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
             var bridge = new MOPBridge(view.getEngine());
+            if (project != null) {
+                bridge.setProject(project);
+            }
+            if (contextManager != null) {
+                bridge.setContextManager(contextManager);
+            }
+            if (chrome != null) {
+                bridge.setSymbolRightClickHandler(chrome);
+            }
+            bridge.setHostComponent(fxPanel);
             bridgeRef.set(bridge);
 
             // Add JavaScript error handling
@@ -103,11 +118,6 @@ public final class MOPWebViewHost extends JPanel {
                 if (newException != null) {
                     logger.error("WebView Load Error: {}", newException.getMessage(), newException);
                 }
-            });
-
-            // Add listener for resource loading errors
-            view.getEngine().setOnError(errorEvent -> {
-                logger.error("WebView Resource Load Error: {}", errorEvent.getMessage());
             });
 
             // Expose Java object to JS after the page loads
@@ -127,6 +137,7 @@ public final class MOPWebViewHost extends JPanel {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
+                    var originalInfo = console.info;
 
                     function toStringWithStack(arg) {
                         return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
@@ -146,6 +157,11 @@ public final class MOPWebViewHost extends JPanel {
                         var msg = Array.from(arguments).map(toStringWithStack).join(' ');
                         if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
                         originalWarn.apply(console, arguments);
+                    };
+                    console.info = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
+                        originalInfo.apply(console, arguments);
                     };
                 })();
                 """); // Install wheel event override for platform-specific scroll speed
@@ -264,8 +280,11 @@ public final class MOPWebViewHost extends JPanel {
                 logger.info("Loading WebView content from embedded server: {}", url);
                 view.getEngine().load(url);
             }
-            // Apply initial theme
+            // Apply initial theme and send theme to JavaScript
             applyTheme(Theme.create(darkTheme));
+            // Queue initial theme command to be sent to JavaScript when bridge is ready
+            boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+            sendOrQueue(new HostCommand.SetTheme(darkTheme, isDevMode), b -> b.setTheme(darkTheme, isDevMode));
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -277,9 +296,9 @@ public final class MOPWebViewHost extends JPanel {
                 bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
     }
 
-    public void setTheme(boolean isDark) {
+    public void setTheme(boolean isDark, boolean isDevMode) {
         darkTheme = isDark; // Remember the last requested theme
-        sendOrQueue(new HostCommand.SetTheme(isDark), bridge -> bridge.setTheme(isDark));
+        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
         applyTheme(Theme.create(isDark));
     }
 
@@ -388,6 +407,24 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
+    public void onAnalyzerReadyResponse(String contextId) {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("onAnalyzerReady ignored; bridge not ready for context: {}", contextId);
+            return;
+        }
+        bridge.onAnalyzerReadyResponse(contextId);
+    }
+
+    public String getContextCacheId() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("getContextCacheId ignored; bridge not ready");
+            return "no-bridge";
+        }
+        return bridge.getContextCacheId();
+    }
+
     private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -422,13 +459,44 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
                 }
             });
             pendingCommands.clear();
+        }
+    }
+
+    public void setProject(IProject project) {
+        this.project = project;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setProject(project);
+        }
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        this.contextManager = contextManager;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setContextManager(contextManager);
+        }
+    }
+
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        this.chrome = chrome;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setSymbolRightClickHandler(chrome);
+        }
+    }
+
+    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setHostComponent(hostComponent);
         }
     }
 

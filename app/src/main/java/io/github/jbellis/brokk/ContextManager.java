@@ -146,6 +146,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Context history for undo/redo functionality (stores frozen contexts)
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
+    private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
@@ -169,6 +170,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void removeContextListener(ContextListener listener) {
         contextListeners.remove(listener);
+    }
+
+    @Override
+    public void addAnalyzerCallback(AnalyzerCallback callback) {
+        analyzerCallbacks.add(callback);
+    }
+
+    @Override
+    public void removeAnalyzerCallback(AnalyzerCallback callback) {
+        analyzerCallbacks.remove(callback);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -383,6 +394,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 if (externalRequest && io instanceof Chrome chrome) {
                     chrome.notifyActionComplete("Analyzer rebuild completed");
+                }
+            }
+
+            @Override
+            public void onAnalyzerReady() {
+                logger.debug("Analyzer became ready, triggering symbol lookup refresh");
+                for (var callback : analyzerCallbacks) {
+                    try {
+                        callback.onAnalyzerReady();
+                    } catch (Exception e) {
+                        logger.warn("Analyzer callback failed", e);
+                    }
                 }
             }
         };

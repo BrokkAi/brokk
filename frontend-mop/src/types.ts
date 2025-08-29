@@ -48,4 +48,3 @@ export type BubbleState = Bubble & {
   duration?: number;            // calculated duration in seconds
   isCollapsed?: boolean;        // for UI state
 };
-

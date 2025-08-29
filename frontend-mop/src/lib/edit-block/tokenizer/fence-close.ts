@@ -1,4 +1,4 @@
-import { Code, State, Tokenizer } from 'micromark-util-types';
+import type { Code, State, Tokenizer } from 'micromark-util-types';
 import { makeSafeFx } from '../util';
 import { codes } from 'micromark-util-symbol';
 

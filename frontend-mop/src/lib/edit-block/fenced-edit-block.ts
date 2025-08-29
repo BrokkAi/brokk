@@ -1,6 +1,6 @@
 import {markdownLineEnding} from 'micromark-util-character';
 import {codes} from 'micromark-util-symbol';
-import {Code, State, Tokenizer} from 'micromark-util-types';
+import type {Code, State, Tokenizer} from 'micromark-util-types';
 import {makeEditBlockBodyTokenizer} from './tokenizer/body-tokenizer';
 import {tokenizeDivider} from './tokenizer/divider-tokenizer';
 import {tokenizeFenceClose} from './tokenizer/fence-close';

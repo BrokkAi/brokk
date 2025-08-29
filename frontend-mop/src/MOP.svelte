@@ -4,6 +4,7 @@
   import type { BubbleState } from './stores/bubblesStore';
   import MessageBubble from './components/MessageBubble.svelte';
   import AIReasoningBubble from './components/AIReasoningBubble.svelte';
+  import FloatingCacheStats from './components/FloatingCacheStats.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
 
@@ -56,6 +57,9 @@
     overflow-x: hidden;
   }
 </style>
+
+<!-- Floating cache stats panel -->
+<FloatingCacheStats />
 
 <div
   class="chat-container"

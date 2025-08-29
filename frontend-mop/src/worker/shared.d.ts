@@ -9,7 +9,7 @@ export interface ChunkMsg {
 
 export interface ClearMsg {
     type: 'clear-state';
-    flushBeforeClear: boolean;s
+    flushBeforeClear: boolean;
 }
 
 export interface ParseMsg {
@@ -46,15 +46,23 @@ export interface ErrorMsg {
 
 export interface ShikiLangsReadyMsg {
     type: 'shiki-langs-ready';
+    canHighlight?: string[]; // languages now available
 }
+
+
+export interface WorkerLogMsg {
+    type: 'worker-log';
+    level: 'info' | 'warn' | 'error' | 'debug';
+    message: string;
+}
+
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | WorkerLogMsg | LogMsg;
 
 export interface LogMsg {
     type: 'log';
     level: 'log' | 'warn' | 'error' | 'debug' | 'info';
     message: string;
 }
-
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg | LogMsg;
 
 // shared by both
 

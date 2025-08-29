@@ -1,7 +1,7 @@
 import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
 import type { Code, Effects, State, Tokenizer } from 'micromark-util-types';
-import {makeSafeFx, SafeFx} from '../util';
+import {makeSafeFx, type SafeFx} from '../util';
 
 export interface BodyTokenizerOpts {
     divider: Tokenizer;
