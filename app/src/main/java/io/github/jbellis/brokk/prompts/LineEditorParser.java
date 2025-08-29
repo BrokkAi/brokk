@@ -5,6 +5,10 @@ import io.github.jbellis.brokk.LineEdit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -231,5 +235,147 @@ public final class LineEditorParser {
             }
         }
         return edits;
+    }
+
+    // -----------------------------------------------------------------------------
+    // Prompt surface (analogous to EditBlockParser's prompt API)
+    // -----------------------------------------------------------------------------
+
+    /**
+     * Canonical rules for the line-edit tag format.
+     * Keep this close to the parser to avoid drift between "what we ask for" and "what we accept".
+     */
+    public String lineEditFormatInstructions() {
+        return """
+        # Line-Edit Tag Rules (use exactly this format)
+
+        Provide file edits using only these tags (no backticks, no diff format, no JSON, no YAML):
+        - <brk_edit_file path="<full/path>" beginline=<int> endline=<int>> ...raw code... </brk_edit_file>
+        - <brk_delete_file path="<full/path>" />
+
+        Conventions:
+        - Lines are 1-based and the replacement range [beginline, endline] is inclusive.
+        - Insertion: set endline < beginline. Example: beginline=1 endline=0 inserts at the start of the file.
+          Appending is beginline=(n+1), endline=0 where n is the current number of lines.
+        - Deleting lines: use an empty body in <brk_edit_file> for the given range.
+        - Deleting a file: use <brk_delete_file path="..."/>.
+
+        Requirements:
+        - path attribute must be the FULL file path (exact string you see in the workspace) and must be quoted.
+        - beginline and endline are integers; beginline >= 1 and endline >= 0.
+        - Close edit blocks with </brk_edit_file>. (We also accept </brk_update_file>.)
+        - DO NOT wrap edits in Markdown code fences (```), JSON, or any other wrapper.
+        - DO NOT escape characters inside the edit body; raw code goes between the open/close tags.
+        - DO NOT use unified diff, +/- prefixes, or any other diff-like markers.
+
+        Quality:
+        - Prefer SMALL, PRECISE edits that touch the minimal unique range of lines.
+        - Avoid overlapping edits in the same file; combine adjacent lines into a single edit.
+        - If you need multiple changes in one file, emit multiple small <brk_edit_file> blocks.
+        - Use ASCII quotes only (no "smart quotes").
+
+        Creating a brand new file:
+        - Insert its entire content with a single block: beginline=1 endline=0 and the file's content in the body.
+
+        Moving code between files:
+        - Use two edits: (1) delete the old range with an empty body, (2) insert at the new location.
+
+        If a file is read-only or not present, ask the user to make it editable or add it to the workspace.
+        """.stripIndent();
+    }
+
+    /**
+     * Example messages that demonstrate high-quality usage of <brk_...> tags.
+     * Mirrors the fidelity of the SEARCH/REPLACE examples: short rationale + minimal, precise edits.
+     */
+    public List<ChatMessage> exampleMessages() {
+        return List.of(
+                // Example 1: Replace a recursive factorial with math.factorial via three small edits.
+                new UserMessage("Change get_factorial() to use math.factorial"),
+                new AiMessage("""
+                To make this change we will:
+                1) Import the math module.
+                2) Remove the old recursive implementation.
+                3) Replace the call site with math.factorial(n).
+
+                <brk_edit_file path="mathweb/flask/app.py" beginline=1 endline=1>import math
+                </brk_edit_file>
+
+                <!-- delete the old factorial impl by replacing its range with an empty body -->
+                <brk_edit_file path="mathweb/flask/app.py" beginline=12 endline=18>
+                </brk_edit_file>
+
+                <!-- update the return to call math.factorial -->
+                <brk_edit_file path="mathweb/flask/app.py" beginline=25 endline=25>return str(math.factorial(n))
+                </brk_edit_file>
+                """.stripIndent()),
+
+                // Example 2: New file + adjust existing file with minimal edits.
+                new UserMessage("Refactor hello() into its own file."),
+                new AiMessage("""
+                We will:
+                1) Create a new hello.py with hello().
+                2) Replace the function in main.py with an import.
+
+                <!-- create new file: insert at start of an empty file -->
+                <brk_edit_file path="hello.py" beginline=1 endline=0>def hello():
+                    \"\"\"print a greeting\"\"\"
+                    print("hello")
+                </brk_edit_file>
+
+                <!-- delete original function body in main.py by making the range empty -->
+                <brk_edit_file path="main.py" beginline=10 endline=15>
+                </brk_edit_file>
+
+                <!-- insert the import at the top of main.py -->
+                <brk_edit_file path="main.py" beginline=1 endline=0>from hello import hello
+                </brk_edit_file>
+                """.stripIndent())
+        );
+    }
+
+    /**
+     * Build the full instruction payload for the LLM: rules + reminders + the user goal.
+     * Matches the structure of EditBlockParser.instructions while targeting line-edit tags.
+     */
+    public String instructions(String input, @Nullable ProjectFile file, String reminder) {
+        var targetAttr = (file == null) ? "" : " target=\"%s\"".formatted(file);
+        return """
+        <rules>
+        %s
+
+        Guidance:
+        - Think first; then produce a few short sentences explaining the changes.
+        - Then provide ONLY <brk_edit_file> / <brk_delete_file> tags for the actual edits.
+        - Keep each edit as small as possible while still unambiguous.
+        - If multiple, separate edits are required, emit multiple tag blocks.
+
+        %s
+        </rules>
+
+        <goal%s>
+        %s
+        </goal>
+        """.stripIndent().formatted(lineEditFormatInstructions(), reminder, targetAttr, input);
+    }
+
+    /**
+     * Pretty-print a parsed OutputPart for logs and failure messages.
+     */
+    public static String repr(OutputPart part) {
+        if (part instanceof OutputPart.Delete(String path)) {
+            return "<brk_delete_file path=\"%s\" />".formatted(path);
+        }
+        if (part instanceof OutputPart.Edit(String path, int begin, int end, String content)) {
+            return """
+                   <brk_edit_file path="%s" beginline=%d endline=%d>
+                   %s
+                   </brk_edit_file>
+                   """.stripIndent().formatted(path, begin, end, content);
+        }
+        if (part instanceof OutputPart.Text(String text)) {
+            return text;
+        }
+        return part.toString();
     }
 }
