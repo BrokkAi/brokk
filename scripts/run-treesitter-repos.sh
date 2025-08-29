@@ -34,6 +34,7 @@ print_usage() {
     echo "  multi-lang     Multi-language analysis on Chromium"
     echo "  quick          Quick test with smaller file counts"
     echo "  directory      Analyze files in a specific directory"
+    echo "  cleanup        Clean up report files from output directory"
     echo
     echo "Options:"
     echo "  --max-files N     Maximum files to process (default: 1000)"
@@ -44,6 +45,7 @@ print_usage() {
     echo "  --projects-dir D  Base directory for test projects (default: ../test-projects)"
     echo "  --directory D     Custom directory to analyze instead of predefined projects (use absolute paths)"
     echo "  --patterns P      File patterns to match, e.g., '*.java,*.cpp'"
+    echo "  --cleanup         Clean up report files before running command"
     echo
     echo "Examples:"
     echo "  $0 setup                                    # Download all test projects to ../test-projects/"
@@ -55,6 +57,8 @@ print_usage() {
     echo "  $0 openjdk-java --max-files 2000            # Test OpenJDK with 2000 Java files"
     echo "  $0 directory --directory /absolute/path/to/project --language java    # Test custom directory"
     echo "  $0 stress --directory /absolute/path/to/project --language cpp       # Stress test custom directory"
+    echo "  $0 --cleanup openjdk-java                       # Clean up old reports before testing OpenJDK"
+    echo "  $0 cleanup                                       # Clean up all report files"
     echo
     echo "Note: This is a simplified version compatible with master branch."
     echo "      Some advanced features may not be available."
@@ -163,6 +167,11 @@ case "$COMMAND" in
     directory)
         echo -e "${GREEN}Running directory analysis...${NC}"
         run_java "test-project" "$@"
+        ;;
+
+    cleanup)
+        echo -e "${GREEN}Cleaning up report files...${NC}"
+        run_java "cleanup" "$@"
         ;;
 
     help|--help|-h)

@@ -28,14 +28,15 @@ import java.util.stream.Stream;
  *
  * <p>Options: --project <name> Specific project (chromium, llvm, vscode, etc.) --language <lang> Language to analyze
  * (cpp, java, typescript, etc.) --directory <path> Custom directory to analyze (use absolute paths) --max-files <count>
- * Maximum files to process (default: 1000) --output <path> Output directory for results (default: baseline-results)
- * --memory-profile Enable detailed memory profiling --stress-test Run until OutOfMemoryError to find limits --json
- * Output results in JSON format --verbose Enable verbose logging --show-details Show symbols found in each file
+ * Maximum files to process (default: 1000) --output <path> Output directory for results (default:
+ * build/reports/treesitter-baseline) --memory-profile Enable detailed memory profiling --stress-test Run until
+ * OutOfMemoryError to find limits --json Output results in JSON format --verbose Enable verbose logging --show-details
+ * Show symbols found in each file
  */
 public class TreeSitterRepoRunner {
 
     private static final String PROJECTS_DIR = "../test-projects";
-    private static final String DEFAULT_OUTPUT_DIR = "baseline-results";
+    private static final String DEFAULT_OUTPUT_DIR = "build/reports/treesitter-baseline";
 
     /**
      * Base directory where test projects are stored. Defaults to {@link #PROJECTS_DIR} but may be overridden with the
@@ -135,6 +136,7 @@ public class TreeSitterRepoRunner {
     private boolean jsonOutput = false;
     private boolean verbose = false;
     private boolean showDetails = false;
+    private boolean cleanupReports = false;
     private int maxFiles = 1000;
     private Path outputDir = Paths.get(DEFAULT_OUTPUT_DIR);
     private String testProject = null;
@@ -153,6 +155,14 @@ public class TreeSitterRepoRunner {
 
         try {
             String command = parseArgumentsAndGetCommand(args);
+
+            if (cleanupReports) {
+                cleanupReportsDirectory();
+                if (!"cleanup".equals(command)) {
+                    System.out.println("Reports cleaned. Continuing with command: " + command);
+                }
+            }
+
             ensureOutputDirectory();
             printStartupBanner(command);
 
@@ -162,6 +172,10 @@ public class TreeSitterRepoRunner {
                 case "test-project" -> testSpecificProject();
                 case "memory-stress" -> memoryStressTest();
                 case "multi-language" -> multiLanguageAnalysis();
+                case "cleanup" -> {
+                    System.out.println("✓ Reports directory cleaned");
+                    return;
+                }
                 case "help" -> {
                     printUsage();
                     return;
@@ -189,10 +203,10 @@ public class TreeSitterRepoRunner {
         Files.createDirectories(projectsBaseDir);
 
         for (var entry : PROJECTS.entrySet()) {
-            String projectName = entry.getKey();
-            ProjectConfig config = entry.getValue();
+            var projectName = entry.getKey();
+            var config = entry.getValue();
 
-            Path projectPath = projectsBaseDir.resolve(projectName);
+            var projectPath = projectsBaseDir.resolve(projectName);
 
             if (!Files.exists(projectPath)) {
                 System.out.println("Cloning " + projectName + "...");
@@ -335,22 +349,23 @@ public class TreeSitterRepoRunner {
 
         try {
             // Execute analysis - force parsing of all files by processing each one
-            var declarations = new ArrayList<CodeUnit>();
-            for (var file : files) {
-                // This triggers actual TreeSitter parsing for each file
-                var fileDeclarations = analyzer.getDeclarationsInFile(file);
-                declarations.addAll(fileDeclarations);
+            var declarations = files.stream()
+                    .map(file -> {
+                        // This triggers actual TreeSitter parsing for each file
+                        var fileDeclarations = analyzer.getDeclarationsInFile(file);
 
-                // Show detailed symbol information if requested
-                if (showDetails) {
-                    System.out.printf("📄 %s (%d symbols):%n", file.getRelPath(), fileDeclarations.size());
-                    for (var declaration : fileDeclarations) {
-                        var name = declaration.shortName();
-                        System.out.printf("  - %s: %s%n", declaration.kind(), name);
-                    }
-                    System.out.println();
-                }
-            }
+                        // Show detailed symbol information if requested
+                        if (showDetails) {
+                            System.out.printf("📄 %s (%d symbols):%n", file.getRelPath(), fileDeclarations.size());
+                            fileDeclarations.forEach(declaration ->
+                                    System.out.printf("  - %s: %s%n", declaration.kind(), declaration.shortName()));
+                            System.out.println();
+                        }
+
+                        return fileDeclarations;
+                    })
+                    .flatMap(Collection::stream)
+                    .collect(Collectors.toList());
 
             var endTime = System.nanoTime();
             var gcEndCollections = gcBeans.stream()
@@ -448,8 +463,8 @@ public class TreeSitterRepoRunner {
 
     private void memoryStressTest() throws Exception {
         System.out.println("Running memory stress test...");
-        var log = new StringBuilder();
-        log.append("Running memory stress test...\n");
+        var logEntries = new ArrayList<String>();
+        logEntries.add("Running memory stress test...");
 
         // Timestamp for the output filename
         var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
@@ -472,15 +487,15 @@ public class TreeSitterRepoRunner {
         }
 
         // Build dynamic file count steps respecting --max-files upper bound
-        int[] defaultSteps = {100, 500, 1000, 2000, 5000, 10000, 20000};
-        List<Integer> fileCountsList = new ArrayList<>();
+        var defaultSteps = new int[] {100, 500, 1000, 2000, 5000, 10000, 20000};
+        var fileCountsList = new ArrayList<Integer>();
         for (int step : defaultSteps) {
             if (step <= maxFiles) {
                 fileCountsList.add(step);
             }
         }
         // Ensure the user-requested maxFiles is included as the final step
-        if (fileCountsList.isEmpty() || fileCountsList.get(fileCountsList.size() - 1) != maxFiles) {
+        if (fileCountsList.isEmpty() || !fileCountsList.getLast().equals(maxFiles)) {
             fileCountsList.add(maxFiles);
         }
 
@@ -488,7 +503,7 @@ public class TreeSitterRepoRunner {
             var stepTimestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"));
             String header = String.format("\n--- Testing with %d files [%s] ---\n", fileCount, stepTimestamp);
             System.out.print(header);
-            log.append(header);
+            logEntries.add(header);
 
             try {
                 var oldMaxFiles = maxFiles;
@@ -533,7 +548,7 @@ public class TreeSitterRepoRunner {
                         result.gcTimeMs);
 
                 System.out.print(detailedResults);
-                log.append(detailedResults);
+                logEntries.add(detailedResults);
 
                 // Check for exponential growth
                 if (fileCount > 1000 && result.peakMemoryMB > fileCount * 2.0) { // >2 MB per file indicates trouble
@@ -541,7 +556,7 @@ public class TreeSitterRepoRunner {
                             "⚠ Warning: High memory usage detected (%.1f KB per file)\n",
                             result.peakMemoryMB * 1024 / fileCount);
                     System.out.print(warn);
-                    log.append(warn);
+                    logEntries.add(warn);
                 }
 
                 maxFiles = oldMaxFiles;
@@ -549,7 +564,7 @@ public class TreeSitterRepoRunner {
             } catch (OutOfMemoryError e) {
                 String oom = String.format("❌ OutOfMemoryError at %d files - scalability limit found\n", fileCount);
                 System.out.print(oom);
-                log.append(oom);
+                logEntries.add(oom);
                 break;
             }
         }
@@ -562,7 +577,7 @@ public class TreeSitterRepoRunner {
                     : "";
             Path logFile =
                     outputDir.resolve("memory-stress-" + project + "-" + language + dirPart + "-" + timestamp + ".txt");
-            Files.writeString(logFile, log.toString());
+            Files.writeString(logFile, String.join("", logEntries));
             System.out.println("Stress test results saved to: " + logFile.toAbsolutePath());
         } catch (IOException e) {
             System.err.println("Failed to write stress test log: " + e.getMessage());
@@ -726,7 +741,7 @@ public class TreeSitterRepoRunner {
         private final AtomicLong peak = new AtomicLong(0);
 
         void start() {
-            Thread t = new Thread(
+            var t = new Thread(
                     () -> {
                         while (running.get()) {
                             long current = ManagementFactory.getMemoryMXBean()
@@ -863,6 +878,7 @@ public class TreeSitterRepoRunner {
                 case "--json" -> jsonOutput = true;
                 case "--verbose" -> verbose = true;
                 case "--show-details" -> showDetails = true;
+                case "--cleanup" -> cleanupReports = true;
             }
         }
 
@@ -896,6 +912,37 @@ public class TreeSitterRepoRunner {
         Files.createDirectories(outputDir);
     }
 
+    private void cleanupReportsDirectory() throws IOException {
+        if (!Files.exists(outputDir)) {
+            System.out.println("📁 Output directory doesn't exist: " + outputDir.toAbsolutePath());
+            return;
+        }
+
+        var fileCount = 0;
+        try (var files = Files.walk(outputDir)) {
+            var filesToDelete = files.filter(Files::isRegularFile)
+                    .filter(path -> {
+                        var filename = path.getFileName().toString();
+                        return filename.startsWith("baseline-") || filename.startsWith("memory-stress-");
+                    })
+                    .collect(Collectors.toList());
+
+            for (var file : filesToDelete) {
+                Files.delete(file);
+                fileCount++;
+                if (verbose) {
+                    System.out.println("🗑️ Deleted: " + file.getFileName());
+                }
+            }
+        }
+
+        if (fileCount > 0) {
+            System.out.printf("✅ Cleaned %d report files from %s%n", fileCount, outputDir.toAbsolutePath());
+        } else {
+            System.out.println("📭 No report files found to clean in " + outputDir.toAbsolutePath());
+        }
+    }
+
     private void printUsage() {
         System.out.println(
                 """
@@ -909,6 +956,7 @@ public class TreeSitterRepoRunner {
               test-project      Test specific project
               memory-stress     Memory stress test with increasing file counts (supports --project, --language, --directory)
               multi-language    Multi-language analysis on same project
+              cleanup           Clean up report files from output directory
 
             Options:
               --max-files <n>   Maximum files to process (default: 1000)
@@ -922,6 +970,7 @@ public class TreeSitterRepoRunner {
               --json            Output in JSON format
               --verbose         Enable verbose logging
               --show-details    Show symbols found in each file
+              --cleanup         Clean up reports before running command
             """);
     }
 
@@ -981,33 +1030,40 @@ public class TreeSitterRepoRunner {
         private void appendToTextSummary(String project, String language, BaselineResult result, Path file)
                 throws IOException {
             boolean fileExists = Files.exists(file);
-            var summary = new StringBuilder();
 
-            // Add header if file doesn't exist
-            if (!fileExists) {
-                summary.append("TreeSitter Performance Baseline Summary (Incremental - Simplified)\n");
-                summary.append("==============================================================\n");
-                summary.append("Generated: ").append(LocalDateTime.now()).append("\n");
-                summary.append("JVM Heap Max: ")
-                        .append(Runtime.getRuntime().maxMemory() / (1024 * 1024))
-                        .append("MB\n");
-                summary.append("Processors: ")
-                        .append(Runtime.getRuntime().availableProcessors())
-                        .append("\n\n");
-                summary.append("RESULTS (as completed):\n");
-                summary.append("======================\n");
-                summary.append(String.format(
-                        "%-20s %-12s %-8s %-12s %-12s %-15s %-6s %-20s\n",
-                        "PROJECT", "LANGUAGE", "FILES", "TIME(sec)", "MEMORY(MB)", "MB/FILE", "FAILED", "REASON"));
-                summary.append("-".repeat(100)).append("\n");
-            }
+            var header = fileExists
+                    ? ""
+                    : """
+                    TreeSitter Performance Baseline Summary (Incremental - Simplified)
+                    ==============================================================
+                    Generated: %s
+                    JVM Heap Max: %dMB
+                    Processors: %d
 
-            // Add result line
-            String status = result.failed ? "YES" : "NO";
-            String reason = result.failed && result.failureReason != null ? result.failureReason : "";
+                    RESULTS (as completed):
+                    ======================
+                    %-20s %-12s %-8s %-12s %-12s %-15s %-6s %-20s
+                    %s
+                    """
+                            .formatted(
+                                    LocalDateTime.now(),
+                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                                    Runtime.getRuntime().availableProcessors(),
+                                    "PROJECT",
+                                    "LANGUAGE",
+                                    "FILES",
+                                    "TIME(sec)",
+                                    "MEMORY(MB)",
+                                    "MB/FILE",
+                                    "FAILED",
+                                    "REASON",
+                                    "-".repeat(100));
+
+            var status = result.failed ? "YES" : "NO";
+            var reason = result.failed && result.failureReason != null ? result.failureReason : "";
             if (reason.length() > 20) reason = reason.substring(0, 17) + "...";
 
-            summary.append(String.format(
+            var resultLine = String.format(
                     "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f %-6s %-20s\n",
                     project,
                     language,
@@ -1016,191 +1072,200 @@ public class TreeSitterRepoRunner {
                     result.peakMemoryMB,
                     result.peakMemoryMB / result.filesProcessed,
                     status,
-                    reason));
+                    reason);
 
-            // Append to file
             Files.writeString(
                     file,
-                    summary.toString(),
+                    header + resultLine,
                     fileExists ? java.nio.file.StandardOpenOption.APPEND : java.nio.file.StandardOpenOption.CREATE);
         }
 
         void saveToFile(Path file) throws IOException {
-            var json = new StringBuilder();
-            json.append("{\n");
-            json.append("  \"timestamp\": \"").append(LocalDateTime.now()).append("\",\n");
-            json.append("  \"jvm_settings\": {\n");
-            json.append("    \"heap_max\": \"")
-                    .append(Runtime.getRuntime().maxMemory() / (1024 * 1024))
-                    .append("MB\",\n");
-            json.append("    \"processors\": ")
-                    .append(Runtime.getRuntime().availableProcessors())
-                    .append("\n");
-            json.append("  },\n");
-            json.append("  \"results\": {\n");
+            var resultsJson =
+                    results.entrySet().stream().map(this::formatProjectJson).collect(Collectors.joining(",\n"));
 
-            boolean firstProject = true;
-            for (var projectEntry : results.entrySet()) {
-                if (!firstProject) json.append(",\n");
-                firstProject = false;
-
-                json.append("    \"").append(projectEntry.getKey()).append("\": {\n");
-
-                boolean firstLang = true;
-                for (var langEntry : projectEntry.getValue().entrySet()) {
-                    if (!firstLang) json.append(",\n");
-                    firstLang = false;
-
-                    var result = langEntry.getValue();
-                    json.append("      \"").append(langEntry.getKey()).append("\": {\n");
-                    json.append("        \"files_processed\": ")
-                            .append(result.filesProcessed)
-                            .append(",\n");
-                    json.append("        \"declarations_found\": ")
-                            .append(result.declarationsFound)
-                            .append(",\n");
-                    json.append("        \"analysis_time_ms\": ")
-                            .append(result.duration.toMillis())
-                            .append(",\n");
-                    json.append("        \"analysis_time_seconds\": ")
-                            .append(String.format("%.2f", result.duration.toMillis() / 1000.0))
-                            .append(",\n");
-                    json.append("        \"memory_delta_mb\": ")
-                            .append(String.format("%.1f", result.memoryDeltaMB))
-                            .append(",\n");
-                    json.append("        \"peak_memory_mb\": ")
-                            .append(String.format("%.1f", result.peakMemoryMB))
-                            .append(",\n");
-                    json.append("        \"memory_per_file_kb\": ")
-                            .append(String.format("%.1f", result.peakMemoryMB * 1024 / result.filesProcessed))
-                            .append(",\n");
-                    json.append("        \"files_per_second\": ")
-                            .append(String.format(
-                                    "%.2f", result.filesProcessed / (result.duration.toMillis() / 1000.0)))
-                            .append(",\n");
-                    json.append("        \"gc_collections\": ")
-                            .append(result.gcCollections())
-                            .append(",\n");
-                    json.append("        \"gc_time_ms\": ")
-                            .append(result.gcTimeMs())
-                            .append(",\n");
-                    json.append("        \"failed\": ").append(result.failed);
-                    if (result.failureReason != null) {
-                        json.append(",\n        \"failure_reason\": \"")
-                                .append(result.failureReason.replace("\"", "\\\""))
-                                .append("\"");
+            var json =
+                    """
+                    {
+                      "timestamp": "%s",
+                      "jvm_settings": {
+                        "heap_max": "%dMB",
+                        "processors": %d
+                      },
+                      "results": {
+                    %s
+                      },
+                      "failures": [
+                    %s
+                      ]
                     }
-                    json.append("\n      }");
-                }
-                json.append("\n    }");
-            }
+                    """
+                            .formatted(
+                                    LocalDateTime.now(),
+                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                                    Runtime.getRuntime().availableProcessors(),
+                                    resultsJson,
+                                    formatFailuresJson())
+                            .stripIndent();
 
-            json.append("\n  },\n");
-            json.append("  \"failures\": [\n");
-            for (int i = 0; i < failures.size(); i++) {
-                if (i > 0) json.append(",\n");
-                json.append("    \"")
-                        .append(failures.get(i).replace("\"", "\\\""))
-                        .append("\"");
-            }
-            json.append("\n  ]\n");
-            json.append("}\n");
+            Files.writeString(file, json);
+        }
 
-            Files.writeString(file, json.toString());
+        private String formatProjectJson(Map.Entry<String, Map<String, BaselineResult>> projectEntry) {
+            var languageResults = projectEntry.getValue().entrySet().stream()
+                    .map(this::formatLanguageJson)
+                    .collect(Collectors.joining(",\n"));
+
+            return """
+                      "%s": {
+                    %s
+                      }"""
+                    .formatted(projectEntry.getKey(), languageResults);
+        }
+
+        private String formatLanguageJson(Map.Entry<String, BaselineResult> langEntry) {
+            var result = langEntry.getValue();
+            var failureReason = result.failureReason != null
+                    ? ",\n        \"failure_reason\": \"" + result.failureReason.replace("\"", "\\\"") + "\""
+                    : "";
+
+            return """
+                        "%s": {
+                          "files_processed": %d,
+                          "declarations_found": %d,
+                          "analysis_time_ms": %d,
+                          "analysis_time_seconds": %.2f,
+                          "memory_delta_mb": %.1f,
+                          "peak_memory_mb": %.1f,
+                          "memory_per_file_kb": %.1f,
+                          "files_per_second": %.2f,
+                          "gc_collections": %d,
+                          "gc_time_ms": %d,
+                          "failed": %s%s
+                        }"""
+                    .formatted(
+                            langEntry.getKey(),
+                            result.filesProcessed,
+                            result.declarationsFound,
+                            result.duration.toMillis(),
+                            result.duration.toMillis() / 1000.0,
+                            result.memoryDeltaMB,
+                            result.peakMemoryMB,
+                            result.peakMemoryMB * 1024 / result.filesProcessed,
+                            result.filesProcessed / (result.duration.toMillis() / 1000.0),
+                            result.gcCollections(),
+                            result.gcTimeMs(),
+                            result.failed,
+                            failureReason);
+        }
+
+        private String formatFailuresJson() {
+            return failures.stream()
+                    .map(failure -> "    \"" + failure.replace("\"", "\\\"") + "\"")
+                    .collect(Collectors.joining(",\n"));
         }
 
         void saveToCsv(Path file) throws IOException {
-            var csv = new StringBuilder();
-            csv.append(
-                    "project,language,files_processed,declarations_found,analysis_time_seconds,peak_memory_mb,memory_per_file_kb,files_per_second,gc_collections,gc_time_ms,failed,failure_reason\n");
+            var header =
+                    "project,language,files_processed,declarations_found,analysis_time_seconds,peak_memory_mb,memory_per_file_kb,files_per_second,gc_collections,gc_time_ms,failed,failure_reason";
 
-            for (var projectEntry : results.entrySet()) {
-                for (var langEntry : projectEntry.getValue().entrySet()) {
-                    var result = langEntry.getValue();
-                    csv.append(projectEntry.getKey()).append(",");
-                    csv.append(langEntry.getKey()).append(",");
-                    csv.append(result.filesProcessed).append(",");
-                    csv.append(result.declarationsFound).append(",");
-                    csv.append(String.format("%.2f", result.duration.toMillis() / 1000.0))
-                            .append(",");
-                    csv.append(String.format("%.1f", result.peakMemoryMB)).append(",");
-                    csv.append(String.format("%.1f", result.peakMemoryMB * 1024 / result.filesProcessed))
-                            .append(",");
-                    csv.append(String.format("%.2f", result.filesProcessed / (result.duration.toMillis() / 1000.0)))
-                            .append(",");
-                    csv.append(result.gcCollections()).append(",");
-                    csv.append(result.gcTimeMs()).append(",");
-                    csv.append(result.failed).append(",");
-                    csv.append(
-                            result.failureReason != null
-                                    ? "\"" + result.failureReason.replace("\"", "\"\"") + "\""
-                                    : "");
-                    csv.append("\n");
-                }
-            }
+            var csvBody = results.entrySet().stream()
+                    .flatMap(projectEntry -> projectEntry.getValue().entrySet().stream()
+                            .map(langEntry -> formatCsvRow(projectEntry.getKey(), langEntry)))
+                    .collect(Collectors.joining("\n"));
 
-            Files.writeString(file, csv.toString());
+            Files.writeString(file, header + "\n" + csvBody + "\n");
+        }
+
+        private String formatCsvRow(String projectName, Map.Entry<String, BaselineResult> langEntry) {
+            var result = langEntry.getValue();
+            var failureReason =
+                    result.failureReason != null ? "\"" + result.failureReason.replace("\"", "\"\"") + "\"" : "";
+
+            return String.join(
+                    ",",
+                    projectName,
+                    langEntry.getKey(),
+                    String.valueOf(result.filesProcessed),
+                    String.valueOf(result.declarationsFound),
+                    String.format("%.2f", result.duration.toMillis() / 1000.0),
+                    String.format("%.1f", result.peakMemoryMB),
+                    String.format("%.1f", result.peakMemoryMB * 1024 / result.filesProcessed),
+                    String.format("%.2f", result.filesProcessed / (result.duration.toMillis() / 1000.0)),
+                    String.valueOf(result.gcCollections()),
+                    String.valueOf(result.gcTimeMs()),
+                    String.valueOf(result.failed),
+                    failureReason);
         }
 
         void saveTextSummary(Path file) throws IOException {
-            var summary = new StringBuilder();
-            summary.append("TreeSitter Performance Baseline Summary (Simplified)\n");
-            summary.append("==================================================\n");
-            summary.append("Generated: ").append(LocalDateTime.now()).append("\n");
-            summary.append("JVM Heap Max: ")
-                    .append(Runtime.getRuntime().maxMemory() / (1024 * 1024))
-                    .append("MB\n");
-            summary.append("Processors: ")
-                    .append(Runtime.getRuntime().availableProcessors())
-                    .append("\n\n");
+            var successfulResults = results.entrySet().stream()
+                    .flatMap(projectEntry -> projectEntry.getValue().entrySet().stream()
+                            .filter(langEntry -> !langEntry.getValue().failed)
+                            .map(langEntry -> formatSuccessfulRow(projectEntry.getKey(), langEntry)))
+                    .collect(Collectors.toList());
 
-            // Success summary
-            int totalSuccessful = 0;
-            int totalFailed = 0;
+            var totalSuccessful = successfulResults.size();
+            var totalFailed = (int) results.values().stream()
+                    .flatMapToInt(langMap -> langMap.values().stream().mapToInt(r -> r.failed ? 1 : 0))
+                    .sum();
 
-            summary.append("SUCCESSFUL ANALYSES:\n");
-            summary.append("===================\n");
-            summary.append(String.format(
-                    "%-20s %-12s %-8s %-12s %-12s %-15s\n",
-                    "PROJECT", "LANGUAGE", "FILES", "TIME(sec)", "MEMORY(MB)", "MB/FILE"));
-            summary.append("-".repeat(80)).append("\n");
+            var failedSection = failures.isEmpty()
+                    ? ""
+                    : "\nFAILED ANALYSES:\n" + "===============\n"
+                            + failures.stream().map(failure -> "❌ " + failure).collect(Collectors.joining("\n"))
+                            + "\n";
 
-            for (var projectEntry : results.entrySet()) {
-                for (var langEntry : projectEntry.getValue().entrySet()) {
-                    var result = langEntry.getValue();
-                    if (!result.failed) {
-                        totalSuccessful++;
-                        summary.append(String.format(
-                                "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f\n",
-                                projectEntry.getKey(),
-                                langEntry.getKey(),
-                                result.filesProcessed,
-                                result.duration.toMillis() / 1000.0,
-                                result.peakMemoryMB,
-                                result.peakMemoryMB / result.filesProcessed));
-                    } else {
-                        totalFailed++;
-                    }
-                }
-            }
+            var summary =
+                    """
+                    TreeSitter Performance Baseline Summary (Simplified)
+                    ==================================================
+                    Generated: %s
+                    JVM Heap Max: %dMB
+                    Processors: %d
 
-            if (!failures.isEmpty()) {
-                summary.append("\nFAILED ANALYSES:\n");
-                summary.append("===============\n");
-                for (String failure : failures) {
-                    summary.append("❌ ").append(failure).append("\n");
-                }
-            }
+                    SUCCESSFUL ANALYSES:
+                    ===================
+                    %-20s %-12s %-8s %-12s %-12s %-15s
+                    %s
+                    %s%s
+                    SUMMARY STATISTICS:
+                    ==================
+                    Total successful: %d
+                    Total failed: %d
+                    Success rate: %.1f%%
+                    """
+                            .formatted(
+                                    LocalDateTime.now(),
+                                    Runtime.getRuntime().maxMemory() / (1024 * 1024),
+                                    Runtime.getRuntime().availableProcessors(),
+                                    "PROJECT",
+                                    "LANGUAGE",
+                                    "FILES",
+                                    "TIME(sec)",
+                                    "MEMORY(MB)",
+                                    "MB/FILE",
+                                    "-".repeat(80),
+                                    String.join("\n", successfulResults),
+                                    failedSection,
+                                    totalSuccessful,
+                                    totalFailed,
+                                    100.0 * totalSuccessful / (totalSuccessful + totalFailed))
+                            .stripIndent();
 
-            summary.append("\nSUMMARY STATISTICS:\n");
-            summary.append("==================\n");
-            summary.append("Total successful: ").append(totalSuccessful).append("\n");
-            summary.append("Total failed: ").append(totalFailed).append("\n");
-            summary.append("Success rate: ")
-                    .append(String.format("%.1f%%", 100.0 * totalSuccessful / (totalSuccessful + totalFailed)))
-                    .append("\n");
+            Files.writeString(file, summary);
+        }
 
-            Files.writeString(file, summary.toString());
+        private String formatSuccessfulRow(String projectName, Map.Entry<String, BaselineResult> langEntry) {
+            var result = langEntry.getValue();
+            return String.format(
+                    "%-20s %-12s %-8d %-12.1f %-12.1f %-15.2f",
+                    projectName,
+                    langEntry.getKey(),
+                    result.filesProcessed,
+                    result.duration.toMillis() / 1000.0,
+                    result.peakMemoryMB,
+                    result.peakMemoryMB / result.filesProcessed);
         }
     }
 
