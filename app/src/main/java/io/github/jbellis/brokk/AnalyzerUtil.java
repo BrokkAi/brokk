@@ -86,8 +86,13 @@ public class AnalyzerUtil {
 
         List<IAnalyzer.FileRelevance> results;
         try {
-            results = GitDistance.getPMI(
-                    (GitRepo) project.getRepo(), weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, false);
+            final GitRepo repo = (GitRepo) project.getRepo();
+            final int k = 3 * Context.MAX_AUTO_CONTEXT_FILES;
+            if (weightedSeeds.isEmpty()) {
+                results = GitDistance.getMostImportantFiles(repo, k);
+            } else {
+                results = GitDistance.getPMI(repo, weightedSeeds, k, false);
+            }
         } catch (GitAPIException e) {
             logger.warn("Unable to calculate GitDistance PMI Ranking");
             return List.of();
