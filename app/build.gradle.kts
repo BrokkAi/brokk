@@ -119,22 +119,22 @@ dependencies {
     compileOnly(libs.checker.qual)
 }
 
-buildConfig {
-    buildConfigField("String", "version", "\"${project.version}\"")
-    packageName("io.github.jbellis.brokk")
-    className("BuildInfo")
+// Force version computation at configuration time
+val actualVersion = project.rootProject.version.toString().ifEmpty {
+    // Fallback: read from cache file
+    val versionCacheFile = File(project.rootDir, "build/version.txt")
+    if (versionCacheFile.exists()) {
+        val lines = versionCacheFile.readLines()
+        if (lines.size >= 2) lines[1] else "0.0.0-UNKNOWN"
+    } else {
+        "0.0.0-UNKNOWN"
+    }
 }
 
-tasks.named("generateBuildConfig") {
-    doFirst {
-        // Ensure build directory exists and version is computed before task execution
-        val versionCacheFile = File(project.rootDir, "build/version.txt")
-        if (!versionCacheFile.exists()) {
-            versionCacheFile.parentFile.mkdirs()
-            // Force version computation which will create the cache file
-            project.rootProject.version.toString()
-        }
-    }
+buildConfig {
+    buildConfigField("String", "version", "\"$actualVersion\"")
+    packageName("io.github.jbellis.brokk")
+    className("BuildInfo")
 }
 
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
