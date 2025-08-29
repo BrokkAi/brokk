@@ -92,7 +92,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
-    private static final int DROPDOWN_MENU_WIDTH = 1000; // Pixels
     private static final int TRUNCATION_LENGTH = 100; // Characters
 
     private final Chrome chrome;
@@ -406,20 +405,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        // Left Panel (Mic + History) (West)
-        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        leftPanel.add(micButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+        topBarPanel.add(micButton, BorderLayout.WEST);
 
-        JButton historyButton = new JButton("History ▼");
-        historyButton.setToolTipText("Select a previous instruction from history");
-        historyButton.addActionListener(e -> showHistoryMenu(historyButton));
-        leftPanel.add(historyButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+        var historyDropdown = createHistoryDropdown();
+        topBarPanel.add(historyDropdown, BorderLayout.CENTER);
 
-        leftPanel.add(modelSelector.getComponent());
+        topBarPanel.add(modelSelector.getComponent(), BorderLayout.EAST);
 
-        topBarPanel.add(leftPanel, BorderLayout.WEST);
         return topBarPanel;
     }
 
@@ -572,16 +564,25 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    private void showHistoryMenu(Component invoker) {
-        logger.trace("Showing history menu");
-        JPopupMenu historyMenu = new JPopupMenu();
+    private record HistoryItem(String displayText, String fullText) {
+        @Override
+        public String toString() {
+            return displayText;
+        }
+    }
+
+    private JComboBox<Object> createHistoryDropdown() {
+        final var placeholder = new HistoryItem("History", "");
+        final var noHistory = new HistoryItem("(No history items)", "");
+
         var project = chrome.getProject();
         List<String> historyItems = project.loadTextHistory();
-        logger.trace("History items loaded: {}", historyItems.size());
+
+        var model = new DefaultComboBoxModel<>();
+        model.addElement(placeholder);
+
         if (historyItems.isEmpty()) {
-            JMenuItem emptyItem = new JMenuItem("(No history items)");
-            emptyItem.setEnabled(false);
-            historyMenu.add(emptyItem);
+            model.addElement(noHistory);
         } else {
             for (int i = historyItems.size() - 1; i >= 0; i--) {
                 String item = historyItems.get(i);
@@ -589,31 +590,59 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
                         ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
                         : itemWithoutNewlines;
-                String escapedItem = item.replace("&", "&amp;")
-                        .replace("<", "&lt;")
-                        .replace(">", "&gt;")
-                        .replace("\"", "&quot;");
-                JMenuItem menuItem = new JMenuItem(displayText);
-                menuItem.setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
-                menuItem.addActionListener(event -> {
-                    // Hide overlay and enable input field and deep scan button
-                    commandInputOverlay.hideOverlay();
-                    instructionsArea.setEnabled(true);
-
-                    // Set text and request focus
-                    instructionsArea.setText(item);
-                    commandInputUndoManager.discardAllEdits(); // Clear undo history for new text
-                    instructionsArea.requestFocusInWindow();
-                });
-                historyMenu.add(menuItem);
+                model.addElement(new HistoryItem(displayText, item));
             }
         }
-        chrome.themeManager.registerPopupMenu(historyMenu);
-        historyMenu.setMinimumSize(new Dimension(DROPDOWN_MENU_WIDTH, 0));
-        historyMenu.setPreferredSize(new Dimension(DROPDOWN_MENU_WIDTH, historyMenu.getPreferredSize().height));
-        historyMenu.pack();
-        logger.trace("Showing history menu with preferred width: {}", DROPDOWN_MENU_WIDTH);
-        historyMenu.show(invoker, 0, invoker.getHeight());
+
+        var dropdown = new JComboBox<>(model);
+        dropdown.setToolTipText("Select a previous instruction from history");
+
+        dropdown.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof HistoryItem(String displayText, String fullText)) {
+                    setText(displayText);
+                    if (displayText.equals(noHistory.displayText())) {
+                        setEnabled(false);
+                        setToolTipText(null);
+                    } else if (displayText.equals(placeholder.displayText())) {
+                        setEnabled(true);
+                        setToolTipText(null);
+                    } else {
+                        setEnabled(true);
+                        String escapedItem = fullText
+                                .replace("&", "&amp;")
+                                .replace("<", "&lt;")
+                                .replace(">", "&gt;")
+                                .replace("\"", "&quot;");
+                        setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
+                    }
+                }
+                return this;
+            }
+        });
+
+        dropdown.addActionListener(e -> {
+            var selected = dropdown.getSelectedItem();
+            if (selected instanceof HistoryItem(
+                    String displayText, String fullText
+            ) && !displayText.equals(placeholder.displayText) && !displayText.equals(noHistory.displayText())) {
+                // This is a valid history item
+                commandInputOverlay.hideOverlay();
+                instructionsArea.setEnabled(true);
+
+                instructionsArea.setText(fullText);
+                commandInputUndoManager.discardAllEdits();
+                instructionsArea.requestFocusInWindow();
+
+                // Reset to placeholder
+                SwingUtilities.invokeLater(() -> dropdown.setSelectedItem(placeholder));
+            }
+        });
+
+        return dropdown;
     }
 
     /**
