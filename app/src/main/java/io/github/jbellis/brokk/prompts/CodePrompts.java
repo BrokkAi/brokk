@@ -838,4 +838,80 @@ public abstract class CodePrompts {
         return messages;
     }
 
+    public static String getLineEditFailureMessage(
+            List<LineEditor.FailedEdit> failures,
+            int succeededCount,
+            IContextManager cm) {
+
+        if (failures.isEmpty()) {
+            return "";
+        }
+
+        var byFile = failures.stream()
+                .collect(Collectors.groupingBy(f -> f.edit().file()));
+
+        var sb = new StringBuilder();
+        int total = failures.size();
+        boolean s1 = total == 1;
+        sb.append("""
+                <instructions>
+                # %d Line-Edit operation%s failed in %d file%s!
+
+                Review the CURRENT state of these files below in <current_content>.
+                Fix the edits by correcting line ranges or paths and return only <brk_edit_file>/<brk_delete_file> tags.
+
+                Tips:
+                - INVALID_LINE_RANGE means the begin/end lines are outside the file's bounds or inverted incorrectly.
+                - FILE_NOT_FOUND means the path is wrong or the file does not exist; if creating a new file, use insertion with endline < beginline on an empty/new file.
+                - IO_ERROR indicates the editor could not write or delete the file; check path and permissions.
+
+                Provide corrected Line-Edit tags for the failed edits only.
+                </instructions>
+                """.stripIndent().formatted(total, s1 ? "" : "s", byFile.size(), byFile.size() == 1 ? "" : "s"));
+
+        for (var entry : byFile.entrySet()) {
+            var file = entry.getKey();
+            var fileFailures = entry.getValue();
+
+            String content;
+            try {
+                content = file.exists() ? file.read() : "[File does not exist]";
+            } catch (IOException e) {
+                content = "[Error reading file: %s]".formatted(e.getMessage());
+            }
+
+            sb.append("<file name=\"").append(file).append("\">\n");
+            sb.append("<current_content>\n").append(content).append("\n</current_content>\n");
+            sb.append("<failed_edits>\n");
+
+            for (var f : fileFailures) {
+                String details;
+                if (f.edit() instanceof LineEdit.EditFile ef) {
+                    details = "EditFile(beginline=%d, endline=%d)".formatted(ef.beginLine(), ef.endLine());
+                } else if (f.edit() instanceof LineEdit.DeleteFile) {
+                    details = "DeleteFile";
+                } else {
+                    details = f.edit().getClass().getSimpleName();
+                }
+
+                sb.append("""
+                        <failed_edit reason="%s">
+                        <edit>%s</edit>
+                        <commentary>%s</commentary>
+                        </failed_edit>
+                        """.stripIndent().formatted(f.reason(), details, f.commentary()));
+            }
+
+            sb.append("</failed_edits>\n</file>\n\n");
+        }
+        if (succeededCount > 0) {
+            sb.append("""
+                    <note>
+                    The other %d edit%s applied successfully. Do not re-send them; only fix the failures listed above.
+                    </note>
+                    """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
+        }
+
+        return sb.toString();
+    }
 }
