@@ -553,7 +553,14 @@ public class EditBlock {
         if (filename == null || filename.isBlank()) { // Handle null or blank filename early
             throw new SymbolNotFoundException("Filename cannot be null or blank.");
         }
-        var file = cm.toFile(filename);
+        ProjectFile file;
+        try {
+            file = cm.toFile(filename);
+        } catch (IllegalArgumentException e) {
+            // This can happen if the LLM provides an absolute path
+            throw new SymbolNotFoundException(
+                    "Filename '%s' is invalid, possibly an absolute path.".formatted(filename));
+        }
 
         // 1. Exact match (common case)
         if (file.exists()) {
