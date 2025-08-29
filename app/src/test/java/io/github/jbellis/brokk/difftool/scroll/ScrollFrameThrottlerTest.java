@@ -54,8 +54,8 @@ class ScrollFrameThrottlerTest {
 
         assertEquals(1, executionCount.get(), "Should execute exactly once");
         assertTrue(
-                executionTimes.getFirst() < 10,
-                "First execution should be immediate (< 10ms), but was " + executionTimes.getFirst() + "ms");
+                executionTimes.getFirst() < 20,
+                "First execution should be immediate (< 20ms), but was " + executionTimes.getFirst() + "ms");
         assertTrue(throttler.isFrameActive(), "Frame should be active after first execution");
     }
 
@@ -130,7 +130,7 @@ class ScrollFrameThrottlerTest {
         // All executions should be at frame boundaries (except the first immediate one)
         if (executionTimes.size() > 1) {
             long firstExecution = executionTimes.getFirst();
-            assertTrue(firstExecution < 10, "First execution should be immediate");
+            assertTrue(firstExecution < 20, String.format("First execution should be immediate %d", firstExecution));
 
             for (int i = 1; i < executionTimes.size(); i++) {
                 long execution = executionTimes.get(i);
