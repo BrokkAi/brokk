@@ -17,6 +17,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -261,7 +262,7 @@ public class Service {
         var tempModelInfoMap = new ConcurrentHashMap<String, Map<String, Object>>();
 
         try {
-            fetchAvailableModels(policy, tempModelLocations, tempModelInfoMap);
+            fetchAvailableModels(policy, project.getMcpConfig(), tempModelLocations, tempModelInfoMap);
         } catch (IOException e) {
             logger.error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
             // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
@@ -430,6 +431,7 @@ public class Service {
      */
     protected void fetchAvailableModels(
             MainProject.DataRetentionPolicy policy,
+            McpConfig mcpConfig,
             Map<String, String> locationsTarget,
             Map<String, Map<String, Object>> infoTarget)
             throws IOException {
@@ -577,6 +579,63 @@ public class Service {
             }
 
             logger.info("Discovered {} models eligible for use.", locationsTarget.size());
+        }
+
+        // Discover additional models from configured MCP servers (if any)
+        for (McpServer server : mcpConfig.servers()) {
+            try {
+                logger.debug("Checking MCP server for models: {} ({})", server.name(), server.url());
+                URL modelsUrl;
+                try {
+                    modelsUrl = server.url().toURI().resolve("v1/models").toURL();
+                } catch (Exception e) {
+                    logger.warn("Could not resolve models URL for MCP server {}: {}", server.name(), e.getMessage());
+                    continue;
+                }
+                Request.Builder reqBuilder =
+                        new Request.Builder().url(modelsUrl).get();
+                String bearer = server.bearerToken();
+                if (bearer != null && !bearer.isBlank()) {
+                    reqBuilder.header("Authorization", bearer);
+                }
+                try (Response mresp = httpClient.newCall(reqBuilder.build()).execute()) {
+                    if (!mresp.isSuccessful()) {
+                        String body = mresp.body() != null ? mresp.body().string() : "(no body)";
+                        logger.warn(
+                                "Failed to fetch models from MCP server {}: HTTP {} - {}",
+                                server.name(),
+                                mresp.code(),
+                                body);
+                        continue;
+                    }
+                    String bodyStr = mresp.body() != null ? mresp.body().string() : "";
+                    JsonNode root = objectMapper.readTree(bodyStr);
+                    JsonNode data = root.path("data");
+                    if (!data.isArray()) {
+                        logger.warn("MCP server {} returned unexpected models payload: {}", server.name(), bodyStr);
+                        continue;
+                    }
+                    for (JsonNode modelNode : data) {
+                        String modelId = modelNode.path("id").asText();
+                        if (modelId == null || modelId.isBlank()) continue;
+                        String displayName = server.name() + "/" + modelId;
+                        String locationKey = "mcp:" + displayName;
+                        Map<String, Object> modelInfo = new HashMap<>();
+                        modelInfo.put("model_location", modelId);
+                        modelInfo.put("mcp_base_url", server.url().toString());
+                        if (server.bearerToken() != null) modelInfo.put("mcp_bearer_token", server.bearerToken());
+                        modelInfo.put("mode", "chat");
+                        modelInfo.put("is_private", true);
+                        modelInfo.put("max_input_tokens", 32768);
+                        modelInfo.put("max_output_tokens", 8192);
+                        infoTarget.put(locationKey, Map.copyOf(modelInfo));
+                        locationsTarget.put(displayName, locationKey);
+                        logger.debug("Discovered MCP model {} -> {}", displayName, locationKey);
+                    }
+                }
+            } catch (Exception ex) {
+                logger.warn("Error discovering models from MCP server {}: {}", server.name(), ex.getMessage(), ex);
+            }
         }
     }
 
@@ -753,6 +812,70 @@ public class Service {
         if (location == null) {
             logger.error("Location not found for model name: {}", config.name);
             return null;
+        }
+
+        // If this model was discovered from an MCP server, construct a client that talks directly to that MCP base URL.
+        var mInfo = getModelInfo(location);
+        if (mInfo != null && mInfo.containsKey("mcp_base_url")) {
+            try {
+                String mcpBase = mInfo.get("mcp_base_url").toString();
+                Object modelIdObj = mInfo.get("model_location");
+                if (!(modelIdObj instanceof String modelId) || modelId.isBlank()) {
+                    logger.error("Missing or invalid 'model_location' for MCP model at {}", location);
+                    return null;
+                }
+                String rawBearer = mInfo.getOrDefault("mcp_bearer_token", "").toString();
+
+                String apiKey = "dummy-key";
+                Map<String, String> customHeaders = null;
+                if (!rawBearer.isBlank()) {
+                    String token = rawBearer;
+                    if (token.regionMatches(true, 0, "Bearer ", 0, 7)) {
+                        token = token.substring(7);
+                    }
+                    apiKey = token;
+                    customHeaders = Map.of("Authorization", rawBearer);
+                }
+
+                var params = OpenAiChatRequestParameters.builder().modelName(modelId);
+
+                // Apply reasoning effort if not default and supported
+                logger.trace("Applying reasoning effort {} to MCP model {}", config.reasoning, config.name);
+                if (supportsReasoningEffort(config.name) && config.reasoning != ReasoningLevel.DEFAULT) {
+                    params = params.reasoningEffort(config.reasoning.name().toLowerCase(Locale.ROOT));
+                }
+                if (parametersOverride != null) {
+                    params = params.overrideWith(parametersOverride.build());
+                }
+
+                var builder = OpenAiStreamingChatModel.builder()
+                        .logRequests(true)
+                        .logResponses(true)
+                        .strictJsonSchema(true)
+                        .baseUrl(mcpBase)
+                        .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME))
+                        .apiKey(apiKey);
+
+                if (customHeaders != null) {
+                    builder = builder.customHeaders(customHeaders);
+                }
+
+                if (config.tier != ProcessingTier.DEFAULT) {
+                    builder = builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
+                }
+
+                builder.defaultRequestParameters(
+                        params.maxCompletionTokens(getMaxOutputTokens(location)).build());
+                return builder.build();
+            } catch (Exception e) {
+                logger.error(
+                        "Failed to construct MCP model client for {} at {}: {}",
+                        config.name,
+                        location,
+                        e.getMessage(),
+                        e);
+                return null;
+            }
         }
 
         // default request parameters

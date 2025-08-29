@@ -251,6 +251,15 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    // MCP server configuration for this project
+    default McpConfig getMcpConfig() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setMcpConfig(McpConfig config) {
+        throw new UnsupportedOperationException();
+    }
+
     // New methods for the IssueProvider record
     default io.github.jbellis.brokk.IssueProvider
             getIssuesProvider() { // Method name clash is intentional record migration
