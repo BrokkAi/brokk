@@ -284,11 +284,9 @@ public final class MOPWebViewHost extends JPanel {
                 logger.info("Loading WebView content from embedded server: {}", url);
                 view.getEngine().load(url);
             }
-            // Apply initial theme and send theme to JavaScript
-            applyTheme(Theme.create(darkTheme));
-            // Queue initial theme command to be sent to JavaScript when bridge is ready
+            // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            sendOrQueue(new HostCommand.SetTheme(darkTheme, isDevMode), b -> b.setTheme(darkTheme, isDevMode));
+            setInitialTheme(darkTheme, isDevMode);
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -300,9 +298,28 @@ public final class MOPWebViewHost extends JPanel {
                 bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
     }
 
-    public void setTheme(boolean isDark, boolean isDevMode) {
-        darkTheme = isDark; // Remember the last requested theme
+    /**
+     * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
+     * reports it is ready.
+     */
+    public void setInitialTheme(boolean isDark, boolean isDevMode) {
+        darkTheme = isDark;
         sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
+        applyTheme(Theme.create(isDark));
+    }
+
+    /**
+     * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
+     * command is queued so that the frontend is updated once the bridge appears.
+     */
+    public void setRuntimeTheme(boolean isDark, boolean isDevMode) {
+        darkTheme = isDark;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setTheme(isDark, isDevMode);
+        } else {
+            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode));
+        }
         applyTheme(Theme.create(isDark));
     }
 
