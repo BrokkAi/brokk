@@ -77,7 +77,8 @@ public final class GitDistance {
     }
 
     /**
-     * Point-wise Mutual Information (PMI) distance.
+     * Point-wise Mutual Information (PMI) distance. If no seed weights are given, this executes
+     * {@link GitDistance#getMostImportantFiles(GitRepo, int)} instead.
      *
      * <p>p(X,Y) = |C(X) ∩ C(Y)| / |Commits| p(X) = |C(X)| / |Commits| PMI = log2( p(X,Y) / (p(X)·p(Y)) )
      *
@@ -85,12 +86,11 @@ public final class GitDistance {
      */
     public static List<IAnalyzer.FileRelevance> getPMI(
             GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws GitAPIException {
-
         if (seedWeights.isEmpty()) {
-            return List.of();
+            return getMostImportantFiles(repo, k);
+        } else {
+            return computePmiScores(repo, seedWeights, k, reversed);
         }
-
-        return computePmiScores(repo, seedWeights, k, reversed);
     }
 
     /**
