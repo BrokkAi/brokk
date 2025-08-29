@@ -282,7 +282,40 @@ public interface LspAnalyzer
             throw new IllegalArgumentException(reason);
         }
 
-        final var definitions = getDefinitionsInWorkspace(fqName);
+        // Start with the normal lookup
+        var definitions = getDefinitionsInWorkspace(fqName);
+
+        // Fallback: if nothing found and this looks like a fully-qualified field name,
+        // try to resolve the container and find a field child with the given name.
+        if (definitions.isEmpty() && fqName.contains(".")) {
+            final var containerName = fqName.substring(0, fqName.lastIndexOf('.'));
+
+            List<? extends WorkspaceSymbol> containerSymbols = getDefinitionsInWorkspace(containerName);
+            // If the generic workspace-symbol search didn't return anything, explicitly try type-symbol lookup,
+            // which is often more reliable for classes (especially short/simple names).
+            if (containerSymbols.isEmpty()) {
+                containerSymbols = LspAnalyzerHelper.findTypesInWorkspace(containerName, getWorkspace(), getServer())
+                        .join();
+            }
+
+            if (!containerSymbols.isEmpty()) {
+                definitions = containerSymbols.stream()
+                        // For each matching container symbol, fetch its direct children from the server
+                        .flatMap(containerSymbol -> {
+                            // Convert to a CodeUnit if possible; some helper paths expect a CodeUnit.
+                            final CodeUnit cu = codeUnitForWorkspaceSymbol(containerSymbol);
+                            return LspAnalyzerHelper.getDirectChildren(cu, getServer()).join().stream();
+                        })
+                        .filter(symbol -> {
+                            // Only consider field-like symbols
+                            if (!LspAnalyzerHelper.FIELD_KINDS.contains(symbol.getKind())) {
+                                return false;
+                            }
+                            return LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName);
+                        })
+                        .toList();
+            }
+        }
 
         if (definitions.isEmpty()) {
             final var reason = "Symbol '" + fqName + "' (resolved: '" + resolveMethodName(fqName)

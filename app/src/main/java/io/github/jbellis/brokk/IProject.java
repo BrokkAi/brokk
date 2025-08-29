@@ -126,6 +126,13 @@ public interface IProject extends AutoCloseable {
 
     default void setDataRetentionPolicy(MainProject.DataRetentionPolicy selectedPolicy) {}
 
+    // JDK configuration: project-scoped JAVA_HOME setting (path or sentinel)
+    default @Nullable String getJdk() {
+        return null;
+    }
+
+    default void setJdk(@Nullable String jdkHome) {}
+
     default java.awt.Rectangle getPreviewWindowBounds() {
         throw new UnsupportedOperationException();
     }
@@ -238,6 +245,15 @@ public interface IProject extends AutoCloseable {
     default void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {}
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
+
+    // Primary build language configuration
+    default Language getBuildLanguage() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setBuildLanguage(@Nullable Language language) {
+        throw new UnsupportedOperationException();
+    }
 
     default ArchitectAgent.ArchitectOptions getArchitectOptions() {
         throw new UnsupportedOperationException();

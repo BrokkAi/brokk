@@ -4,6 +4,7 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import com.formdev.flatlaf.util.SystemInfo;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
@@ -171,7 +172,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
-        frame = newFrame("Brokk: Code Intelligence for AI");
+        frame = newFrame("Brokk: Code Intelligence for AI", false);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         frame.setSize(800, 1200); // Taller than wide
         frame.setLayout(new BorderLayout());
@@ -413,6 +414,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(preferred);
             }
+
+            // Add themed title bar asynchronously
+            applyTitleBar(frame, frame.getTitle());
         });
 
         // Possibly check if .gitignore is set
@@ -999,8 +1003,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
         JFrame previewFrame = newFrame(title);
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            var titleBar = new JPanel(new BorderLayout());
+            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
+            var label = new JLabel(title, SwingConstants.CENTER);
+            titleBar.add(label, BorderLayout.CENTER);
+            previewFrame.add(titleBar, BorderLayout.NORTH);
+        }
         previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        previewFrame.setContentPane(contentComponent);
+        previewFrame.add(contentComponent, BorderLayout.CENTER);
         previewFrame.setBackground(themeManager.isDarkTheme() ? UIManager.getColor("chat_background") : Color.WHITE);
 
         var project = contextManager.getProject();
@@ -1720,15 +1731,47 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Creates a new JFrame with the Brokk icon set properly.
+     * Creates a new themed JFrame with the Brokk icon set properly.
      *
      * @param title The title for the new frame
      * @return A configured JFrame with the application icon
      */
-    public static JFrame newFrame(String title) {
+    public static JFrame newFrame(String title, boolean initializeTitleBar) {
         JFrame frame = new JFrame(title);
         applyIcon(frame);
+        // macOS  (see https://www.formdev.com/flatlaf/macos/)
+        if (SystemInfo.isMacOS) {
+            if (SystemInfo.isMacFullWindowContentSupported) {
+                frame.getRootPane().putClientProperty("apple.awt.fullWindowContent", true);
+                frame.getRootPane().putClientProperty("apple.awt.transparentTitleBar", true);
+
+                // hide window title
+                if (SystemInfo.isJava_17_orLater)
+                    frame.getRootPane().putClientProperty("apple.awt.windowTitleVisible", false);
+                else frame.setTitle(null);
+            }
+        }
+        if (initializeTitleBar) applyTitleBar(frame, title);
         return frame;
+    }
+
+    public static JFrame newFrame(String title) {
+        return newFrame(title, true);
+    }
+
+    /**
+     * If using full window content, creates a themed title bar.
+     *
+     * @see <a href="https://www.formdev.com/flatlaf/macos/">FlatLaf macOS Window Decorations</a>
+     */
+    public static void applyTitleBar(JFrame frame, String title) {
+        if (SystemInfo.isMacOS && SystemInfo.isMacFullWindowContentSupported) {
+            var titleBar = new JPanel(new BorderLayout());
+            titleBar.setBorder(new EmptyBorder(4, 80, 4, 0)); // Padding for window controls
+            var label = new JLabel(title, SwingConstants.CENTER);
+            titleBar.add(label, BorderLayout.CENTER);
+            frame.add(titleBar, BorderLayout.NORTH);
+        }
     }
 
     /**

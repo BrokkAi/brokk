@@ -679,7 +679,7 @@ public class Service {
             logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
             return false;
         }
-        return location.startsWith("openai/"); // FIXME
+        return location.equals("openai/gpt-5") || location.equals("openai/gpt-5-mini"); // TODO move this into a yaml field
     }
 
     /**
@@ -998,6 +998,15 @@ public class Service {
     /** Returns the default speech-to-text model instance. */
     public SpeechToTextModel sttModel() {
         return sttModel;
+    }
+
+    /**
+     * Convenience helper to check whether a real STT model is available.
+     *
+     * @return true if speech-to-text is available for use, false if using UnavailableSTT stub.
+     */
+    public boolean hasSttModel() {
+        return !(sttModel instanceof UnavailableSTT);
     }
 
     /** Interface for speech-to-text operations. Can remain static as it's just an interface definition. */

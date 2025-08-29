@@ -256,8 +256,6 @@ public class ProjectFilesPanel extends JPanel {
     private void refreshProjectFiles() {
         projectTree.onTrackedFilesChanged();
         updateBorderTitle(); // Refresh title in case branch changed
-        // Return focus to the search field for continued typing
-        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
     }
 
     /** Updates the panel to reflect the current project state, including branch name in title. */

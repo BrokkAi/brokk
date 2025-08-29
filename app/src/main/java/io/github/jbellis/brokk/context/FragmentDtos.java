@@ -240,6 +240,16 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO representing a deleted file entry within a history entry. */
+    public record DeletedFileDto(ProjectFileDto file, String content, boolean wasTracked) {}
+
+    /** DTO representing entry info (currently only deleted files). */
+    public record EntryInfoDto(List<DeletedFileDto> deletedFiles) {
+        public EntryInfoDto {
+            deletedFiles = List.copyOf(deletedFiles);
+        }
+    }
+
     /** DTO for holding all unique fragments in a session history. Used as the top-level object for fragments.json. */
     public record AllFragmentsDto(
             int version, // Version of the fragment DTO structure

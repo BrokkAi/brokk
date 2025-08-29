@@ -2,6 +2,8 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -57,6 +59,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     public static AbstractProject createProject(Path projectPath, @Nullable MainProject parent) {
         return parent == null ? new MainProject(projectPath) : new WorktreeProject(projectPath, parent);
+    }
+
+    @Override
+    public Path getMasterRootPathForConfig() {
+        return masterRootPathForConfig;
     }
 
     @Override
@@ -346,6 +353,72 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public final void setLastActiveSession(UUID sessionId) {
         workspaceProps.setProperty("lastActiveSession", sessionId.toString());
         saveWorkspaceProperties();
+    }
+
+    private static final String PROP_JDK_HOME = "jdk.home";
+    private static final String PROP_BUILD_LANGUAGE = "build.language";
+
+    @Override
+    public @Nullable String getJdk() {
+        var value = workspaceProps.getProperty(PROP_JDK_HOME);
+        if (value == null || value.isBlank()) {
+            value = BuildAgent.detectJdk();
+            setJdk(value);
+        }
+        return value;
+    }
+
+    @Override
+    public void setJdk(@Nullable String jdkHome) {
+        if (jdkHome == null || jdkHome.isBlank()) {
+            workspaceProps.remove(PROP_JDK_HOME);
+        } else {
+            workspaceProps.setProperty(PROP_JDK_HOME, jdkHome);
+        }
+        saveWorkspaceProperties();
+    }
+
+    @Override
+    public Language getBuildLanguage() {
+        var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
+        if (configured != null && !configured.isBlank()) {
+            try {
+                return Language.valueOf(configured);
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid build language '{}' in workspace properties for {}", configured, root);
+            }
+        }
+        return computeMostCommonLanguage();
+    }
+
+    @Override
+    public void setBuildLanguage(@Nullable Language language) {
+        if (language == null) {
+            workspaceProps.remove(PROP_BUILD_LANGUAGE);
+        } else {
+            workspaceProps.setProperty(PROP_BUILD_LANGUAGE, language.name());
+        }
+        saveWorkspaceProperties();
+    }
+
+    private Language computeMostCommonLanguage() {
+        try {
+            var counts = getAllFiles().stream()
+                    .map(pf -> com.google.common.io.Files.getFileExtension(
+                            pf.absPath().toString()))
+                    .filter(ext -> !ext.isEmpty())
+                    .map(Language::fromExtension)
+                    .filter(lang -> lang != Language.NONE)
+                    .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
+
+            return counts.entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .orElse(Language.NONE);
+        } catch (Exception e) {
+            logger.warn("Failed to compute most common language for {}: {}", root, e.getMessage());
+            return Language.NONE;
+        }
     }
 
     @Override

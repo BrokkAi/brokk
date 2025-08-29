@@ -37,6 +37,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -147,6 +148,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
+    // Listeners that want to be notified when the Service (models/stt) is reinitialized.
+    private final List<Runnable> serviceListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -155,6 +158,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
+
+    // Model reload state to prevent concurrent reloads
+    private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -169,6 +175,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void removeContextListener(ContextListener listener) {
         contextListeners.remove(listener);
+    }
+
+    /**
+     * Register a Runnable to be invoked when the Service (models / STT) is reinitialized.
+     * The Runnable is executed on the EDT to allow UI updates.
+     */
+    public void addServiceListener(Runnable listener) {
+        serviceListeners.add(listener);
+    }
+
+    /** Remove a previously registered service listener. */
+    public void removeServiceListener(Runnable listener) {
+        serviceListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -1674,7 +1693,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void reloadModelsAsync() {
-        service.reinit(project);
+        if (isReloadingModels.compareAndSet(false, true)) {
+            // Run reinit in the background so callers don't block; notify UI listeners when finished.
+            submitBackgroundTask("Reloading models", () -> {
+                try {
+                    service.reinit(project);
+                    // Notify registered listeners on the EDT so they can safely update Swing UI.
+                    SwingUtilities.invokeLater(() -> {
+                        for (var l : serviceListeners) {
+                            try {
+                                l.run();
+                            } catch (Exception e) {
+                                logger.warn("Service listener threw exception", e);
+                            }
+                        }
+                    });
+                } finally {
+                    isReloadingModels.set(false);
+                }
+                return null;
+            });
+        } else {
+            logger.debug("Model reload already in progress, skipping request.");
+        }
     }
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
@@ -1712,9 +1753,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.systemOutput("Generating project style guide...");
-                var analyzer = getAnalyzerUninterrupted();
                 // Use a reasonable limit for style guide generation context
-                var topClasses = AnalyzerUtil.combinedRankingFor(analyzer, project.getRoot(), Map.of()).stream()
+                var topClasses = AnalyzerUtil.combinedRankingFor(project, Map.of()).stream()
                         .limit(10)
                         .toList();
 
@@ -1728,10 +1768,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var codeForLLM = new StringBuilder();
                 var tokens = 0;
                 int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
-                for (var fqcnUnit : topClasses) {
-                    var fileOption = analyzer.getFileFor(fqcnUnit.fqName()); // Use fqName() here
-                    if (fileOption.isEmpty()) continue;
-                    var file = fileOption.get();
+                for (var file : topClasses) {
                     String chunk; // Declare chunk once outside the try-catch
                     // Use project root for relative path display if possible
                     var relativePath =

@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.jspecify)
     implementation(libs.picocli)
     implementation(libs.bundles.apache)
+    implementation(libs.bundles.jdkmon)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -239,7 +240,7 @@ tasks.named<JavaCompile>("compileJava") {
         error("NullAway")
 
         // Exclude dev/ directory from all ErrorProne checks
-        excludedPaths = ".*/src/main/java/dev/.*"
+        excludedPaths = ".*/src/main/java/(dev/|eu/).*"
 
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
@@ -386,6 +387,23 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgs = listOf(
         "-ea",
+        "-Dbrokk.devmode=true"
+    )
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
+}
+
+tasks.register<JavaExec>("runTreeSitterRepoRunner") {
+    group = "application"
+    description = "Runs the TreeSitterRepoRunner tool for TreeSitter performance analysis"
+    mainClass.set("io.github.jbellis.brokk.tools.TreeSitterRepoRunner")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs = listOf(
+        "-ea",
+        "-Xmx8g",
+        "-XX:+UseZGC",
+        "-XX:+UnlockExperimentalVMOptions",
         "-Dbrokk.devmode=true"
     )
     if (project.hasProperty("args")) {

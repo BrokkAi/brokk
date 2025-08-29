@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
 import io.github.jbellis.brokk.*
-import io.github.jbellis.brokk.analyzer.IAnalyzer.CodeUnitRelevance
+import io.github.jbellis.brokk.analyzer.IAnalyzer.FileRelevance
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
@@ -1023,140 +1023,6 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
 
     // Not found as class, unique method, or field
     java.util.Optional.empty()
-  }
-
-  /** Weighted PageRank at the class level. If seedClassWeights is non-empty, seeds are assigned according to those
-    * weights. Otherwise, all classes are seeded equally.
-    */
-  override def getRelevantCodeUnits(
-    seedClassWeights: java.util.Map[String, java.lang.Double],
-    k: Int,
-    reversed: Boolean
-  ): java.util.List[CodeUnitRelevance] = {
-    import scala.jdk.CollectionConverters.*
-    val seedWeights = seedClassWeights.asScala.view.mapValues(_.doubleValue()).toMap
-    // restrict to classes (FQCNs) that are in the graph
-    var validSeeds = seedWeights.keys.toSeq.filter(classesForPagerank.contains)
-    if (validSeeds.isEmpty) validSeeds = classesForPagerank.toSeq
-
-    val danglingNodes = classesForPagerank.par.filter { c =>
-      adjacency.get(c).forall(_.isEmpty)
-    }
-    val damping = 0.85
-    val epsilon = 1e-4
-    val maxIter = 50
-
-    val scores      = TrieMap[String, Double](classesForPagerank.toSeq.map(_ -> 0.0)*)
-    val nextScores  = TrieMap[String, Double](classesForPagerank.toSeq.map(_ -> 0.0)*)
-    val totalWeight = seedWeights.values.sum
-    validSeeds.foreach { c =>
-      scores(c) = seedWeights.getOrElse(c, 0.0) / (if (totalWeight == 0) 1 else totalWeight)
-    }
-
-    var iteration = 0
-    var diffSum   = Double.MaxValue
-
-    while (iteration < maxIter && diffSum > epsilon) {
-      // zero nextScores
-      classesForPagerank.par.foreach { c => nextScores(c) = 0.0 }
-
-      val localDiffs = classesForPagerank.par.map { node =>
-        val (inMap, outMap) = if (reversed) (adjacency, reverseAdjacency) else (reverseAdjacency, adjacency)
-        val inboundSum = inMap
-          .get(node)
-          .map { inboundMap =>
-            inboundMap.foldLeft(0.0) { case (acc, (u, weight)) =>
-              val outLinks  = outMap(u)
-              val outWeight = outLinks.values.sum.max(1)
-              acc + (scores(u) * weight / outWeight)
-            }
-          }
-          .getOrElse(0.0)
-
-        var newScore = damping * inboundSum
-        if (validSeeds.contains(node)) {
-          newScore += (1.0 - damping) *
-            (seedWeights.getOrElse(node, 0.0) / (if (totalWeight == 0) 1 else totalWeight))
-        }
-        nextScores(node) = newScore
-        math.abs(scores(node) - newScore)
-      }.sum
-
-      // handle dangling nodes
-      val danglingScore = danglingNodes.par.map(scores).sum
-      if (danglingScore > 0.0 && validSeeds.nonEmpty) {
-        validSeeds.par.foreach { seed =>
-          val weight = seedWeights.getOrElse(seed, 0.0) / (if (totalWeight == 0) 1 else totalWeight)
-          nextScores(seed) += damping * danglingScore * weight
-        }
-        // zero out dangling
-        danglingNodes.par.foreach { dn => nextScores(dn) = 0.0 }
-      }
-
-      diffSum = localDiffs
-      classesForPagerank.foreach { node => scores(node) = nextScores(node) }
-      iteration += 1
-    }
-
-    val sortedAll = scores.toList.sortBy { case (_, s) => -s }
-    val filteredSortedAll = sortedAll.filterNot { case (cls, _) =>
-      // cls here is the FQCN string from the sorted scores
-      seedWeights.keys.exists(seed => partOfClass(seed, cls))
-    }
-
-    // Coalesce inner classes: if both parent and inner class are present, keep only the parent.
-    // Operates on a buffer of (CodeUnit, Double) tuples.
-    def coalesceInnerClasses(initial: List[(CodeUnit, Double)], limit: Int): mutable.Buffer[(CodeUnit, Double)] = {
-      var results     = initial.take(limit).toBuffer
-      var offset      = limit
-      var changed     = true
-      val initialFqns = initial.map(_._1.fqName()).toSet // For quick lookups during addition
-
-      while (changed) {
-        changed = false
-        val fqnsToRemove = mutable.Set[String]() // Store FQNs of inner classes to remove
-        for (i <- results.indices) {
-          val pFqn = results(i)._1.fqName()
-          for (j <- results.indices if j != i) {
-            val cFqn = results(j)._1.fqName()
-            if (partOfClass(pFqn, cFqn)) fqnsToRemove += cFqn
-          }
-        }
-        if (fqnsToRemove.nonEmpty) {
-          changed = true
-          results = results.filterNot { case (cu, _) => fqnsToRemove.contains(cu.fqName()) }
-        }
-        // Add new candidates until the limit is reached
-        while (results.size < limit && offset < initial.size) {
-          val candidate @ (cu, _) = initial(offset)
-          offset += 1
-          // Add if not already present (by FQN) and not marked for removal
-          if (!results.exists(_._1.fqName() == cu.fqName()) && !fqnsToRemove.contains(cu.fqName())) {
-            // Also ensure its potential parent isn't already in initialFqns if it's an inner class
-            val isInner      = cu.fqName().contains('$')
-            val parentFqnOpt = if (isInner) Some(cu.fqName().substring(0, cu.fqName().lastIndexOf('$'))) else None
-            if (!isInner || parentFqnOpt.forall(p => !initialFqns.contains(p))) {
-              results += candidate
-              changed = true
-            }
-          }
-        }
-      }
-      results // Buffer[(CodeUnit, Double)]
-    }
-
-    // Map sorted FQCNs to CodeUnit tuples, filtering out those without files
-    val sortedCodeUnits = filteredSortedAll.flatMap { case (fqcn, score) =>
-      getFileFor(fqcn).toScala.flatMap { file => // Use flatMap here
-        cuClass(fqcn, file).map((_, score))      // Use cuClass
-      }
-    }
-
-    // Coalesce and convert to PageRankResult, filtering out zero scores
-    coalesceInnerClasses(sortedCodeUnits, k)
-      .map { case (cu, d) => new CodeUnitRelevance(cu, d) }
-      .filter(_.score() > 0.0) // Filter out results with zero score
-      .asJava
   }
 
   override def getDeclarationsInFile(file: ProjectFile): java.util.Set[CodeUnit] = {

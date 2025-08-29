@@ -4,7 +4,7 @@ import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitDistance;
-import java.nio.file.Path;
+import io.github.jbellis.brokk.git.GitRepo;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -81,32 +81,25 @@ public class AnalyzerUtil {
         return new CodeWithSource(code.toString(), sources);
     }
 
-    public static List<CodeUnit> combinedRankingFor(
-            IAnalyzer analyzer, Path projectRoot, Map<String, Double> weightedSeeds) {
+    public static List<ProjectFile> combinedRankingFor(IProject project, Map<ProjectFile, Double> weightedSeeds) {
         logger.trace("Computing relevant code unit ranking for {}", weightedSeeds);
 
-        List<IAnalyzer.CodeUnitRelevance> results;
+        List<IAnalyzer.FileRelevance> results;
         try {
-            results =
-                    GitDistance.getPMI(analyzer, projectRoot, weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, false);
+            final GitRepo repo = (GitRepo) project.getRepo();
+            final int k = 3 * Context.MAX_AUTO_CONTEXT_FILES;
+            if (weightedSeeds.isEmpty()) {
+                results = GitDistance.getMostImportantFiles(repo, k);
+            } else {
+                results = GitDistance.getPMI(repo, weightedSeeds, k, false);
+            }
         } catch (GitAPIException e) {
-            logger.warn("Unable to calculate GitDistance PMI Ranking, falling back on analyzer's default metric.");
-            results = analyzer.getRelevantCodeUnits(weightedSeeds, 3 * Context.MAX_AUTO_CONTEXT_FILES, false);
+            logger.warn("Unable to calculate GitDistance PMI Ranking");
+            return List.of();
         }
 
-        // combine results by summing scores
-        var combinedScores = new HashMap<CodeUnit, Double>();
-        results.forEach(pair -> combinedScores.put(pair.unit(), pair.score()));
-
-        // sort by combined score
-        var result = combinedScores.entrySet().stream()
-                .sorted(Map.Entry.<CodeUnit, Double>comparingByValue().reversed())
-                .map(Map.Entry::getKey)
-                // isClassInProject filtering is implicitly handled by getRelevantCodeUnits returning CodeUnits
-                .toList();
-
-        logger.trace("Code Unit Ranking results: {}", result);
-        return result;
+        logger.trace("Code Unit Ranking results: {}", results);
+        return results.stream().map(IAnalyzer.FileRelevance::file).toList();
     }
 
     public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes) {

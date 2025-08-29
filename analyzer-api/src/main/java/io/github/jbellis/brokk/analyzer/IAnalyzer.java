@@ -7,11 +7,11 @@ import org.jetbrains.annotations.NotNull;
 
 public interface IAnalyzer {
     /** Record representing a code unit relevance result with a code unit and its score. */
-    record CodeUnitRelevance(CodeUnit unit, double score) implements Comparable<CodeUnitRelevance> {
+    record FileRelevance(ProjectFile file, double score) implements Comparable<FileRelevance> {
         @Override
-        public int compareTo(CodeUnitRelevance other) {
+        public int compareTo(FileRelevance other) {
             int scoreComparison = Double.compare(other.score, this.score);
-            return scoreComparison != 0 ? scoreComparison : this.unit.fqName().compareTo(other.unit.fqName());
+            return scoreComparison != 0 ? scoreComparison : this.file.compareTo(other.file);
         }
     }
 
@@ -22,11 +22,6 @@ public interface IAnalyzer {
 
     default <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
         return capability.isInstance(this) ? Optional.of(capability.cast(this)) : Optional.empty();
-    }
-
-    default List<CodeUnitRelevance> getRelevantCodeUnits(
-            Map<String, Double> seedClassWeights, int k, boolean reversed) {
-        throw new UnsupportedOperationException();
     }
 
     // Summarization

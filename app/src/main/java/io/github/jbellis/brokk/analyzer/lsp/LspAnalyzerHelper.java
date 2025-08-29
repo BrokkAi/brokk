@@ -35,7 +35,8 @@ public final class LspAnalyzerHelper {
     public static final Set<SymbolKind> MODULE_KINDS =
             Set.of(SymbolKind.Module, SymbolKind.Namespace, SymbolKind.Package);
 
-    public static final Set<SymbolKind> FIELD_KINDS = Set.of(SymbolKind.Field, SymbolKind.Variable);
+    public static final Set<SymbolKind> FIELD_KINDS =
+            Set.of(SymbolKind.Field, SymbolKind.Variable, SymbolKind.Constant);
 
     @NotNull
     public static CodeUnitType codeUnitForSymbolKind(@NotNull SymbolKind symbolKind) {

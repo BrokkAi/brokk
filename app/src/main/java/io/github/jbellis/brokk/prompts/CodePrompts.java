@@ -56,11 +56,17 @@ public abstract class CodePrompts {
 
     public static final String GPT5_MARKDOWN_REMINDER =
             """
-            Use Markdown where appropriate.
-            File, directory, function, and class names should all be formatted as `inline code`.
-            Pseudocode should be formatted in ```code fences```.
-
-            When in doubt, it's better to avoid formatting than to overdo it.
+            <persistence>
+            ## Markdown Formatting
+            Always format your entire response using GFM Markdown to **improve the readability** of your responses with:
+            - **bold**
+            - _italics_
+            - `inline code` (for file, directory, function, class names and other symbols)
+            - ```code fences``` for code and pseudocode
+            - list
+            - prefer GFM tables over bulleted lists
+            - header tags (start from ##).
+            </persistence>
             """
                     .stripIndent();
 
@@ -345,7 +351,7 @@ public abstract class CodePrompts {
 
         If a file is read-only or unavailable, ask the user to add it or make it editable.
 
-        If you are struggling to use a dependency or API correctly, stop and ask the user for help.
+        If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
         """
                         .formatted(
                                 GraphicsEnvironment.isHeadless()

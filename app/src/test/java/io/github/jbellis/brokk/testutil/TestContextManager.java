@@ -18,7 +18,7 @@ public final class TestContextManager implements IContextManager {
     private final Set<ProjectFile> editableFiles = new HashSet<>();
     private final Set<ProjectFile> readonlyFiles = new HashSet<>();
     private final IConsoleIO consoleIO;
-    private final StubService stubService;
+    private final TestService stubService;
     private final Context liveContext;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
@@ -26,7 +26,7 @@ public final class TestContextManager implements IContextManager {
         this.mockAnalyzer = new MockAnalyzer(projectRoot);
         this.inMemoryRepo = new InMemoryRepo();
         this.consoleIO = consoleIO;
-        this.stubService = new StubService(this.project);
+        this.stubService = new TestService(this.project);
         this.liveContext = new Context(this, "Test context");
     }
 
