@@ -12,6 +12,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -138,6 +139,26 @@ public class SessionManager implements AutoCloseable {
                 }
             } catch (IOException e) {
                 logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Moves a session zip into the 'unreadable' subfolder under the sessions directory. Removes the session from the
+     * in-memory cache and performs the file move asynchronously.
+     */
+    public void moveSessionToUnreadable(UUID sessionId) {
+        sessionsCache.remove(sessionId);
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            Path historyZipPath = getSessionHistoryPath(sessionId);
+            Path unreadableDir = sessionsDir.resolve("unreadable");
+            try {
+                Files.createDirectories(unreadableDir);
+                Path targetPath = unreadableDir.resolve(historyZipPath.getFileName());
+                Files.move(historyZipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                logger.info("Moved session zip {} to {}", historyZipPath.getFileName(), unreadableDir);
+            } catch (IOException e) {
+                logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
             }
         });
     }

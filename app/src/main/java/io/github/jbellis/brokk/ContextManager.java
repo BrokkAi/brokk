@@ -298,31 +298,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 });
 
-                // Avoid deleting the currently active session to prevent disrupting the UI/session state
+                // Avoid moving the currently active session to prevent disrupting the UI/session state
                 boolean skippedActive = sessionsWithUnreadableHistory.remove(currentSessionId);
 
-                int deleted = 0;
+                int moved = 0;
                 for (var sessionId : sessionsWithUnreadableHistory) {
                     try {
-                        sessionManager.deleteSession(sessionId);
-                        deleted++;
+                        sessionManager.moveSessionToUnreadable(sessionId);
+                        moved++;
                     } catch (Exception e) {
-                        logger.warn("Failed to delete session {} with unreadable history", sessionId, e);
+                        logger.warn(
+                                "Failed to move session {} with unreadable history to 'unreadable' folder",
+                                sessionId,
+                                e);
                     }
                 }
 
                 mainProject.setMigrationsToSessionsV3Complete(true);
 
                 logger.info(
-                        "Migrated sessions to V3; deleted {} sessions with unreadable history: {}",
-                        deleted,
+                        "Migrated sessions to V3; moved {} sessions with unreadable history to 'unreadable': {}",
+                        moved,
                         sessionsWithUnreadableHistory.stream().sorted().toList());
                 if (skippedActive) {
                     logger.info(
-                            "Skipped deleting currently active session {} due to unreadable history; user may delete it manually.",
+                            "Skipped moving currently active session {} due to unreadable history; user may move or delete it manually.",
                             currentSessionId);
                 }
-                if (deleted > 0 && io instanceof Chrome chrome) {
+                if (moved > 0 && io instanceof Chrome chrome) {
                     SwingUtilities.invokeLater(
                             () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
                 }
