@@ -287,6 +287,36 @@ class EditBlockTest {
         assertNotEquals(List.of(), result.failedBlocks());
     }
 
+    @Test
+    void testApplyEditsFailsForInvalidFilename(@TempDir Path tempDir) throws IOException {
+        TestConsoleIO io = new TestConsoleIO();
+
+        String invalidFilename = "invalid\0filename.txt";
+        String response =
+                """
+                          ```
+                          %s
+                          <<<<<<< SEARCH
+                          a
+                          =======
+                          b
+                          >>>>>>> REPLACE
+                          ```
+                          """
+                        .formatted(invalidFilename);
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of());
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getEditableFiles())
+                .blocks();
+        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+
+        assertEquals(1, result.failedBlocks().size());
+        assertEquals(
+                EditBlock.EditBlockFailureReason.FILE_NOT_FOUND,
+                result.failedBlocks().getFirst().reason());
+    }
+
     /**
      * Check that we can parse an unclosed block and fail gracefully. (Similar to python
      * test_find_original_update_blocks_unclosed)

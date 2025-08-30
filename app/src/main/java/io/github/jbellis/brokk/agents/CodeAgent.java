@@ -646,13 +646,24 @@ public class CodeAgent {
             List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
         // Identify files referenced by blocks that are not already editable
+        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
         var filesToAdd = blocksToApply.stream()
-                .map(EditBlock.SearchReplaceBlock::filename)
-                .filter(Objects::nonNull)
+                .filter(editBlock -> Objects.nonNull(editBlock.filename()))
                 .distinct()
-                .map(contextManager::toFile) // Convert filename string to ProjectFile
+                .map(editBlock -> {
+                    final var f = editBlock.filename();
+                    try {
+                        return contextManager.toFile(f);
+                    } catch (IllegalArgumentException e) {
+                        invalidFileBlocks.add(
+                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
                 .filter(file -> !contextManager.getEditableFiles().contains(file))
                 .toList();
+
         // Check for conflicts with read-only files
         var readOnlyFiles = filesToAdd.stream()
                 .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
@@ -682,6 +693,7 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
+        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 
