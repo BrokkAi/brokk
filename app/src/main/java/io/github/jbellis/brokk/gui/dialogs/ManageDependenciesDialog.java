@@ -247,6 +247,10 @@ public class ManageDependenciesDialog extends JDialog {
         }
         chrome.getProject().saveLiveDependencies(newLiveDependencyTopLevelDirs);
 
+        // Invalidate caches so getAllFiles() reflects the new dependency selection immediately
+        chrome.getProject().invalidateAllFiles();
+        chrome.getProject().getMainProject().invalidateAllFiles();
+
         var newFiles = chrome.getProject().getAllFiles();
 
         var addedFiles = new HashSet<>(newFiles);
