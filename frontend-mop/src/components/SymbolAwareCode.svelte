@@ -66,40 +66,27 @@
       ).join('');
     }
 
-    // In Svelte 5, children are snippets (functions) that return rendered content
-    // We need to extract the text from the rendered result
-    try {
-      if (typeof children === 'function') {
-        const result = children();
-
-        log.debug('Children function result:', result, 'typeof:', typeof result);
-
-        // If it's a string, return it directly
-        if (typeof result === 'string') {
-          return result;
-        }
-
-        // If it's an array of nodes (common in Svelte 5), extract text
-        if (Array.isArray(result)) {
-          return result.map(node => {
-            if (typeof node === 'string') return node;
-            if (node && typeof node === 'object' && 'data' in node) return node.data;
-            return '';
-          }).join('');
-        }
-
-        // If it's a text node object
-        if (result && typeof result === 'object' && 'data' in result) {
-          return result.data;
-        }
-
-        // Log unexpected result structure for debugging
-        log.debug('Unexpected children result structure:', result);
+    // For inline code elements, svelte-exmarkdown might pass text content in different ways
+    // Check if there's direct text content in the rest props
+    if (rest && typeof rest === 'object') {
+      // Check for common text content properties
+      if ('textContent' in rest && typeof rest.textContent === 'string') {
+        return rest.textContent;
       }
-    } catch (e) {
-      log.debug('Could not extract from children function:', e);
+      if ('innerText' in rest && typeof rest.innerText === 'string') {
+        return rest.innerText;
+      }
+      if ('value' in rest && typeof rest.value === 'string') {
+        return rest.value;
+      }
+      if ('text' in rest && typeof rest.text === 'string') {
+        return rest.text;
+      }
     }
 
+    // Skip snippet processing entirely for inline code elements
+    // The text content will be extracted from DOM after mount
+    log.debug('No text content found in props, will extract from DOM after mount');
     return '';
   }
 
@@ -143,7 +130,6 @@
         log.warn(`Symbol resolution failed for ${symbolText}:`, error);
       });
 
-      log.debug(`Symbol component mounted for '${symbolText}'`);
     } else {
       log.debug(`Invalid symbol text: '${symbolText}'`);
     }
