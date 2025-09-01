@@ -149,10 +149,10 @@ class EditBlockConflictsTest {
 
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
-        assertEquals("rawFileName/to/a/file2.txt", blocks[0].rawFileName());
+        assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
         assertEquals("", blocks[0].beforeText().trim());
         assertEquals("three", blocks[0].afterText().trim());
-        assertEquals("rawFileName/to/a/file1.txt", blocks[1].rawFileName());
+        assertEquals("filename/to/a/file1.txt", blocks[1].rawFileName());
         assertEquals("one", blocks[1].beforeText().trim());
         assertEquals("two", blocks[1].afterText().trim());
     }
