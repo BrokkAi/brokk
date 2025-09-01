@@ -48,8 +48,6 @@ public class VoiceInputButton extends JButton {
     @Nullable
     private volatile Thread micCaptureThread = null;
 
-    //    private @Nullable ImageIcon micOnIcon;
-    //    private @Nullable ImageIcon micOffIcon;
     private @Nullable Icon micOnIcon;
     private @Nullable Icon micOffIcon;
 
@@ -96,13 +94,11 @@ public class VoiceInputButton extends JButton {
             try {
                 micOnIcon = Icons.MIC;
                 micOffIcon = Icons.MIC_OFF;
-                if (micOnIcon instanceof SwingUtil.ThemedIcon icon && icon.delegate() instanceof ImageIcon svgIcon) {
-                    micOnIcon = new ImageIcon(
-                            svgIcon.getImage().getScaledInstance(iconDisplaySize, iconDisplaySize, Image.SCALE_SMOOTH));
+                if (micOnIcon instanceof SwingUtil.ThemedIcon icon) {
+                    micOnIcon = icon.withSize(iconDisplaySize);
                 }
-                if (micOffIcon instanceof SwingUtil.ThemedIcon icon && icon.delegate() instanceof ImageIcon svgIcon) {
-                    micOffIcon = new ImageIcon(
-                            svgIcon.getImage().getScaledInstance(iconDisplaySize, iconDisplaySize, Image.SCALE_SMOOTH));
+                if (micOffIcon instanceof SwingUtil.ThemedIcon icon) {
+                    micOffIcon = icon.withSize(iconDisplaySize);
                 }
                 logger.trace("Successfully loaded and scaled mic icons to {}x{}", iconDisplaySize, iconDisplaySize);
             } catch (Exception e) {
