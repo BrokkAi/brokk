@@ -553,17 +553,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         new Font(Font.DIALOG, Font.BOLD, 12)),
                 new EmptyBorder(5, 5, 5, 5)));
 
-        // Create edit area with the same styling as the command input in Chrome
-        var editArea = new RSyntaxTextArea(3, 40);
-        editArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-        editArea.setHighlightCurrentLine(false);
+        // Create edit area similar to InstructionsPanel
+        var editArea = new JTextArea(3, 40);
         editArea.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Color.GRAY), BorderFactory.createEmptyBorder(2, 5, 2, 5)));
         editArea.setLineWrap(true);
         editArea.setWrapStyleWord(true);
         editArea.setRows(3);
         editArea.setMinimumSize(new Dimension(100, 80));
-        editArea.setAutoIndentEnabled(false);
 
         // Scroll pane for edit area
         var scrollPane = new JScrollPane(editArea);
