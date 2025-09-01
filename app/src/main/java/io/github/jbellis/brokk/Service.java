@@ -853,6 +853,7 @@ public class Service {
                         .logRequests(true)
                         .logResponses(true)
                         .strictJsonSchema(true)
+                        .modelName("mcp:" + config.name)
                         .baseUrl(mcpBase)
                         .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME))
                         .apiKey(apiKey);

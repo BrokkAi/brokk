@@ -8,6 +8,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.McpConfig;
 import io.github.jbellis.brokk.Service;
 import java.io.IOException;
 import java.util.Map;
@@ -22,6 +23,7 @@ public final class TestService extends Service {
     @Override
     protected void fetchAvailableModels(
             MainProject.DataRetentionPolicy policy,
+            McpConfig mcpConfig,
             Map<String, String> locationsTarget,
             Map<String, Map<String, Object>> infoTarget)
             throws IOException {}
