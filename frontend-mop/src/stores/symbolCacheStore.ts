@@ -1,4 +1,4 @@
-import {writable, get} from 'svelte/store';
+import {writable, get, readable} from 'svelte/store';
 import {createLogger} from '../lib/logging';
 
 const log = createLogger('symbol-cache-store');
@@ -20,10 +20,13 @@ const contextSequences = new Map<string, number>();
 const contextSwitchSequences = new Map<string, number>();
 
 // Adaptive batch coordination for component requests
-let batchTimer: number | null = null;
+const batchTimers = new Map<string, number>(); // Per-context batch timers
 const pendingBatchRequests = new Map<string, Set<string>>();
 // Track last request time per context to determine if we should batch
 const lastRequestTime = new Map<string, number>();
+
+// Track pending symbol names per context (cumulative until resolved)
+const pendingByContext = new Map<string, Set<string>>();
 
 // Symbol cache entry with resolution status
 export interface SymbolCacheEntry {
@@ -36,6 +39,89 @@ export interface SymbolCacheEntry {
 
 // Create reactive store for symbol cache
 export const symbolCacheStore = writable<Map<string, SymbolCacheEntry>>(new Map());
+
+// Key-scoped subscription infrastructure for performance optimization
+const keyListeners = new Map<string, Set<(v: SymbolCacheEntry | undefined) => void>>();
+
+function notifyKey(key: string): void {
+    const listeners = keyListeners.get(key);
+    if (!listeners) return;
+    const val = get(symbolCacheStore).get(key);
+    for (const fn of listeners) fn(val);
+}
+
+/**
+ * Create a key-scoped subscription that only updates when the specific cache key changes
+ * This prevents the N×M scaling problem where all components wake up on every cache update
+ */
+export function subscribeKey(cacheKey: string) {
+    return readable<SymbolCacheEntry | undefined>(get(symbolCacheStore).get(cacheKey), (set) => {
+        let s = keyListeners.get(cacheKey);
+        if (!s) keyListeners.set(cacheKey, (s = new Set()));
+        s.add(set);
+        // Initial value is handled by readable()'s start argument above
+        return () => {
+            s!.delete(set);
+            if (!s!.size) keyListeners.delete(cacheKey);
+        };
+    });
+}
+
+/**
+ * Compare two cache entries for shallow equality based on meaningful fields
+ * Ignores timestamp and accessCount to prevent spurious updates
+ */
+function shallowEqual(a: SymbolCacheEntry | undefined, b: SymbolCacheEntry | undefined): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.status === b.status && a.fqn === b.fqn && a.contextId === b.contextId;
+}
+
+/**
+ * Mark a symbol as pending for a specific context
+ */
+function markPending(contextId: string, symbol: string): void {
+    let s = pendingByContext.get(contextId);
+    if (!s) pendingByContext.set(contextId, (s = new Set()));
+    s.add(symbol);
+}
+
+/**
+ * Settle pending symbols for a context based on batch results
+ * Returns the symbols that were pending but not resolved (not found)
+ */
+function settlePending(contextId: string, resolved: Set<string>): Set<string> {
+    const s = pendingByContext.get(contextId);
+    if (!s) return new Set();
+
+    const notFound = new Set<string>();
+    for (const sym of s) {
+        if (resolved.has(sym)) {
+            s.delete(sym);
+        } else {
+            // This symbol was pending but not in results - it wasn't found
+            notFound.add(sym);
+            s.delete(sym);
+        }
+    }
+
+    // Clean up empty sets
+    if (!s.size) pendingByContext.delete(contextId);
+    return notFound;
+}
+
+/**
+ * Upsert a cache entry only if it has actually changed
+ * Returns true if the entry was updated, false if no change was needed
+ */
+function upsertKey(newCache: Map<string, SymbolCacheEntry>, key: string, next: SymbolCacheEntry): boolean {
+    const prev = newCache.get(key);
+    if (shallowEqual(prev, next)) {
+        return false; // Nothing to do - content is the same
+    }
+    newCache.set(key, next);
+    return true; // Entry was updated
+}
 
 // Cache statistics for debugging
 let cacheStats = {
@@ -102,62 +188,73 @@ function addToBatch(contextId: string, symbol: string): void {
 
     pendingBatchRequests.get(contextId)!.add(symbol);
 
-    // Determine if we should process immediately or batch
-    const shouldProcessNow = shouldProcessImmediately(contextId) && batchTimer === null;
+    // Determine if we should process immediately or batch (per-context timer)
+    const contextTimer = batchTimers.get(contextId);
+    const shouldProcessNow = shouldProcessImmediately(contextId) && contextTimer === undefined;
 
     if (shouldProcessNow) {
         // Process immediately for first request or after inactivity
-        processBatches(true); // true = immediate processing
+        processBatchForContext(contextId, true); // true = immediate processing
     } else {
         // Schedule batch processing with delay for rapid follow-up requests
-        if (batchTimer === null) {
+        if (contextTimer === undefined) {
             // Use 0ms delay for the very first batch, normal delay for subsequent batches
             const delay = isFirstRequest ? 0 : CACHE_CONFIG.BATCH_DELAY;
-            batchTimer = window.setTimeout(() => {
-                processBatches(false); // false = batched processing
-                batchTimer = null;
+            const timerId = window.setTimeout(() => {
+                processBatchForContext(contextId, false); // false = batched processing
+                batchTimers.delete(contextId);
             }, delay);
+            batchTimers.set(contextId, timerId);
         }
     }
 }
 
-function processBatches(immediate: boolean = false): void {
-    for (const [contextId, symbols] of pendingBatchRequests.entries()) {
-        if (symbols.size > 0) {
-            const symbolArray = Array.from(symbols);
-
-            // Make single batched request
-            const sequence = getNextSequence(contextId);
-            if (window.javaBridge?.lookupSymbolsAsync) {
-                window.javaBridge.lookupSymbolsAsync(
-                    JSON.stringify(symbolArray),
-                    sequence,
-                    contextId
-                );
-            }
-
-            // Mark all symbols as pending
-            symbolCacheStore.update(cache => {
-                const newCache = new Map(cache);
-                for (const symbol of symbolArray) {
-                    const cacheKey = `${contextId}:${symbol}`;
-                    if (!newCache.has(cacheKey) || newCache.get(cacheKey)?.status !== 'resolved') {
-                        const pendingEntry: SymbolCacheEntry = {
-                            status: 'pending',
-                            contextId: contextId,
-                            timestamp: Date.now(),
-                            accessCount: 1
-                        };
-                        newCache.set(cacheKey, pendingEntry);
-                    }
-                }
-                return newCache;
-            });
-        }
+/**
+ * Process batch for a specific context
+ */
+function processBatchForContext(contextId: string, immediate: boolean = false): void {
+    const symbols = pendingBatchRequests.get(contextId);
+    if (!symbols || symbols.size === 0) {
+        return;
     }
 
-    // Clear all batches
-    pendingBatchRequests.clear();
+    const symbolArray = Array.from(symbols);
+
+    // Track these symbols as pending for this context
+    for (const symbol of symbolArray) {
+        markPending(contextId, symbol);
+    }
+
+    // Make single batched request
+    const sequence = getNextSequence(contextId);
+    if (window.javaBridge?.lookupSymbolsAsync) {
+        window.javaBridge.lookupSymbolsAsync(
+            JSON.stringify(symbolArray),
+            sequence,
+            contextId
+        );
+    }
+
+    // Mark all symbols as pending in cache
+    symbolCacheStore.update(cache => {
+        const newCache = new Map(cache);
+        for (const symbol of symbolArray) {
+            const cacheKey = `${contextId}:${symbol}`;
+            if (!newCache.has(cacheKey) || newCache.get(cacheKey)?.status !== 'resolved') {
+                const pendingEntry: SymbolCacheEntry = {
+                    status: 'pending',
+                    contextId: contextId,
+                    timestamp: Date.now(),
+                    accessCount: 1
+                };
+                newCache.set(cacheKey, pendingEntry);
+            }
+        }
+        return newCache;
+    });
+
+    // Clear this batch
+    pendingBatchRequests.delete(contextId);
 }
 
 /**
@@ -207,7 +304,12 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
                 timestamp: Date.now(),
                 accessCount: 1
             };
-            newCache.set(cacheKey, pendingEntry);
+
+            // Only update and notify if the entry actually changed
+            const wasUpdated = upsertKey(newCache, cacheKey, pendingEntry);
+            if (wasUpdated) {
+                setTimeout(() => notifyKey(cacheKey), 0);
+            }
 
             // Update stats
             cacheStats.requests++;
@@ -230,7 +332,10 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
                             timestamp: Date.now(),
                             accessCount: 1
                         };
-                        updatedCache.set(cacheKey, errorEntry);
+                        const wasUpdated = upsertKey(updatedCache, cacheKey, errorEntry);
+                        if (wasUpdated) {
+                            notifyKey(cacheKey);
+                        }
                         return updatedCache;
                     });
                     resolve();
@@ -292,6 +397,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         }
 
         // Update cache with resolved symbols
+        const keysToNotify: string[] = [];
         for (const [symbol, fqn] of Object.entries(results)) {
             const cacheKey = `${actualContextId}:${symbol}`;
             const resolvedEntry: SymbolCacheEntry = {
@@ -301,36 +407,37 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
                 timestamp: Date.now(),
                 accessCount: 1
             };
-            newCache.set(cacheKey, resolvedEntry);
-            updatedCount++;
-        }
 
-        // Handle symbols that were requested but not resolved (don't exist)
-        // Find all pending symbols for this context that weren't in the results
-        let notFoundCount = 0;
-        for (const [key, entry] of newCache.entries()) {
-            if (entry.status === 'pending' && key.startsWith(actualContextId + ':')) {
-                const symbolName = key.substring((actualContextId + ':').length);
-                if (!results.hasOwnProperty(symbolName)) {
-                    // Symbol was requested but not found in results - mark as resolved with no fqn
-                    const notFoundEntry: SymbolCacheEntry = {
-                        status: 'resolved',
-                        contextId: actualContextId,
-                        timestamp: Date.now(),
-                        accessCount: 1
-                        // Deliberately no fqn property - this indicates symbol doesn't exist
-                    };
-                    newCache.set(key, notFoundEntry);
-                    notFoundCount++;
-                }
+            // Only notify if the entry actually changed
+            const wasUpdated = upsertKey(newCache, cacheKey, resolvedEntry);
+            if (wasUpdated) {
+                keysToNotify.push(cacheKey);
+                updatedCount++;
             }
         }
 
-        // Check for any pending symbols that weren't resolved
-        let pendingCount = 0;
-        for (const [key, entry] of newCache.entries()) {
-            if (entry.status === 'pending' && key.startsWith(actualContextId + ':')) {
-                pendingCount++;
+        // Handle symbols that were requested but not resolved (don't exist)
+        // Use O(1) lookup from tracked pending symbols instead of O(N) cache scan
+        const resolvedSymbols = new Set(Object.keys(results));
+        const notFoundSymbols = settlePending(actualContextId, resolvedSymbols);
+        let notFoundCount = 0;
+
+        for (const symbolName of notFoundSymbols) {
+            const cacheKey = `${actualContextId}:${symbolName}`;
+            // Symbol was requested but not found in results - mark as resolved with no fqn
+            const notFoundEntry: SymbolCacheEntry = {
+                status: 'resolved',
+                contextId: actualContextId,
+                timestamp: Date.now(),
+                accessCount: 1
+                // Deliberately no fqn property - this indicates symbol doesn't exist
+            };
+
+            // Only notify if the entry actually changed
+            const wasUpdated = upsertKey(newCache, cacheKey, notFoundEntry);
+            if (wasUpdated) {
+                keysToNotify.push(cacheKey);
+                notFoundCount++;
             }
         }
 
@@ -343,16 +450,46 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
 
         // Cache statistics are available via getCacheStats() for debugging
 
+        // Notify subscribers after cache update is complete
+        setTimeout(() => {
+            for (const key of keysToNotify) {
+                notifyKey(key);
+            }
+        }, 0);
+
         return newCache;
     });
 }
 
 /**
  * Get symbol cache entry for a given symbol and context
+ * Updates access count and timestamp for LRU tracking
  */
 export function getSymbolCacheEntry(symbol: string, contextId: string = 'main-context'): SymbolCacheEntry | undefined {
     const cacheKey = `${contextId}:${symbol}`;
-    return get(symbolCacheStore).get(cacheKey);
+    const entry = get(symbolCacheStore).get(cacheKey);
+
+    if (entry) {
+        // Update access count and timestamp for LRU tracking
+        const updatedEntry: SymbolCacheEntry = {
+            ...entry,
+            accessCount: entry.accessCount + 1,
+            timestamp: Date.now()
+        };
+
+        // Update the cache with incremented access count
+        // Don't use upsertKey here since we're intentionally updating metadata
+        symbolCacheStore.update(cache => {
+            const newCache = new Map(cache);
+            newCache.set(cacheKey, updatedEntry);
+            return newCache;
+        });
+
+        // Don't notify subscribers for access count changes - they only care about content changes
+        return updatedEntry;
+    }
+
+    return entry;
 }
 
 /**
@@ -399,11 +536,15 @@ export function clearSymbolCache(contextId = 'main-context'): void {
 
     // Clear pending batches and reset timers
     pendingBatchRequests.clear();
-    if (batchTimer !== null) {
-        clearTimeout(batchTimer);
-        batchTimer = null;
+    pendingByContext.clear();
+
+    // Clear all per-context batch timers
+    for (const timerId of batchTimers.values()) {
+        clearTimeout(timerId);
     }
-    console.log(`[symbol-cache] Cleared pending batches and reset batch timer`);
+    batchTimers.clear();
+
+    console.log(`[symbol-cache] Cleared pending batches and reset batch timers`);
 }
 
 /**

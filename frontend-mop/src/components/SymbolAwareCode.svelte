@@ -1,6 +1,6 @@
 <script lang="ts">
   import {onMount} from 'svelte';
-  import {symbolCacheStore, requestSymbolResolution, type SymbolCacheEntry} from '../stores/symbolCacheStore';
+  import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry} from '../stores/symbolCacheStore';
   import {createLogger} from '../lib/logging';
 
   let {children, ...rest} = $props();
@@ -135,11 +135,22 @@
     }
   }
 
-  // Subscribe to symbol cache updates
+  // Key-scoped subscription - only updates when this specific symbol changes
+  let symbolStore: ReturnType<typeof subscribeKey> | undefined = $state(undefined);
+
   $effect(() => {
     if (isValidSymbol) {
       const cacheKey = `${contextId}:${symbolText}`;
-      cacheEntry = $symbolCacheStore.get(cacheKey);
+      symbolStore = subscribeKey(cacheKey);
+    } else {
+      symbolStore = undefined;
+    }
+  });
+
+  // Subscribe to symbol-specific updates
+  $effect(() => {
+    if (symbolStore) {
+      cacheEntry = $symbolStore;
     }
   });
 

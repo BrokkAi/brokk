@@ -209,7 +209,7 @@ public class SymbolLookupService {
     private static List<CodeUnit> findAllClassMatches(String searchTerm, List<CodeUnit> searchResults) {
         // Find all classes with exact simple name match
         return searchResults.stream()
-                .filter(cu -> cu.isClass()) // Only classes, not methods or fields
+                .filter(CodeUnit::isClass) // Only classes, not methods or fields
                 .filter(cu -> getSimpleName(cu.fqName()).equals(searchTerm))
                 .toList();
     }

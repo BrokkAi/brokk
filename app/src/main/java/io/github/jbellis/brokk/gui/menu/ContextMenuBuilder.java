@@ -73,7 +73,7 @@ public class ContextMenuBuilder {
         }
 
         // Header item (disabled)
-        var headerItem = new JMenuItem("Symbol: " + symbolContext.symbolName());
+        var headerItem = new JMenuItem("Class: " + symbolContext.symbolName());
         headerItem.setEnabled(false);
         menu.add(headerItem);
         menu.addSeparator();
@@ -118,7 +118,7 @@ public class ContextMenuBuilder {
         }
 
         // Copy Symbol Name (FQN if available)
-        var copyItem = new JMenuItem("Copy Symbol Name");
+        var copyItem = new JMenuItem("Copy Class Name");
         copyItem.addActionListener(e -> copySymbolName(symbolContext));
         menu.add(copyItem);
     }
@@ -267,7 +267,7 @@ public class ContextMenuBuilder {
             var matchList = candidates.stream()
                     .map(candidate -> String.format(
                             "• %s in %s",
-                            candidate.shortName(), candidate.source().toString()))
+                            candidate.shortName(), candidate.source()))
                     .collect(Collectors.joining("\n"));
 
             var message = String.format(
@@ -277,7 +277,7 @@ public class ContextMenuBuilder {
             context.chrome().systemNotify(message, "Multiple Definitions Found", JOptionPane.INFORMATION_MESSAGE);
         }
 
-        return Optional.of(candidates.get(0));
+        return Optional.of(candidates.getFirst());
     }
 
     private void openInPreview(SymbolMenuContext context) {
@@ -286,9 +286,7 @@ public class ContextMenuBuilder {
         var symbolName = context.symbolName();
         context.contextManager().submitContextTask("Open in preview for " + symbolName, () -> {
             var definition = findSymbolDefinition(context);
-            if (definition.isPresent()) {
-                openPreview(definition.get(), context);
-            }
+            definition.ifPresent(codeUnit -> openPreview(codeUnit, context));
         });
     }
 
