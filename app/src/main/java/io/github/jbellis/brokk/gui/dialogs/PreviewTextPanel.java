@@ -879,7 +879,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             throws ExecutionException, InterruptedException {
         var sessionResult = future.get(); // might throw InterruptedException or ExecutionException
         var stopDetails = sessionResult.stopDetails();
-        quickEditMessages = sessionResult.output().messages(); // Capture messages regardless of outcome
+        quickEditMessages = new ArrayList<>(sessionResult
+                .output()
+                .messages()); // Create mutable copy to avoid UnsupportedOperationException on clear()
 
         // If the LLM itself was not successful, return the error
         if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {

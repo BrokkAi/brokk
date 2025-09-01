@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.Period;
 import java.util.HashMap;
@@ -80,15 +81,83 @@ public final class GitDistance {
      *
      * <p>p(X,Y) = |C(X) ∩ C(Y)| / |Commits| p(X) = |C(X)| / |Commits| PMI = log2( p(X,Y) / (p(X)·p(Y)) )
      *
-     * @return a sorted list of files with relevance scores.
+     * @return a sorted list of files with relevance scores. If no seed weights are given,an empty result.
      */
     public static List<IAnalyzer.FileRelevance> getPMI(
             GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws GitAPIException {
 
-        // FIXME #796
-        if (seedWeights.isEmpty()) return List.of();
+        if (seedWeights.isEmpty()) {
+            return List.of();
+        }
 
         return computePmiScores(repo, seedWeights, k, reversed);
+    }
+
+    /**
+     * Using Git history, determines the most important files by analyzing their change frequency, considering both the
+     * number of commits and the recency of those changes. This approach uses a weighted analysis of the Git history
+     * where the weight of changes decays exponentially over time.
+     *
+     * <p>The formula for a file's score is:
+     *
+     * <p>S_file = sum_{c in commits} 2^(-(t_latest - t_c) / half-life)
+     *
+     * <p>Where:
+     *
+     * <ul>
+     *   <li>t_c is the timestamp of commit c.
+     *   <li>t_latest is the timestamp of the latest commit in the repository.
+     *   <li>half-life is a constant (30 days) that determines how quickly the weight of changes decays.
+     * </ul>
+     *
+     * @param repo the Git repository wrapper.
+     * @param k the maximum number of files to return.
+     * @return a sorted list of the most important files with their relevance scores.
+     */
+    public static List<IAnalyzer.FileRelevance> getMostImportantFiles(GitRepo repo, int k) throws GitAPIException {
+        var commits = repo.listCommitsDetailed(repo.getCurrentBranch());
+        if (commits.isEmpty()) {
+            return List.of();
+        }
+
+        var t_latest = commits.getFirst().date();
+        var halfLife = Duration.ofDays(30);
+        double halfLifeMillis = halfLife.toMillis();
+
+        var scores = new ConcurrentHashMap<ProjectFile, Double>();
+
+        try (var pool = new ForkJoinPool(Math.max(1, Runtime.getRuntime().availableProcessors()))) {
+            pool.submit(() -> commits.parallelStream().forEach(commit -> {
+                        try {
+                            var changedFiles = repo.listFilesChangedInCommit(commit.id());
+                            if (changedFiles.isEmpty()) {
+                                return;
+                            }
+
+                            var t_c = commit.date();
+                            var age = Duration.between(t_c, t_latest);
+                            double ageMillis = age.toMillis();
+
+                            double weight = Math.pow(2, -(ageMillis / halfLifeMillis));
+
+                            for (var file : changedFiles) {
+                                scores.merge(file, weight, Double::sum);
+                            }
+
+                        } catch (GitAPIException e) {
+                            throw new RuntimeException("Error processing commit: " + commit.id(), e);
+                        }
+                    }))
+                    .get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Error computing file importance scores in parallel", e);
+        }
+
+        return scores.entrySet().stream()
+                .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .limit(k)
+                .toList();
     }
 
     private static List<IAnalyzer.FileRelevance> computePmiScores(

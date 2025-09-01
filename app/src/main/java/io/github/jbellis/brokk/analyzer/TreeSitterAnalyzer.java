@@ -1074,16 +1074,9 @@ public abstract class TreeSitterAnalyzer
             // somehow map to the same `fqName` in `localCuByFqName` before `cu` itself is unified.
             // If overloads result in CodeUnits that are `equals()`, this block is less relevant for them.
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
-            if (existingCUforKeyLookup != null && !existingCUforKeyLookup.equals(cu)) {
-                // This case implies two distinct CodeUnit objects map to the same FQName.
-                // The export preference logic might apply here.
-                // However, if `cu` is for an overload of `existingCUforKeyLookup` and they are `equals()`,
-                // then this block should ideally not be the primary path for handling overload signatures.
-                // The current approach of `localSignatures.computeIfAbsent` will handle accumulation for equal CUs.
-                // This existing block seems more for replacing a less specific CU with a more specific one (e.g.
-                // exported).
-                // For now, let's assume this logic remains for such non-overload "duplicate FQName" cases.
-                // If it causes issues with overloads, it needs refinement.
+            if (existingCUforKeyLookup != null
+                    && !existingCUforKeyLookup.equals(cu)
+                    && (language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1102,6 +1095,7 @@ public abstract class TreeSitterAnalyzer
                             cu.fqName());
                     continue; // Skip adding this new signature if an exported one exists for a CU with the same FQName
                 } else {
+                    // Both exported or both non-exported - treat as duplicate
                     log.warn(
                             "Duplicate CU FQName {} (distinct instances). New signature will be added. Review if this is expected.",
                             cu.fqName());

@@ -17,9 +17,9 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JavaTreeSitterAnalyzerGitPMITest {
+public class GitDistancePMITest {
 
-    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerGitPMITest.class);
+    private static final Logger logger = LoggerFactory.getLogger(GitDistancePMITest.class);
 
     @SuppressWarnings("NullAway.Init")
     private static JavaTreeSitterAnalyzer analyzer;
@@ -41,12 +41,7 @@ public class JavaTreeSitterAnalyzerGitPMITest {
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         var testRepo = new GitRepo(testPath);
-        testProject = new TestProject(testPath, Language.JAVA) {
-            @Override
-            public GitRepo getRepo() {
-                return testRepo;
-            }
-        };
+        testProject = new TestProjectWithRepo(testPath, Language.JAVA, testRepo);
         logger.debug("Setting up analyzer with test code from {}", testPath);
         analyzer = new JavaTreeSitterAnalyzer(testProject);
     }

@@ -589,7 +589,7 @@ public class GitCommitTab extends JPanel {
                         .map(f -> {
                             var ppf = (ContextFragment.ProjectPathFragment) f;
                             try {
-                                return new ContextHistory.DeletedFile(ppf.file(), ppf.text());
+                                return new ContextHistory.DeletedFile(ppf.file(), ppf.text(), true);
                             } catch (java.io.UncheckedIOException e) {
                                 logger.error("Could not read content for new file being rolled back: " + ppf.file(), e);
                                 return null;
