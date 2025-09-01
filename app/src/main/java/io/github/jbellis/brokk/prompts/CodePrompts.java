@@ -398,8 +398,8 @@ public abstract class CodePrompts {
 
         // Group failed blocks by filename
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().filename() != null) // Only include blocks with filenames
-                .collect(Collectors.groupingBy(fb -> fb.block().filename()));
+                .filter(fb -> fb.block().rawFileName() != null) // Only include blocks with filenames
+                .collect(Collectors.groupingBy(fb -> fb.block().rawFileName()));
 
         int totalFailCount = failedBlocks.size();
         boolean singularFail = (totalFailCount == 1);

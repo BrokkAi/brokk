@@ -42,7 +42,7 @@ class EditBlockParseAllBlocksTest {
         var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
 
         assertEquals(1, result.size());
-        assertEquals("build.gradle", result.getFirst().block().filename());
+        assertEquals("build.gradle", result.getFirst().block().rawFileName());
         assertTrue(result.getFirst().block().beforeText().contains("a:b:1.0"));
         assertTrue(result.getFirst().block().afterText().contains("a:b:2.0"));
     }
@@ -70,7 +70,7 @@ class EditBlockParseAllBlocksTest {
 
         assertEquals(3, result.size());
         assertTrue(result.get(0).text().contains("introductory"));
-        assertEquals("build.gradle", result.get(1).block().filename());
+        assertEquals("build.gradle", result.get(1).block().rawFileName());
         assertTrue(result.get(1).block().beforeText().contains("a:b:1.0"));
         assertTrue(result.get(1).block().afterText().contains("a:b:2.0"));
         assertTrue(result.get(2).text().contains("concluding"));
