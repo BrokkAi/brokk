@@ -4,29 +4,30 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitDistance;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
-import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class JavaTreeSitterAnalyzerGitPMITest {
+public class GitDistancePMITest {
 
-    private static final Logger logger = LoggerFactory.getLogger(JavaTreeSitterAnalyzerGitPMITest.class);
+    private static final Logger logger = LoggerFactory.getLogger(GitDistancePMITest.class);
 
-    @Nullable
+    @SuppressWarnings("NullAway.Init")
     private static JavaTreeSitterAnalyzer analyzer;
 
-    @Nullable
+    @SuppressWarnings("NullAway.Init")
     private static TestProject testProject;
 
-    @Nullable
+    @SuppressWarnings("NullAway.Init")
     private static Path testPath;
 
     @BeforeAll
@@ -39,7 +40,8 @@ public class JavaTreeSitterAnalyzerGitPMITest {
         // Prepare a git history that matches the co-change patterns expected by the assertions
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
-        testProject = new TestProject(testPath, Language.JAVA);
+        var testRepo = new GitRepo(testPath);
+        testProject = new TestProjectWithRepo(testPath, Language.JAVA, testRepo);
         logger.debug("Setting up analyzer with test code from {}", testPath);
         analyzer = new JavaTreeSitterAnalyzer(testProject);
     }
@@ -56,32 +58,28 @@ public class JavaTreeSitterAnalyzerGitPMITest {
     public void testPMIWithSeedWeights() throws Exception {
         assertNotNull(analyzer, "Analyzer should be initialized");
         assertNotNull(testPath, "Test path should not be null");
+        var testFile = new ProjectFile(testProject.getRoot(), "UserService.java");
+        var seedWeights = Map.of(testFile, 1.0);
 
-        var seedWeights = Map.of("com.example.service.UserService", 1.0);
-
-        var results = GitDistance.getPMI(analyzer, testPath, seedWeights, 10, false);
+        var results = GitDistance.getPMI((GitRepo) testProject.getRepo(), seedWeights, 10, false);
         assertFalse(results.isEmpty(), "PMI should return results");
 
-        var userService = results.stream()
-                .filter(r -> r.unit().fqName().equals("com.example.service.UserService"))
-                .findFirst();
+        var userService =
+                results.stream().filter(r -> r.file().equals(testFile)).findFirst();
         assertTrue(userService.isPresent(), "UserService should be included in PMI results");
 
         var user = results.stream()
-                .filter(r -> r.unit().fqName().equals("com.example.model.User"))
+                .filter(r -> r.file().getFileName().equals("User.java"))
                 .findFirst();
         assertTrue(user.isPresent(), "User should be included in PMI results");
 
         var notification = results.stream()
-                .filter(r -> r.unit().fqName().equals("com.example.service.NotificationService"))
+                .filter(r -> r.file().getFileName().equals("NotificationService.java"))
                 .findFirst();
 
         // PMI should emphasize genuinely related files over loosely related ones
-        if (notification.isPresent()) {
-            assertTrue(
-                    user.get().score() > notification.get().score(),
-                    "User should rank higher than NotificationService by PMI");
-        }
+        notification.ifPresent(fileRelevance -> assertTrue(
+                user.get().score() > fileRelevance.score(), "User should rank higher than NotificationService by PMI"));
     }
 
     @Test
@@ -89,7 +87,8 @@ public class JavaTreeSitterAnalyzerGitPMITest {
         assertNotNull(analyzer, "Analyzer should be initialized");
         assertNotNull(testPath, "Test path should not be null");
 
-        var results = GitDistance.getPMI(analyzer, testPath, Map.of(), 10, false);
+        // FIXME 793
+        var results = GitDistance.getPMI((GitRepo) testProject.getRepo(), Map.of(), 10, false);
         assertTrue(results.isEmpty(), "Empty seed weights should yield empty PMI results");
     }
 
@@ -97,10 +96,10 @@ public class JavaTreeSitterAnalyzerGitPMITest {
     public void testPMIReversed() throws Exception {
         assertNotNull(analyzer, "Analyzer should be initialized");
         assertNotNull(testPath, "Test path should not be null");
+        var testFile = new ProjectFile(testProject.getRoot(), "UserService.java");
+        var seedWeights = Map.of(testFile, 1.0);
 
-        var seedWeights = Map.of("com.example.service.UserService", 1.0);
-
-        var results = GitDistance.getPMI(analyzer, testPath, seedWeights, 10, true);
+        var results = GitDistance.getPMI((GitRepo) testProject.getRepo(), seedWeights, 10, true);
         assertFalse(results.isEmpty(), "PMI should return results");
 
         // Verify ascending order when reversed=true

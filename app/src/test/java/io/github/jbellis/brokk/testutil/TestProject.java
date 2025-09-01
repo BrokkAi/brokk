@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
-public final class TestProject implements IProject {
+public class TestProject implements IProject {
     private final Path root;
     private final Language language;
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
@@ -68,6 +68,11 @@ public final class TestProject implements IProject {
     @Override
     public Set<Language> getAnalyzerLanguages() {
         return Set.of(language);
+    }
+
+    @Override
+    public Language getBuildLanguage() {
+        return language;
     }
 
     @Override

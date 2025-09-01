@@ -110,6 +110,7 @@ public class SearchTools {
      * @param symbols The list of symbols to format
      * @return A formatted string with compressed symbols if possible
      */
+    // TODO make this use CodeUnit
     private String formatCompressedSymbols(String label, List<String> symbols) {
         if (symbols.isEmpty()) {
             return label + ": None found";
@@ -124,19 +125,6 @@ public class SearchTools {
             return label + ": " + symbols.stream().sorted().collect(Collectors.joining(", "));
         }
 
-        // Sort compressed symbols too
-        return "%s: [Common package prefix: '%s'. IMPORTANT: you MUST use full symbol names including this prefix for subsequent tool calls] %s"
-                .formatted(
-                        label, commonPrefix, compressedSymbols.stream().sorted().collect(Collectors.joining(", ")));
-    }
-
-    // Internal helper for formatting the compressed string. Public static.
-    public static String formatCompressedSymbolsInternal(
-            String label, List<String> compressedSymbols, String commonPrefix) {
-        if (commonPrefix.isEmpty()) {
-            // Sort for consistent output when no compression happens
-            return label + ": " + compressedSymbols.stream().sorted().collect(Collectors.joining(", "));
-        }
         // Sort compressed symbols too
         return "%s: [Common package prefix: '%s'. IMPORTANT: you MUST use full symbol names including this prefix for subsequent tool calls] %s"
                 .formatted(
@@ -336,8 +324,10 @@ public class SearchTools {
     public String getRelatedClasses(
             @P("List of fully qualified class names to use as seeds for finding related classes.")
                     List<String> classNames) {
-        assert getAnalyzer() instanceof SkeletonProvider
-                : "Cannot find related classes: Code Intelligence is not available.";
+        var skp = getAnalyzer()
+                .as(SkeletonProvider.class)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Cannot find related classes: Code Intelligence is not available."));
         // Sanitize classNames: remove potential `(params)` suffix from LLM.
         classNames = stripParams(classNames);
         if (classNames.isEmpty()) {
@@ -345,34 +335,34 @@ public class SearchTools {
         }
 
         // Create map of seeds from discovered units
-        HashMap<String, Double> weightedSeeds = new HashMap<>();
-        for (String className : classNames) {
-            weightedSeeds.put(className, 1.0);
+        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
+        for (String fqcn : classNames) {
+            getAnalyzer().getFileFor(fqcn).ifPresent(f -> weightedSeeds.put(f, 1.0));
         }
 
-        var pageRankUnits = AnalyzerUtil.combinedRankingFor(
-                getAnalyzer(), contextManager.getProject().getRoot(), weightedSeeds);
-
-        if (pageRankUnits.isEmpty()) {
+        // roll our own ranking instead of using Context methods b/c we want BOTH the summaries AND an expanded class
+        // list
+        var pageRankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
+        if (pageRankResults.isEmpty()) {
             return "No related code found via PageRank for seeds: " + String.join(", ", classNames);
         }
-
-        var pageRankResults =
-                pageRankUnits.stream().limit(50).map(CodeUnit::fqName).toList();
 
         // Get skeletons for the top few results -- potentially saves a round trip for a few extra tokens
         var skResult = pageRankResults.stream()
                 .distinct()
                 .limit(10) // padding in case of not defined
-                .map(fqcn -> ((SkeletonProvider) getAnalyzer()).getSkeleton(fqcn))
-                .filter(Optional::isPresent)
+                .flatMap(file -> skp.getSkeletons(file).values().stream())
                 .limit(5)
-                .map(Optional::get)
                 .collect(Collectors.joining("\n\n"));
+
+        var clsResult = pageRankResults.stream()
+                .flatMap(file -> AnalyzerUtil.coalesceInnerClasses(getAnalyzer().getDeclarationsInFile(file)).stream())
+                .map(CodeUnit::fqName)
+                .toList();
 
         var formattedSkeletons =
                 skResult.isEmpty() ? "" : "# Summaries of the top related classes: \n\n" + skResult + "\n\n";
-        var formattedClassList = formatCompressedSymbols("# Full list of related classes, up to 50", pageRankResults);
+        var formattedClassList = formatCompressedSymbols("# Full list of related classes, up to 50", clsResult);
         return formattedSkeletons + formattedClassList;
     }
 

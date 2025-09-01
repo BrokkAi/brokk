@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -499,5 +500,35 @@ public class DtoMapper {
         ProjectFile source = new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath()));
         var kind = io.github.jbellis.brokk.analyzer.CodeUnitType.valueOf(dto.kind());
         return new CodeUnit(source, kind, dto.packageName(), dto.shortName());
+    }
+
+    /* ───────────── entryInfos mapping ───────────── */
+
+    public static Map<String, EntryInfoDto> toEntryInfosDto(
+            Map<UUID, ContextHistory.ContextHistoryEntryInfo> entryInfos) {
+        return entryInfos.entrySet().stream()
+                .collect(Collectors.toMap(
+                        e -> e.getKey().toString(),
+                        e -> new EntryInfoDto(e.getValue().deletedFiles().stream()
+                                .map(DtoMapper::toDeletedFileDto)
+                                .toList())));
+    }
+
+    public static Map<String, ContextHistory.ContextHistoryEntryInfo> fromEntryInfosDto(
+            Map<String, EntryInfoDto> dtoMap) {
+        return dtoMap.entrySet().stream()
+                .collect(Collectors.toMap(
+                        Map.Entry::getKey,
+                        e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
+                                .map(DtoMapper::fromDeletedFileDto)
+                                .toList())));
+    }
+
+    private static DeletedFileDto toDeletedFileDto(ContextHistory.DeletedFile df) {
+        return new DeletedFileDto(toProjectFileDto(df.file()), df.content(), df.wasTracked());
+    }
+
+    private static ContextHistory.DeletedFile fromDeletedFileDto(DeletedFileDto dto) {
+        return new ContextHistory.DeletedFile(fromProjectFileDto(dto.file()), dto.content(), dto.wasTracked());
     }
 }

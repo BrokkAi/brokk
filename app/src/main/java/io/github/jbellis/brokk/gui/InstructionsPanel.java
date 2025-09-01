@@ -1085,8 +1085,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         try {
-            var agent = new ArchitectAgent(
-                    contextManager, planningModel, codeModel, contextManager.getToolRegistry(), goal, options);
+            var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal, options);
             var result = agent.execute();
             chrome.systemOutput("Architect complete!");
             contextManager.addToHistory(result, false);
@@ -1110,7 +1109,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         var contextManager = chrome.getContextManager();
         try {
-            SearchAgent agent = new SearchAgent(query, contextManager, model, contextManager.getToolRegistry(), 0);
+            SearchAgent agent = new SearchAgent(query, contextManager, model, 0);
             var result = agent.execute();
 
             // Search does not stream to llmOutput, so add the final answer here
@@ -1846,7 +1845,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var symbols = Completions.completeSymbols(text, analyzer);
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.identifier(), symbol.fqName()))
                         .toList();
             }
 

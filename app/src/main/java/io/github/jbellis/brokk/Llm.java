@@ -386,7 +386,9 @@ public class Llm {
             // don't retry on bad request errors
             if (lastError != null) {
                 var msg = requireNonNull(lastError.getMessage());
-                if (msg.contains("BadRequestError") || msg.contains("UnsupportedParamsError")) {
+                if (msg.contains("BadRequestError")
+                        || msg.contains("UnsupportedParamsError")
+                        || msg.contains("Unable to convert openai tool calls")) {
                     // logged by doSingleStreamingCallInternal, don't be redundant
                     break;
                 }
@@ -1165,7 +1167,7 @@ public class Llm {
     }
 
     public void setOutput(IConsoleIO io) {
-        // TODO this should be final but disentanglihg from ContextManager is difficult
+        // TODO this should be final but disentangling from ContextManager is difficult
         this.io = io;
     }
 

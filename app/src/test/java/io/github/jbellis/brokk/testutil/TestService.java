@@ -13,9 +13,9 @@ import java.io.IOException;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
-public final class StubService extends Service {
+public final class TestService extends Service {
 
-    public StubService(IProject project) {
+    public TestService(IProject project) {
         super(project);
     }
 

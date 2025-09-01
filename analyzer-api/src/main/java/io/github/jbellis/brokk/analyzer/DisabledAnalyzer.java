@@ -25,11 +25,6 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
-        return Collections.emptyList();
-    }
-
-    @Override
     public Optional<ProjectFile> getFileFor(String fqcn) {
         return Optional.empty();
     }

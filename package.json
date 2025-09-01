@@ -15,10 +15,14 @@
             "url": "https://github.com/shannah/brokk"
         }],
         "javaVersion": "21",
+        "permissions": [{
+            "name": "microphone",
+            "description": "Microphone permissions are required for transcribing prompts."
+        }],
         "jar": "app/build/libs/brokk-*.jar",
         "javafx": true,
-        "preservePermissions": true,
-        "title": "Brokk"
+        "title": "Brokk",
+        "downloadPage": {"platforms": ["all"]}
     },
     "dependencies": {
         "command-exists-promise": "^2.0.2",

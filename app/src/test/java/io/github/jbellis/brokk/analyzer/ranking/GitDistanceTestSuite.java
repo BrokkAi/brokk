@@ -85,6 +85,9 @@ public final class GitDistanceTestSuite {
             Files.writeString(
                     testPath.resolve("User.java"),
                     Files.readString(testPath.resolve("User.java")) + "\n    // Added validation\n");
+            Files.writeString(
+                    testPath.resolve("UserService.java"),
+                    Files.readString(testPath.resolve("UserService.java")) + "\n    // More validation\n");
             git.add().addFilepattern("User.java").call();
             git.add().addFilepattern("UserService.java").call();
             git.add().addFilepattern("ValidationService.java").call();
