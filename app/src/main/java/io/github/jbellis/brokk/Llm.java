@@ -243,14 +243,10 @@ public class Llm {
         var finalHandler =
                 contextManager.getService().usesThinkTags(model) ? new ThinkTagInterceptor(rawHandler) : rawHandler;
         model.chat(request, finalHandler);
-        
+
         try {
             while (!completed.get()) {
-                var llmResponseTimeout = Service.getProcessingTier(model) == Service.ProcessingTier.FLEX
-                        ? Service.FLEX_TOKEN_TIMEOUT_SECONDS
-                        : firstToken.get()
-                        ? Service.DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS
-                        : Service.DEFAULT_NEXT_TOKEN_TIMEOUT_SECONDS;
+                var llmResponseTimeout = getLlmResponseTimeoutSeconds(firstToken.get());
                 boolean timeout = !requireNonNull(llmResponseLatch.get()).await(llmResponseTimeout, TimeUnit.SECONDS);
                 lock.lock(); // LockNotBeforeTry
                 try {
@@ -302,6 +298,13 @@ public class Llm {
             io.llmOutput("\n", ChatMessageType.AI);
         }
         return StreamingResult.fromResponse(response, null);
+    }
+
+    private long getLlmResponseTimeoutSeconds(boolean firstToken) {
+        long firstTokenTimeoutSeconds = Service.getProcessingTier(model) == Service.ProcessingTier.FLEX
+                ? Service.FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
+                : Service.DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
+        return firstToken ? firstTokenTimeoutSeconds : Service.NEXT_TOKEN_TIMEOUT_SECONDS;
     }
 
     private static class LitellmException extends LangChain4jException {

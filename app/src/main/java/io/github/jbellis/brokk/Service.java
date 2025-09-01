@@ -43,9 +43,9 @@ public class Service {
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
-    public static final long FLEX_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
+    public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
     public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
-    public static final long DEFAULT_NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
@@ -768,10 +768,10 @@ public class Service {
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
-            .timeout(Duration.ofSeconds(
-                    config.tier == ProcessingTier.FLEX
-                            ? FLEX_TOKEN_TIMEOUT_SECONDS
-                            : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, DEFAULT_NEXT_TOKEN_TIMEOUT_SECONDS)));
+                .timeout(Duration.ofSeconds(
+                        config.tier == ProcessingTier.FLEX
+                                ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
+                                : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
         if (config.tier != ProcessingTier.DEFAULT) {
             builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
         }
