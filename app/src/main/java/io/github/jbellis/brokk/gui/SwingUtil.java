@@ -158,10 +158,10 @@ public class SwingUtil {
      * Icon wrapper that always fetches the current value from UIManager. By delegating on every call we ensure the
      * image really changes after a theme switch without recreating every component that uses it.
      */
-    private record ThemedIcon(String uiKey) implements Icon {
+    public record ThemedIcon(String uiKey) implements Icon {
 
         /** Retrieve the up-to-date delegate icon (or a simple fallback). */
-        private Icon delegate() {
+        public Icon delegate() {
             Object value = UIManager.get(uiKey);
             if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
                 return icon;
