@@ -403,12 +403,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        topBarPanel.add(micButton, BorderLayout.WEST);
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        leftPanel.add(micButton);
+        leftPanel.add(Box.createHorizontalStrut(H_GAP));
+        leftPanel.add(modelSelector.getComponent());
+        topBarPanel.add(leftPanel, BorderLayout.WEST);
 
         var historyDropdown = createHistoryDropdown();
         topBarPanel.add(historyDropdown, BorderLayout.CENTER);
-
-        topBarPanel.add(modelSelector.getComponent(), BorderLayout.EAST);
 
         return topBarPanel;
     }
