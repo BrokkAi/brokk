@@ -92,8 +92,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
-    private static final int TRUNCATION_LENGTH = 100; // Characters
-
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
@@ -564,16 +562,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    private record HistoryItem(String displayText, String fullText) {
-        @Override
-        public String toString() {
-            return displayText;
-        }
-    }
-
     private JComboBox<Object> createHistoryDropdown() {
-        final var placeholder = new HistoryItem("History", "");
-        final var noHistory = new HistoryItem("(No history items)", "");
+        final var placeholder = "History";
+        final var noHistory = "(No history items)";
 
         var project = chrome.getProject();
         List<String> historyItems = project.loadTextHistory();
@@ -585,11 +576,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             model.addElement(noHistory);
         } else {
             for (String item : historyItems) {
-                String itemWithoutNewlines = item.replace('\n', ' ');
-                String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
-                        ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
-                        : itemWithoutNewlines;
-                model.addElement(new HistoryItem(displayText, item));
+                model.addElement(item);
             }
         }
 
@@ -601,17 +588,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             public Component getListCellRendererComponent(
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof HistoryItem(String displayText, String fullText)) {
-                    setText(displayText);
+                if (value instanceof String historyItem) {
+                    setText(historyItem);
                     setEnabled(true);
-                    if (displayText.equals(noHistory.displayText()) || displayText.equals(placeholder.displayText())) {
+                    if (historyItem.equals(noHistory) || historyItem.equals(placeholder)) {
                         setToolTipText(null);
                     } else {
-                        String escapedItem = fullText.replace("&", "&amp;")
-                                .replace("<", "&lt;")
-                                .replace(">", "&gt;")
-                                .replace("\"", "&quot;");
-                        setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
+                        setToolTipText(historyItem);
                     }
                 }
                 return this;
@@ -620,14 +603,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         dropdown.addActionListener(e -> {
             var selected = dropdown.getSelectedItem();
-            if (selected instanceof HistoryItem(String displayText, String fullText)
-                    && !displayText.equals(placeholder.displayText)
-                    && !displayText.equals(noHistory.displayText())) {
+            if (selected instanceof String historyItem
+                    && !selected.equals(placeholder)
+                    && !selected.equals(noHistory)) {
                 // This is a valid history item
                 commandInputOverlay.hideOverlay();
                 instructionsArea.setEnabled(true);
 
-                instructionsArea.setText(fullText);
+                instructionsArea.setText(historyItem);
                 commandInputUndoManager.discardAllEdits();
                 instructionsArea.requestFocusInWindow();
 
