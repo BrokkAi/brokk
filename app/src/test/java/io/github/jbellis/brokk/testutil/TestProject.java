@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.testutil;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.McpConfig;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -56,6 +57,14 @@ public class TestProject implements IProject {
     public void setStyleGuide(String styleGuide) {
         this.styleGuide = styleGuide;
     }
+
+    @Override
+    public McpConfig getMcpConfig() {
+        return McpConfig.EMPTY;
+    }
+
+    @Override
+    public void setMcpConfig(McpConfig config) {}
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
     public static TestProject createTestProject(String subDir, Language lang) {
