@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;

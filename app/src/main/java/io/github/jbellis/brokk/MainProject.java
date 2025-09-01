@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;

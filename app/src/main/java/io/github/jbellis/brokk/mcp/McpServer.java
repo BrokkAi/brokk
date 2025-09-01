@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk;
+package io.github.jbellis.brokk.mcp;
 
 import java.net.URL;
 import java.util.List;

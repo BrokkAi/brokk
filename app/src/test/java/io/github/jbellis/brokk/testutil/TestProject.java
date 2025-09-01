@@ -3,11 +3,11 @@ package io.github.jbellis.brokk.testutil;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.McpConfig;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
