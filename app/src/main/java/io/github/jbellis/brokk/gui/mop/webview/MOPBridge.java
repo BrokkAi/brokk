@@ -122,13 +122,15 @@ public final class MOPBridge {
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
-        var js = "if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner(" + jsonMessage +
-                "); } else { console.error('showSpinner called - bridge not ready yet'); }";
+        var js = "if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner(" + jsonMessage
+                + "); } else { console.error('showSpinner called - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void hideSpinner() {
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
+        Platform.runLater(
+                () -> engine.executeScript(
+                        "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
     }
 
     public void clear() {
@@ -208,7 +210,8 @@ public final class MOPBridge {
         var e = event.getEpoch();
         awaiting.put(e, new CompletableFuture<>());
         var json = toJson(event);
-        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent(" + json + "); } else { console.error('onEvent called - bridge not ready yet'); }"));
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent("
+                + json + "); } else { console.error('onEvent called - bridge not ready yet'); }"));
     }
 
     public void onAck(int e) {
@@ -222,7 +225,8 @@ public final class MOPBridge {
         var future = new CompletableFuture<String>();
         Platform.runLater(() -> {
             try {
-                Object result = engine.executeScript("(window.brokk && window.brokk.getSelection) ? window.brokk.getSelection() : ''");
+                Object result = engine.executeScript(
+                        "(window.brokk && window.brokk.getSelection) ? window.brokk.getSelection() : ''");
                 future.complete(result != null ? result.toString() : "");
             } catch (Exception ex) {
                 logger.error("Failed to get selection from WebView", ex);
