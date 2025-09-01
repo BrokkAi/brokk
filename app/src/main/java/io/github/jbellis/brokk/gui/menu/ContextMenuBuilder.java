@@ -265,9 +265,7 @@ public class ContextMenuBuilder {
         // If multiple candidates, show popup and return first
         if (candidates.size() > 1) {
             var matchList = candidates.stream()
-                    .map(candidate -> String.format(
-                            "• %s in %s",
-                            candidate.shortName(), candidate.source()))
+                    .map(candidate -> String.format("• %s in %s", candidate.shortName(), candidate.source()))
                     .collect(Collectors.joining("\n"));
 
             var message = String.format(

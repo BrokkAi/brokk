@@ -111,14 +111,13 @@ public class SymbolLookupService {
                         searchResults.stream().limit(5).map(cu -> cu.fqName()).toList());
 
                 // For Java, return all exact class matches; for other languages, find best match
-                var projectSourceResults = filterToProjectSources(searchResults);
-                if (projectSourceResults.isEmpty()) {
-                    logger.trace("No project source matches found for '{}'", trimmed);
+                if (searchResults.isEmpty()) {
+                    logger.trace("No matches found for '{}'", trimmed);
                     return new SymbolInfo(false, null);
                 }
 
                 // Try class matching first (handles multiple classes with same name)
-                var classMatches = findAllClassMatches(trimmed, projectSourceResults);
+                var classMatches = findAllClassMatches(trimmed, searchResults);
                 if (!classMatches.isEmpty()) {
                     var commaSeparatedFqns =
                             classMatches.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(","));
@@ -195,14 +194,6 @@ public class SymbolLookupService {
     private static String getSimpleName(String fqName) {
         int lastDot = fqName.lastIndexOf('.');
         return lastDot >= 0 ? fqName.substring(lastDot + 1) : fqName;
-    }
-
-    /** Filter search results to only include symbols from project sources, not JAR dependencies. */
-    private static List<CodeUnit> filterToProjectSources(List<CodeUnit> searchResults) {
-        // For now, return all results. In the future, we can add logic to filter out
-        // symbols from JAR files by checking if their ProjectFile path is within the project root.
-        // This requires access to the project root path, which we don't have in this context yet.
-        return searchResults;
     }
 
     /** Find all classes with exact simple name match for the given search term. */
