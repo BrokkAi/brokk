@@ -622,7 +622,8 @@ public class Service {
                         String modelId = modelNode.path("name").asText();
                         if (modelId == null || modelId.isBlank()) continue;
                         String displayName = "%s (%s)".formatted(modelId, server.name());
-                        String locationKey = server.url() + "|" + modelId;
+                        // incorporate server details for unique identifier
+                        String locationKey = server.url() + "/" + modelId;
                         Map<String, Object> modelInfo = new HashMap<>();
                         modelInfo.put("model_location", modelId);
                         modelInfo.put("mcp_base_url", server.url().toString());
