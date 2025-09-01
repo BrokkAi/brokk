@@ -151,10 +151,10 @@ public class VoiceInputButton extends JButton {
 
         // Register for service/model reload notifications so we can update the button state dynamically.
         try {
-            contextManager.addServiceListener(serviceListener);
+            contextManager.addModelReloadListener(serviceListener);
         } catch (Exception e) {
             // Safe to ignore if contextManager doesn't support listeners for some reason.
-            logger.debug("Could not register service listener for VoiceInputButton", e);
+            logger.debug("Could not register model reload listener for VoiceInputButton", e);
         }
     }
 
@@ -189,7 +189,7 @@ public class VoiceInputButton extends JButton {
     public void removeNotify() {
         super.removeNotify();
         // Unregister the listener to prevent memory leaks
-        contextManager.removeServiceListener(serviceListener);
+        contextManager.removeModelReloadListener(serviceListener);
     }
 
     /** Starts capturing audio from the default microphone to micBuffer on a background thread. */

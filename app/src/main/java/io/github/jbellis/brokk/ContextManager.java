@@ -150,7 +150,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
-    private final List<Runnable> serviceListeners = new CopyOnWriteArrayList<>();
+    private final List<Runnable> modelReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -186,17 +186,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void removeAnalyzerCallback(AnalyzerCallback callback) {
         analyzerCallbacks.remove(callback);
+    }
+
     /**
      * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
      * the EDT to allow UI updates.
      */
-    public void addServiceListener(Runnable listener) {
-        serviceListeners.add(listener);
+    public void addModelReloadListener(Runnable listener) {
+        modelReloadListeners.add(listener);
     }
 
-    /** Remove a previously registered service listener. */
-    public void removeServiceListener(Runnable listener) {
-        serviceListeners.remove(listener);
+    /** Remove a previously registered model reload listener. */
+    public void removeModelReloadListener(Runnable listener) {
+        modelReloadListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -1724,11 +1726,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     service.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
                     SwingUtilities.invokeLater(() -> {
-                        for (var l : serviceListeners) {
+                        for (var l : modelReloadListeners) {
                             try {
                                 l.run();
                             } catch (Exception e) {
-                                logger.warn("Service listener threw exception", e);
+                                logger.warn("Model reload listener threw exception", e);
                             }
                         }
                     });
