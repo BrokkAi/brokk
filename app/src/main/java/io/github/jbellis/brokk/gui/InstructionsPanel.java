@@ -1363,6 +1363,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
 
+        // If Workspace is empty, ask the user how to proceed
+        if (chrome.getContextManager().topContext().isEmpty()) {
+            String message =
+                    "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
+            Object[] options = {"Code", "Search", "Cancel"};
+            int choice = JOptionPane.showOptionDialog(
+                    chrome.getFrame(),
+                    message,
+                    "Empty Workspace",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+
+            if (choice == 1) { // Search
+                runSearchCommand();
+                return;
+            } else if (choice != 0) { // Cancel or closed dialog
+                return;
+            }
+        }
+
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
