@@ -1426,7 +1426,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     @Override
     public boolean hasUnsavedChanges() {
-        // Check if any file panel has unsaved changes
+        // Consider programmatic diff changes as unsaved too
+        if (!pendingDiffChanges.isEmpty()) {
+            return true;
+        }
+
+        // Check if any file panel has unsaved changes (manual edits)
         for (var fp : filePanels.values()) {
             if (fp.isDocumentChanged()) {
                 return true;

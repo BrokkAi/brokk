@@ -615,9 +615,28 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setEnabled(true);
 
         // Update save button text, enable state, and visibility
-        boolean hasUnsaved = hasUnsavedChanges();
-        btnSaveAll.setText(fileComparisons.size() > 1 ? "Save All" : "Save");
-        btnSaveAll.setEnabled(hasUnsaved);
+        // Compute the exact number of BufferDiffPanels that would be saved by saveAll():
+        // include bufferDiffPanel (if present) plus all cached panels (deduplicated),
+        // and count those with hasUnsavedChanges() == true.
+        int dirtyCount = 0;
+        var visited = new java.util.HashSet<BufferDiffPanel>();
+
+        if (bufferDiffPanel != null) {
+            visited.add(bufferDiffPanel);
+            if (bufferDiffPanel.hasUnsavedChanges()) {
+                dirtyCount++;
+            }
+        }
+
+        for (var p : panelCache.nonNullValues()) {
+            if (visited.add(p) && p.hasUnsavedChanges()) {
+                dirtyCount++;
+            }
+        }
+
+        String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
+        btnSaveAll.setText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
+        btnSaveAll.setEnabled(dirtyCount > 0);
 
         // Hide save button when all sides are read-only (like PR diffs)
         btnSaveAll.setVisible(showUndoRedo);
@@ -642,9 +661,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     /** Returns true if any loaded diff-panel holds modified documents. */
     public boolean hasUnsavedChanges() {
-        if (bufferDiffPanel != null && bufferDiffPanel.isDirty()) return true;
+        if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) return true;
         for (var p : panelCache.nonNullValues()) {
-            if (p.isDirty()) return true;
+            if (p.hasUnsavedChanges()) return true;
         }
         return false;
     }
@@ -1273,12 +1292,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Reset dirty state for both left and right documents
+        // Safely re-evaluate dirty state for both left and right documents.
+        // Do NOT unconditionally reset the saved baseline to current content (resetDirtyState),
+        // because that may hide real unsaved edits that happened earlier.
+        // Instead, ask each AbstractBufferDocument to recheck whether its current content truly
+        // matches the saved baseline and clear the changed flag only if appropriate.
         var leftBufferNode = diffNode.getBufferNodeLeft();
         if (leftBufferNode != null) {
             var leftDoc = leftBufferNode.getDocument();
             if (leftDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
-                abd.resetDirtyState();
+                abd.recheckChangedState();
             }
         }
 
@@ -1286,7 +1309,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (rightBufferNode != null) {
             var rightDoc = rightBufferNode.getDocument();
             if (rightDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
-                abd.resetDirtyState();
+                abd.recheckChangedState();
             }
         }
 
