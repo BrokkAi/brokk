@@ -230,6 +230,71 @@ To create a new release:
 
 No manual version updates needed - everything is derived from git tags automatically.
 
+## Distribution with jDeploy
+
+The project uses jDeploy to create native application installers for all platforms. jDeploy packages the shadow JAR into platform-specific installers and handles distribution via npm.
+
+### jDeploy Configuration
+
+Configuration is defined in the root `package.json`:
+- **JAR Source**: `app/build/libs/brokk-*.jar` (shadow JAR)
+- **Java Version**: 21 (required)
+- **JavaFX**: Enabled for GUI support
+- **JVM Args**: `--add-modules jdk.incubator.vector` for Vector API
+- **No Bundled JDK**: Uses system Java installation
+
+### Local jDeploy Usage
+
+```bash
+# Build JAR first
+./gradlew shadowJar
+
+# Package with jDeploy
+npm install -g jdeploy  # If not installed
+jdeploy package         # Creates jdeploy-bundle/
+
+# Test packaged application
+node jdeploy-bundle/jdeploy.js
+```
+
+### Release Process Integration
+
+jDeploy runs automatically in CI/CD during releases:
+
+1. **Triggered by**: Git tag pushes (`v1.0.0`, `1.0.0-beta`, etc.)
+2. **Workflows**: Both `jdeploy.yml` and `release.yml` workflows
+3. **Process**:
+   - Build shadow JAR with Gradle
+   - Update `package.json` with exact JAR filename
+   - Run jDeploy to create installers
+   - Upload installers as GitHub release assets
+
+### Prerelease Handling
+
+jDeploy detects pre-releases based on semantic versioning:
+- **Prerelease**: `1.0.0-alpha`, `1.0.0-beta.1`, `1.0.0-rc.1`
+- **Stable**: `1.0.0`, `2.1.0`
+
+Prereleases are marked appropriately in GitHub releases and distribution channels.
+
+## Performance Baseline Testing
+
+The TreeSitterRepoRunner provides comprehensive performance analysis for TreeSitter analyzers across major open source projects.
+
+For complete documentation, see [baseline-testing.md](baseline-testing.md).
+
+### Quick Start
+```bash
+# Get help and see available commands
+scripts/run-treesitter-repos.sh help
+
+# Set up test projects (downloads major projects)
+scripts/run-treesitter-repos.sh setup
+
+# Test specific project with specific language
+scripts/run-treesitter-repos.sh openjdk-java --max-files 500
+```
+
 ## Icon Browser
 
 To explore available Look and Feel icons for UI development:

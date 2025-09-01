@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
+import io.github.jbellis.brokk.gui.dialogs.DropActionDialog;
 import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMode;
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
@@ -33,9 +34,11 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.*;
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.Arrays;
 import java.util.List;
@@ -944,8 +947,8 @@ public class WorkspacePanel extends JPanel {
         // Set selection mode to allow multiple selection
         contextTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
-        // Install custom TransferHandler for copy operations
-        contextTable.setTransferHandler(new TransferHandler() {
+        // Install custom TransferHandler for copy operations and file-list drop import from ProjectTree
+        final TransferHandler fileListDropHandler = new TransferHandler() {
             @Override
             public int getSourceActions(JComponent c) {
                 return COPY;
@@ -960,7 +963,115 @@ public class WorkspacePanel extends JPanel {
                 }
                 return null;
             }
-        });
+
+            @Override
+            public boolean canImport(TransferSupport support) {
+                // Accept file list drops only
+                boolean isFileList = support.isDataFlavorSupported(DataFlavor.javaFileListFlavor);
+                return isFileList;
+            }
+
+            @Override
+            public boolean importData(TransferSupport support) {
+                if (!canImport(support)) {
+                    return false;
+                }
+
+                if (!workspaceCurrentlyEditable || !isOnLatestContext()) {
+                    chrome.systemNotify(READ_ONLY_TIP, "Workspace", JOptionPane.INFORMATION_MESSAGE);
+                    return false;
+                }
+
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<File> files =
+                            (List<File>) support.getTransferable().getTransferData(DataFlavor.javaFileListFlavor);
+                    if (files == null || files.isEmpty()) {
+                        return false;
+                    }
+
+                    var projectRoot = contextManager
+                            .getProject()
+                            .getRoot()
+                            .toAbsolutePath()
+                            .normalize();
+                    // Map to ProjectFile inside this project; ignore anything outside
+                    java.util.LinkedHashSet<ProjectFile> projectFiles = files.stream()
+                            .map(File::toPath)
+                            .map(Path::toAbsolutePath)
+                            .map(Path::normalize)
+                            .filter(p -> {
+                                boolean inside = p.startsWith(projectRoot);
+                                if (!inside) {
+                                    logger.debug("Ignoring dropped file outside project: {}", p);
+                                }
+                                return inside;
+                            })
+                            .map(p -> projectRoot.relativize(p))
+                            .map(rel -> new ProjectFile(projectRoot, rel))
+                            .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+
+                    if (projectFiles.isEmpty()) {
+                        chrome.systemOutput("No project files found in drop");
+                        return false;
+                    }
+
+                    // Ask the user what to do
+                    var analyzedExts = contextManager.getProject().getAnalyzerLanguages().stream()
+                            .flatMap(lang -> lang.getExtensions().stream())
+                            .collect(Collectors.toSet());
+                    boolean canSummarize = projectFiles.stream().anyMatch(pf -> analyzedExts.contains(pf.extension()));
+                    java.awt.Point pointer = null;
+                    try {
+                        var pi = java.awt.MouseInfo.getPointerInfo();
+                        if (pi != null) {
+                            pointer = pi.getLocation();
+                        }
+                    } catch (Exception ignore) {
+                        // ignore
+                    }
+                    var selection = DropActionDialog.show(chrome.getFrame(), canSummarize, pointer);
+                    if (selection == null) {
+                        chrome.systemOutput("Drop canceled");
+                        return false;
+                    }
+                    switch (selection) {
+                        case EDIT -> {
+                            // Only allow editing tracked files; others are silently ignored by editFiles
+                            contextManager.submitContextTask("Edit files (drop)", () -> {
+                                contextManager.editFiles(projectFiles);
+                            });
+                        }
+                        case READ -> {
+                            contextManager.submitContextTask("Read files (drop)", () -> {
+                                contextManager.addReadOnlyFiles(projectFiles);
+                            });
+                        }
+                        case SUMMARIZE -> {
+                            if (!isAnalyzerReady()) {
+                                return false;
+                            }
+                            contextManager.submitContextTask("Summarize files (drop)", () -> {
+                                contextManager.addSummaries(
+                                        new java.util.HashSet<ProjectFile>(projectFiles),
+                                        java.util.Collections.<CodeUnit>emptySet());
+                            });
+                        }
+                        default -> {
+                            logger.warn("Unexpected drop selection: {}", selection);
+                            return false;
+                        }
+                    }
+
+                    return true;
+                } catch (Exception ex) {
+                    logger.error("Error importing dropped files into workspace", ex);
+                    chrome.toolError("Failed to import dropped files: " + ex.getMessage());
+                    return false;
+                }
+            }
+        };
+        contextTable.setTransferHandler(fileListDropHandler);
 
         // Add Ctrl+V paste handler for the table
         var pasteKeyStroke = KeyStroke.getKeyStroke(
@@ -1046,6 +1157,10 @@ public class WorkspacePanel extends JPanel {
 
         // Create layered pane to support overlay
         workspaceLayeredPane = workspaceOverlay.createLayeredPane(tableScrollPane);
+        // Ensure drops are accepted when over the layered pane, scroll pane, or empty areas
+        tableScrollPane.setTransferHandler(fileListDropHandler);
+        tableScrollPane.getViewport().setTransferHandler(fileListDropHandler);
+        workspaceLayeredPane.setTransferHandler(fileListDropHandler);
 
         // Add mouse listeners to key components to ensure focus
         var focusMouseListener = new MouseAdapter() {

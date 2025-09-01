@@ -110,8 +110,10 @@ public final class HistoryIo {
                         rawGitStateDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
                     }
                     case ENTRY_INFOS_FILENAME -> {
-                        var typeRef = new TypeReference<Map<String, ContextHistory.ContextHistoryEntryInfo>>() {};
-                        entryInfoDtos = objectMapper.readValue(zis.readAllBytes(), typeRef);
+                        byte[] bytes = zis.readAllBytes();
+                        var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
+                        Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
+                        entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap);
                     }
                     default -> {
                         if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
@@ -307,9 +309,8 @@ public final class HistoryIo {
         byte[] entryInfosBytes = null;
         var entryInfos = ch.getEntryInfos();
         if (!entryInfos.isEmpty()) {
-            var entryInfosToStringKeys = new HashMap<String, ContextHistory.ContextHistoryEntryInfo>();
-            entryInfos.forEach((key, value) -> entryInfosToStringKeys.put(key.toString(), value));
-            entryInfosBytes = objectMapper.writeValueAsBytes(entryInfosToStringKeys);
+            var entryInfosDto = DtoMapper.toEntryInfosDto(entryInfos);
+            entryInfosBytes = objectMapper.writeValueAsBytes(entryInfosDto);
         }
 
         byte[] resetEdgesBytes = null;

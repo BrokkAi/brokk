@@ -11,7 +11,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
-import io.github.jbellis.brokk.analyzer.LintingProvider;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -30,6 +29,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -373,8 +373,17 @@ public class CodeAgent {
             if (newlyParsedBlocks.isEmpty()) {
                 // Pure parse failure
                 updatedConsecutiveParseFailures++;
-                messageForRetry = new UserMessage(parseResult.parseError());
-                consoleLogForRetry = "Failed to parse LLM response; retrying";
+
+                // The bad response is the last message; the user request that caused it is the one before that.
+                // We will remove both, and create a new request that is the original + a reminder.
+                cs.taskMessages().removeLast(); // bad AI response
+                var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
+
+                var reminder =
+                        "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
+                var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
+                messageForRetry = new UserMessage(newRequestText);
+                consoleLogForRetry = "Failed to parse LLM response; retrying with format reminder";
             } else {
                 // Partial parse, then an error
                 updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
@@ -719,22 +728,7 @@ public class CodeAgent {
 
         String latestBuildError;
         try {
-            // Lint the changed files for ERROR diagnostics before build verification
-            latestBuildError = contextManager
-                    .getAnalyzer()
-                    .as(LintingProvider.class)
-                    .flatMap(analyzer -> {
-                        var lintResult = analyzer.lintFiles(new ArrayList<>(ws.changedFiles()));
-                        if (lintResult.hasErrors()) {
-                            return Optional.of(lintResult.getErrors().stream()
-                                    .map(d -> d.file() + ":" + d.line() + ":" + d.column() + " - " + d.message())
-                                    .collect(Collectors.joining("\n")));
-                        } else {
-                            // no lint errors -> run a full build
-                            return Optional.empty();
-                        }
-                    })
-                    .orElse(performBuildVerification());
+            latestBuildError = performBuildVerification();
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();

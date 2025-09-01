@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import eu.hansolo.fx.jdkmon.tools.Distro;
+import eu.hansolo.fx.jdkmon.tools.Finder;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
 import io.github.jbellis.brokk.MainProject;
@@ -18,17 +20,20 @@ import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
-import javax.swing.BorderFactory;
-import javax.swing.SwingWorker;
-import javax.swing.UIManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -75,6 +80,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             new JSpinner(new SpinnerNumberModel((int) Environment.DEFAULT_TIMEOUT.toSeconds(), 1, 10800, 1));
     private JProgressBar buildProgressBar = new JProgressBar();
     private JButton inferBuildDetailsButton = new JButton("Infer Build Details");
+    private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
+    private JComboBox<JdkItem> jdkComboBox = new JComboBox<>();
+    private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
@@ -195,7 +203,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                         chrome.toolError(
                                                 "Failed to determine initial build details: " + ex.getMessage());
                                     } else {
-                                        if (java.util.Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
+                                        if (Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
                                             logger.warn("Initial Build Agent returned empty details. Using defaults.");
                                             chrome.systemOutput(
                                                     "Initial Build Agent completed but found no specific details. Using defaults.");
@@ -715,6 +723,47 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildPanel.add(bannerPanel, gbc);
         gbc.gridwidth = 1; // Reset gridwidth
 
+        // Primary language at top
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(new JLabel("Primary language:"), gbc);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(primaryLanguageComboBox, gbc);
+
+        // JDK selection controls (visible only if primary language is Java)
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(setJavaHomeCheckbox, gbc);
+
+        jdkComboBox.setEnabled(false);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(jdkComboBox, gbc);
+
+        primaryLanguageComboBox.addActionListener(e -> {
+            var sel = (Language) primaryLanguageComboBox.getSelectedItem();
+            updateJdkControlsVisibility(sel);
+            if (sel == Language.JAVA) {
+                populateJdkControlsFromProject();
+            }
+        });
+
+        // Initial visibility based on current project setting
+        updateJdkControlsVisibility(project.getBuildLanguage());
+
+        setJavaHomeCheckbox.addActionListener(e -> jdkComboBox.setEnabled(setJavaHomeCheckbox.isSelected()));
+
+        // Build/Lint Command (moved below primary language)
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0.0;
@@ -848,7 +897,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     JOptionPane.PLAIN_MESSAGE);
             if (newDir != null && !newDir.trim().isEmpty()) {
                 String trimmedNewDir = newDir.trim();
-                List<String> currentElements = java.util.Collections.list(excludedDirectoriesListModel.elements());
+                List<String> currentElements = Collections.list(excludedDirectoriesListModel.elements());
                 if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates if user adds same dir again
                     currentElements.add(trimmedNewDir);
                 }
@@ -966,7 +1015,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
-                if (java.util.Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
+                if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
                     logger.warn("Build Agent returned null or empty details, considering it an error.");
                     // When cancel button is pressed, we need to show a different kind of message
                     boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
@@ -1040,7 +1089,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         okButtonParent,
                         cancelButtonParent,
                         applyButtonParent)
-                .filter(java.util.Objects::nonNull) // Filter out null components (e.g., optional parent buttons)
+                .filter(Objects::nonNull) // Filter out null components (e.g., optional parent buttons)
                 .forEach(control -> control.setEnabled(enabled));
     }
 
@@ -1073,8 +1122,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         dialog.setSize(300, 400);
         dialog.setLocationRelativeTo(parentDialog);
 
-        var languageCheckBoxMapLocal =
-                new java.util.LinkedHashMap<io.github.jbellis.brokk.analyzer.Language, JCheckBox>();
+        var languageCheckBoxMapLocal = new LinkedHashMap<Language, JCheckBox>();
         var languagesInProject = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
         project.getRoot();
         Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan =
@@ -1092,7 +1140,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         checkBoxesPanel.setLayout(new BoxLayout(checkBoxesPanel, BoxLayout.PAGE_AXIS));
         checkBoxesPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         var sortedLanguagesToShow = languagesInProject.stream()
-                .sorted(java.util.Comparator.comparing(io.github.jbellis.brokk.analyzer.Language::name))
+                .sorted(Comparator.comparing(io.github.jbellis.brokk.analyzer.Language::name))
                 .toList();
         for (var lang : sortedLanguagesToShow) {
             var checkBox = new JCheckBox(lang.name());
@@ -1207,10 +1255,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
+        populateJdkControlsFromProject();
 
         var currentRefresh = project.getAnalyzerRefresh();
         cpgRefreshComboBox.setSelectedItem(
                 currentRefresh == IProject.CpgRefresh.UNSET ? IProject.CpgRefresh.AUTO : currentRefresh);
+
+        // Primary language
+        populatePrimaryLanguageComboBox();
+        var selectedLang = project.getBuildLanguage();
+        primaryLanguageComboBox.setSelectedItem(selectedLang);
+        updateJdkControlsVisibility(selectedLang);
+        if (selectedLang == Language.JAVA) {
+            populateJdkControlsFromProject();
+        }
 
         currentAnalyzerLanguagesForDialog = new HashSet<>(project.getAnalyzerLanguages());
         updateLanguagesDisplayField();
@@ -1305,6 +1363,25 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             chrome.getContextManager().requestRebuild();
         }
 
+        // Primary language
+        var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
+        if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
+            project.setBuildLanguage(selectedPrimaryLang);
+            logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
+        }
+
+        // JDK Controls (only for Java)
+        if (selectedPrimaryLang == Language.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                var sel = (JdkItem) jdkComboBox.getSelectedItem();
+                if (sel != null && !sel.path.isBlank()) {
+                    project.setJdk(sel.path);
+                }
+            } else {
+                project.setJdk(BuildAgent.JAVA_HOME_SENTINEL);
+            }
+        }
+
         // Data Retention Tab
         if (dataRetentionPanelInner != null) dataRetentionPanelInner.applyPolicy();
 
@@ -1334,6 +1411,128 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         SwingUtilities.updateComponentTreeUI(this);
+    }
+
+    private static class JdkItem {
+        final String display;
+        final String path;
+
+        JdkItem(String display, String path) {
+            this.display = display;
+            this.path = path;
+        }
+
+        @Override
+        public String toString() {
+            return display;
+        }
+    }
+
+    private List<JdkItem> discoverInstalledJdks() {
+        try {
+            var finder = new Finder();
+            var distros = finder.getDistributions();
+            var items = new ArrayList<JdkItem>();
+            for (Distro d : distros) {
+                var name = d.getName();
+                var ver = d.getVersion();
+                var arch = d.getArchitecture();
+                var path = d.getPath() != null && !d.getPath().isBlank() ? d.getPath() : d.getLocation();
+                if (path == null || path.isBlank()) continue;
+                var label = String.format("%s %s (%s)", name, ver, arch);
+                items.add(new JdkItem(label, path));
+            }
+            items.sort(Comparator.comparing(it -> it.display));
+            return items;
+        } catch (Throwable t) {
+            logger.warn("Failed to discover installed JDKs", t);
+            return List.of();
+        }
+    }
+
+    private void populateJdkControlsFromProject() {
+        var project = chrome.getProject();
+        var desired = project.getJdk();
+
+        // Initialize controls immediately on EDT without blocking
+        boolean useCustomJdk = desired != null && !BuildAgent.JAVA_HOME_SENTINEL.equals(desired);
+        setJavaHomeCheckbox.setSelected(useCustomJdk);
+        jdkComboBox.setEnabled(useCustomJdk);
+
+        // Perform discovery asynchronously to avoid blocking the UI
+        CompletableFuture.supplyAsync(this::discoverInstalledJdks, ForkJoinPool.commonPool())
+                .whenComplete((List<JdkItem> items, @Nullable Throwable ex) -> {
+                    if (ex != null) {
+                        logger.warn("JDK discovery failed: {}", ex.getMessage(), ex);
+                        items = List.of();
+                    }
+                    var finalItems = items;
+                    SwingUtilities.invokeLater(() -> {
+                        jdkComboBox.setModel(new DefaultComboBoxModel<>(finalItems.toArray(JdkItem[]::new)));
+
+                        // Only try to select if user intends to set JAVA_HOME
+                        if (setJavaHomeCheckbox.isSelected()) {
+                            boolean matched = false;
+                            for (int i = 0; i < jdkComboBox.getItemCount(); i++) {
+                                var it = jdkComboBox.getItemAt(i);
+                                if (desired != null && desired.equals(it.path)) {
+                                    jdkComboBox.setSelectedIndex(i);
+                                    matched = true;
+                                    break;
+                                }
+                            }
+                            if (!matched
+                                    && desired != null
+                                    && !desired.isBlank()
+                                    && !BuildAgent.JAVA_HOME_SENTINEL.equals(desired)) {
+                                var custom = new JdkItem("Custom JDK: " + desired, desired);
+                                jdkComboBox.addItem(custom);
+                                jdkComboBox.setSelectedItem(custom);
+                            }
+                            jdkComboBox.setEnabled(true);
+                        } else {
+                            jdkComboBox.setEnabled(false);
+                        }
+                        logger.trace(
+                                "JDK discovery completed; combo box populated with {} items",
+                                jdkComboBox.getItemCount());
+                    });
+                });
+    }
+
+    private void updateJdkControlsVisibility(@Nullable Language selected) {
+        boolean isJava = selected == Language.JAVA;
+        setJavaHomeCheckbox.setVisible(isJava);
+        jdkComboBox.setVisible(isJava);
+    }
+
+    private void populatePrimaryLanguageComboBox() {
+        var project = chrome.getProject();
+        var detected = findLanguagesInProject(project);
+        var configured = project.getBuildLanguage();
+        if (!detected.contains(configured)) {
+            detected.add(configured);
+        }
+        // Sort by display name
+        detected.sort(Comparator.comparing(Language::name));
+        primaryLanguageComboBox.setModel(new DefaultComboBoxModel<>(detected.toArray(Language[]::new)));
+    }
+
+    private List<Language> findLanguagesInProject(IProject project) {
+        Set<Language> langs = new HashSet<>();
+        Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan =
+                project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        for (var pf : filesToScan) {
+            String extension =
+                    com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+            if (!extension.isEmpty()) {
+                var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
+                if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) {
+                    langs.add(lang);
+                }
+            }
+        }
+        return new ArrayList<>(langs);
     }
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)
