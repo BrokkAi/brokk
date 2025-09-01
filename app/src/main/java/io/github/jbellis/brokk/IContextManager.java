@@ -19,9 +19,6 @@ public interface IContextManager {
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
-        /** Called when the analyzer is updated (becomes ready, rebuilt, etc.). */
-        void onAnalyzerUpdated();
-
         /** Called when the analyzer transitions from not-ready to ready state. */
         default void onAnalyzerReady() {}
     }

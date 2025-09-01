@@ -5,7 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
@@ -38,7 +38,7 @@ public final class MOPBridge {
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
     private volatile @Nullable IContextManager contextManager;
-    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+    private volatile @Nullable Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
 
     public MOPBridge(WebEngine engine) {
@@ -256,15 +256,11 @@ public final class MOPBridge {
         }
     }
 
-    public void setProject(IProject project) {
-        // Deprecated: use setContextManager instead
-    }
-
     public void setContextManager(@Nullable IContextManager contextManager) {
         this.contextManager = contextManager;
     }
 
-    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+    public void setChrome(@Nullable Chrome chrome) {
         this.chrome = chrome;
     }
 
@@ -311,7 +307,7 @@ public final class MOPBridge {
                         "Starting streaming symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
 
                 // Use streaming lookup to send results as they become available
-                SymbolLookupService.lookupSymbolsStreaming(
+                SymbolLookupService.lookupSymbols(
                         symbolNames,
                         contextManager,
                         // Result callback - called for each individual symbol result

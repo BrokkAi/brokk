@@ -4,9 +4,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
@@ -17,102 +15,7 @@ import org.slf4j.LoggerFactory;
 public class SymbolLookupService {
     private static final Logger logger = LoggerFactory.getLogger(SymbolLookupService.class);
 
-    public record SymbolLookupResult(String symbolName, boolean exists, @Nullable String fqn) {}
-
     private record SymbolInfo(boolean exists, @Nullable String fqn) {}
-
-    public static Map<String, SymbolLookupResult> lookupSymbols(
-            Set<String> symbolNames, @Nullable IContextManager contextManager) {
-        var results = new HashMap<String, SymbolLookupResult>();
-
-        logger.debug("Starting lookup for {} symbols", symbolNames.size());
-
-        if (symbolNames.isEmpty()) {
-            return results;
-        }
-
-        if (contextManager == null) {
-            logger.trace("No context manager available for symbol lookup");
-            symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
-            return results;
-        }
-
-        var project = contextManager.getProject();
-        logger.trace("Using {} with project at {}", contextManager.getClass().getSimpleName(), project.getRoot());
-
-        try {
-            var analyzerWrapper = contextManager.getAnalyzerWrapper();
-            logger.trace("AnalyzerWrapper ready: {}", analyzerWrapper.isReady());
-
-            if (!analyzerWrapper.isReady()) {
-                logger.trace("Analyzer not ready");
-                symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
-                return results;
-            }
-
-            var analyzer = analyzerWrapper.getNonBlocking();
-
-            if (analyzer == null || analyzer.isEmpty()) {
-                logger.trace("No analyzer available for symbol lookup");
-                symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
-                return results;
-            }
-
-            logger.trace("Using analyzer: {}", analyzer.getClass().getSimpleName());
-
-            for (var symbolName : symbolNames) {
-                var symbolInfo = checkSymbolExists(analyzer, symbolName);
-                results.put(symbolName, new SymbolLookupResult(symbolName, symbolInfo.exists(), symbolInfo.fqn()));
-            }
-
-        } catch (Exception e) {
-            logger.warn("Error during symbol lookup", e);
-            symbolNames.forEach(name -> results.put(name, new SymbolLookupResult(name, false, null)));
-        }
-
-        logger.debug("Symbol lookup completed with {} results", results.size());
-        return results;
-    }
-
-    /**
-     * Optimized symbol lookup that returns only existing symbols as a lean Map<String, String>. This reduces payload
-     * size by ~90% by excluding non-existent symbols and removing redundant data.
-     */
-    public static Map<String, String> lookupSymbolsOptimized(
-            Set<String> symbolNames, @Nullable IContextManager contextManager) {
-        var foundSymbols = new HashMap<String, String>();
-
-        if (symbolNames.isEmpty() || contextManager == null) {
-            return foundSymbols;
-        }
-
-        try {
-            var analyzerWrapper = contextManager.getAnalyzerWrapper();
-            if (!analyzerWrapper.isReady()) {
-                return foundSymbols;
-            }
-
-            var analyzer = analyzerWrapper.getNonBlocking();
-            if (analyzer == null || analyzer.isEmpty()) {
-                return foundSymbols;
-            }
-
-            for (var symbolName : symbolNames) {
-                var symbolInfo = checkSymbolExists(analyzer, symbolName);
-
-                // Only add symbols that actually exist
-                if (symbolInfo.exists() && symbolInfo.fqn() != null) {
-                    foundSymbols.put(symbolName, symbolInfo.fqn());
-                }
-            }
-
-        } catch (Exception e) {
-            logger.warn("Error during optimized symbol lookup", e);
-            // Return empty map on error instead of negative results
-        }
-
-        return foundSymbols;
-    }
 
     /**
      * Streaming symbol lookup that sends results incrementally as they become available. This provides better perceived
@@ -123,7 +26,7 @@ public class SymbolLookupService {
      * @param resultCallback Called for each symbol result (symbolName, fqn). fqn is null for non-existent symbols
      * @param completionCallback Called when all symbols have been processed
      */
-    public static void lookupSymbolsStreaming(
+    public static void lookupSymbols(
             Set<String> symbolNames,
             @Nullable IContextManager contextManager,
             BiConsumer<String, String> resultCallback,

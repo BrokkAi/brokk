@@ -6,9 +6,9 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.webview.MOPBridge;
@@ -249,11 +249,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
-    public void setProject(IProject project) {
-        webHost.setProject(project);
-    }
-
-    public void setContextManager(@Nullable IContextManager contextManager) {
+    public void withContextForLookups(@Nullable IContextManager contextManager, @Nullable Chrome chrome) {
         // Unregister from previous context manager if it exists
         if (currentContextManager != null) {
             currentContextManager.removeAnalyzerCallback(this);
@@ -266,15 +262,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
         currentContextManager = contextManager;
         webHost.setContextManager(contextManager);
-    }
-
-    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
         webHost.setSymbolRightClickHandler(chrome);
-    }
-
-    @Override
-    public void onAnalyzerUpdated() {
-        // No longer needed - onAnalyzerReady handles symbol highlighting
     }
 
     @Override
