@@ -21,7 +21,13 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
+public interface LspAnalyzer
+        extends IAnalyzer,
+                AutoCloseable,
+                CallGraphProvider,
+                UsagesProvider,
+                SourceCodeProvider,
+                IncrementalUpdateProvider {
 
     Logger logger = LoggerFactory.getLogger(LspAnalyzer.class);
 
@@ -42,11 +48,6 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     /** @return the target programming language as per the LSP's setting specs, e.g., "java". */
     @NotNull
     String getLanguage();
-
-    @Override
-    default boolean isCpg() {
-        return false;
-    }
 
     @Override
     default boolean isEmpty() {
@@ -133,7 +134,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
 
     @Override
     default @NotNull IAnalyzer update() {
-        getServer().refreshWorkspace().join();
+        getServer().refreshWorkspace(getWorkspace()).join();
         return this;
     }
 
@@ -153,7 +154,8 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      *   <li>? (question mark) matches any single character.
      * </ul>
      *
-     * Thus, we need to "sanitize" more complex operations otherwise these will be interpreted literally by the server.
+     * <p>Thus, we need to "sanitize" more complex operations otherwise these will be interpreted literally by the
+     * server.
      *
      * @param pattern the given search pattern.
      * @return any matching {@link CodeUnit}s.
@@ -183,16 +185,17 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
         if (fqName == null) {
             return Collections.emptyList();
         } else {
+            final var resolvedFqName = resolveMethodName(fqName); // Works for types too
             final var workspace = getWorkspace();
             final var server = getServer();
             // launch both requests at the same time
             final CompletableFuture<List<? extends WorkspaceSymbol>> exactMatchFuture =
-                    LspAnalyzerHelper.findSymbolsInWorkspace(fqName, workspace, server)
+                    LspAnalyzerHelper.findSymbolsInWorkspace(resolvedFqName, workspace, server)
                             .thenApply(workspaceSymbols -> workspaceSymbols.stream()
-                                    .filter(symbol -> LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName))
+                                    .filter(symbol -> LspAnalyzerHelper.simpleOrFullMatch(symbol, resolvedFqName))
                                     .toList());
             final Stream<CompletableFuture<List<? extends WorkspaceSymbol>>> fallbackFuture =
-                    LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName).stream()
+                    LspAnalyzerHelper.determineMethodName(resolvedFqName, this::resolveMethodName).stream()
                             .map(qualifiedMethod -> {
                                 final var methodName = qualifiedMethod.methodName();
                                 final var containerName = qualifiedMethod.containerFullName();
@@ -279,7 +282,47 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
             throw new IllegalArgumentException(reason);
         }
 
-        final var definitions = getDefinitionsInWorkspace(fqName);
+        // Start with the normal lookup
+        var definitions = getDefinitionsInWorkspace(fqName);
+
+        // Fallback: if nothing found and this looks like a fully-qualified field name,
+        // try to resolve the container and find a field child with the given name.
+        if (definitions.isEmpty() && fqName.contains(".")) {
+            final var containerName = fqName.substring(0, fqName.lastIndexOf('.'));
+
+            List<? extends WorkspaceSymbol> containerSymbols = getDefinitionsInWorkspace(containerName);
+            // If the generic workspace-symbol search didn't return anything, explicitly try type-symbol lookup,
+            // which is often more reliable for classes (especially short/simple names).
+            if (containerSymbols.isEmpty()) {
+                containerSymbols = LspAnalyzerHelper.findTypesInWorkspace(containerName, getWorkspace(), getServer())
+                        .join();
+            }
+
+            if (!containerSymbols.isEmpty()) {
+                definitions = containerSymbols.stream()
+                        // For each matching container symbol, fetch its direct children from the server
+                        .flatMap(containerSymbol -> {
+                            // Convert to a CodeUnit if possible; some helper paths expect a CodeUnit.
+                            final CodeUnit cu = codeUnitForWorkspaceSymbol(containerSymbol);
+                            return LspAnalyzerHelper.getDirectChildren(cu, getServer()).join().stream();
+                        })
+                        .filter(symbol -> {
+                            // Only consider field-like symbols
+                            if (!LspAnalyzerHelper.FIELD_KINDS.contains(symbol.getKind())) {
+                                return false;
+                            }
+                            return LspAnalyzerHelper.simpleOrFullMatch(symbol, fqName);
+                        })
+                        .toList();
+            }
+        }
+
+        if (definitions.isEmpty()) {
+            final var reason = "Symbol '" + fqName + "' (resolved: '" + resolveMethodName(fqName)
+                    + "') not found as a method, field, or class";
+            throw new IllegalArgumentException(reason);
+        }
+
         final var usagesFutures = definitions.stream()
                 .flatMap(symbol -> {
                     if (symbol.getLocation().isLeft())
@@ -289,18 +332,10 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                 .map(location -> LspAnalyzerHelper.findUsageSymbols(location, getServer())
                         .thenApply(usages -> usages.stream().map(this::codeUnitForWorkspaceSymbol)))
                 .toList();
-        final var usages = CompletableFuture.allOf(usagesFutures.toArray(new CompletableFuture[0]))
+        return CompletableFuture.allOf(usagesFutures.toArray(new CompletableFuture[0]))
                 .thenApply(v ->
                         usagesFutures.stream().flatMap(CompletableFuture::join).toList())
                 .join();
-
-        if (usages.isEmpty()) {
-            final var reason = "Symbol '" + fqName + "' (resolved: '" + resolveMethodName(fqName)
-                    + "') not found as a method, field, or class";
-            throw new IllegalArgumentException(reason);
-        } else {
-            return usages;
-        }
     }
 
     /**
@@ -394,7 +429,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
     }
 
     @Override
-    default @Nullable String getClassSource(@NotNull String classFullName) {
+    default @NotNull Optional<String> getClassSource(@NotNull String classFullName) {
         final var futureTypeSymbols =
                 LspAnalyzerHelper.findTypesInWorkspace(classFullName, getWorkspace(), getServer(), false);
         final var exactMatch = getClassSource(futureTypeSymbols);
@@ -407,7 +442,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                     .distinct()
                     .sorted()
                     .findFirst()
-                    .orElseGet(() -> {
+                    .or(() -> {
                         // fallback to the whole file, if any partial matches for parent container are present
                         final var classCleanedName = classFullName.replace('$', '.');
                         if (classCleanedName.contains(".")) {
@@ -426,7 +461,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                     .sorted()
                                     .findFirst();
                             if (fallbackExactMatches.isPresent()) {
-                                return fallbackExactMatches.get();
+                                return fallbackExactMatches;
                             } else {
                                 return matches.stream()
                                         .filter(s -> s.getContainerName().endsWith(parentContainer))
@@ -434,15 +469,14 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
                                         .flatMap(Optional::stream)
                                         .distinct()
                                         .sorted()
-                                        .findFirst()
-                                        .orElse(null);
+                                        .findFirst();
                             }
                         } else {
-                            return null;
+                            return Optional.empty();
                         }
                     });
         } else {
-            return exactMatch;
+            return Optional.of(exactMatch);
         }
     }
 
@@ -674,7 +708,7 @@ public interface LspAnalyzer extends IAnalyzer, AutoCloseable {
      */
     default Optional<String> getAnonymousName(Location lambdaLocation) {
         final Path filePath = Paths.get(URI.create(lambdaLocation.getUri()));
-        logger.debug("Determining name for anonymous structure at {}", lambdaLocation);
+        logger.trace("Determining name for anonymous structure at {}", lambdaLocation);
         return LspAnalyzerHelper.getSymbolsInFile(getServer(), filePath)
                 .thenApply(eithers -> eithers.stream()
                         .flatMap(either -> {

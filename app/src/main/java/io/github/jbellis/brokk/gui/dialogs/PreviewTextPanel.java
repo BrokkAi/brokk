@@ -4,6 +4,8 @@ import static java.util.Objects.requireNonNull;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -12,8 +14,7 @@ import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -39,10 +40,12 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.TokenTypes;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.jetbrains.annotations.Nullable;
 
@@ -78,7 +81,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     @Nullable
     private final Future<Set<CodeUnit>> fileDeclarations;
 
+    @Nullable
+    private final Future<Map<Language, AnalyzerCapabilities>> analyzerCapabilities;
+
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
+
+    private record AnalyzerCapabilities(boolean hasUsages, boolean hasSource) {}
 
     public PreviewTextPanel(
             ContextManager contextManager,
@@ -216,8 +224,37 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
             });
+            analyzerCapabilities = contextManager.submitBackgroundTask("Fetch Analyzer Capabilities", () -> {
+                var analyzer = contextManager.getAnalyzerUninterrupted();
+                final var capabilityMap = new HashMap<Language, AnalyzerCapabilities>();
+                if (analyzer instanceof MultiAnalyzer multiAnalyzer) {
+                    multiAnalyzer.getDelegates().forEach((language, an) -> {
+                        final AnalyzerCapabilities capabilities;
+                        if (an.isEmpty()) {
+                            capabilities = new AnalyzerCapabilities(false, false);
+                        } else {
+                            var hasUsages = an.as(UsagesProvider.class).isPresent();
+                            var hasSource = an.as(SourceCodeProvider.class).isPresent();
+                            capabilities = new AnalyzerCapabilities(hasUsages, hasSource);
+                        }
+                        capabilityMap.put(language, capabilities);
+                    });
+                } else {
+                    contextManager.getProject().getAnalyzerLanguages().stream()
+                            .findFirst()
+                            .ifPresent(language -> {
+                                var hasUsages =
+                                        analyzer.as(UsagesProvider.class).isPresent();
+                                var hasSource =
+                                        analyzer.as(SourceCodeProvider.class).isPresent();
+                                capabilityMap.put(language, new AnalyzerCapabilities(hasUsages, hasSource));
+                            });
+                }
+                return capabilityMap;
+            });
         } else {
             fileDeclarations = null; // Ensure @Nullable field is explicitly null if file is null
+            analyzerCapabilities = null;
         }
     }
 
@@ -290,13 +327,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     if (file == null) {
                         return;
                     }
-                    if (fileDeclarations == null) { // Guard against null fileDeclarations
+                    if (fileDeclarations == null
+                            || analyzerCapabilities == null) { // Guard against null fileDeclarations
                         logger.warn(
-                                "fileDeclarations is null when populating dynamic menu items. This should not happen if file is not null.");
+                                "fileDeclarations or analyzerCapabilities is null when populating dynamic menu items. This should not happen if file is not null.");
                         return;
                     }
 
-                    if (!fileDeclarations.isDone()) {
+                    if (!fileDeclarations.isDone() || !analyzerCapabilities.isDone()) {
                         var item = new JMenuItem("Waiting for Code Intelligence...");
                         item.setEnabled(false);
                         dynamicMenuItems.add(item);
@@ -320,8 +358,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     }
 
                     Set<CodeUnit> codeUnits;
+                    Map<Language, AnalyzerCapabilities> capabilitiesMap;
                     try {
                         codeUnits = fileDeclarations.get();
+                        capabilitiesMap = analyzerCapabilities.get();
                     } catch (InterruptedException | ExecutionException ex) {
                         throw new RuntimeException(ex);
                     }
@@ -329,45 +369,118 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         int lineNum = getLineOfOffset(offset);
                         int lineStartOffset = getLineStartOffset(lineNum);
                         int lineEndOffset = getLineEndOffset(lineNum);
-                        var lineText = getText(lineStartOffset, lineEndOffset - lineStartOffset);
+                        // Determine the identifier (token) that the mouse is currently over
+                        var token = getTokenListForLine(lineNum);
+                        String clickedIdentifier = null;
+                        while (token != null && token.getType() != TokenTypes.NULL) {
+                            int tokenStart = token.getOffset();
+                            int tokenEnd = tokenStart + token.length();
+                            if (offset >= tokenStart && offset < tokenEnd) {
+                                clickedIdentifier = token.getLexeme();
+                                break;
+                            }
+                            token = token.getNextToken();
+                        }
 
-                        if (lineText != null && !lineText.trim().isEmpty()) {
+                        // Fallback: use the entire line text when we cannot determine a single token
+                        if (clickedIdentifier == null) {
+                            clickedIdentifier = getText(lineStartOffset, lineEndOffset - lineStartOffset)
+                                    .trim();
+                        }
+
+                        if (!clickedIdentifier.isEmpty()) {
                             var addedShortNames = new HashMap<String, CodeUnit>();
                             for (CodeUnit unit : codeUnits) {
                                 var identifier = unit.identifier();
-                                var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
-                                if (p.matcher(lineText).find()) {
-                                    if (addedShortNames.containsKey(unit.shortName())) {
-                                        continue; // already have a menu item for this shortName
+                                // in the case of nested classes, etc.
+                                var simpleIdentifier = Arrays.stream(identifier.split("[$.]"))
+                                        .toList()
+                                        .getLast();
+
+                                if (identifier.equals(clickedIdentifier)
+                                        || simpleIdentifier.equals(clickedIdentifier)) {
+                                    // Exact match with the clicked token
+                                    addedShortNames.putIfAbsent(clickedIdentifier, unit);
+                                } else {
+                                    // Fallback: does the clicked text contain this identifier as a whole word?
+                                    var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
+                                    if (p.matcher(clickedIdentifier).find()) {
+                                        addedShortNames.putIfAbsent(clickedIdentifier, unit);
                                     }
-                                    addedShortNames.put(unit.shortName(), unit);
                                 }
                             }
-                            for (String shortName : addedShortNames.keySet()) {
+
+                            for (String identifier : addedShortNames.keySet()) {
                                 // Specific to some languages, the constructor is the name of the type and may come
                                 // up when clicking on the type. These both refer to the same usages, thus will be
                                 // duplicates.
-                                final var codeUnit = addedShortNames.get(shortName);
+                                final var codeUnit = addedShortNames.get(identifier);
                                 // Check if another code unit shares this name and is a class
                                 final var isConstructor = codeUnit.isFunction()
                                         && addedShortNames.values().stream()
                                                 .anyMatch(x -> !x.equals(codeUnit)
                                                         && x.isClass()
-                                                        && shortName.endsWith(x.shortName()));
+                                                        && identifier.endsWith(x.shortName()));
 
                                 if (!isConstructor) {
-                                    var item = new JMenuItem(
-                                            "<html>Capture usages of <code>" + shortName + "</code></html>");
-                                    // Use a local variable for the action listener lambda
-                                    item.addActionListener(action -> {
-                                        contextManager.submitBackgroundTask(
-                                                "Capture Usages", () -> contextManager.usageForIdentifier(shortName));
-                                    });
-                                    dynamicMenuItems.add(item); // Track for removal
+                                    final String extension;
+                                    if (file.getFileName().contains(".")) {
+                                        extension =
+                                                Iterables.get(Splitter.on('.').split(file.getFileName()), 1);
+                                    } else {
+                                        extension = null;
+                                    }
+
+                                    capabilitiesMap.entrySet().stream()
+                                            .filter(entry -> entry.getKey()
+                                                    .getExtensions()
+                                                    .contains(extension))
+                                            .findFirst()
+                                            .ifPresent(entry -> {
+                                                final var capabilities = entry.getValue();
+                                                var usagesAvailable = capabilities.hasUsages();
+                                                var usageItem = new JMenuItem("<html>Capture usages of <code>"
+                                                        + identifier + "</code></html>");
+                                                dynamicMenuItems.add(usageItem); // Track for removal
+                                                usageItem.setEnabled(usagesAvailable);
+                                                if (usagesAvailable) {
+                                                    // Use a local variable for the action listener lambda
+                                                    usageItem.addActionListener(action -> {
+                                                        contextManager.submitBackgroundTask(
+                                                                "Capture Usages",
+                                                                () -> contextManager.usageForIdentifier(
+                                                                        codeUnit.fqName()));
+                                                    });
+                                                } else {
+                                                    usageItem.setToolTipText(
+                                                            "Code intelligence does not support usage capturing for this language.");
+                                                }
+
+                                                if (codeUnit.isFunction() || codeUnit.isClass()) {
+                                                    var sourceCodeAvailable = capabilities.hasSource();
+                                                    var sourceItem = new JMenuItem("<html>Capture source of <code>"
+                                                            + identifier + "</code></html>");
+                                                    dynamicMenuItems.add(sourceItem);
+
+                                                    sourceItem.setEnabled(sourceCodeAvailable);
+                                                    if (sourceCodeAvailable) {
+                                                        // Use a local variable for the action listener lambda
+                                                        sourceItem.addActionListener(action -> {
+                                                            contextManager.submitBackgroundTask(
+                                                                    "Capture Source Code",
+                                                                    () -> contextManager.sourceCodeForCodeUnit(
+                                                                            codeUnit));
+                                                        });
+                                                    } else {
+                                                        sourceItem.setToolTipText(
+                                                                "Code intelligence does not support source code capturing for this language.");
+                                                    }
+                                                }
+                                            });
                                 }
                             }
                         }
-                    } catch (javax.swing.text.BadLocationException ex) {
+                    } catch (BadLocationException ex) {
                         logger.warn(
                                 "Error getting line text for usage capture menu items based on offset {}", offset, ex);
                     }
@@ -766,7 +879,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             throws ExecutionException, InterruptedException {
         var sessionResult = future.get(); // might throw InterruptedException or ExecutionException
         var stopDetails = sessionResult.stopDetails();
-        quickEditMessages = sessionResult.output().messages(); // Capture messages regardless of outcome
+        quickEditMessages = new ArrayList<>(sessionResult
+                .output()
+                .messages()); // Create mutable copy to avoid UnsupportedOperationException on clear()
 
         // If the LLM itself was not successful, return the error
         if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {

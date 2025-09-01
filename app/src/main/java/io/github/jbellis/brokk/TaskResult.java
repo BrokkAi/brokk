@@ -65,6 +65,8 @@ public record TaskResult(
         APPLY_ERROR,
         /** Build errors occurred and were not improving after retries. */
         BUILD_ERROR,
+        /** Lint errors occurred and were not improving after retries. */
+        LINT_ERROR,
         /** The LLM attempted to edit a read-only file. */
         READ_ONLY_EDIT,
         /** Unable to write new file contents */

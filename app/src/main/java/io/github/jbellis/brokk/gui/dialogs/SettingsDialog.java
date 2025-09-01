@@ -105,8 +105,6 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         if (projectTabIndex != -1) {
             tabbedPane.setEnabledAt(projectTabIndex, true);
         }
-        // Also, the "Default Models" sub-tab in Global settings needs to be updated
-        globalSettingsPanel.updateModelsPanelEnablement();
     }
 
     private boolean applySettings() {
@@ -151,8 +149,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     // Called by SettingsProjectPanel's DataRetentionPanel when policy is applied
     // to refresh the Models tab in the Global panel.
     public void refreshGlobalModelsPanelPostPolicyChange() {
-        globalSettingsPanel.loadSettings(); // This will re-evaluate model availability.
-        globalSettingsPanel.updateModelsPanelEnablement(); // Ensure combos are correctly enabled.
+        globalSettingsPanel.loadSettings();
     }
 
     @Override

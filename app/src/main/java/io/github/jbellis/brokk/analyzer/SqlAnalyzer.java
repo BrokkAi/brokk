@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class SqlAnalyzer implements IAnalyzer {
+public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
     // private final IProject project; // Unused field
@@ -146,11 +146,6 @@ public class SqlAnalyzer implements IAnalyzer {
     @Override
     public boolean isEmpty() {
         return allDeclarationsList.isEmpty();
-    }
-
-    @Override
-    public boolean isCpg() {
-        return false; // SQL Analyzer does not produce CPGs
     }
 
     @Override

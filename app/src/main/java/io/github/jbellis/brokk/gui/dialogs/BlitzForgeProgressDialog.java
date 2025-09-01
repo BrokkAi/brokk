@@ -301,7 +301,7 @@ public class BlitzForgeProgressDialog extends JDialog {
         // set up executorService
         cm = chrome.getContextManager();
         var service = cm.getService();
-        model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
+        model = requireNonNull(service.getModel(selectedFavorite.config()));
 
         executorService = AdaptiveExecutor.create(service, model, filesToProcess.size());
 

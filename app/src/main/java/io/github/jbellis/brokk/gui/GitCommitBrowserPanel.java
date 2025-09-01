@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
@@ -175,17 +176,17 @@ public class GitCommitBrowserPanel extends JPanel {
 
         // Initialize buttons as they are class members and might be accessed by configureButton
         pullButton = new JButton();
-        pullButton.setIcon(SwingUtil.uiIcon("Brokk.download"));
+        pullButton.setIcon(Icons.DOWNLOAD);
         pullButton.setToolTipText("Pull changes from remote repository");
         pullButton.setEnabled(false);
 
         pushButton = new JButton();
-        pushButton.setIcon(SwingUtil.uiIcon("Brokk.publish"));
+        pushButton.setIcon(Icons.PUBLISH);
         pushButton.setToolTipText("Push commits to remote repository");
         pushButton.setEnabled(false);
 
         createPrButton = new JButton();
-        createPrButton.setIcon(SwingUtil.uiIcon("Brokk.add_diamond"));
+        createPrButton.setIcon(Icons.ADD_DIAMOND);
         createPrButton.setToolTipText("Create a pull request for the current branch");
         createPrButton.setEnabled(false);
         createPrButton.addActionListener(e -> {
@@ -208,7 +209,7 @@ public class GitCommitBrowserPanel extends JPanel {
         });
 
         viewDiffButton = new JButton();
-        viewDiffButton.setIcon(SwingUtil.uiIcon("Brokk.difference"));
+        viewDiffButton.setIcon(Icons.DIFFERENCE);
         viewDiffButton.setToolTipText("View changes in the selected commit");
         viewDiffButton.setEnabled(false); // Initially disabled, enabled by selection listener
         viewDiffButton.addActionListener(e -> {

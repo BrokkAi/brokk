@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.GitDistance;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -18,6 +17,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -33,7 +34,6 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,7 +46,8 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer implements IAnalyzer {
+public abstract class TreeSitterAnalyzer
+        implements IAnalyzer, SkeletonProvider, SourceCodeProvider, IncrementalUpdateProvider {
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
@@ -210,6 +211,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         var validExtensions = this.language.getExtensions();
         log.trace("Filtering project files for extensions: {}", validExtensions);
 
+        // Track processing statistics for better diagnostics
+        var totalFilesAttempted = new AtomicInteger(0);
+        var successfullyProcessed = new AtomicInteger(0);
+        var failedFiles = new AtomicInteger(0);
+
         project.getAllFiles().stream()
                 .filter(pf -> {
                     // Normalize the file path once
@@ -231,6 +237,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 })
                 .parallel()
                 .forEach(pf -> {
+                    totalFilesAttempted.incrementAndGet();
                     log.trace("Processing file: {}", pf);
                     // TSParser is not threadsafe, so we create a parser per thread
                     var localParser = new TSParser();
@@ -252,45 +259,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                             analysisResult
                                     .children()
                                     .forEach((parentCU, newChildCUs) -> childrenByParent.compute(
-                                            parentCU, (CodeUnit p, @Nullable List<CodeUnit> existingChildCUs) -> {
-                                                if (existingChildCUs == null) {
+                                            parentCU, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
+                                                if (existing == null) {
                                                     return newChildCUs; // Already unmodifiable
                                                 }
-                                                List<CodeUnit> combined = new ArrayList<>(existingChildCUs);
-                                                for (CodeUnit newKid : newChildCUs) {
-                                                    if (!combined.contains(newKid)) {
-                                                        combined.add(newKid);
-                                                    }
+                                                // Use Set for efficient merging and deduplication
+                                                var combined = new LinkedHashSet<>(existing);
+                                                if (!combined.addAll(newChildCUs)) {
+                                                    return existing; // No change, return original list
                                                 }
-                                                if (combined.size() == existingChildCUs.size()) {
-                                                    boolean changed = false;
-                                                    for (int i = 0; i < combined.size(); ++i) {
-                                                        if (!combined.get(i).equals(existingChildCUs.get(i))) {
-                                                            changed = true;
-                                                            break;
-                                                        }
-                                                    }
-                                                    if (!changed) return existingChildCUs;
-                                                }
-                                                return Collections.unmodifiableList(combined);
+                                                return Collections.unmodifiableList(new ArrayList<>(combined));
                                             }));
 
                             analysisResult
                                     .signatures()
-                                    .forEach((cu, newSignaturesList) -> signatures.compute(
-                                            cu, (CodeUnit key, @Nullable List<String> existingSignaturesList) -> {
-                                                if (existingSignaturesList == null) {
+                                    .forEach((cu, newSignaturesList) ->
+                                            signatures.compute(cu, (CodeUnit key, @Nullable List<String> existing) -> {
+                                                if (existing == null) {
                                                     return newSignaturesList; // Already unmodifiable from result
                                                 }
-                                                List<String> combined = new ArrayList<>(existingSignaturesList);
-                                                // Deduplicate signatures to avoid duplicates from multiple analysis
-                                                // runs
-                                                for (String newSignature : newSignaturesList) {
-                                                    if (!combined.contains(newSignature)) {
-                                                        combined.add(newSignature);
-                                                    }
+                                                // Use LinkedHashSet to preserve order and deduplicate
+                                                var combined = new LinkedHashSet<>(existing);
+                                                if (!combined.addAll(newSignaturesList)) {
+                                                    return existing; // No change, return original list
                                                 }
-                                                return Collections.unmodifiableList(combined);
+                                                return Collections.unmodifiableList(new ArrayList<>(combined));
                                             }));
 
                             analysisResult
@@ -315,15 +308,38 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         } else {
                             log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
                         }
-                    } catch (IOException e) { // Catch specific IOExceptions from file operations
+                        successfullyProcessed.incrementAndGet();
+                    } catch (OutOfMemoryError e) {
+                        // Critical JVM issues that should terminate processing
+                        throw e;
+                    } catch (IOException e) {
+                        failedFiles.incrementAndGet();
                         log.warn("IO error analyzing {}: {}", pf, e.getMessage());
-                    } catch (RuntimeException e) { // Catch other runtime exceptions to log context and rethrow
-                        log.error("Unexpected runtime error analyzing {}: {}", pf, e.getMessage(), e);
-                        throw e; // Rethrow to make critical errors visible
-                    } catch (Exception e) { // Catch all other exceptions (less likely)
-                        log.warn("Generic error analyzing {}: {}", pf, e.getMessage(), e);
+                    } catch (Exception e) {
+                        // Handle all other exceptions (including RuntimeException) by logging and continuing
+                        failedFiles.incrementAndGet();
+                        if (e instanceof RuntimeException) {
+                            log.error("Runtime error analyzing {}: {}", pf, e.getMessage(), e);
+                        } else {
+                            log.warn("Error analyzing {}: {}", pf, e.getMessage(), e);
+                        }
                     }
                 });
+
+        // Log summary of file processing results
+        int totalAttempted = totalFilesAttempted.get();
+        int successful = successfullyProcessed.get();
+        int failed = failedFiles.get();
+
+        if (failed > 0) {
+            log.warn(
+                    "File processing summary: {} attempted, {} successful, {} failed",
+                    totalAttempted,
+                    successful,
+                    failed);
+        } else {
+            log.info("File processing summary: {} files processed successfully", successful);
+        }
 
         log.debug(
                 "TreeSitter analysis complete - topLevelDeclarations: {}, childrenByParent: {}, signatures: {}",
@@ -367,13 +383,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public boolean isCpg() {
-        return false;
-    }
-
-    @Override
     public Optional<String> getSkeletonHeader(String fqName) {
-        return withReadLock(() -> getSkeletonImpl(fqName, true));
+        return getSkeletonImpl(fqName, true);
     }
 
     @Override
@@ -553,7 +564,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public String getClassSource(String fqName) {
+    public Optional<String> getClassSource(String fqName) {
         var cu = getDefinition(fqName)
                 .filter(CodeUnit::isClass)
                 .orElseThrow(() -> new SymbolNotFoundException("Class not found: " + fqName));
@@ -569,9 +580,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         try {
             src = cu.source().read();
         } catch (IOException e) {
-            return "";
+            return Optional.empty();
         }
-        return ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+        return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte()));
     }
 
     @Override
@@ -622,16 +633,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     }
                     return Optional.of(String.join("\n\n", individualMethodSources));
                 });
-    }
-
-    @Override
-    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
-        try {
-            return GitDistance.getPagerank(this, project.getRoot(), seedClassWeights, k, reversed);
-        } catch (GitAPIException e) {
-            log.error("Git-related exception raised while computing page rank, returning empty result.", e);
-            return Collections.emptyList();
-        }
     }
 
     /* ---------- abstract hooks ---------- */
@@ -765,6 +766,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
 
         String src = new String(fileBytes, StandardCharsets.UTF_8);
+        final byte[] finalFileBytes = fileBytes; // For use in lambdas
 
         // record (or refresh) the file content hash
         fileHashes.put(file, sha1Hex(fileBytes));
@@ -817,7 +819,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                 "  Decorator: '{}', Node: {} '{}'",
                                 captureName,
                                 node.getType(),
-                                textSlice(node, src)
+                                textSlice(node, fileBytes)
                                         .lines()
                                         .findFirst()
                                         .orElse("")
@@ -829,7 +831,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                 "  Capture: '{}', Node: {} '{}'",
                                 captureName,
                                 node.getType(),
-                                textSlice(node, src)
+                                textSlice(node, fileBytes)
                                         .lines()
                                         .findFirst()
                                         .orElse("")
@@ -840,7 +842,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
             modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
             List<String> sortedModifierStrings = modifierNodesForMatch.stream()
-                    .map(modNode -> textSlice(modNode, src).strip())
+                    .map(modNode -> textSlice(modNode, finalFileBytes).strip())
                     .toList();
             if (!sortedModifierStrings.isEmpty()) {
                 log.trace("  Modifiers for this match: {}", sortedModifierStrings);
@@ -850,7 +852,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // Handle module-level import statements first if present in this match
             TSNode importNode = capturedNodesForMatch.get("module.import_statement");
             if (importNode != null && !importNode.isNull()) {
-                String importText = textSlice(importNode, src).strip();
+                String importText = textSlice(importNode, fileBytes).strip();
                 if (!importText.isEmpty()) {
                     localImportStatements.add(importText);
                 }
@@ -870,14 +872,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     TSNode nameNode = capturedNodesForMatch.get(expectedNameCapture);
 
                     if (nameNode != null && !nameNode.isNull()) {
-                        simpleName = textSlice(nameNode, src);
+                        simpleName = textSlice(nameNode, fileBytes);
                         if (simpleName.isBlank()) {
                             log.debug(
                                     "Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
                                     expectedNameCapture,
                                     captureName,
                                     file,
-                                    textSlice(nameNode, src),
+                                    textSlice(nameNode, fileBytes),
                                     nameNode.getType());
                             simpleName = extractSimpleName(definitionNode, src).orElse(null);
                         }
@@ -998,7 +1000,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 receiverNode = localCaptures.get("method.receiver.type");
 
                 if (receiverNode != null && !receiverNode.isNull()) {
-                    String receiverTypeText = textSlice(receiverNode, src).trim();
+                    String receiverTypeText = textSlice(receiverNode, fileBytes).trim();
                     if (receiverTypeText.startsWith("*")) {
                         receiverTypeText = receiverTypeText.substring(1).trim();
                     }
@@ -1009,7 +1011,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     } else {
                         log.warn(
                                 "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
-                                textSlice(receiverNode, src));
+                                textSlice(receiverNode, fileBytes));
                     }
                 } else {
                     log.warn(
@@ -1026,7 +1028,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 continue;
             }
 
-            String signature = buildSignatureString(node, simpleName, src, primaryCaptureName, modifierKeywords, file);
+            String signature =
+                    buildSignatureString(node, simpleName, fileBytes, primaryCaptureName, modifierKeywords, file);
             log.trace(
                     "Built signature for '{}': [{}]",
                     simpleName,
@@ -1071,16 +1074,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // somehow map to the same `fqName` in `localCuByFqName` before `cu` itself is unified.
             // If overloads result in CodeUnits that are `equals()`, this block is less relevant for them.
             CodeUnit existingCUforKeyLookup = localCuByFqName.get(cu.fqName());
-            if (existingCUforKeyLookup != null && !existingCUforKeyLookup.equals(cu)) {
-                // This case implies two distinct CodeUnit objects map to the same FQName.
-                // The export preference logic might apply here.
-                // However, if `cu` is for an overload of `existingCUforKeyLookup` and they are `equals()`,
-                // then this block should ideally not be the primary path for handling overload signatures.
-                // The current approach of `localSignatures.computeIfAbsent` will handle accumulation for equal CUs.
-                // This existing block seems more for replacing a less specific CU with a more specific one (e.g.
-                // exported).
-                // For now, let's assume this logic remains for such non-overload "duplicate FQName" cases.
-                // If it causes issues with overloads, it needs refinement.
+            if (existingCUforKeyLookup != null
+                    && !existingCUforKeyLookup.equals(cu)
+                    && (language == Language.TYPESCRIPT || language == Language.JAVASCRIPT)) {
                 List<String> existingSignatures =
                         localSignatures.get(existingCUforKeyLookup); // Existing signatures for the *other* CU instance
                 boolean newIsExported = signature.trim().startsWith("export");
@@ -1099,6 +1095,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                             cu.fqName());
                     continue; // Skip adding this new signature if an exported one exists for a CU with the same FQName
                 } else {
+                    // Both exported or both non-exported - treat as duplicate
                     log.warn(
                             "Duplicate CU FQName {} (distinct instances). New signature will be added. Review if this is expected.",
                             cu.fqName());
@@ -1216,13 +1213,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private String buildSignatureString(
             TSNode definitionNode,
             String simpleName,
-            String src,
+            byte[] srcBytes,
             String primaryCaptureName,
             List<String> capturedModifierKeywords,
             ProjectFile file) {
         List<String> signatureLines = new ArrayList<>();
         var profile = getLanguageSyntaxProfile();
         SkeletonType skeletonType = getSkeletonTypeForCapture(primaryCaptureName); // Get skeletonType early
+
+        // Convert to String for compatibility with existing method signatures
+        String src = new String(srcBytes, StandardCharsets.UTF_8);
 
         TSNode nodeForContent = definitionNode;
         TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
@@ -1284,12 +1284,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         "  Child[{}]: type='{}', text='{}'",
                         i,
                         child.getType(),
-                        textSlice(child, src).lines().findFirst().orElse("").trim());
+                        textSlice(child, srcBytes)
+                                .lines()
+                                .findFirst()
+                                .orElse("")
+                                .trim());
                 if ("variable_declarator".equals(child.getType())) {
                     TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
                     if (nameNode != null
                             && !nameNode.isNull()
-                            && simpleName.equals(textSlice(nameNode, src).strip())) {
+                            && simpleName.equals(textSlice(nameNode, srcBytes).strip())) {
                         nodeForContent = child; // Use the specific variable_declarator
                         found = true;
                         log.trace("Found specific variable_declarator for '{}' in lexical_declaration", simpleName);
@@ -1314,7 +1318,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
                 TSNode child = definitionNode.getNamedChild(i);
                 if (profile.decoratorNodeTypes().contains(child.getType())) {
-                    signatureLines.add(textSlice(child, src).stripLeading());
+                    signatureLines.add(textSlice(child, srcBytes).stripLeading());
                 } else if (profile.functionLikeNodeTypes().contains(child.getType())
                         || profile.classLikeNodeTypes().contains(child.getType())) {
                     nodeForContent = child;
@@ -1327,7 +1331,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             List<TSNode> decorators =
                     getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {
-                signatureLines.add(textSlice(decoratorNode, src).stripLeading());
+                signatureLines.add(textSlice(decoratorNode, srcBytes).stripLeading());
             }
         }
 
@@ -1344,20 +1348,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 if (bodyNode != null && !bodyNode.isNull()) {
                     // For export statements, use the original node to include the export keyword
                     if (nodeForSignature != nodeForContent) {
-                        classSignatureText = textSlice(nodeForSignature.getStartByte(), bodyNode.getStartByte(), src)
+                        classSignatureText = textSlice(
+                                        nodeForSignature.getStartByte(), bodyNode.getStartByte(), srcBytes)
                                 .stripTrailing();
                     } else {
-                        classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), src)
+                        classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), srcBytes)
                                 .stripTrailing();
                     }
                 } else {
                     // For export statements, use the original node to include the export keyword
                     if (nodeForSignature != nodeForContent) {
                         classSignatureText = textSlice(
-                                        nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), src)
+                                        nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), srcBytes)
                                 .stripTrailing();
                     } else {
-                        classSignatureText = textSlice(nodeForContent.getStartByte(), nodeForContent.getEndByte(), src)
+                        classSignatureText = textSlice(
+                                        nodeForContent.getStartByte(), nodeForContent.getEndByte(), srcBytes)
                                 .stripTrailing();
                     }
                     // Attempt to remove trailing tokens like '{' or ';' if no body node found, to get a cleaner
@@ -1417,7 +1423,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         simpleName,
                         nodeForContent.getType(),
                         nodeForSignature.getType());
-                String fieldSignatureText = textSlice(nodeForContent, src).strip();
+                String fieldSignatureText = textSlice(nodeForContent, srcBytes).strip();
 
                 // Strip export prefix if present to avoid duplication
                 if (!exportPrefix.isEmpty() && !exportPrefix.isBlank()) {
@@ -1474,7 +1480,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         nodeForContent.getChildByFieldName("value"); // Standard field name for type alias value
                 String valueText = "";
                 if (valueNode != null && !valueNode.isNull()) {
-                    valueText = textSlice(valueNode, src).strip();
+                    valueText = textSlice(valueNode, srcBytes).strip();
                 } else {
                     log.warn(
                             "Type alias '{}' (node type {}) in {} at line {} is missing its 'value' child. Resulting skeleton may be incomplete. Node text: {}",
@@ -1482,7 +1488,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                             nodeForContent.getType(),
                             project.getRoot().relativize(file.absPath()),
                             nodeForContent.getStartPoint().getRow() + 1,
-                            textSlice(nodeForContent, src));
+                            textSlice(nodeForContent, srcBytes));
                     valueText = "any"; // Fallback or indicate error
                 }
 
@@ -1497,7 +1503,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
             case MODULE_STATEMENT: {
                 // For namespace declarations, extract just the namespace declaration line without the body
-                String fullText = textSlice(definitionNode, src);
+                String fullText = textSlice(definitionNode, srcBytes);
                 List<String> lines = Splitter.on('\n').splitToList(fullText);
                 String namespaceLine = lines.getFirst().strip(); // Get first line only
 
@@ -1517,8 +1523,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         "Unsupported capture name '{}' for signature building (type {}). Using raw text slice (with prefix if any from modifiers): '{}'",
                         primaryCaptureName,
                         skeletonType,
-                        exportPrefix + textSlice(definitionNode, src).stripLeading());
-                signatureLines.add(exportPrefix + textSlice(definitionNode, src).stripLeading()); // Add prefix here too
+                        exportPrefix + textSlice(definitionNode, srcBytes).stripLeading());
+                signatureLines.add(
+                        exportPrefix + textSlice(definitionNode, srcBytes).stripLeading()); // Add prefix here too
                 break;
         }
 
@@ -1840,10 +1847,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return textSliceFromBytes(startByte, endByte, bytes);
     }
 
+    /**
+     * OPTIMIZED: Extracts a substring from the source code based on node boundaries, using pre-computed byte array.
+     * This avoids the expensive src.getBytes() call that was happening millions of times.
+     */
+    protected String textSlice(TSNode node, byte[] srcBytes) {
+        if (node.isNull()) return "";
+        return textSliceFromBytes(node.getStartByte(), node.getEndByte(), srcBytes);
+    }
+
+    /**
+     * OPTIMIZED: Extracts a substring from the source code based on byte offsets, using pre-computed byte array. This
+     * avoids the expensive src.getBytes() call that was happening millions of times.
+     */
+    protected String textSlice(int startByte, int endByte, byte[] srcBytes) {
+        return textSliceFromBytes(startByte, endByte, srcBytes);
+    }
+
     /** Helper method that correctly extracts UTF-8 byte slice into a String */
     private String textSliceFromBytes(int startByte, int endByte, byte[] bytes) {
-        if (startByte < 0 || endByte > bytes.length || startByte >= endByte) {
-            log.warn("Invalid byte range [{}, {}] for byte array of length {}", startByte, endByte, bytes.length);
+        return textSliceFromBytesWithFile(startByte, endByte, bytes, null);
+    }
+
+    /** Helper method that correctly extracts UTF-8 byte slice into a String with optional file context */
+    private String textSliceFromBytesWithFile(int startByte, int endByte, byte[] bytes, @Nullable ProjectFile file) {
+        if (startByte < 0 || endByte > bytes.length || startByte > endByte) {
+            if (file != null) {
+                log.warn(
+                        "Invalid byte range [{}, {}] for byte array of length {} in file {}",
+                        startByte,
+                        endByte,
+                        bytes.length,
+                        file.absPath());
+            } else {
+                log.warn("Invalid byte range [{}, {}] for byte array of length {}", startByte, endByte, bytes.length);
+            }
+            return "";
+        }
+
+        // Handle zero-width nodes (same start and end position) - valid case
+        if (startByte == endByte) {
             return "";
         }
 

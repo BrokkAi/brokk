@@ -45,4 +45,8 @@ public class A {
     }
 
     public static class AInnerStatic {}
+
+    public void usesInnerClass() {
+        System.out.println(new AInner());
+    }
 }

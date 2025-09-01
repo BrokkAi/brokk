@@ -19,12 +19,13 @@ import javax.annotation.Nullable;
  * @see io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer
  * @see io.github.jbellis.brokk.analyzer.JdtAnalyzer
  */
-public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCapabilities, CanCommunicate {
+public class JavaAnalyzer extends JavaTreeSitterAnalyzer
+        implements HasDelayedCapabilities, CanCommunicate, CallGraphProvider, UsagesProvider, LintingProvider {
 
-    private @Nullable JdtAnalyzer jdtAnalyzer;
+    private volatile @Nullable JdtAnalyzer jdtAnalyzer;
     private final CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture;
 
-    private JavaAnalyzer(IProject project, CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture) {
+    protected JavaAnalyzer(IProject project, CompletableFuture<JdtAnalyzer> jdtAnalyzerFuture) {
         super(project);
         this.jdtAnalyzerFuture = jdtAnalyzerFuture.thenApply(analyzer -> {
             this.jdtAnalyzer = analyzer;
@@ -100,6 +101,18 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer implements HasDelayedCa
             return jdtAnalyzer.update();
         } else {
             return super.update();
+        }
+    }
+
+    @Override
+    public LintResult lintFiles(List<ProjectFile> files) {
+        if (jdtAnalyzer != null) {
+            return jdtAnalyzer.lintFiles(files);
+        } else {
+            return super.as(LintingProvider.class)
+                    .filter(provider -> provider != this)
+                    .map(provider -> provider.lintFiles(files))
+                    .orElse(new LintResult(Collections.emptyList()));
         }
     }
 

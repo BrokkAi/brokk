@@ -1,15 +1,18 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.google.common.io.Files;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-public class MultiAnalyzer implements IAnalyzer {
-    private static final Logger logger = LogManager.getLogger(MultiAnalyzer.class);
-
+public class MultiAnalyzer
+        implements IAnalyzer,
+                CallGraphProvider,
+                UsagesProvider,
+                SkeletonProvider,
+                SourceCodeProvider,
+                IncrementalUpdateProvider {
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -30,9 +33,8 @@ public class MultiAnalyzer implements IAnalyzer {
         return Optional.empty();
     }
 
-    private <K, V> Map<K, List<V>> mergeMapsFromCpgAnalyzers(Function<IAnalyzer, Map<K, List<V>>> extractor) {
+    private <K, V> Map<K, List<V>> mergeMapsFromAnalyzers(Function<IAnalyzer, Map<K, List<V>>> extractor) {
         return delegates.values().stream()
-                .filter(IAnalyzer::isCpg)
                 .flatMap(analyzer -> extractor.apply(analyzer).entrySet().stream())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (list1, list2) -> Stream.concat(
                                 list1.stream(), list2.stream())
@@ -46,85 +48,55 @@ public class MultiAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public boolean isCpg() {
-        return delegates.values().stream().anyMatch(IAnalyzer::isCpg);
-    }
-
-    @Override
     public List<CodeUnit> getUses(String fqName) {
         return delegates.values().stream()
-                .filter(IAnalyzer::isCpg)
-                .flatMap(analyzer1 -> ((Function<IAnalyzer, List<CodeUnit>>) analyzer -> analyzer.getUses(fqName))
-                        .apply(analyzer1).stream())
+                .flatMap(
+                        analyzer1 -> analyzer1
+                                .as(UsagesProvider.class)
+                                .map(up -> up.getUses(fqName))
+                                .orElse(Collections.emptyList())
+                                .stream())
                 .distinct()
                 .collect(Collectors.toList());
     }
 
     @Override
-    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
-        if (seedClassWeights.isEmpty()) {
-            logger.warn("MultiAnalyzer pagerank called with empty seed classes -- sub analyzer will be ~random");
-        }
-
-        // Assume that the seeds belong to a single CPG, so we look for a matching sub-Analyzer
-        for (var analyzer : delegates.values()) {
-            if (!analyzer.isCpg()) {
-                continue;
-            }
-
-            boolean meetsSeedCriteria = false;
-            if (seedClassWeights.isEmpty()) {
-                meetsSeedCriteria = true; // No seeds to check, so criteria met.
-            } else {
-                // Check if at least one seed FQ name has a definition in this analyzer.
-                for (String fqName : seedClassWeights.keySet()) {
-                    Optional<CodeUnit> definition = analyzer.getDefinition(fqName);
-                    if (definition.isPresent()) {
-                        meetsSeedCriteria = true;
-                        break;
-                    }
-                }
-            }
-
-            if (meetsSeedCriteria) {
-                return analyzer.getRelevantCodeUnits(seedClassWeights, k, reversed);
-            }
-        }
-        return List.of(); // No suitable analyzer found
-    }
-
-    @Override
     public Map<String, List<CallSite>> getCallgraphTo(String methodName, int depth) {
-        return mergeMapsFromCpgAnalyzers(analyzer -> analyzer.getCallgraphTo(methodName, depth));
+        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphTo(methodName, depth))
+                .orElse(Collections.emptyMap()));
     }
 
     @Override
     public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
-        return mergeMapsFromCpgAnalyzers(analyzer -> analyzer.getCallgraphFrom(methodName, depth));
+        return mergeMapsFromAnalyzers(analyzer -> analyzer.as(CallGraphProvider.class)
+                .map(cgp -> cgp.getCallgraphFrom(methodName, depth))
+                .orElse(Collections.emptyMap()));
     }
 
     @Override
     public Optional<String> getSkeleton(String fqName) {
-        return findFirst(analyzer -> analyzer.getSkeleton(fqName));
+        return findFirst(analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeleton(fqName)));
     }
 
     @Override
     public Optional<String> getSkeletonHeader(String className) {
-        return findFirst(analyzer -> analyzer.getSkeletonHeader(className));
+        return findFirst(
+                analyzer -> analyzer.as(SkeletonProvider.class).flatMap(skp -> skp.getSkeletonHeader(className)));
     }
 
     @Override
     public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> analyzer.getMethodSource(fqName));
+        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName)));
     }
 
     @Override
-    public String getClassSource(String fqcn) {
+    public Optional<String> getClassSource(String fqcn) {
         for (var delegate : delegates.values()) {
             try {
-                var source = delegate.getClassSource(fqcn);
-                if (source != null && !source.isEmpty()) {
-                    return source;
+                final var maybeSource = delegate.as(SourceCodeProvider.class).flatMap(scp -> scp.getClassSource(fqcn));
+                if (maybeSource.isPresent()) {
+                    return maybeSource;
                 }
             } catch (SymbolNotFoundException e) {
                 // pass
@@ -135,13 +107,15 @@ public class MultiAnalyzer implements IAnalyzer {
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        var lang = Language.fromExtension(
-                com.google.common.io.Files.getFileExtension(file.absPath().toString()));
+        var lang = Language.fromExtension(Files.getFileExtension(file.absPath().toString()));
         var delegate = delegates.get(lang);
-        if (delegate != null) {
-            return delegate.getSkeletons(file);
+        if (delegate == null) {
+            return Collections.emptyMap();
+        } else {
+            return delegate.as(SkeletonProvider.class)
+                    .map(sk -> sk.getSkeletons(file))
+                    .orElse(Collections.emptyMap());
         }
-        return Map.of();
     }
 
     @Override
@@ -206,9 +180,17 @@ public class MultiAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public IAnalyzer update() {
+        for (var an : delegates.values()) {
+            an.as(IncrementalUpdateProvider.class).ifPresent(IncrementalUpdateProvider::update);
+        }
+        return this;
+    }
+
+    @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         for (var an : delegates.values()) {
-            an.update(changedFiles);
+            an.as(IncrementalUpdateProvider.class).ifPresent(incAnalyzer -> incAnalyzer.update(changedFiles));
         }
         return this;
     }
@@ -217,5 +199,10 @@ public class MultiAnalyzer implements IAnalyzer {
     public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
         // TODO -- unused right now
         throw new UnsupportedOperationException();
+    }
+
+    /** @return a copy of the delegates of this analyzer. */
+    public Map<Language, IAnalyzer> getDelegates() {
+        return Collections.unmodifiableMap(delegates);
     }
 }

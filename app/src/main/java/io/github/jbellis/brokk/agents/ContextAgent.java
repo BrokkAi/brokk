@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -25,15 +26,7 @@ import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -107,14 +100,14 @@ public class ContextAgent {
 
     /** Result record for the LLM tool call, holding recommended files, class names, and the LLM's reasoning. */
     private record LlmRecommendation(
-            List<ProjectFile> recommendedFiles,
-            List<CodeUnit> recommendedClasses,
+            Set<ProjectFile> recommendedFiles,
+            Set<CodeUnit> recommendedClasses,
             String reasoning,
             @Nullable Llm.RichTokenUsage tokenUsage) {
-        static final LlmRecommendation EMPTY = new LlmRecommendation(List.of(), List.of(), "", null);
+        static final LlmRecommendation EMPTY = new LlmRecommendation(Set.of(), Set.of(), "", null);
 
         public LlmRecommendation(List<ProjectFile> files, List<CodeUnit> classes, String reasoning) {
-            this(files, classes, reasoning, null);
+            this(new HashSet<>(files), new HashSet<>(classes), reasoning, null);
         }
     }
 
@@ -344,7 +337,9 @@ public class ContextAgent {
                             .map(existingFiles::contains)
                             .orElse(false);
                     if (cu.isClass() && !inWorkspace) {
-                        analyzer.getSkeleton(fqn).ifPresent(skel -> tempSummaries.put(cu, skel));
+                        analyzer.as(SkeletonProvider.class)
+                                .flatMap(skp -> skp.getSkeleton(fqn))
+                                .ifPresent(skel -> tempSummaries.put(cu, skel));
                     }
                 });
             }
@@ -354,7 +349,9 @@ public class ContextAgent {
             requireNonNull(analyzer);
             rawSummaries = filesToConsider.stream()
                     .parallel()
-                    .flatMap(f -> analyzer.getSkeletons(f).entrySet().stream())
+                    .flatMap(f -> analyzer.as(SkeletonProvider.class)
+                            .map(skp -> skp.getSkeletons(f).entrySet().stream())
+                            .orElse(Stream.empty()))
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
         }
 
@@ -440,8 +437,9 @@ public class ContextAgent {
             stream = stream.parallel();
         }
         return stream.map(cu -> {
-                    var skeletonOpt = analyzer.getSkeleton(cu.fqName());
-                    String skeleton = skeletonOpt.orElse("");
+                    final String skeleton = analyzer.as(SkeletonProvider.class)
+                            .flatMap(skp -> skp.getSkeleton(cu.fqName()))
+                            .orElse("");
                     return Map.entry(cu, skeleton);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
@@ -488,40 +486,40 @@ public class ContextAgent {
             List<String> filenames, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
         var systemPrompt =
                 """
-                You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
-                A second pass will be made using your recommended files, so the top priority is to make sure you
-                identify ALL potentially relevant files without leaving any out, even at the cost of some false positives.
-                """;
+                        You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
+                        A second pass will be made using your recommended files, so the top priority is to make sure you
+                        identify ALL potentially relevant files without leaving any out, even at the cost of some false positives.
+                        """;
         var filenamePrompt =
                 """
-                <instructions>
-                Given the above goal and Workspace contents (if any), evaluate the following list of filenames
-                while thinking carefully about how they may be relevant to the goal.
+                        <instructions>
+                        Given the above goal and Workspace contents (if any), evaluate the following list of filenames
+                        while thinking carefully about how they may be relevant to the goal.
 
-                Reason step-by-step:
-                 - Identify all files corresponding to class names explicitly mentioned in the <goal>.
-                 - Identify all files corresponding to class types used in the <workspace> code.
-                 - Think about how you would solve the <goal>, and identify additional files potentially relevant to your plan.
-                   For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
-                   then Foo.java and Bar.java are relevant files.
-                 - Compare this combined list against the filenames available.
+                        Reason step-by-step:
+                         - Identify all files corresponding to class names explicitly mentioned in the <goal>.
+                         - Identify all files corresponding to class types used in the <workspace> code.
+                         - Think about how you would solve the <goal>, and identify additional files potentially relevant to your plan.
+                           For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
+                           then Foo.java and Bar.java are relevant files.
+                         - Compare this combined list against the filenames available.
 
-                Then, list the full path of each relevant filename, one per line.
-                </instructions>
-                <filenames>
-                %s
-                </filenames>
-                """
+                        Then, list the full path of each relevant filename, one per line.
+                        </instructions>
+                        <filenames>
+                        %s
+                        </filenames>
+                        """
                         .formatted(String.join("\n", filenames));
         var finalSystemMessage = new SystemMessage(systemPrompt);
         var userPrompt =
                 """
-                <goal>
-                %s
-                </goal>
+                        <goal>
+                        %s
+                        </goal>
 
-                %s
-                """
+                        %s
+                        """
                         .formatted(goal, filenamePrompt)
                         .stripIndent();
         List<ChatMessage> messages = Stream.concat(
@@ -557,7 +555,7 @@ public class ContextAgent {
                 var mergedReasoning = (rec1.reasoning() + "\n" + rec2.reasoning()).strip();
                 var mergedUsage = addTokenUsage(rec1.tokenUsage(), rec2.tokenUsage());
 
-                return new LlmRecommendation(mergedFiles, List.of(), mergedReasoning, mergedUsage);
+                return new LlmRecommendation(new HashSet<>(mergedFiles), Set.of(), mergedReasoning, mergedUsage);
             }
 
             logger.warn(
@@ -571,7 +569,7 @@ public class ContextAgent {
                 .parallel()
                 .filter(f -> result.text().contains(f))
                 .toList();
-        return new LlmRecommendation(toProjectFiles(selected), List.of(), result.text(), tokenUsage);
+        return new LlmRecommendation(toProjectFiles(selected), Set.of(), result.text(), tokenUsage);
     }
 
     /** Execute filename pruning in parallel when the input exceeds the per-request limit. */
@@ -621,7 +619,7 @@ public class ContextAgent {
             futures = executor.invokeAll(tasks);
         }
 
-        var combinedFiles = new ArrayList<ProjectFile>();
+        var combinedFiles = new HashSet<ProjectFile>();
         var combinedReasoning = new StringBuilder();
         @Nullable Llm.RichTokenUsage combinedUsage = null;
 
@@ -639,7 +637,7 @@ public class ContextAgent {
             }
         }
         return new LlmRecommendation(
-                combinedFiles, List.of(), combinedReasoning.toString().strip(), combinedUsage);
+                combinedFiles, Set.of(), combinedReasoning.toString().strip(), combinedUsage);
     }
 
     private LlmRecommendation askLlmDeepRecommendContext(
@@ -669,10 +667,10 @@ public class ContextAgent {
 
         var deepPromptTemplate =
                 """
-                You are an assistant that identifies relevant code context based on a goal and the existing relevant information.
-                You are given a goal, the current workspace contents (if any), and %s (within <%s> tags).
-                Analyze the provided information and determine which items are most relevant to achieving the goal.
-                """
+                        You are an assistant that identifies relevant code context based on a goal and the existing relevant information.
+                        You are given a goal, the current workspace contents (if any), and %s (within <%s> tags).
+                        Analyze the provided information and determine which items are most relevant to achieving the goal.
+                        """
                         .formatted(contextTypeDescription, contextTypeElement)
                         .stripIndent();
 
@@ -706,25 +704,25 @@ public class ContextAgent {
         userMessageText.append("\n<goal>\n%s\n</goal>\n".formatted(goal));
         var userPrompt =
                 """
-                Identify code context relevant to the goal by calling `recommendContext`.
+                        Identify code context relevant to the goal by calling `recommendContext`.
 
-                Before calling `recommendContext`, reason step-by-step:
-                - Identify all class names explicitly mentioned in the <goal>.
-                - Identify all class types used in the <workspace> code.
-                - Think about how you would solve the <goal>, and identify additional classes relevant to your plan.
-                  For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
-                  then Foo and Bar are relevant classes.
-                - Compare this combined list against the classes in <%s>.
+                        Before calling `recommendContext`, reason step-by-step:
+                        - Identify all class names explicitly mentioned in the <goal>.
+                        - Identify all class types used in the <workspace> code.
+                        - Think about how you would solve the <goal>, and identify additional classes relevant to your plan.
+                          For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
+                          then Foo and Bar are relevant classes.
+                        - Compare this combined list against the classes in <%s>.
 
-                Then call the `recommendContext` tool with the appropriate entries:
+                        Then call the `recommendContext` tool with the appropriate entries:
 
-                Populate the `filesToAdd` argument with the full (relative) paths of files that will need to be edited as part of the goal,
-                or whose implementation details are necessary. Put these files in `filesToAdd` (even if you are only shown a summary).
+                        Populate the `filesToAdd` argument with the full (relative) paths of files that will need to be edited as part of the goal,
+                        or whose implementation details are necessary. Put these files in `filesToAdd` (even if you are only shown a summary).
 
-                Populate the `classesToSummarize` argument with the fully-qualified names of classes whose APIs will be used.
+                        Populate the `classesToSummarize` argument with the fully-qualified names of classes whose APIs will be used.
 
-                Either or both of `filesToAdd` and `classesToSummarize` may be empty.
-                """
+                        Either or both of `filesToAdd` and `classesToSummarize` may be empty.
+                        """
                         .formatted(contextTypeElement);
         userMessageText.append(userPrompt);
 
@@ -773,7 +771,7 @@ public class ContextAgent {
                 .map(analyzer::getDefinition)
                 .flatMap(Optional::stream) // Convert java.util.Optional to Stream
                 .filter(CodeUnit::isClass) // Ensure it's actually a class
-                .toList();
+                .collect(Collectors.toSet());
 
         debug(
                 "Tool recommended files: {}",
@@ -784,7 +782,7 @@ public class ContextAgent {
         return new LlmRecommendation(projectFiles, projectClasses, result.text(), tokenUsage);
     }
 
-    private List<ProjectFile> toProjectFiles(List<String> filenames) {
+    private Set<ProjectFile> toProjectFiles(List<String> filenames) {
         return filenames.stream()
                 .map(fname -> {
                     try {
@@ -796,7 +794,7 @@ public class ContextAgent {
                 })
                 .filter(Objects::nonNull)
                 .filter(ProjectFile::exists)
-                .toList();
+                .collect(Collectors.toSet());
     }
 
     private static class ContextTooLargeException extends Exception {}
@@ -875,7 +873,7 @@ public class ContextAgent {
                     ContextInputType.FILE_PATHS, filenameString, null, workspaceRepresentation); // No topK for pruning
 
             // Convert response strings back to ProjectFile objects
-            recommendedFiles = toProjectFiles(responseLines);
+            recommendedFiles = new ArrayList<>(toProjectFiles(responseLines));
             debug("LLM simple suggested {} relevant files after pruning", recommendedFiles.size());
         }
 
@@ -906,11 +904,11 @@ public class ContextAgent {
             throws InterruptedException {
         var systemMessage = new StringBuilder(
                 """
-                                              You are an assistant that identifies relevant %s based on a goal.
-                                              Given a list of %s and a goal, identify which %s are most relevant to achieving the goal.
-                                              Output *only* the %s of the relevant %s, one per line, ordered from most to least relevant.
-                                              Do not include any other text, explanations, or formatting.
-                                              """
+                        You are an assistant that identifies relevant %s based on a goal.
+                        Given a list of %s and a goal, identify which %s are most relevant to achieving the goal.
+                        Output *only* the %s of the relevant %s, one per line, ordered from most to least relevant.
+                        Do not include any other text, explanations, or formatting.
+                        """
                         .formatted(
                                 inputType.itemTypePlural,
                                 inputType.description,
@@ -927,16 +925,16 @@ public class ContextAgent {
         var finalSystemMessage = new SystemMessage(systemMessage.toString());
         var userPrompt =
                 """
-                         <goal>
-                         %s
-                         </goal>
+                        <goal>
+                        %s
+                        </goal>
 
-                         <%s>
-                         %s
-                         </%s>
+                        <%s>
+                        %s
+                        </%s>
 
-                         Which of these %s are most relevant to the goal? Take into consideration what is already in the workspace (provided as prior messages), and list their %s, one per line.
-                         """
+                        Which of these %s are most relevant to the goal? Take into consideration what is already in the workspace (provided as prior messages), and list their %s, one per line.
+                        """
                         .formatted(
                                 goal,
                                 inputType.xmlTag,

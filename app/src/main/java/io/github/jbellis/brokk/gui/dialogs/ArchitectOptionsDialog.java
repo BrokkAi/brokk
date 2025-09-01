@@ -1,14 +1,22 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import static io.github.jbellis.brokk.gui.Constants.H_GAP;
+import static io.github.jbellis.brokk.gui.Constants.V_GAP;
+
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.util.Environment;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.FlowLayout;
+import java.awt.GridLayout;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -16,8 +24,18 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComponent;
+import javax.swing.JDialog;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.KeyStroke;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,6 +46,7 @@ public class ArchitectOptionsDialog {
         var langs = project.getAnalyzerLanguages();
         return !langs.isEmpty() && !(langs.size() == 1 && langs.contains(Language.NONE));
     }
+
     /**
      * Shows a modal dialog synchronously on the Event Dispatch Thread (EDT) to configure Architect tools and returns
      * the chosen options, or null if cancelled. This method blocks the calling thread until the dialog is closed.
@@ -39,84 +58,85 @@ public class ArchitectOptionsDialog {
     @Nullable
     public static ArchitectChoices showDialogAndWait(Chrome chrome) {
         var contextManager = chrome.getContextManager();
-        // Use AtomicReference to capture the result from the EDT lambda
         var resultHolder = new AtomicReference<ArchitectChoices>();
 
-        // Use invokeAndWait to run the dialog logic on the EDT and wait for completion
         SwingUtil.runOnEdt(() -> {
-            // Initial checks must happen *inside* the EDT task now
             var project = chrome.getProject();
             var isCpg = contextManager.getAnalyzerWrapper().isCpg();
             boolean codeIntelConfigured = isCodeIntelConfigured(project);
 
-            // Load from project settings, fallback to static cache if project is null or settings not present
             var currentOptions = project.getArchitectOptions();
             boolean currentRunInWorktree = project.getArchitectRunInWorktree();
 
-            JDialog dialog = new JDialog(chrome.getFrame(), "Architect Tools", true); // Modal dialog
-            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE); // Dispose on close
+            var dialog = new JDialog(chrome.getFrame(), "Architect Options", true);
+            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.setLayout(new BorderLayout(10, 10));
 
-            // --- Main Panel for Checkboxes ---
-            JPanel mainPanel = new JPanel();
+            var mainPanel = new JPanel();
             mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
             mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-            JLabel explanationLabel =
-                    new JLabel("Select the sub-agents and tools that the Architect agent will have access to:");
-            explanationLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
-            mainPanel.add(explanationLabel);
+            // Model selectors
+            var planningSelector = new ModelSelector(chrome);
+            var codeSelector = new ModelSelector(chrome);
 
-            // Helper to create checkbox with description
-            BiFunction<String, String, JCheckBox> createCheckbox = (text, description) -> {
-                var html = "<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>";
+            Service.ModelConfig planningDefault = project.getArchitectModelConfig();
+            planningSelector.selectConfig(planningDefault);
 
-                var cb = new JCheckBox();
-                cb.setAlignmentY(0f);
+            Service.ModelConfig codeDefault = project.getCodeModelConfig();
+            codeSelector.selectConfig(codeDefault);
 
-                var label = new JLabel(html);
-                label.setAlignmentY(0f);
+            // Wrap each selector in a titled panel with insets
+            var planningPanel = new JPanel(new BorderLayout());
+            planningPanel.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder("Planning Model"),
+                    BorderFactory.createEmptyBorder(H_GAP, H_GAP, V_GAP, H_GAP)));
+            planningPanel.add(planningSelector.getComponent(), BorderLayout.CENTER);
 
-                // Keep label tooltip synced with checkbox tooltip
-                cb.addPropertyChangeListener("toolTipText", evt -> label.setToolTipText((String) evt.getNewValue()));
+            var codePanel = new JPanel(new BorderLayout());
+            codePanel.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createTitledBorder("Code Model"),
+                    BorderFactory.createEmptyBorder(V_GAP, H_GAP, V_GAP, H_GAP)));
+            codePanel.add(codeSelector.getComponent(), BorderLayout.CENTER);
 
-                // Clicking the label toggles the checkbox
-                label.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mouseClicked(MouseEvent e) {
-                        cb.doClick();
-                    }
-                });
+            var selectorsRow = new JPanel(new GridLayout(1, 2, 10, 0));
+            selectorsRow.add(planningPanel);
+            selectorsRow.add(codePanel);
+            selectorsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+            selectorsRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+            mainPanel.add(selectorsRow);
 
-                var row = new JPanel();
-                row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
-                row.setAlignmentX(Component.LEFT_ALIGNMENT);
-                row.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
-                row.add(cb);
-                row.add(Box.createHorizontalStrut(5));
-                row.add(label);
+            // Group panels
+            var subAgentsPanel = createTitledGroupPanel("Sub-agents");
+            var workspaceToolsPanel = createTitledGroupPanel("Workspace tools");
+            var externalToolsPanel = createTitledGroupPanel("External tools");
+            var gitToolsPanel = createTitledGroupPanel("Git tools");
 
-                mainPanel.add(row);
-                return cb;
-            };
-
-            // Create checkboxes for each option
-            var contextCb = createCheckbox.apply("Deep Scan", "Begin by calling Deep Scan to update the Workspace");
-            contextCb.setSelected(currentOptions.includeContextAgent());
-
-            var codeCb = createCheckbox.apply("Code Agent", "Allow invoking the Code Agent to modify files");
+            // Sub-agents
+            var codeCb = addCheckboxRow(subAgentsPanel, "Code Agent", "Allow invoking the Code Agent to modify files");
             codeCb.setSelected(currentOptions.includeCodeAgent());
 
-            var validationCb =
-                    createCheckbox.apply("Validation Agent", "Infer test files to include with each Code Agent call");
+            var searchCb = addCheckboxRow(
+                    subAgentsPanel,
+                    "Search Agent",
+                    "Allow invoking the Search Agent to find information beyond the current Workspace");
+            searchCb.setSelected(currentOptions.includeSearchAgent());
+
+            // Workspace tools
+            var contextCb = addCheckboxRow(
+                    workspaceToolsPanel, "Deep Scan", "Begin by calling Deep Scan to update the Workspace");
+            contextCb.setSelected(currentOptions.includeContextAgent());
+
+            var validationCb = addCheckboxRow(
+                    workspaceToolsPanel, "Dynamic Validation", "Infer test files to include with each Code Agent call");
             validationCb.setSelected(currentOptions.includeValidationAgent());
 
-            var analyzerCb = createCheckbox.apply(
+            var analyzerCb = addCheckboxRow(
+                    workspaceToolsPanel,
                     "Code Intelligence Tools",
                     "Allow direct querying of code structure (e.g., find usages, call graphs)");
             analyzerCb.setSelected(currentOptions.includeAnalyzerTools() && codeIntelConfigured);
-            analyzerCb.setEnabled(isCpg && codeIntelConfigured); // Disable if not a CPG or if CI is not configured
-
+            analyzerCb.setEnabled(isCpg && codeIntelConfigured);
             if (!codeIntelConfigured) {
                 analyzerCb.setToolTipText(
                         "Code Intelligence is not configured. Please configure languages in Project Settings.");
@@ -125,16 +145,15 @@ public class ArchitectOptionsDialog {
                         .formatted(project.getAnalyzerLanguages()));
             }
 
-            var workspaceCb = createCheckbox.apply(
-                    "Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the Workspace");
+            var workspaceCb = addCheckboxRow(
+                    workspaceToolsPanel,
+                    "Workspace Management Tools",
+                    "Allow adding/removing files, URLs, or text to/from the Workspace");
             workspaceCb.setSelected(currentOptions.includeWorkspaceTools());
 
-            var searchCb = createCheckbox.apply(
-                    "Search Agent", "Allow invoking the Search Agent to find information beyond the current Workspace");
-            searchCb.setSelected(currentOptions.includeSearchAgent());
-
-            var shellCb =
-                    createCheckbox.apply("Sandboxed Shell Command", "Allow executing shell commands inside a sandbox");
+            // External tools
+            var shellCb = addCheckboxRow(
+                    externalToolsPanel, "Sandboxed Shell Command", "Allow executing shell commands inside a sandbox");
             boolean sandboxAvailable = Environment.isSandboxAvailable();
             shellCb.setEnabled(sandboxAvailable);
             shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
@@ -142,18 +161,16 @@ public class ArchitectOptionsDialog {
                 shellCb.setToolTipText("Sandbox execution is not available on this platform.");
             }
 
-            var askHumanCb = createCheckbox.apply(
-                    "Ask-a-Human", "Allow the agent to request guidance from the user via a dialog");
+            var askHumanCb = addCheckboxRow(
+                    externalToolsPanel,
+                    "Ask-a-Human",
+                    "Allow the agent to request guidance from the user via a dialog");
             askHumanCb.setSelected(currentOptions.includeAskHuman());
 
-            // --- Git Tools Separator and Header ---
-            mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
-            mainPanel.add(Box.createVerticalStrut(10));
-
-            // --- Git-related Checkboxes ---
+            // Git tools
             var gitState = GitState.from(project);
-            var commitCb = createCommitCheckbox(currentOptions, createCheckbox, gitState);
-            var prCb = createPrCheckbox(project, currentOptions, createCheckbox, gitState);
+            var commitCb = createCommitCheckbox(currentOptions, gitToolsPanel, gitState);
+            var prCb = createPrCheckbox(project, currentOptions, gitToolsPanel, gitState);
 
             // Keep commit & PR checkboxes consistent
             prCb.addActionListener(e -> {
@@ -163,7 +180,7 @@ public class ArchitectOptionsDialog {
                 if (!commitCb.isSelected()) prCb.setSelected(false);
             });
 
-            // --- Worktree Checkbox ---
+            // Worktree Checkbox in Git tools group
             var worktreeCb = new JCheckBox();
             worktreeCb.setAlignmentY(0f);
             worktreeCb.setToolTipText(
@@ -172,7 +189,7 @@ public class ArchitectOptionsDialog {
                     && gitState.repo() != null
                     && gitState.repo().supportsWorktrees();
             worktreeCb.setEnabled(worktreesSupported);
-            worktreeCb.setSelected(currentRunInWorktree && worktreesSupported); // Only selected if supported
+            worktreeCb.setSelected(currentRunInWorktree && worktreesSupported);
 
             if (!gitState.gitAvailable()) {
                 worktreeCb.setToolTipText("Git is not configured for this project.");
@@ -186,11 +203,9 @@ public class ArchitectOptionsDialog {
             worktreeLabel.setAlignmentY(0f);
             worktreeLabel.setToolTipText(worktreeCb.getToolTipText());
 
-            // Keep label tooltip synced with checkbox tooltip
             worktreeCb.addPropertyChangeListener(
                     "toolTipText", evt -> worktreeLabel.setToolTipText((String) evt.getNewValue()));
 
-            // Clicking the label toggles the checkbox
             worktreeLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
@@ -205,58 +220,100 @@ public class ArchitectOptionsDialog {
             worktreeRow.add(worktreeCb);
             worktreeRow.add(Box.createHorizontalStrut(5));
             worktreeRow.add(worktreeLabel);
+            gitToolsPanel.add(worktreeRow);
 
-            mainPanel.add(worktreeRow);
+            // Add grouped panels to main
+            mainPanel.add(subAgentsPanel);
+            mainPanel.add(Box.createVerticalStrut(10));
+            mainPanel.add(workspaceToolsPanel);
+            mainPanel.add(Box.createVerticalStrut(10));
+            mainPanel.add(externalToolsPanel);
+            mainPanel.add(Box.createVerticalStrut(10));
+            mainPanel.add(gitToolsPanel);
 
-            dialog.add(new JScrollPane(mainPanel), BorderLayout.CENTER); // Add scroll pane
+            dialog.add(new JScrollPane(mainPanel), BorderLayout.CENTER);
 
-            // --- Button Panel ---
-            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            JButton okButton = new JButton("OK");
-            JButton cancelButton = new JButton("Cancel");
+            // Buttons
+            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            var okButton = new JButton("OK");
+            var cancelButton = new JButton("Cancel");
             buttonPanel.add(okButton);
             buttonPanel.add(cancelButton);
             dialog.add(buttonPanel, BorderLayout.SOUTH);
 
-            // --- Actions ---
+            // Actions
             okButton.addActionListener(e -> {
+                Service.ModelConfig selectedPlanning = planningSelector.getModel();
+                Service.ModelConfig selectedCode = codeSelector.getModel();
+
+                boolean hasImages = contextManager
+                        .topContext()
+                        .allFragments()
+                        .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
+
+                if (hasImages) {
+                    var nonVision = new java.util.LinkedHashSet<String>();
+                    var svc = contextManager.getService();
+
+                    var planningModel = svc.getModel(selectedPlanning);
+                    if (planningModel == null || !svc.supportsVision(planningModel)) {
+                        nonVision.add(selectedPlanning.name() + " (Planning)");
+                    }
+                    var codeModel = svc.getModel(selectedCode);
+                    if (codeModel == null || !svc.supportsVision(codeModel)) {
+                        nonVision.add(selectedCode.name() + " (Code)");
+                    }
+                    if (searchCb.isSelected()) {
+                        var searchModel = contextManager.getSearchModel();
+                        if (!svc.supportsVision(searchModel)) {
+                            nonVision.add(svc.nameOf(searchModel) + " (Search)");
+                        }
+                    }
+
+                    if (!nonVision.isEmpty()) {
+                        String msg =
+                                "<html>The operation involves images, but these model(s) do not support vision:<br>"
+                                        + String.join(", ", nonVision)
+                                        + "<br><br>Please select vision-capable models.</html>";
+                        JOptionPane.showMessageDialog(
+                                dialog, msg, "Model Vision Support Error", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                }
+
+                project.setArchitectModelConfig(selectedPlanning);
+
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
+                        selectedPlanning,
+                        selectedCode,
                         contextCb.isSelected(),
                         validationCb.isSelected(),
-                        isCpg
-                                && codeIntelConfigured
-                                && analyzerCb.isSelected(), // Force false if not CPG or CI not configured
+                        isCpg && codeIntelConfigured && analyzerCb.isSelected(),
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
                         searchCb.isSelected(),
                         askHumanCb.isSelected(),
-                        commitCb.isSelected(), // Persist Git commit option
+                        commitCb.isSelected(),
                         prCb.isSelected(),
                         shellCb.isSelected());
+
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 
-                // Persist to project settings if a project is available
                 project.setArchitectOptions(selectedOptions, runInWorktreeSelected);
 
-                resultHolder.set(new ArchitectChoices(selectedOptions, runInWorktreeSelected)); // Set result
-                dialog.dispose(); // Close dialog
+                resultHolder.set(new ArchitectChoices(selectedOptions, runInWorktreeSelected));
+                dialog.dispose();
             });
 
-            cancelButton.addActionListener(e -> {
-                // resultHolder is already null by default, or will be set if OK is clicked.
-                // No need to explicitly set to null here again, windowClosing handles it if not set by OK.
-                dialog.dispose(); // Close dialog
-            });
+            cancelButton.addActionListener(e -> dialog.dispose());
 
-            // Handle window close button (X) as cancel
             dialog.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowClosing(WindowEvent e) {
-                    resultHolder.compareAndSet(null, null); // Ensure null if not already set by OK/Cancel
+                    resultHolder.compareAndSet(null, null);
                 }
             });
 
-            // Bind Escape key to Cancel action
             dialog.getRootPane()
                     .registerKeyboardAction(
                             e -> {
@@ -267,12 +324,49 @@ public class ArchitectOptionsDialog {
                             JComponent.WHEN_IN_FOCUSED_WINDOW);
 
             dialog.pack();
-            dialog.setLocationRelativeTo(chrome.getFrame()); // Center relative to parent
-            dialog.setVisible(true); // Show the modal dialog and block EDT until closed
-        }); // invokeAndWait ends here
+            dialog.setLocationRelativeTo(chrome.getFrame());
+            dialog.setVisible(true);
+        });
 
-        // Return the result captured from the EDT lambda
         return resultHolder.get();
+    }
+
+    private static JPanel createTitledGroupPanel(String title) {
+        var panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        panel.setBorder(BorderFactory.createTitledBorder(title));
+        return panel;
+    }
+
+    private static JCheckBox addCheckboxRow(JPanel container, String text, String description) {
+        var html = "<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>";
+
+        var cb = new JCheckBox();
+        cb.setAlignmentY(0f);
+
+        var label = new JLabel(html);
+        label.setAlignmentY(0f);
+
+        cb.addPropertyChangeListener("toolTipText", evt -> label.setToolTipText((String) evt.getNewValue()));
+
+        label.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                cb.doClick();
+            }
+        });
+
+        var row = new JPanel();
+        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        row.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+        row.add(cb);
+        row.add(Box.createHorizontalStrut(5));
+        row.add(label);
+
+        container.add(row);
+        return cb;
     }
 
     private record GitState(
@@ -287,20 +381,16 @@ public class ArchitectOptionsDialog {
                 var onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
                 return new GitState(true, onDefaultBranch, defaultBranchName, repo);
             } catch (GitAPIException e) {
-                // if there's an API exception (e.g., no default branch), we can't be sure of the state, so disable git
-                // features
                 return new GitState(false, false, "", null);
             }
         }
     }
 
     private static JCheckBox createCommitCheckbox(
-            ArchitectAgent.ArchitectOptions currentOptions,
-            BiFunction<String, String, JCheckBox> createCheckbox,
-            GitState gitState) {
+            ArchitectAgent.ArchitectOptions currentOptions, JPanel targetPanel, GitState gitState) {
         var commitUsable = gitState.gitAvailable();
 
-        var commitCb = createCheckbox.apply("Commit changes", "Stage & commit all current edits.");
+        var commitCb = addCheckboxRow(targetPanel, "Commit changes", "Stage & commit all current edits.");
         commitCb.setEnabled(commitUsable);
         commitCb.setSelected(commitUsable && currentOptions.includeGitCommit());
 
@@ -313,7 +403,7 @@ public class ArchitectOptionsDialog {
     private static JCheckBox createPrCheckbox(
             @Nullable IProject project,
             ArchitectAgent.ArchitectOptions currentOptions,
-            BiFunction<String, String, JCheckBox> createCheckbox,
+            JPanel targetPanel,
             GitState gitState) {
         boolean prDisabled = !gitState.gitAvailable()
                 || gitState.onDefaultBranch()
@@ -322,7 +412,8 @@ public class ArchitectOptionsDialog {
                 || gitState.repo() == null
                 || gitState.repo().getRemoteUrl("origin") == null;
 
-        var prCb = createCheckbox.apply(
+        var prCb = addCheckboxRow(
+                targetPanel,
                 "Create PR (includes push)",
                 "Pushes current branch and opens a pull request. Disabled on default branch or without token.");
         prCb.setEnabled(!prDisabled);

@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.jspecify)
     implementation(libs.picocli)
     implementation(libs.bundles.apache)
+    implementation(libs.bundles.jdkmon)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -118,14 +119,22 @@ dependencies {
     compileOnly(libs.checker.qual)
 }
 
-buildConfig {
-    buildConfigField("String", "version", "\"${project.version}\"")
-    packageName("io.github.jbellis.brokk")
-    className("BuildInfo")
+// Force version computation at configuration time
+val actualVersion = project.rootProject.version.toString().ifEmpty {
+    // Fallback: read from cache file
+    val versionCacheFile = File(project.rootDir, "build/version.txt")
+    if (versionCacheFile.exists()) {
+        val lines = versionCacheFile.readLines()
+        if (lines.size >= 2) lines[1] else "0.0.0-UNKNOWN"
+    } else {
+        "0.0.0-UNKNOWN"
+    }
 }
 
-tasks.named("generateBuildConfig") {
-    inputs.file("${project.rootDir}/build/version.txt").optional(true)
+buildConfig {
+    buildConfigField("String", "version", "\"$actualVersion\"")
+    packageName("io.github.jbellis.brokk")
+    className("BuildInfo")
 }
 
 tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendInstall") {
@@ -231,7 +240,7 @@ tasks.named<JavaCompile>("compileJava") {
         error("NullAway")
 
         // Exclude dev/ directory from all ErrorProne checks
-        excludedPaths = ".*/src/main/java/dev/.*"
+        excludedPaths = ".*/src/main/java/(dev/|eu/).*"
 
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
@@ -378,6 +387,23 @@ tasks.register<JavaExec>("runSkeletonPrinter") {
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgs = listOf(
         "-ea",
+        "-Dbrokk.devmode=true"
+    )
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
+}
+
+tasks.register<JavaExec>("runTreeSitterRepoRunner") {
+    group = "application"
+    description = "Runs the TreeSitterRepoRunner tool for TreeSitter performance analysis"
+    mainClass.set("io.github.jbellis.brokk.tools.TreeSitterRepoRunner")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgs = listOf(
+        "-ea",
+        "-Xmx8g",
+        "-XX:+UseZGC",
+        "-XX:+UnlockExperimentalVMOptions",
         "-Dbrokk.devmode=true"
     )
     if (project.hasProperty("args")) {

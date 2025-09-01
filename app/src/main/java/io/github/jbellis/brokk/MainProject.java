@@ -63,6 +63,7 @@ public final class MainProject extends AbstractProject {
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
+    private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
 
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
@@ -73,16 +74,10 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) {}
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect",
-                    new ModelTypeInfo(
-                            "architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
-            "Code",
-                    new ModelTypeInfo(
-                            "codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
-            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.DEFAULT)),
-            "Search",
-                    new ModelTypeInfo(
-                            "searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)));
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO)),
+            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GPT_5)),
+            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO)));
 
     private static final String RUN_COMMAND_TIMEOUT_SECONDS_KEY = "runCommandTimeoutSeconds";
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -278,11 +273,6 @@ public final class MainProject extends AbstractProject {
         return this;
     }
 
-    @Override
-    public Path getMasterRootPathForConfig() {
-        return this.masterRootPathForConfig;
-    }
-
     private static synchronized Properties loadGlobalProperties() {
         if (globalPropertiesCache != null) {
             return (Properties) globalPropertiesCache.clone();
@@ -382,7 +372,14 @@ public final class MainProject extends AbstractProject {
         String jsonString = props.getProperty(typeInfo.configKey());
         if (jsonString != null && !jsonString.isBlank()) {
             try {
-                return objectMapper.readValue(jsonString, ModelConfig.class);
+                var mc = objectMapper.readValue(jsonString, ModelConfig.class);
+                // Null Away doesn't prevent Jackson from reading a null via reflection. All the
+                // "official" Jackson ways to fix this are horrible.
+                @SuppressWarnings("RedundantNullCheck")
+                ModelConfig checkedMc = (mc.tier() == null)
+                        ? new ModelConfig(mc.name(), mc.reasoning(), Service.ProcessingTier.DEFAULT)
+                        : mc;
+                return checkedMc;
             } catch (JsonProcessingException e) {
                 logger.warn(
                         "Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
@@ -991,6 +988,15 @@ public final class MainProject extends AbstractProject {
         persistWorkspacePropertiesFile();
     }
 
+    public boolean isMigrationsToSessionsV3Complete() {
+        return Boolean.parseBoolean(mainWorkspaceProps.getProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, "false"));
+    }
+
+    public void setMigrationsToSessionsV3Complete(boolean complete) {
+        mainWorkspaceProps.setProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, String.valueOf(complete));
+        persistWorkspacePropertiesFile();
+    }
+
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");
@@ -1093,10 +1099,11 @@ public final class MainProject extends AbstractProject {
     }
 
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("o3", Service.O3, Service.ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Gemini Pro 2.5", Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Flash 2.5", "gemini-2.5-flash", Service.ReasoningLevel.DISABLE),
-            new Service.FavoriteModel("Sonnet 4", "claude-4-sonnet", Service.ReasoningLevel.LOW));
+            new Service.FavoriteModel("GPT-5", new ModelConfig(Service.GPT_5)),
+            new Service.FavoriteModel("GPT-5 mini", new ModelConfig("gpt-5-mini")),
+            new Service.FavoriteModel("Gemini Pro 2.5", new ModelConfig(Service.GEMINI_2_5_PRO)),
+            new Service.FavoriteModel("Flash 2.5", new ModelConfig("gemini-2.5-flash")),
+            new Service.FavoriteModel("Sonnet 4", new ModelConfig("claude-4-sonnet", Service.ReasoningLevel.LOW)));
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
         var props = loadGlobalProperties();

@@ -363,11 +363,6 @@ public final class JavascriptAnalyzerTest {
 
     // Tests from TreeSitterAnalyzerMiscTest
     @Test
-    void testIsCpg() {
-        assertFalse(jsAnalyzer.isCpg(), "TreeSitterAnalyzer instances should not be CPGs.");
-    }
-
-    @Test
     void testGetSkeletonHeader() {
         // Test case 1: Class in JSX
         Optional<String> jsxClassHeader = jsAnalyzer.getSkeletonHeader("JsxClass");
@@ -598,7 +593,9 @@ public final class JavascriptAnalyzerTest {
     @Test
     void testGetClassSource_Js() {
         // Test case 1: Valid class from Hello.js
-        String helloClassSource = jsAnalyzer.getClassSource("Hello");
+        final var helloSourceOpt = jsAnalyzer.getClassSource("Hello");
+        assertTrue(helloSourceOpt.isPresent());
+        final var helloClassSource = helloSourceOpt.get().stripIndent();
         String expectedHelloClassSource =
                 """
         export class Hello {
@@ -609,7 +606,9 @@ public final class JavascriptAnalyzerTest {
                 helloClassSource.stripIndent().trim());
 
         // Test case 2: Valid class from Hello.jsx
-        String jsxClassSource = jsAnalyzer.getClassSource("JsxClass");
+        final var jsxClassSourceOpt = jsAnalyzer.getClassSource("JsxClass");
+        assertTrue(jsxClassSourceOpt.isPresent());
+        final var jsxClassSource = jsxClassSourceOpt.get().stripIndent();
         String expectedJsxClassSource =
                 """
         export class JsxClass {

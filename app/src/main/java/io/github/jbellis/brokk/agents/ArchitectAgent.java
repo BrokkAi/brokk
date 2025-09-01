@@ -41,8 +41,10 @@ import org.jetbrains.annotations.Nullable;
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
 
-    /** Configuration options for the ArchitectAgent, determining which tools it can use. */
+    /** Configuration options for the ArchitectAgent, including selected models and enabled tools. */
     public record ArchitectOptions(
+            Service.ModelConfig planningModel,
+            Service.ModelConfig codeModel,
             boolean includeContextAgent,
             boolean includeValidationAgent,
             boolean includeAnalyzerTools,
@@ -53,9 +55,47 @@ public class ArchitectAgent {
             boolean includeGitCommit,
             boolean includeGitCreatePr,
             boolean includeShellCommand) {
-        /** Default options (all enabled, except Git tools and shell command). */
-        public static final ArchitectOptions DEFAULTS =
-                new ArchitectOptions(true, true, true, true, true, true, true, false, false, false);
+        /** Default options (all enabled, except Git tools and shell command). Uses GPT_5_MINI for both models. */
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(
+                new Service.ModelConfig(Service.GEMINI_2_5_PRO),
+                new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH),
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                false,
+                false,
+                false);
+
+        // Backward-compatible constructor for existing callers that pass only booleans.
+        public ArchitectOptions(
+                boolean includeContextAgent,
+                boolean includeValidationAgent,
+                boolean includeAnalyzerTools,
+                boolean includeWorkspaceTools,
+                boolean includeCodeAgent,
+                boolean includeSearchAgent,
+                boolean includeAskHuman,
+                boolean includeGitCommit,
+                boolean includeGitCreatePr,
+                boolean includeShellCommand) {
+            this(
+                    new Service.ModelConfig(Service.GPT_5_MINI),
+                    new Service.ModelConfig(Service.GPT_5_MINI),
+                    includeContextAgent,
+                    includeValidationAgent,
+                    includeAnalyzerTools,
+                    includeWorkspaceTools,
+                    includeCodeAgent,
+                    includeSearchAgent,
+                    includeAskHuman,
+                    includeGitCommit,
+                    includeGitCreatePr,
+                    includeShellCommand);
+        }
     }
 
     private final IConsoleIO io;
@@ -88,15 +128,14 @@ public class ArchitectAgent {
             ContextManager contextManager,
             StreamingChatModel model,
             StreamingChatModel codeModel,
-            ToolRegistry toolRegistry,
             String goal,
             ArchitectOptions options) {
-        this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
-        this.model = Objects.requireNonNull(model, "model cannot be null");
+        this.contextManager = contextManager;
+        this.model = model;
         this.codeModel = codeModel;
-        this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry cannot be null");
-        this.goal = Objects.requireNonNull(goal, "goal cannot be null");
-        this.options = Objects.requireNonNull(options, "options cannot be null");
+        this.toolRegistry = contextManager.getToolRegistry();
+        this.goal = goal;
+        this.options = options;
         this.io = contextManager.getIo();
     }
 
@@ -390,7 +429,7 @@ public class ArchitectAgent {
         // Instantiate and run SearchAgent
         var cursor = messageCursor();
         io.llmOutput("Search Agent engaged: " + query, ChatMessageType.CUSTOM);
-        var searchAgent = new SearchAgent(query, contextManager, model, toolRegistry, searchAgentId.getAndIncrement());
+        var searchAgent = new SearchAgent(query, contextManager, model, searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
 
         var newMessages = messagesSince(cursor);
@@ -477,11 +516,8 @@ public class ArchitectAgent {
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatModel>();
             models.add(this.model);
-            if (options.includeCodeAgent) {
+            if (options.includeCodeAgent()) {
                 models.add(contextManager.getCodeModel());
-            }
-            if (options.includeSearchAgent) {
-                models.add(contextManager.getSearchModel());
             }
             int minInputTokenLimit = models.stream()
                     .filter(Objects::nonNull)
@@ -579,7 +615,7 @@ public class ArchitectAgent {
             }
 
             // Ask the LLM for the next step
-            var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
+            var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, true);
 
             if (result.error() != null) {
                 logger.debug(
@@ -753,7 +789,7 @@ public class ArchitectAgent {
     }
 
     private void addInitialContextToWorkspace() throws InterruptedException {
-        var contextAgent = new ContextAgent(contextManager, contextManager.getSearchModel(), goal, true);
+        var contextAgent = new ContextAgent(contextManager, model, goal, true);
         io.llmOutput("\nExamining initial workspace", ChatMessageType.CUSTOM);
 
         // Execute without a specific limit on recommendations, allowing skip-pruning

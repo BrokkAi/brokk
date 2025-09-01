@@ -27,3 +27,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 # Brokk contains code from Joern
 
 Joern is licensed under ASL 2 and the affected files retain their ASL copyright header.
+
+# Brokk contains code from JDKMon
+
+JDKMon is licensed under ASL 2 and the affected files retain their ASL copyright header.

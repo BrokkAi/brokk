@@ -472,7 +472,8 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
         if (DECLARATION.equals(decl.getType())
                 || METHOD_DEFINITION.equals(decl.getType())
                 || CONSTRUCTOR_DECLARATION.equals(decl.getType())
-                || DESTRUCTOR_DECLARATION.equals(decl.getType())) {
+                || DESTRUCTOR_DECLARATION.equals(decl.getType())
+                || FIELD_DECLARATION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
             if (declaratorNode != null) {
                 if ("function_declarator".equals(declaratorNode.getType())) {

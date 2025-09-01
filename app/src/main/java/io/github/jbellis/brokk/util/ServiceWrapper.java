@@ -28,8 +28,9 @@ public class ServiceWrapper {
     }
 
     @Nullable
-    public StreamingChatModel getModel(String modelName, Service.ReasoningLevel reasoning) {
-        return get().getModel(modelName, reasoning);
+    public StreamingChatModel getModel(Service.ModelConfig config) {
+        Service service = get();
+        return service.getModel(config);
     }
 
     public StreamingChatModel quickModel() {

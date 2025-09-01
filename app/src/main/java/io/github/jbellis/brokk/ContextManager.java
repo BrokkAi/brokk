@@ -37,6 +37,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -148,6 +149,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
+    // Listeners that want to be notified when the Service (models/stt) is reinitialized.
+    private final List<Runnable> serviceListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     // balance-notification state
@@ -156,6 +159,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // BuildAgent task tracking for cancellation
     private volatile @Nullable CompletableFuture<BuildAgent.BuildDetails> buildAgentFuture;
+
+    // Model reload state to prevent concurrent reloads
+    private final AtomicBoolean isReloadingModels = new AtomicBoolean(false);
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -180,6 +186,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void removeAnalyzerCallback(AnalyzerCallback callback) {
         analyzerCallbacks.remove(callback);
+    /**
+     * Register a Runnable to be invoked when the Service (models / STT) is reinitialized. The Runnable is executed on
+     * the EDT to allow UI updates.
+     */
+    public void addServiceListener(Runnable listener) {
+        serviceListeners.add(listener);
+    }
+
+    /** Remove a previously registered service listener. */
+    public void removeServiceListener(Runnable listener) {
+        serviceListeners.remove(listener);
     }
 
     public void addFileSystemEventListener(FileSystemEventListener listener) {
@@ -273,6 +290,56 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.enableActionButtons();
             }
         });
+
+        migrateToSessionsV3IfNeeded();
+    }
+
+    private void migrateToSessionsV3IfNeeded() {
+        if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
+            submitBackgroundTask("Migrate sessions to V3", () -> {
+                var sessionsWithUnreadableHistory = new HashSet<UUID>();
+                var sessionManager = project.getSessionManager();
+
+                sessionManager.listSessions().stream().map(SessionInfo::id).forEach(session -> {
+                    // loading history triggers migration if needed
+                    if (sessionManager.loadHistory(session, this) == null) {
+                        sessionsWithUnreadableHistory.add(session);
+                    }
+                });
+
+                // Avoid moving the currently active session to prevent disrupting the UI/session state
+                boolean skippedActive = sessionsWithUnreadableHistory.remove(currentSessionId);
+
+                int moved = 0;
+                for (var sessionId : sessionsWithUnreadableHistory) {
+                    try {
+                        sessionManager.moveSessionToUnreadable(sessionId);
+                        moved++;
+                    } catch (Exception e) {
+                        logger.warn(
+                                "Failed to move session {} with unreadable history to 'unreadable' folder",
+                                sessionId,
+                                e);
+                    }
+                }
+
+                mainProject.setMigrationsToSessionsV3Complete(true);
+
+                logger.info(
+                        "Migrated sessions to V3; moved {} sessions with unreadable history to 'unreadable': {}",
+                        moved,
+                        sessionsWithUnreadableHistory.stream().sorted().toList());
+                if (skippedActive) {
+                    logger.info(
+                            "Skipped moving currently active session {} due to unreadable history; user may move or delete it manually.",
+                            currentSessionId);
+                }
+                if (moved > 0 && io instanceof Chrome chrome) {
+                    SwingUtilities.invokeLater(
+                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+                }
+            });
+        }
     }
 
     /**
@@ -438,23 +505,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
         try (var stream = Files.list(historyBaseDir)) {
             stream.filter(Files::isDirectory) // Process only directories
                     .forEach(entry -> {
+                        Instant lastModifiedTime;
                         try {
-                            var lastModifiedTime =
-                                    Files.getLastModifiedTime(entry).toInstant();
-                            if (lastModifiedTime.isBefore(cutoff)) {
-                                logger.trace(
-                                        "Attempting to delete old history directory (modified {}): {}",
-                                        lastModifiedTime,
-                                        entry);
-                                if (FileUtil.deleteRecursively(entry)) {
-                                    deletedCount.incrementAndGet();
-                                } else {
-                                    logger.error("Failed to fully delete old history directory: {}", entry);
-                                }
-                            }
+                            lastModifiedTime = Files.getLastModifiedTime(entry).toInstant();
                         } catch (IOException e) {
                             // Log error getting last modified time for a specific entry, but continue with others
                             logger.error("Error checking last modified time for history entry: {}", entry, e);
+                            return;
+                        }
+                        if (lastModifiedTime.isBefore(cutoff)) {
+                            logger.trace(
+                                    "Attempting to delete old history directory (modified {}): {}",
+                                    lastModifiedTime,
+                                    entry);
+                            if (FileUtil.deleteRecursively(entry)) {
+                                deletedCount.incrementAndGet();
+                            } else {
+                                logger.error("Failed to fully delete old history directory: {}", entry);
+                            }
                         }
                     });
         } catch (IOException e) {
@@ -550,12 +618,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
-        StreamingChatModel model = service.getModel(config.name(), config.reasoning());
+        StreamingChatModel model = service.getModel(config);
         if (model != null) {
             return model;
         }
 
-        model = service.getModel(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH);
+        model = service.getModel(new Service.ModelConfig(Service.GPT_5_MINI, Service.ReasoningLevel.HIGH));
         if (model != null) {
             io.systemOutput(String.format(
                     "Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
@@ -1032,6 +1100,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.systemOutput("Added uses of " + identifier);
     }
 
+    public void sourceCodeForCodeUnit(CodeUnit codeUnit) {
+        String sourceCode = null;
+        try {
+            sourceCode = getAnalyzer()
+                    .as(SourceCodeProvider.class)
+                    .flatMap(provider -> {
+                        if (codeUnit.isFunction()) {
+                            return provider.getMethodSource(codeUnit.fqName());
+                        } else if (codeUnit.isClass()) {
+                            return provider.getClassSource(codeUnit.fqName());
+                        } else {
+                            return Optional.empty();
+                        }
+                    })
+                    .orElse(null);
+        } catch (InterruptedException e) {
+            logger.error("Interrupted while trying to get analyzer while attempting to obtain source code");
+        }
+
+        if (sourceCode != null) {
+            var fragment = new ContextFragment.StringFragment(
+                    this,
+                    sourceCode,
+                    "Source code for " + codeUnit.fqName(),
+                    codeUnit.source().getSyntaxStyle());
+            pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+            io.systemOutput("Added source code for " + codeUnit.shortName());
+        }
+    }
+
     public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
         if (callgraph.isEmpty()) {
             io.systemOutput("No callers found for " + methodName + " (pre-check).");
@@ -1060,16 +1158,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var content = new StringBuilder();
         IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
-        for (var element : stacktrace.getFrames()) {
-            var methodFullName = element.getClassName() + "." + element.getMethodName();
-            var methodSource = localAnalyzer.getMethodSource(methodFullName);
-            if (methodSource.isPresent()) {
-                String className = ContextFragment.toClassname(methodFullName);
-                localAnalyzer.getDefinition(className).filter(CodeUnit::isClass).ifPresent(sources::add);
-                content.append(methodFullName).append(":\n");
-                content.append(methodSource.get()).append("\n\n");
+        localAnalyzer.as(SourceCodeProvider.class).ifPresent(sourceCodeProvider -> {
+            for (var element : stacktrace.getFrames()) {
+                var methodFullName = element.getClassName() + "." + element.getMethodName();
+                var methodSource = sourceCodeProvider.getMethodSource(methodFullName);
+                if (methodSource.isPresent()) {
+                    String className = ContextFragment.toClassname(methodFullName);
+                    localAnalyzer
+                            .getDefinition(className)
+                            .filter(CodeUnit::isClass)
+                            .ifPresent(sources::add);
+                    content.append(methodFullName).append(":\n");
+                    content.append(methodSource.get()).append("\n\n");
+                }
             }
-        }
+        });
 
         if (content.isEmpty()) {
             logger.debug("No relevant methods found in stacktrace -- adding as text");
@@ -1614,7 +1717,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public void reloadModelsAsync() {
-        service.reinit(project);
+        if (isReloadingModels.compareAndSet(false, true)) {
+            // Run reinit in the background so callers don't block; notify UI listeners when finished.
+            submitBackgroundTask("Reloading models", () -> {
+                try {
+                    service.reinit(project);
+                    // Notify registered listeners on the EDT so they can safely update Swing UI.
+                    SwingUtilities.invokeLater(() -> {
+                        for (var l : serviceListeners) {
+                            try {
+                                l.run();
+                            } catch (Exception e) {
+                                logger.warn("Service listener threw exception", e);
+                            }
+                        }
+                    });
+                } finally {
+                    isReloadingModels.set(false);
+                }
+                return null;
+            });
+        } else {
+            logger.debug("Model reload already in progress, skipping request.");
+        }
     }
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
@@ -1652,9 +1777,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.systemOutput("Generating project style guide...");
-                var analyzer = getAnalyzerUninterrupted();
                 // Use a reasonable limit for style guide generation context
-                var topClasses = AnalyzerUtil.combinedRankingFor(analyzer, project.getRoot(), Map.of()).stream()
+                var topClasses = AnalyzerUtil.combinedRankingFor(project, Map.of()).stream()
                         .limit(10)
                         .toList();
 
@@ -1668,10 +1792,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var codeForLLM = new StringBuilder();
                 var tokens = 0;
                 int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
-                for (var fqcnUnit : topClasses) {
-                    var fileOption = analyzer.getFileFor(fqcnUnit.fqName()); // Use fqName() here
-                    if (fileOption.isEmpty()) continue;
-                    var file = fileOption.get();
+                for (var file : topClasses) {
                     String chunk; // Declare chunk once outside the try-catch
                     // Use project root for relative path display if possible
                     var relativePath =

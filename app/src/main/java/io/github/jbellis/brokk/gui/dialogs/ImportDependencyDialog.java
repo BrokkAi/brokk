@@ -509,12 +509,18 @@ public class ImportDependencyDialog {
 
                     Path gitInternalDir = tempDir.resolve(".git");
                     if (Files.exists(gitInternalDir)) {
-                        FileUtil.deleteRecursively(gitInternalDir);
+                        boolean removed = FileUtil.deleteRecursively(gitInternalDir);
+                        if (!removed && Files.exists(gitInternalDir)) {
+                            logger.warn("Failed to delete .git directory at {}", gitInternalDir);
+                        }
                     }
 
                     Files.createDirectories(dependenciesRoot);
                     if (Files.exists(targetPath)) {
-                        FileUtil.deleteRecursively(targetPath);
+                        boolean deleted = FileUtil.deleteRecursively(targetPath);
+                        if (!deleted && Files.exists(targetPath)) {
+                            throw new IOException("Failed to delete existing destination: " + targetPath);
+                        }
                     }
                     Files.move(tempDir, targetPath, StandardCopyOption.REPLACE_EXISTING);
 
@@ -537,7 +543,10 @@ public class ImportDependencyDialog {
                         importButton.setEnabled(true);
                     });
                     if (tempDir != null && Files.exists(tempDir)) {
-                        FileUtil.deleteRecursively(tempDir);
+                        boolean deleted = FileUtil.deleteRecursively(tempDir);
+                        if (!deleted && Files.exists(tempDir)) {
+                            logger.warn("Failed to cleanup temporary directory {}", tempDir);
+                        }
                     }
                 }
                 return null;
@@ -602,7 +611,10 @@ public class ImportDependencyDialog {
                             try {
                                 Files.createDirectories(dependenciesRoot);
                                 if (Files.exists(targetPath)) {
-                                    FileUtil.deleteRecursively(targetPath);
+                                    boolean deleted = FileUtil.deleteRecursively(targetPath);
+                                    if (!deleted && Files.exists(targetPath)) {
+                                        throw new IOException("Failed to delete existing destination: " + targetPath);
+                                    }
                                 }
                                 List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
                                         .flatMap(lang -> lang.getExtensions().stream())

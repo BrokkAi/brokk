@@ -7,6 +7,7 @@ import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.ModelSupport;
 import com.github.tjake.jlama.safetensors.DType;
 import com.github.tjake.jlama.safetensors.SafeTensorSupport;
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -44,6 +45,27 @@ import org.jetbrains.annotations.Nullable;
 
 public class Brokk {
     private static final Logger logger = LogManager.getLogger(Brokk.class);
+
+    private static final String BANNER =
+            """
+
+            ██████╗ ██████╗  ██████╗ ██╗  ██╗██╗  ██╗
+            ██╔══██╗██╔══██╗██╔═══██╗██║ ██╔╝██║ ██╔╝
+            ██████╔╝██████╔╝██║   ██║█████╔╝ █████╔╝
+            ██╔══██╗██╔══██╗██║   ██║██╔═██╗ ██╔═██╗
+            ██████╔╝██║  ██║╚██████╔╝██║  ██╗██║  ██╗
+            ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
+            """;
+
+    private static void logBanner() {
+        var lines = Splitter.on('\n').split(BANNER);
+        for (String line : lines) {
+            logger.info(line);
+        }
+        logger.info("Version: {}", BuildInfo.version);
+        logger.info("Starting Brokk semantic code assistant...");
+        logger.info("");
+    }
 
     @Nullable
     private static JWindow splashScreen = null;
@@ -297,6 +319,7 @@ public class Brokk {
     public static void main(String[] args) {
         Thread.setDefaultUncaughtExceptionHandler(new OomShutdownHandler());
 
+        logBanner();
         logger.debug("Brokk starting");
         setupSystemPropertiesAndIcon();
 

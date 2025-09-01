@@ -13,9 +13,7 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
@@ -232,7 +230,7 @@ public final class BrokkCli implements Callable<Integer> {
                 System.err.println("Unknown model specified via --model: " + modelName);
                 return 1;
             }
-            taskModelOverride = service.getModel(fav.modelName(), fav.reasoning());
+            taskModelOverride = service.getModel(fav.config());
             assert taskModelOverride != null : "service.getModel returned null for alias " + modelName;
         }
 
@@ -245,18 +243,18 @@ public final class BrokkCli implements Callable<Integer> {
                 System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
                 return 1;
             }
-            codeModelOverride = service.getModel(fav.modelName(), fav.reasoning());
+            codeModelOverride = service.getModel(fav.config());
             assert codeModelOverride != null : "service.getModel returned null for alias " + codeModelName;
         }
 
         var workspaceTools = new WorkspaceTools(cm);
 
         // --- Name Resolution and Context Building ---
-        boolean cpgRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
+        boolean callsAndUsagesRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
 
-        if (cpgRequired) {
+        if (callsAndUsagesRequired) {
             var analyzer = cm.getAnalyzer();
-            if (!analyzer.isCpg()) {
+            if (!(analyzer instanceof CallGraphProvider && analyzer instanceof UsagesProvider)) {
                 System.err.println(
                         "One or more of the requested options requires Code Intelligence, which is not available.");
                 return 1;
@@ -331,12 +329,7 @@ public final class BrokkCli implements Callable<Integer> {
                 var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
                 var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
                 var agent = new ArchitectAgent(
-                        cm,
-                        architectModel,
-                        codeModel,
-                        cm.getToolRegistry(),
-                        architectPrompt,
-                        ArchitectAgent.ArchitectOptions.DEFAULTS);
+                        cm, architectModel, codeModel, architectPrompt, ArchitectAgent.ArchitectOptions.DEFAULTS);
                 result = agent.execute();
             } else if (codePrompt != null) {
                 var effectiveModel = codeModelOverride == null
@@ -350,7 +343,7 @@ public final class BrokkCli implements Callable<Integer> {
                 result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
             } else { // searchPrompt != null
                 var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
-                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, cm.getToolRegistry(), 0);
+                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, 0);
                 result = agent.execute();
             }
         } catch (Throwable th) {

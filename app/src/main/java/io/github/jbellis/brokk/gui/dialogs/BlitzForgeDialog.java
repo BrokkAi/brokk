@@ -533,7 +533,7 @@ public class BlitzForgeDialog extends JDialog {
                 panel.setBackground(getBackground());
 
                 // Determine metric + color
-                var model = service.getModel(fav.modelName(), fav.reasoning());
+                var model = service.getModel(fav.config());
                 Color color = Color.GRAY;
                 String tooltip = "unknown capacity";
                 if (model != null) {
@@ -1044,7 +1044,7 @@ public class BlitzForgeDialog extends JDialog {
         var fav = (Service.FavoriteModel) modelComboBox.getSelectedItem();
         requireNonNull(fav);
 
-        var pricing = service.getModelPricing(fav.modelName());
+        var pricing = service.getModelPricing(fav.config().name());
 
         List<ProjectFile> files = getSelectedFilesForCost();
         int n = files.size();
@@ -1176,7 +1176,8 @@ public class BlitzForgeDialog extends JDialog {
             return;
         }
 
-        var model = service.getModel(favModel.modelName(), favModel.reasoning());
+        var model = service.getModel(new Service.ModelConfig(
+                favModel.config().name(), favModel.config().reasoning()));
         if (model == null) {
             tokenWarningLabel.setVisible(false);
             return;
