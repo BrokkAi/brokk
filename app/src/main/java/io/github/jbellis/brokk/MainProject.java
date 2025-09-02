@@ -113,11 +113,13 @@ public final class MainProject extends AbstractProject {
     }
 
     private static final String LLM_PROXY_SETTING_KEY = "llmProxySetting";
+    private static final String OLLAMA_URL_KEY = "ollamaUrl";
     public static final String BROKK_PROXY_URL = "https://proxy.brokk.ai";
     public static final String LOCALHOST_PROXY_URL = "http://localhost:4000";
     public static final String STAGING_PROXY_URL = "https://staging.brokk.ai";
     public static final String BROKK_SERVICE_URL = "https://app.brokk.ai";
     public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
+    public static final String DEFAULT_OLLAMA_URL = "http://localhost:11434";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
@@ -851,6 +853,21 @@ public final class MainProject extends AbstractProject {
     public static void setLlmProxySetting(LlmProxySetting setting) {
         var props = loadGlobalProperties();
         props.setProperty(LLM_PROXY_SETTING_KEY, setting.name());
+        saveGlobalProperties(props);
+    }
+
+    public static String getOllamaUrl() {
+        var props = loadGlobalProperties();
+        return props.getProperty(OLLAMA_URL_KEY, DEFAULT_OLLAMA_URL);
+    }
+
+    public static void setOllamaUrl(@Nullable String url) {
+        var props = loadGlobalProperties();
+        if (url == null || url.isBlank() || url.trim().equals(DEFAULT_OLLAMA_URL)) {
+            props.remove(OLLAMA_URL_KEY);
+        } else {
+            props.setProperty(OLLAMA_URL_KEY, url.trim());
+        }
         saveGlobalProperties(props);
     }
 

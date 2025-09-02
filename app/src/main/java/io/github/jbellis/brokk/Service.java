@@ -13,10 +13,14 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import io.github.jbellis.brokk.client.OllamaStreamingChatModel;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -576,6 +580,59 @@ public class Service {
                 }
             }
 
+            // Check Ollama for models
+            final var rawOllamaUrl = MainProject.getOllamaUrl();
+            try {
+                final URL url = new URI(rawOllamaUrl).toURL();
+                logger.debug("Checking Ollama server ({}) for models", url);
+
+                final URL modelsUrl = url.toURI().resolve("api/tags").toURL();
+
+                Request.Builder reqBuilder =
+                        new Request.Builder().url(modelsUrl).get();
+                reqBuilder.header("Content-Type", "application/json");
+                try (Response mresp = httpClient.newCall(reqBuilder.build()).execute()) {
+                    if (!mresp.isSuccessful()) {
+                        String body =
+                                mresp.body() != null && !mresp.body().toString().isBlank()
+                                        ? mresp.body().string()
+                                        : "(no body)";
+                        logger.warn(
+                                "Failed to fetch models from Ollama server {}: HTTP {} - {}", url, mresp.code(), body);
+                    } else {
+                        String bodyStr = mresp.body() != null ? mresp.body().string() : "";
+                        JsonNode root = objectMapper.readTree(bodyStr);
+                        JsonNode data = root.path("models");
+                        if (!data.isArray()) {
+                            logger.warn("Ollama server returned unexpected models payload: {}", bodyStr);
+                        } else {
+                            for (JsonNode modelNode : data) {
+                                String modelId = modelNode.path("name").asText();
+                                if (modelId == null || modelId.isBlank()) continue;
+                                String displayName = "%s (%s)".formatted(modelId, "Ollama");
+                                // incorporate server details for unique identifier
+                                String locationKey = url + "/" + modelId;
+                                Map<String, Object> modelInfo = new HashMap<>();
+                                modelInfo.put("model_location", modelId);
+                                modelInfo.put("ollama_base_url", url.toString());
+                                modelInfo.put("mode", "chat");
+                                modelInfo.put("is_private", true);
+                                //                        modelInfo.put("max_input_tokens",
+                                // modelNode.path("max_input_tokens").asInt(32768));
+                                //                        modelInfo.put("max_output_tokens",
+                                // modelNode.path("max_output_tokens").asInt(8192));
+                                infoTarget.put(locationKey, Map.copyOf(modelInfo));
+                                locationsTarget.put(displayName, locationKey);
+                                logger.debug("Discovered MCP model {} -> {}", displayName, locationKey);
+                            }
+                        }
+                    }
+                }
+
+            } catch (URISyntaxException ex) {
+                logger.warn("Saved Ollama URL is malformed: {}", rawOllamaUrl);
+            }
+
             logger.info("Discovered {} models eligible for use.", locationsTarget.size());
         }
     }
@@ -754,6 +811,38 @@ public class Service {
         if (location == null) {
             logger.error("Location not found for model name: {}", config.name);
             return null;
+        }
+
+        // If this model was discovered from an Ollama server, construct a client that talks directly to that base URL.
+        var mInfo = getModelInfo(location);
+        if (mInfo != null && mInfo.containsKey("ollama_base_url")) {
+            try {
+                String mcpBase = mInfo.get("ollama_base_url").toString();
+                Object modelIdObj = mInfo.get("model_location");
+                if (!(modelIdObj instanceof String modelId) || modelId.isBlank()) {
+                    logger.error("Missing or invalid 'model_location' for Ollama model at {}", location);
+                    return null;
+                }
+                String modelName = config.name;
+                if (modelName.contains(" ")) {
+                    modelName = modelName.substring(0, modelName.indexOf(" "));
+                }
+                return new OllamaStreamingChatModel.Builder()
+                        .modelName(modelName)
+                        .logRequests(true)
+                        .logResponses(true)
+                        .baseUrl(mcpBase)
+                        .readTimeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME))
+                        .build();
+            } catch (Exception e) {
+                logger.error(
+                        "Failed to construct Ollama model client for {} at {}: {}",
+                        config.name,
+                        location,
+                        e.getMessage(),
+                        e);
+                return null;
+            }
         }
 
         // default request parameters

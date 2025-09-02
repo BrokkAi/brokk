@@ -9,6 +9,10 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import java.awt.*;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -30,6 +34,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     // UI Components managed by this panel
     private JTextField brokkKeyField = new JTextField();
+    private JTextField ollamaHostField = new JTextField();
+    private JSpinner ollamaPortField = new JSpinner(new SpinnerNumberModel(0, 0, 65535, 1));
 
     @Nullable
     private JRadioButton brokkProxyRadio; // Can be null if STAGING
@@ -184,6 +190,26 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             servicePanel.add(restartLabel, gbc);
             gbc.insets = new Insets(2, 5, 2, 5);
         }
+
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        servicePanel.add(new JLabel("Ollama Host:"), gbc);
+
+        var ollamaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        ollamaHostField = new JTextField(20);
+        ollamaPortField = new JSpinner();
+        ollamaPanel.add(ollamaHostField);
+        ollamaPanel.add(new JLabel(":"));
+        ollamaPanel.add(ollamaPortField);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        servicePanel.add(ollamaPanel, gbc);
 
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -405,6 +431,23 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (gitHubTokenField != null) { // Only if panel was created
             gitHubTokenField.setText(MainProject.getGitHubToken());
         }
+
+        try {
+            var url = new URI(MainProject.getOllamaUrl()).toURL();
+            ollamaHostField.setText(url.getHost());
+            int port = url.getPort();
+            ollamaPortField.setValue(port == -1 ? "" : String.valueOf(port));
+        } catch (MalformedURLException | URISyntaxException e) {
+            logger.warn("Could not parse existing Ollama URL, falling back to default", e);
+            try {
+                var defaultUrl = new URI(MainProject.DEFAULT_OLLAMA_URL).toURL();
+                ollamaHostField.setText(defaultUrl.getHost());
+                int port = defaultUrl.getPort();
+                ollamaPortField.setValue(port == -1 ? "" : String.valueOf(port));
+            } catch (MalformedURLException | URISyntaxException ex) {
+                logger.error("Default Ollama URL is malformed", ex);
+            }
+        }
     }
 
     public boolean applySettings() {
@@ -476,6 +519,48 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 MainProject.setGitHubToken(newToken);
                 GitHubAuth.invalidateInstance();
                 logger.debug("Applied GitHub Token");
+            }
+        }
+
+        String host = ollamaHostField.getText().trim();
+        String portStr = ollamaPortField.getValue().toString();
+
+        if (host.isEmpty() && portStr.isEmpty()) {
+            MainProject.setOllamaUrl(null); // this will reset to default
+        } else {
+            if (host.isEmpty() || portStr.isEmpty()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Ollama host and port must both be specified, or both be empty.",
+                        "Invalid Ollama URL",
+                        JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+
+            try {
+                int port = Integer.parseInt(portStr);
+                if (port <= 0 || port > 65535) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Ollama port must be between 1 and 65535.",
+                            "Invalid Port",
+                            JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                String newOllamaUrl = "http://" + host + ":" + port;
+                URL ollamaUrl = new URI(newOllamaUrl).toURL(); // for validation
+                if (!newOllamaUrl.equals(MainProject.getOllamaUrl())) {
+                    MainProject.setOllamaUrl(newOllamaUrl);
+                    logger.debug("Applied Ollama URL: {}", ollamaUrl);
+                }
+            } catch (NumberFormatException e) {
+                JOptionPane.showMessageDialog(
+                        this, "Ollama port must be a valid number.", "Invalid Port", JOptionPane.ERROR_MESSAGE);
+                return false;
+            } catch (MalformedURLException | URISyntaxException e) {
+                JOptionPane.showMessageDialog(
+                        this, "Invalid Ollama URL: " + e.getMessage(), "Invalid URL", JOptionPane.ERROR_MESSAGE);
+                return false;
             }
         }
 
