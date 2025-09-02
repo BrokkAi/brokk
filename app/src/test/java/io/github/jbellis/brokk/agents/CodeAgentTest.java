@@ -81,13 +81,13 @@ class CodeAgentTest {
             String goal,
             List<ChatMessage> taskMessages,
             UserMessage nextRequest,
-            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            List<LineEdit> pendingEdits,
             int blocksAppliedWithoutBuild) {
         var conversationState = new CodeAgent.ConversationState(
                 new ArrayList<>(taskMessages), // Modifiable copy
                 nextRequest);
         var workspaceState = new CodeAgent.EditState(
-                new ArrayList<>(pendingBlocks), // Modifiable copy
+                new ArrayList<>(pendingEdits), // Modifiable copy
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
@@ -116,38 +116,32 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
-        assertTrue(continueStep.loopContext().editState().pendingBlocks().isEmpty());
+        assertTrue(continueStep.loopContext().editState().pendingEdits().isEmpty());
     }
 
     // P-2: parsePhase – partial parse + error
     @Test
     void testParsePhase_partialParseWithError() {
         var loopContext = createBasicLoopContext("test goal");
-        // A valid block followed by malformed text. The lenient parser should find
-        // the first block and then stop without reporting an error.
+        // A valid edit block followed by trailing prose. The parser should extract
+        // the block, and the prose will be ignored when materializing edits.
         String llmText =
                 """
-                         <block>
-                         file.java
-                         <<<<<<< SEARCH
-                         System.out.println("Hello");
-                         =======
+                         <brk_edit_file path="file.java" beginline=1 endline=1>
                          System.out.println("World");
-                         >>>>>>> REPLACE
-                         </block>
+                         </brk_edit_file>
                          This is some trailing text.
                          """;
 
         var result = codeAgent.parsePhase(loopContext, llmText, false, null);
 
-        // The parser is lenient; it finds the valid block and ignores the rest.
-        // This is not a parse error, so we continue.
+        // The parser correctly handles mixed content; this is not a parse error.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
         assertEquals(
                 1,
-                continueStep.loopContext().editState().pendingBlocks().size(),
+                continueStep.loopContext().editState().pendingEdits().size(),
                 "One block should be parsed and now pending.");
     }
 
@@ -162,8 +156,8 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
-                .contains("cut off before you provided any code blocks"));
-        assertTrue(retryStep.loopContext().editState().pendingBlocks().isEmpty());
+                .contains("cut off before you provided any Line Edit tags"));
+        assertTrue(retryStep.loopContext().editState().pendingEdits().isEmpty());
     }
 
     // P-3b: parsePhase – isPartial flag handling (with >=1 block)
@@ -172,14 +166,9 @@ class CodeAgentTest {
         var loopContext = createBasicLoopContext("test goal");
         String llmTextWithBlock =
                 """
-                                  <block>
-                                  file.java
-                                  <<<<<<< SEARCH
-                                  System.out.println("Hello");
-                                  =======
+                                  <brk_edit_file path="file.java" beginline=1 endline=1>
                                   System.out.println("World");
-                                  >>>>>>> REPLACE
-                                  </block>
+                                  </brk_edit_file>
                                   """;
 
         var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, null);
@@ -188,7 +177,7 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
                 .contains("continue from there"));
-        assertEquals(1, retryStep.loopContext().editState().pendingBlocks().size());
+        assertEquals(1, retryStep.loopContext().editState().pendingEdits().size());
     }
 
     // A-1: applyPhase – read-only conflict
@@ -197,8 +186,8 @@ class CodeAgentTest {
         var readOnlyFile = contextManager.toFile("readonly.txt");
         contextManager.addReadonlyFile(readOnlyFile);
 
-        var block = new EditBlock.SearchReplaceBlock(readOnlyFile.toString(), "search", "replace");
-        var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(block), 0);
+        var edit = new LineEdit.EditFile(readOnlyFile, 1, 1, "replace");
+        var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(edit), 0);
 
         var result = codeAgent.applyPhase(loopContext, null);
 
@@ -216,10 +205,10 @@ class CodeAgentTest {
         file.write("initial content");
         contextManager.addEditableFile(file);
 
-        var nonMatchingBlock =
-                new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
+        // This should fail because the file only has one line
+        var nonMatchingEdit = new LineEdit.EditFile(file, 10, 10, "replacement");
         var loopContext =
-                createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
+                createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingEdit), 0);
 
         var result = codeAgent.applyPhase(loopContext, null);
 
@@ -244,12 +233,13 @@ class CodeAgentTest {
         file2.write("foo bar");
         contextManager.addEditableFile(file2);
 
-        // This block will succeed because it matches the full line content
-        var successBlock = new EditBlock.SearchReplaceBlock(file1.toString(), "hello world", "goodbye world");
-        var failureBlock = new EditBlock.SearchReplaceBlock(file2.toString(), "nonexistent", "text");
+        // This should succeed, replacing line 1
+        var successEdit = new LineEdit.EditFile(file1, 1, 1, "goodbye world");
+        // This should fail, as file2 only has one line
+        var failureEdit = new LineEdit.EditFile(file2, 10, 10, "text");
 
-        var loopContext = createLoopContext(
-                "test goal", List.of(), new UserMessage("req"), List.of(successBlock, failureBlock), 0);
+        var loopContext =
+                createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(successEdit, failureEdit), 0);
         var result = codeAgent.applyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -403,14 +393,9 @@ class CodeAgentTest {
 
         var firstResponse =
                 """
-                            <block>
-                            test.txt
-                            <<<<<<< SEARCH
-                            hello
-                            =======
+                            <brk_edit_file path="test.txt" beginline=1 endline=1>
                             goodbye
-                            >>>>>>> REPLACE
-                            </block>
+                            </brk_edit_file>
                             """;
         var secondResponse = "I am unable to fix the build error.";
         var stubModel = new ScriptedLanguageModel(firstResponse, secondResponse);
@@ -443,8 +428,8 @@ class CodeAgentTest {
         file.write("old");
         contextManager.addEditableFile(file);
 
-        var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(block), 0);
+        var edit = new LineEdit.EditFile(file, 1, 1, "new");
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(edit), 0);
 
         var result = codeAgent.applyPhase(loopContext, null);
 
@@ -500,7 +485,7 @@ class CodeAgentTest {
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
         var es = loopContext.editState();
         var esWithFailures = new CodeAgent.EditState(
-                es.pendingBlocks(),
+                es.pendingEdits(),
                 es.consecutiveParseFailures(),
                 es.consecutiveApplyFailures(),
                 CodeAgent.MAX_BUILD_FAILURES - 1, // Just below limit
