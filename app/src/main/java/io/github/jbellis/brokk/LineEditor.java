@@ -61,20 +61,51 @@ public final class LineEditor {
         var originals = new HashMap<ProjectFile, String>();
         var failures = new ArrayList<FailedEdit>();
 
+        // Partition edits: group EditFile per file; collect DeleteFile preserving original order.
+        var editsByFile = new HashMap<ProjectFile, List<LineEdit.EditFile>>();
+        var deletes = new ArrayList<LineEdit.DeleteFile>();
+
         for (var edit : edits) {
-            try {
-                if (edit instanceof LineEdit.DeleteFile df) {
-                    applyDelete(cm, io, df, originals, failures);
-                } else if (edit instanceof LineEdit.EditFile ef) {
+            if (edit instanceof LineEdit.EditFile ef) {
+                editsByFile.computeIfAbsent(ef.file(), k -> new ArrayList<>()).add(ef);
+            } else if (edit instanceof LineEdit.DeleteFile df) {
+                deletes.add(df);
+            } else {
+                failures.add(new FailedEdit(
+                        edit, FailureReason.IO_ERROR, "Unknown edit type: " + edit.getClass().getSimpleName()));
+            }
+        }
+
+        // Sort each file's edits by decreasing beginLine (and decreasing endLine as a tie-breaker).
+        for (var list : editsByFile.values()) {
+            list.sort((a, b) -> {
+                int c = Integer.compare(b.beginLine(), a.beginLine());
+                if (c != 0) return c;
+                return Integer.compare(b.endLine(), a.endLine());
+            });
+        }
+
+        // Apply all sorted edits per file first (bottom-to-top within each file).
+        for (var entry : editsByFile.entrySet()) {
+            for (var ef : entry.getValue()) {
+                try {
                     applyEdit(ef, originals, failures);
-                } else {
-                    failures.add(new FailedEdit(
-                            edit, FailureReason.IO_ERROR, "Unknown edit type: " + edit.getClass().getSimpleName()));
+                } catch (IOException e) {
+                    var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
+                    logger.error("IO error applying {}: {}", describe(ef), msg);
+                    failures.add(new FailedEdit(ef, FailureReason.IO_ERROR, msg));
                 }
+            }
+        }
+
+        // Then apply deletes in their original order.
+        for (var df : deletes) {
+            try {
+                applyDelete(cm, io, df, originals, failures);
             } catch (IOException e) {
                 var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
-                logger.error("IO error applying {}: {}", describe(edit), msg);
-                failures.add(new FailedEdit(edit, FailureReason.IO_ERROR, msg));
+                logger.error("IO error applying {}: {}", describe(df), msg);
+                failures.add(new FailedEdit(df, FailureReason.IO_ERROR, msg));
             }
         }
 
