@@ -11,6 +11,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import java.io.IOException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -53,7 +54,7 @@ public final class LineEditorParser {
 
     private LineEditorParser() {}
 
-    public enum Type { INSERT, REPLACE, DELETE_LINES }
+    public enum Type { INSERT, REPLACE, DELETE_LINES, PREPEND, APPEND }
 
     // <brk_delete_file ... />
     private static final Pattern DELETE_TAG = Pattern.compile(
@@ -188,6 +189,10 @@ public final class LineEditorParser {
                     } else if (end != null) {
                         error = "brk_edit_file with type=\"insert\" MUST NOT have an endline attribute.";
                     }
+                } else if (type == Type.PREPEND || type == Type.APPEND) {
+                    if (begin != null || end != null) {
+                        error = "brk_edit_file with type=\"" + typeStr + "\" MUST NOT have beginline or endline attributes.";
+                    }
                 } else { // REPLACE or DELETE_LINES
                     if (begin == null || end == null) {
                         error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline and endline attributes.";
@@ -289,6 +294,33 @@ public final class LineEditorParser {
                             edits.add(new LineEdit.EditFile(pf, 1, 0, content));
                         }
                     }
+                    case PREPEND -> {
+                        // Insert at start of file; create file if missing
+                        edits.add(new LineEdit.EditFile(pf, 1, 0, content));
+                    }
+                    case APPEND -> {
+                        if (pf.exists()) {
+                            int n = 0;
+                            try {
+                                var text = pf.read();
+                                if (!text.isEmpty()) {
+                                    if (text.endsWith("\n")) {
+                                        var s = text.substring(0, text.length() - 1);
+                                        if (!s.isEmpty()) {
+                                            n = (int) s.lines().count();
+                                        }
+                                    } else {
+                                        n = (int) text.lines().count();
+                                    }
+                                }
+                            } catch (IOException e) {
+                                n = 0;
+                            }
+                            edits.add(new LineEdit.EditFile(pf, n + 1, n, content));
+                        } else {
+                            edits.add(new LineEdit.EditFile(pf, 1, 0, content));
+                        }
+                    }
                     case REPLACE -> edits.add(new LineEdit.EditFile(pf, beginLine, requireNonNull(endLine), content));
                     case DELETE_LINES -> edits.add(new LineEdit.EditFile(pf, beginLine, requireNonNull(endLine), ""));
                 }
@@ -313,20 +345,25 @@ public final class LineEditorParser {
         - <brk_edit_file path="<full/path>" type="insert" beginline=<int>> ...raw code... </brk_edit_file>
         - <brk_edit_file path="<full/path>" type="replace" beginline=<int> endline=<int>> ...raw code... </brk_edit_file>
         - <brk_edit_file path="<full/path>" type="delete_lines" beginline=<int> endline=<int>></brk_edit_file>
+        - <brk_edit_file path="<full/path>" type="prepend"> ...raw code... </brk_edit_file>
+        - <brk_edit_file path="<full/path>" type="append"> ...raw code... </brk_edit_file>
         - <brk_delete_file path="<full/path>" />
 
         Conventions:
         - Lines are 1-based and for REPLACE/DELETE_LINES the range [beginline, endline] is inclusive.
         - INSERT: provide beginline only. The new text is inserted at index (beginline - 1). For a new file, use beginline=1.
+        - PREPEND: insert the body at the start of the file. Do not provide beginline/endline. Creates the file if missing.
+        - APPEND: insert the body at the end of the file. Do not provide beginline/endline. Creates the file if missing.
         - REPLACE: supply beginline and endline; the range is replaced with the body.
         - DELETE_LINES: supply beginline and endline with an empty body.
         - Deleting a file: use <brk_delete_file path="..."/>.
 
         Requirements:
-        - type attribute is REQUIRED and must be one of: insert, replace, delete_lines.
+        - type attribute is REQUIRED and must be one of: insert, replace, delete_lines, prepend, append.
         - path attribute must be the FULL file path (exact string you see in the workspace) and must be quoted.
-        - beginline is REQUIRED and must be >= 1 for all types.
+        - beginline is REQUIRED and must be >= 1 for type="insert".
         - endline is REQUIRED only for type="replace" and type="delete_lines"; it MUST be omitted for type="insert".
+        - beginline and endline MUST be omitted for type="prepend" and type="append".
         - Close edit blocks with </brk_edit_file>.
         - DO NOT wrap edits in Markdown code fences (```), JSON, or any other wrapper.
         - DO NOT escape characters inside the edit body; raw code goes between the open/close tags.
@@ -362,7 +399,7 @@ public final class LineEditorParser {
                 2) Remove the old recursive implementation.
                 3) Replace the call site with math.factorial(n).
 
-                <brk_edit_file path="mathweb/flask/app.py" type="insert" beginline=1>import math
+                <brk_edit_file path="mathweb/flask/app.py" type="prepend">import math
                 </brk_edit_file>
 
                 <!-- delete the old factorial impl by replacing its range with an empty body -->
@@ -379,6 +416,7 @@ public final class LineEditorParser {
                 We will:
                 1) Create a new hello.py with hello().
                 2) Replace the function in main.py with an import.
+                3) Append a usage comment at the end of main.py.
 
                 <!-- create new file: insert entire file content at line 1 -->
                 <brk_edit_file path="hello.py" type="insert" beginline=1>def hello():
@@ -389,8 +427,12 @@ public final class LineEditorParser {
                 <!-- delete original function body in main.py by making the range empty -->
                 <brk_edit_file path="main.py" type="delete_lines" beginline=10 endline=15></brk_edit_file>
 
-                <!-- insert the import at the top of main.py -->
-                <brk_edit_file path="main.py" type="insert" beginline=1>from hello import hello
+                <!-- prepend the import at the top of main.py -->
+                <brk_edit_file path="main.py" type="prepend">from hello import hello
+                </brk_edit_file>
+
+                <!-- append a usage note at the end of main.py -->
+                <brk_edit_file path="main.py" type="append"># Usage: hello()
                 </brk_edit_file>
                 """.stripIndent())
         );
