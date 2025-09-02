@@ -369,7 +369,7 @@ public class CodeAgent {
             } else {
                 updatedConsecutiveParseFailures = 0;
                 messageForRetry = new UserMessage(getContinueFromLastEditPrompt(newlyParsedEdits.getLast()));
-                consoleLogForRetry = "Malformed or incomplete response after %d edits parsed; asking LLM to continue/fix"
+                consoleLogForRetry = "Malformed or incomplete response after %d Line Edits parsed; asking LLM to continue/fix"
                         .formatted(newlyParsedEdits.size());
             }
 
@@ -402,12 +402,12 @@ public class CodeAgent {
                     return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
                 }
                 messageForRetry = new UserMessage(
-                        "It looks like the response was cut off before you provided any edit tags. Please continue with your response.");
+                        "It looks like the response was cut off before you provided any Line Edit tags. Please continue with your response.");
                 consoleLogForRetry =
-                        "LLM indicated response was partial before any edits; counting as parse failure and asking to continue";
+                        "LLM indicated response was partial before any Line Edit tags; counting as parse failure and asking to continue";
             } else {
                 messageForRetry = new UserMessage(getContinueFromLastEditPrompt(newlyParsedEdits.getLast()));
-                consoleLogForRetry = "LLM indicated response was partial after %d clean edits; asking to continue"
+                consoleLogForRetry = "LLM indicated response was partial after %d clean Line Edits tags; asking to continue"
                         .formatted(newlyParsedEdits.size());
             }
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
@@ -606,23 +606,10 @@ public class CodeAgent {
      * @return A formatted string to be used as a UserMessage.
      */
     private static String getContinueFromLastEditPrompt(LineEdit lastEdit) {
-        String repr;
-        if (lastEdit instanceof LineEdit.EditFile ef) {
-            repr = """
-                   <brk_edit_file path="%s" beginline=%d endline=%d>
-                   %s
-                   </brk_edit_file>
-                   """
-                    .stripIndent()
-                    .formatted(ef.file(), ef.beginLine(), ef.endLine(), ef.content());
-        } else if (lastEdit instanceof LineEdit.DeleteFile df) {
-            repr = "<brk_delete_file path=\"%s\" />".formatted(df.file());
-        } else {
-            repr = lastEdit.toString();
-        }
+        var repr = LineEditorParser.repr(lastEdit);
 
         return """
-                It looks like we got cut off. The last edit I successfully parsed was:
+                It looks like we got cut off. The last Line Edit tag I successfully parsed was:
 
                 %s
 

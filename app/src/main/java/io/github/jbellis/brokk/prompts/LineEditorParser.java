@@ -364,18 +364,52 @@ public final class LineEditorParser {
      */
     public static String repr(OutputPart part) {
         if (part instanceof OutputPart.Delete(String path)) {
-            return "<brk_delete_file path=\"%s\" />".formatted(path);
+            return reprDelete(path);
         }
         if (part instanceof OutputPart.Edit(String path, int begin, int end, String content)) {
-            return """
-                   <brk_edit_file path="%s" beginline=%d endline=%d>
-                   %s
-                   </brk_edit_file>
-                   """.stripIndent().formatted(path, begin, end, content);
+            return reprEdit(path, begin, end, content);
         }
         if (part instanceof OutputPart.Text(String text)) {
             return text;
         }
         return part.toString();
+    }
+
+    /**
+     * Pretty-print a concrete LineEdit for logs and failure/continuation messages.
+     * Centralizes formatting so agents don't reconstruct tags manually.
+     */
+    public static String repr(LineEdit edit) {
+        if (edit instanceof LineEdit.DeleteFile(ProjectFile file)) {
+            return reprDelete(canonicalPath(file));
+        }
+        if (edit instanceof LineEdit.EditFile(ProjectFile file, int beginLine, int endLine, String content)) {
+            return reprEdit(
+                    canonicalPath(file),
+                    beginLine,
+                    endLine,
+                    content);
+        }
+        return edit.toString();
+    }
+
+    private static String reprDelete(String path) {
+        return "<brk_delete_file path=\"%s\" />".formatted(path);
+    }
+
+    private static String reprEdit(String path, int begin, int end, String content) {
+        return """
+               <brk_edit_file path="%s" beginline=%d endline=%d>
+               %s
+               </brk_edit_file>
+               """.stripIndent().formatted(path, begin, end, content);
+    }
+
+    /**
+     * Returns the canonical string path for a ProjectFile, used in tag formatting.
+     * This uses ProjectFile.toString(), which should correspond to the full workspace path.
+     */
+    private static String canonicalPath(ProjectFile file) {
+        return file.toString();
     }
 }
