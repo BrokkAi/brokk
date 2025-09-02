@@ -163,6 +163,72 @@ public class SessionManager implements AutoCloseable {
         });
     }
 
+    public record QuarantineResult(int moved, boolean activeQuarantined) {}
+
+    /**
+     * Scans the sessions directory for all .zip files, treating any with invalid UUID filenames or missing/invalid
+     * manifest.json as unreadable and moving them to the 'unreadable' subfolder. Returns a summary including whether
+     * the active session was quarantined.
+     *
+     * This runs synchronously; intended to be invoked from a background task.
+     */
+    public QuarantineResult quarantineUnreadableZips(@Nullable UUID activeSessionId) {
+        int moved = 0;
+        boolean activeQuarantined = false;
+
+        try (var stream = Files.list(sessionsDir)) {
+            for (Path zipPath : stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
+                String fileName = zipPath.getFileName().toString();
+                String idPart = fileName.substring(0, fileName.length() - 4);
+
+                UUID sessionId = null;
+                try {
+                    sessionId = UUID.fromString(idPart);
+                } catch (IllegalArgumentException e) {
+                    // Invalid UUID in filename => unreadable
+                }
+
+                boolean unreadable = false;
+                if (sessionId == null) {
+                    unreadable = true;
+                } else {
+                    // Try to read manifest.json; if missing/invalid, mark unreadable
+                    var info = readSessionInfoFromZip(zipPath);
+                    if (info.isEmpty()) {
+                        unreadable = true;
+                    } else {
+                        // Ensure cache includes this session
+                        sessionsCache.putIfAbsent(sessionId, info.get());
+                    }
+                }
+
+                if (unreadable) {
+                    try {
+                        Path unreadableDir = sessionsDir.resolve("unreadable");
+                        Files.createDirectories(unreadableDir);
+                        Path targetPath = unreadableDir.resolve(zipPath.getFileName());
+                        Files.move(zipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                        logger.info("Moved unreadable session zip {} to {}", fileName, unreadableDir);
+
+                        if (sessionId != null) {
+                            sessionsCache.remove(sessionId);
+                            if (activeSessionId != null && sessionId.equals(activeSessionId)) {
+                                activeQuarantined = true;
+                            }
+                        }
+                        moved++;
+                    } catch (IOException e) {
+                        logger.error("Error moving unreadable history zip {}: {}", fileName, e.getMessage());
+                    }
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
+        }
+
+        return new QuarantineResult(moved, activeQuarantined);
+    }
+
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
         var newSessionId = UUID.randomUUID();
         var currentTime = System.currentTimeMillis();
