@@ -28,6 +28,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     private final JButton applyButton;
 
     private boolean proxySettingsChanged = false; // Track if proxy needs restart
+    private boolean uiScaleSettingsChanged = false; // Track if UI scale needs restart
 
     public SettingsDialog(Frame owner, Chrome chrome) {
         super(owner, "Settings", true);
@@ -128,13 +129,14 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     }
 
     private void handleProxyRestartIfNeeded() {
-        if (proxySettingsChanged) {
+        if (proxySettingsChanged || uiScaleSettingsChanged) {
             JOptionPane.showMessageDialog(
                     this,
-                    "LLM Proxy settings have changed. Please restart Brokk to apply them.",
+                    "Some settings have changed (Proxy and/or UI Scale).\nPlease restart Brokk to apply them.",
                     "Restart Required",
                     JOptionPane.INFORMATION_MESSAGE);
-            proxySettingsChanged = false; // Reset flag
+            proxySettingsChanged = false;
+            uiScaleSettingsChanged = false;
         }
     }
 
@@ -159,6 +161,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         globalSettingsPanel.applyTheme(guiTheme);
         projectSettingsPanel.applyTheme(guiTheme);
         setSize(previousSize);
+    }
+
+    // Called by SettingsGlobalPanel when UI scale preference changes
+    public void markRestartNeededForUiScale() {
+        this.uiScaleSettingsChanged = true;
     }
 
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {

@@ -1013,6 +1013,29 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // UI Scale global preference
+    // Values:
+    //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
+    //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
+    private static final String UI_SCALE_KEY = "uiScale";
+
+    public static String getUiScalePref() {
+        var props = loadGlobalProperties();
+        return props.getProperty(UI_SCALE_KEY, "auto");
+    }
+
+    public static void setUiScalePrefAuto() {
+        var props = loadGlobalProperties();
+        props.setProperty(UI_SCALE_KEY, "auto");
+        saveGlobalProperties(props);
+    }
+
+    public static void setUiScalePrefCustom(double scale) {
+        var props = loadGlobalProperties();
+        props.setProperty(UI_SCALE_KEY, Double.toString(scale));
+        saveGlobalProperties(props);
+    }
+
     public static String getBrokkKey() {
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
