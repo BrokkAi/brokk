@@ -22,19 +22,28 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parser for the line-based edit format:
+ * Parser for the typed, line-based edit format:
  *
- * - <brk_delete_file path="..." />
- * - <brk_edit_file path="..." type="insert|replace|delete_lines" ...>...content...</brk_edit_file>
+ * <ul>
+ *   <li>{@code <brk_delete_file path="..." />}
+ *   <li>{@code <brk_edit_file path="..." type="insert" beginline=...>}
+ *   <li>{@code <brk_edit_file path="..." type="replace" beginline=... endline=...>}
+ *   <li>{@code <brk_edit_file path="..." type="delete_lines" beginline=... endline=...>}
+ * </ul>
  *
  * Notes:
- * - path must be quoted (single or double quotes)
- * - beginline/endline must be integers.
- * - Closing tag </brk_edit_file> is required.
+ * <ul>
+ *   <li>`path` must be quoted (single or double quotes).
+ *   <li>`type` is required for `brk_edit_file` and must be one of `insert`, `replace`, or
+ *       `delete_lines`.
+ *   <li>`beginline` is required for all `brk_edit_file` types.
+ *   <li>`endline` is required for `replace` and `delete_lines`, and must be omitted for `insert`.
+ *   <li>Closing tag `</brk_edit_file>` is required.
+ * </ul>
  *
- * This parser is read-only: it does not touch the filesystem. It returns a mixed stream
- * of OutputParts (plain text, edit, delete). The materialization to ProjectFile happens
- * in materializeEdits to keep parsing independent from workspace state.
+ * This parser is read-only: it does not touch the filesystem. It returns a mixed stream of
+ * OutputParts (plain text, edit, delete). The materialization to ProjectFile happens in
+ * `materializeEdits` to keep parsing independent from workspace state.
  */
 public final class LineEditorParser {
 
@@ -176,13 +185,15 @@ public final class LineEditorParser {
                 if (type == Type.INSERT) {
                     if (begin == null) {
                         error = "brk_edit_file with type=\"insert\" must have a beginline attribute.";
+                    } else if (end != null) {
+                        error = "brk_edit_file with type=\"insert\" MUST NOT have an endline attribute.";
                     }
                 } else { // REPLACE or DELETE_LINES
                     if (begin == null || end == null) {
                         error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline and endline attributes.";
                     } else if (begin > end) {
                         error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline <= endline.";
-                    } else if (type == Type.DELETE_LINES && !body.isEmpty()) {
+                    } else if (type == Type.DELETE_LINES && !body.trim().isEmpty()) {
                         error = "brk_edit_file with type=\"delete_lines\" must have an empty body.";
                     }
                 }
@@ -299,20 +310,24 @@ public final class LineEditorParser {
         # Line-Edit Tag Rules (use exactly this format)
 
         Provide file edits using only these tags (no backticks, no diff format, no JSON, no YAML):
-        - <brk_edit_file path="<full/path>" beginline=<int> endline=<int>> ...raw code... </brk_edit_file>
+        - <brk_edit_file path="<full/path>" type="insert" beginline=<int>> ...raw code... </brk_edit_file>
+        - <brk_edit_file path="<full/path>" type="replace" beginline=<int> endline=<int>> ...raw code... </brk_edit_file>
+        - <brk_edit_file path="<full/path>" type="delete_lines" beginline=<int> endline=<int>></brk_edit_file>
         - <brk_delete_file path="<full/path>" />
 
         Conventions:
-        - Lines are 1-based and the replacement range [beginline, endline] is inclusive.
-        - Insertion: set endline < beginline. Example: beginline=1 endline=0 inserts at the start of the file.
-          Appending is beginline=(n+1), endline=0 where n is the current number of lines.
-        - Deleting lines: use an empty body in <brk_edit_file> for the given range.
+        - Lines are 1-based and for REPLACE/DELETE_LINES the range [beginline, endline] is inclusive.
+        - INSERT: provide beginline only. The new text is inserted at index (beginline - 1). For a new file, use beginline=1.
+        - REPLACE: supply beginline and endline; the range is replaced with the body.
+        - DELETE_LINES: supply beginline and endline with an empty body.
         - Deleting a file: use <brk_delete_file path="..."/>.
 
         Requirements:
+        - type attribute is REQUIRED and must be one of: insert, replace, delete_lines.
         - path attribute must be the FULL file path (exact string you see in the workspace) and must be quoted.
-        - beginline and endline are integers; beginline >= 1 and endline >= 0.
-        - Close edit blocks with </brk_edit_file>. (We also accept </brk_update_file>.)
+        - beginline is REQUIRED and must be >= 1 for all types.
+        - endline is REQUIRED only for type="replace" and type="delete_lines"; it MUST be omitted for type="insert".
+        - Close edit blocks with </brk_edit_file>.
         - DO NOT wrap edits in Markdown code fences (```), JSON, or any other wrapper.
         - DO NOT escape characters inside the edit body; raw code goes between the open/close tags.
         - DO NOT use unified diff, +/- prefixes, or any other diff-like markers.
@@ -324,10 +339,10 @@ public final class LineEditorParser {
         - Use ASCII quotes only (no "smart quotes").
 
         Creating a brand new file:
-        - Insert its entire content with a single block: beginline=1 endline=0 and the file's content in the body.
+        - Use type="insert" with beginline=1 and the entire file content in the body.
 
         Moving code between files:
-        - Use two edits: (1) delete the old range with an empty body, (2) insert at the new location.
+        - Use two edits: (1) delete_lines for the old range, (2) insert at the new location.
 
         If a file is read-only or not present, ask the user to make it editable or add it to the workspace.
         """.stripIndent();
@@ -347,15 +362,14 @@ public final class LineEditorParser {
                 2) Remove the old recursive implementation.
                 3) Replace the call site with math.factorial(n).
 
-                <brk_edit_file path="mathweb/flask/app.py" beginline=1 endline=1>import math
+                <brk_edit_file path="mathweb/flask/app.py" type="insert" beginline=1>import math
                 </brk_edit_file>
 
                 <!-- delete the old factorial impl by replacing its range with an empty body -->
-                <brk_edit_file path="mathweb/flask/app.py" beginline=12 endline=18>
-                </brk_edit_file>
+                <brk_edit_file path="mathweb/flask/app.py" type="delete_lines" beginline=12 endline=18></brk_edit_file>
 
                 <!-- update the return to call math.factorial -->
-                <brk_edit_file path="mathweb/flask/app.py" beginline=25 endline=25>return str(math.factorial(n))
+                <brk_edit_file path="mathweb/flask/app.py" type="replace" beginline=25 endline=25>return str(math.factorial(n))
                 </brk_edit_file>
                 """.stripIndent()),
 
@@ -366,18 +380,17 @@ public final class LineEditorParser {
                 1) Create a new hello.py with hello().
                 2) Replace the function in main.py with an import.
 
-                <!-- create new file: insert at start of an empty file -->
-                <brk_edit_file path="hello.py" beginline=1 endline=0>def hello():
+                <!-- create new file: insert entire file content at line 1 -->
+                <brk_edit_file path="hello.py" type="insert" beginline=1>def hello():
                     \"\"\"print a greeting\"\"\"
                     print("hello")
                 </brk_edit_file>
 
                 <!-- delete original function body in main.py by making the range empty -->
-                <brk_edit_file path="main.py" beginline=10 endline=15>
-                </brk_edit_file>
+                <brk_edit_file path="main.py" type="delete_lines" beginline=10 endline=15></brk_edit_file>
 
                 <!-- insert the import at the top of main.py -->
-                <brk_edit_file path="main.py" beginline=1 endline=0>from hello import hello
+                <brk_edit_file path="main.py" type="insert" beginline=1>from hello import hello
                 </brk_edit_file>
                 """.stripIndent())
         );

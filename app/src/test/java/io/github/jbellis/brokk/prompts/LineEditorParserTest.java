@@ -20,11 +20,11 @@ class LineEditorParserTest {
     void parse_singleEdit() {
         var input = """
                 Intro text
-                <brk_edit_file path="src/Main.java" beginline=10 endline=12>
+                <brk_edit_file path="src/Main.java" type="replace" beginline=10 endline=12>
                 System.out.println("Replaced!");
                 </brk_edit_file>
                 Outro
-                """;
+                """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
@@ -58,12 +58,12 @@ class LineEditorParserTest {
     void parse_mixedAndBodyPreserved() {
         var input = """
                 Before
-                <brk_edit_file path="x.txt" beginline=1 endline=0>
+                <brk_edit_file path="x.txt" type="insert" beginline=1>
                 // Content can include angle brackets: <not a tag>
                 </brk_edit_file>
                 <brk_delete_file path="y.txt" />
                 After
-                """;
+                """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
         assertTrue(
@@ -84,10 +84,10 @@ class LineEditorParserTest {
     @Test
     void parse_reportsMissingAttributesButKeepsText() {
         var input = """
-                <brk_edit_file path="a.txt" beginline=5>
+                <brk_edit_file path="a.txt" type="replace" beginline=5>
                 body
                 </brk_edit_file>
-                """;
+                """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
         assertNotNull(r.parseError(), "Expected a parse error for missing endline attribute");
 
@@ -102,17 +102,16 @@ class LineEditorParserTest {
     }
 
     @Test
-    void parse_acceptsAliasClosingTag() {
-        var input = "<brk_edit_file path=\"a.txt\" beginline=1 endline=1>x</brk_update_file>";
+    void parse_rejectsAliasClosingTag() {
+        var input = "<brk_edit_file path=\"a.txt\" type=\"replace\" beginline=1 endline=1>x</brk_update_file>";
         var r = LineEditorParser.instance.parse(input);
-        assertNull(r.parseError(), "Expected no parse errors");
-        assertEquals(1, r.parts().size(), "Expected a single edit part");
-        assertInstanceOf(LineEditorParser.OutputPart.Edit.class, r.parts().get(0));
-        var edit = (LineEditorParser.OutputPart.Edit) r.parts().get(0);
-        assertEquals("a.txt", edit.path());
-        assertEquals(1, edit.beginLine());
-        assertEquals(1, edit.endLine());
-        assertEquals("x", edit.content());
+        assertNotNull(r.parseError(), "Expected a parse error for missing closing tag");
+        assertTrue(r.parseError().contains("Missing closing </brk_edit_file> tag"));
+
+        // When the close tag is missing, the parser treats the rest of the content as text
+        // attached to the failed open tag.
+        var textPart = (LineEditorParser.OutputPart.Text) r.parts().get(0);
+        assertTrue(textPart.text().contains("</brk_update_file>"));
     }
 
     @Test
@@ -120,8 +119,8 @@ class LineEditorParserTest {
         var ctx = new TestContextManager(tempDir, new NoOpConsoleIO());
         var input = """
                 <brk_delete_file path="gone.txt" />
-                <brk_edit_file path="foo/bar.txt" beginline=2 endline=3>NEW</brk_edit_file>
-                """;
+                <brk_edit_file path="foo/bar.txt" type="replace" beginline=2 endline=3>NEW</brk_edit_file>
+                """.stripIndent();
         var parsed = LineEditorParser.instance.parse(input);
         var edits = LineEditorParser.instance.materializeEdits(parsed, ctx);
         assertEquals(2, edits.size());

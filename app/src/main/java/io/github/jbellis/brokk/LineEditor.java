@@ -14,12 +14,18 @@ import org.apache.logging.log4j.Logger;
 /**
  * Apply line-based edits described by LineEdit objects to the workspace.
  *
- * Semantics:
- * - Lines are 1-based and the replacement range is inclusive.
- * - Insertion: endLine < beginLine. Insert at index (beginLine - 1).
- *   Valid insertion positions are 1..(n + 1); inserting into a missing file is allowed (file is created).
- * - Replacement: beginLine <= endLine. File must already exist (strict option A).
- *   Range must satisfy 1 <= beginLine <= endLine <= n.
+ * <p>This class operates on the internal representation of edits. See {@link LineEdit} for details
+ * on how external typed tags (e.g., `type="insert"`) are mapped to this model.
+ *
+ * <p>Semantics:
+ *
+ * <ul>
+ *   <li>Lines are 1-based and the replacement range is inclusive.
+ *   <li>Insertion: `endLine < beginLine`. Insert at index (`beginLine` - 1). Valid insertion
+ *       positions are 1..(n + 1); inserting into a missing file is allowed (file is created).
+ *   <li>Replacement: `beginLine <= endLine`. File must already exist (strict option A). Range must
+ *       satisfy 1 <= `beginLine` <= `endLine` <= n.
+ * </ul>
  *
  * File content is written with a trailing newline if non-empty.
  */
@@ -154,7 +160,7 @@ public final class LineEditor {
             failures.add(new FailedEdit(
                     ef,
                     FailureReason.FILE_NOT_FOUND,
-                    "Replacement on non-existent file requires insertion (endline < beginline)."));
+                    "Replacement on non-existent file is not allowed. Use type=\"insert\" with beginline=1 and omit endline to create a new file."));
             return;
         }
 

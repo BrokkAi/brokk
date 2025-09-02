@@ -14,10 +14,9 @@ class ContextManagerRedactionTest {
 
     private String createSingleLineEditTag() {
         return """
-               <brk_edit_file path="foo.txt" beginline=2 endline=3>
+               <brk_edit_file path="foo.txt" type="replace" beginline=2 endline=3>
                new line
-               </brk_edit_file>
-               """;
+               </brk_edit_file>""".stripIndent();
     }
 
     @Test

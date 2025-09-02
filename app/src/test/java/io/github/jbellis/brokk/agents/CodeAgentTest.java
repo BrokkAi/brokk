@@ -127,7 +127,7 @@ class CodeAgentTest {
         // the block, and the prose will be ignored when materializing edits.
         String llmText =
                 """
-                         <brk_edit_file path="file.java" beginline=1 endline=1>
+                         <brk_edit_file path="file.java" type="replace" beginline=1 endline=1>
                          System.out.println("World");
                          </brk_edit_file>
                          This is some trailing text.
@@ -166,7 +166,7 @@ class CodeAgentTest {
         var loopContext = createBasicLoopContext("test goal");
         String llmTextWithBlock =
                 """
-                                  <brk_edit_file path="file.java" beginline=1 endline=1>
+                                  <brk_edit_file path="file.java" type="replace" beginline=1 endline=1>
                                   System.out.println("World");
                                   </brk_edit_file>
                                   """;
@@ -393,7 +393,7 @@ class CodeAgentTest {
 
         var firstResponse =
                 """
-                            <brk_edit_file path="test.txt" beginline=1 endline=1>
+                            <brk_edit_file path="test.txt" type="replace" beginline=1 endline=1>
                             goodbye
                             </brk_edit_file>
                             """;

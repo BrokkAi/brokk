@@ -125,7 +125,7 @@ public abstract class CodePrompts {
         var parts = parsed.parts();
         for (LineEditorParser.OutputPart p : parts) {
             if (p instanceof LineEditorParser.OutputPart.Text(String text)) {
-                if (!text.isBlank()) sb.append(text);
+                sb.append(text);
             } else {
                 sb.append("[elided Line-Edit tag]");
             }
@@ -861,8 +861,8 @@ public abstract class CodePrompts {
                 Fix the edits by correcting line ranges or paths and return only <brk_edit_file>/<brk_delete_file> tags.
 
                 Tips:
-                - INVALID_LINE_RANGE means the begin/end lines are outside the file's bounds or inverted incorrectly.
-                - FILE_NOT_FOUND means the path is wrong or the file does not exist; if creating a new file, use insertion with endline < beginline on an empty/new file.
+                - INVALID_LINE_RANGE means begin/end lines are outside the file's current bounds. For `replace` or `delete_lines`, `beginline` must be <= `endline`.
+                - FILE_NOT_FOUND means the path is wrong. To create a new file, you must use `type="insert"` with `beginline=1` and omit `endline`.
                 - IO_ERROR indicates the editor could not write or delete the file; check path and permissions.
 
                 Provide corrected Line-Edit tags for the failed edits only.
