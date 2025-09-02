@@ -5,8 +5,10 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.webview.MOPBridge;
@@ -22,18 +24,20 @@ import java.util.function.Consumer;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations. This is a modern, web-based
  * alternative to the pure-Swing MarkdownOutputPanel.
  */
-public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable {
+public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
     private final MOPWebViewHost webHost;
     private boolean blockClearAndReset = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+    private @Nullable IContextManager currentContextManager;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -77,7 +81,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void updateTheme(boolean isDark) {
-        webHost.setTheme(isDark);
+        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+        webHost.setRuntimeTheme(isDark, isDevMode);
     }
 
     public void setBlocking(boolean blocked) {
@@ -244,8 +249,37 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
+    public void withContextForLookups(@Nullable IContextManager contextManager, @Nullable Chrome chrome) {
+        // Unregister from previous context manager if it exists
+        if (currentContextManager != null) {
+            currentContextManager.removeAnalyzerCallback(this);
+        }
+
+        // Register with new context manager if it exists
+        if (contextManager != null) {
+            contextManager.addAnalyzerCallback(this);
+        }
+
+        currentContextManager = contextManager;
+        webHost.setContextManager(contextManager);
+        webHost.setSymbolRightClickHandler(chrome);
+    }
+
+    @Override
+    public void onAnalyzerReady() {
+        String contextId = webHost.getContextCacheId();
+        webHost.onAnalyzerReadyResponse(contextId);
+    }
+
     public void dispose() {
         logger.debug("Disposing WebViewMarkdownOutputPanel.");
+
+        // Unregister analyzer callback before disposing
+        if (currentContextManager != null) {
+            currentContextManager.removeAnalyzerCallback(this);
+            currentContextManager = null;
+        }
+
         webHost.dispose();
     }
 }

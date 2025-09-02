@@ -3,7 +3,10 @@ package io.github.jbellis.brokk.gui.util;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import javax.swing.*;
 
-public class Icons {
+public final class Icons {
+
+    private Icons() {}
+
     public static final Icon REFRESH = SwingUtil.uiIcon("Brokk.refresh");
     public static final Icon FOLDER_CODE = SwingUtil.uiIcon("Brokk.folder_code");
     public static final Icon COMMIT = SwingUtil.uiIcon("Brokk.commit");
@@ -20,4 +23,6 @@ public class Icons {
     public static final Icon OPEN_IN_BROWSER = SwingUtil.uiIcon("Brokk.open_in_browser");
     public static final Icon VISIBILITY = SwingUtil.uiIcon("Brokk.visibility");
     public static final Icon VISIBILITY_OFF = SwingUtil.uiIcon("Brokk.visibility_off");
+    public static final Icon MIC = SwingUtil.uiIcon("Brokk.mic");
+    public static final Icon MIC_OFF = SwingUtil.uiIcon("Brokk.mic_off");
 }

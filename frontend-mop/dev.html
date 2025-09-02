@@ -40,6 +40,20 @@
     <button onclick="window.brokk.scrollToCurrent()">Scroll To Current</button>
     <p>Search State: <span id="search-state-display">N/A</span></p>
 
+    <h3>Symbol Lookup Testing</h3>
+    <div id="symbol-test-controls">
+        <button onclick="showSymbolTestContent()">Load Symbol Test Content</button>
+        <button onclick="streamSymbolTestContent()">Stream Symbol Test Content</button>
+        <button onclick="showJavaSymbols()">Show Java Symbols</button>
+        <button onclick="showPythonSymbols()">Show Python Symbols</button>
+        <button onclick="showJavaScriptSymbols()">Show JavaScript Symbols</button>
+        <button onclick="showMixedSymbols()">Show Mixed Symbols</button>
+        <button onclick="listMockSymbols()">List Mock Database</button>
+    </div>
+    <div id="symbol-status" style="margin: 10px 0; font-family: monospace; font-size: 12px; color: #666;">
+        Mock Symbol Database: <span id="symbol-count">0</span> symbols loaded
+    </div>
+
     <textarea id="md-playground"
               placeholder="Type Markdown here..."
               style="width:100%;height:150px;margin:1em 0;box-sizing:border-box;"></textarea>
@@ -84,6 +98,80 @@
             const stateDisplay = document.getElementById('search-state-display');
             if (stateDisplay) {
                 stateDisplay.textContent = `Total: ${total}, Current: ${current}`;
+            }
+        },
+
+        // Mock symbols for testing - shared across functions
+        _mockSymbolsSet: new Set([
+            // Java symbols
+            'String', 'List', 'Map', 'ArrayList', 'HashMap', 'Set', 'Collection',
+            'toString', 'size', 'add', 'get', 'put', 'remove', 'contains', 'isEmpty',
+            'Object', 'Class', 'Exception', 'Thread', 'Runnable',
+            // Python symbols
+            'list', 'dict', 'str', 'int', 'float', 'bool', 'len', 'range',
+            'append', 'keys', 'values', 'items', 'pop', 'extend', 'join',
+            'print', 'input', 'open', 'close', 'read', 'write',
+            // JavaScript/TypeScript symbols
+            'var', 'let', 'const', 'function', 'class', 'interface', 'type',
+            'Array', 'Object', 'Promise', 'async', 'await', 'console',
+            'document', 'window', 'setTimeout', 'setInterval',
+            // Generic programming terms
+            'parser', 'lexer', 'token', 'node', 'tree', 'visitor',
+            'handler', 'callback', 'iterator', 'stream', 'buffer'
+        ]),
+
+        // Unified symbol lookup implementation for new store-based architecture
+        lookupSymbolsAsync: function(symbolNamesJson, seq, contextId) {
+            console.log(`[Mock JavaBridge] Lookup request received: symbols=${symbolNamesJson}, seq=${seq}, contextId=${contextId}`);
+            const results = {};
+
+            // Parse symbols from JSON
+            const symbols = JSON.parse(symbolNamesJson);
+            console.log(`[Mock JavaBridge] Processing ${symbols.length} symbols:`, symbols);
+
+            for (const symbol of symbols) {
+                const exists = this._mockSymbolsSet.has(symbol);
+                if (exists) {
+                    results[symbol] = `com.example.mock.${symbol}`;  // FQN for existing symbols
+                }
+            }
+
+            console.log(`[Mock JavaBridge] Results:`, results);
+
+            // Simulate async behavior, then call the response handler
+            setTimeout(() => {
+                if (window.brokk?.onSymbolLookupResponse) {
+                    // Always use the new signature with sequence and contextId
+                    window.brokk.onSymbolLookupResponse(results, seq, contextId);
+                    console.log(`[Mock JavaBridge] Response sent with seq=${seq}, contextId=${contextId}`);
+                } else {
+                    console.error('[Mock JavaBridge] Response handler not available');
+                }
+            }, 50); // 50ms delay to simulate async behavior
+        },
+
+        // Helper for debugging
+        jsLog: function(level, message) {
+            console.log(`[Mock JavaBridge ${level}] ${message}`);
+        },
+
+
+        // Mock symbol click implementation
+        onSymbolClick: function(symbolName, symbolExists, symbolFqn, x, y) {
+            console.log(`[Mock JavaBridge] Click on ${symbolName}`);
+
+            // Simulate context menu with basic actions
+            const actions = [];
+            if (symbolExists) {
+                actions.push('Open in Preview');
+                actions.push('Open in Project Tree');
+            }
+            actions.push('Copy Symbol Name');
+
+            const selectedAction = confirm(`Symbol: ${symbolName} (${symbolExists ? 'exists' : 'does not exist'})\nFQN: ${symbolFqn || 'N/A'}\n\nAvailable actions:\n${actions.map((action, i) => `${i + 1}. ${action}`).join('\n')}\n\nClick OK to simulate opening context menu, Cancel to ignore.`);
+
+            if (selectedAction) {
+                console.log(`[Mock JavaBridge] Context menu opened`);
             }
         }
     };
@@ -835,6 +923,252 @@ if (buffer.length > 0) {
         }
     }
 
+    // Symbol testing functions
+    function showSymbolTestContent() {
+        const content = `# Symbol Lookup Test Cases
+
+## Java Symbols (Should be highlighted)
+Common classes: \`String\`, \`List\`, \`Map\`, \`ArrayList\`, \`HashMap\`, \`Set\`
+Methods: \`toString\`, \`size\`, \`add\`, \`get\`, \`put\`, \`remove\`, \`contains\`
+Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
+
+## Python Symbols (Should be highlighted)
+Built-ins: \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`len\`, \`range\`
+Methods: \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
+Functions: \`print\`, \`input\`, \`open\`, \`close\`, \`read\`, \`write\`
+
+## JavaScript Symbols (Should be highlighted)
+Keywords: \`var\`, \`let\`, \`const\`, \`function\`, \`class\`, \`interface\`, \`async\`, \`await\`
+Built-ins: \`Array\`, \`Object\`, \`Promise\`, \`console\`, \`document\`, \`window\`
+
+## Programming Terms (Should be highlighted)
+Concepts: \`parser\`, \`lexer\`, \`token\`, \`node\`, \`tree\`, \`visitor\`
+Patterns: \`handler\`, \`callback\`, \`iterator\`, \`stream\`, \`buffer\`
+
+## Unknown Symbols (Should NOT be highlighted)
+These should appear normal: \`fakeSymbol\`, \`nonExistent\`, \`madeUpClass\`, \`bogusMethod\`
+
+## Mixed Test
+Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\` and \`invalid\`
+
+**Instructions:** Highlighted symbols should have underlines and change cursor to pointer on hover. Click on them to test interactions!`;
+
+        window.brokk.clear();
+        simulateEvent('chunk', {
+            text: content,
+            msgType: 'AI',
+            streaming: false
+        });
+    }
+
+    function streamSymbolTestContent() {
+        const content = `# Streaming Symbol Lookup Test
+
+## Java Symbols (Should be highlighted progressively)
+Common classes: \`String\`, \`List\`, \`Map\`, \`ArrayList\`, \`HashMap\`, \`Set\`
+Methods: \`toString\`, \`size\`, \`add\`, \`get\`, \`put\`, \`remove\`, \`contains\`
+Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
+
+## Python Symbols (Should be highlighted progressively)
+Built-ins: \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`len\`, \`range\`
+Methods: \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
+Functions: \`print\`, \`input\`, \`open\`, \`close\`, \`read\`, \`write\`
+
+## JavaScript Symbols (Should be highlighted progressively)
+Keywords: \`var\`, \`let\`, \`const\`, \`function\`, \`class\`, \`interface\`, \`async\`, \`await\`
+Built-ins: \`Array\`, \`Object\`, \`Promise\`, \`console\`, \`document\`, \`window\`
+
+## Programming Terms (Should be highlighted progressively)
+Concepts: \`parser\`, \`lexer\`, \`token\`, \`node\`, \`tree\`, \`visitor\`
+Patterns: \`handler\`, \`callback\`, \`iterator\`, \`stream\`, \`buffer\`
+
+## Mixed Test - Streaming
+Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\` and \`invalid\`
+
+**Instructions:** This tests the throttled symbol resolution during streaming. Symbols should appear unhighlighted first, then get highlighted in batches as the streaming throttle processes them!`;
+
+        window.brokk.clear();
+
+        // Split content into chunks and stream them with delays
+        const chunks = content.match(/[\s\S]{1,50}/g) || [];
+        let index = 0;
+
+        const streamInterval = setInterval(() => {
+            if (index < chunks.length) {
+                simulateEvent('chunk', {
+                    text: chunks[index],
+                    msgType: 'AI',
+                    streaming: true
+                });
+                index++;
+            } else {
+                clearInterval(streamInterval);
+                console.log('[Dev] Streaming symbol test completed - should see throttled symbol resolution');
+            }
+        }, 50); // 50ms between chunks to simulate real streaming
+    }
+
+    function showJavaSymbols() {
+        const content = `# Java Symbol Test
+
+\`\`\`java
+public class Example {
+    private List<String> items = new ArrayList<>();
+    private Map<String, Object> data = new HashMap<>();
+
+    public void addItem(String item) {
+        items.add(item);
+        data.put("count", items.size());
+    }
+
+    public String toString() {
+        return items.toString();
+    }
+
+    public boolean isEmpty() {
+        return items.isEmpty();
+    }
+}
+\`\`\`
+
+**Inline Java symbols to test:** \`String\`, \`List\`, \`ArrayList\`, \`Map\`, \`HashMap\`, \`Object\`
+
+**Methods:** \`add\`, \`put\`, \`get\`, \`size\`, \`toString\`, \`isEmpty\`, \`contains\`, \`remove\`
+
+**Core classes:** \`Class\`, \`Exception\`, \`Thread\`, \`Runnable\`, \`Collection\``;
+
+        window.brokk.clear();
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+    }
+
+    function showPythonSymbols() {
+        const content = `# Python Symbol Test
+
+\`\`\`python
+def process_data():
+    items = list()
+    data = dict()
+
+    for i in range(10):
+        items.append(str(i))
+
+    data['items'] = items
+    data['count'] = len(items)
+
+    print(data.keys())
+    return data.values()
+\`\`\`
+
+**Inline Python symbols to test:** \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`range\`, \`len\`
+
+**Methods:** \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
+
+**Functions:** \`print\`, \`input\`, \`open\`, \`close\`, \`read\`, \`write\``;
+
+        window.brokk.clear();
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+    }
+
+    function showJavaScriptSymbols() {
+        const content = `# JavaScript/TypeScript Symbol Test
+
+\`\`\`javascript
+async function processData() {
+    const items = new Array();
+    let data = {};
+
+    for (let i = 0; i < 10; i++) {
+        items.push(i);
+    }
+
+    const promise = new Promise(resolve => {
+        setTimeout(() => resolve(items), 100);
+    });
+
+    const result = await promise;
+    console.log(result);
+    return result;
+}
+\`\`\`
+
+**Inline JS symbols to test:** \`var\`, \`let\`, \`const\`, \`function\`, \`class\`, \`async\`, \`await\`
+
+**Built-ins:** \`Array\`, \`Object\`, \`Promise\`, \`console\`, \`setTimeout\`, \`setInterval\`
+
+**Browser:** \`document\`, \`window\`
+
+**TypeScript:** \`interface\`, \`type\``;
+
+        window.brokk.clear();
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+    }
+
+    function showMixedSymbols() {
+        const content = `# Mixed Symbol Test - Real vs Fake
+
+## Should be highlighted (exist in mock DB):
+Java: \`String\`, \`List\`, \`Map\`, \`ArrayList\`
+Python: \`list\`, \`dict\`, \`len\`, \`append\`
+JavaScript: \`var\`, \`function\`, \`Array\`, \`Promise\`
+Programming: \`parser\`, \`lexer\`, \`token\`, \`handler\`
+
+## Should NOT be highlighted (don't exist):
+Fake Java: \`FakeString\`, \`BogusList\`, \`WrongMap\`
+Fake Python: \`fakelist\`, \`wrongdict\`, \`badlen\`
+Fake JS: \`fakevar\`, \`bogusfunction\`, \`wrongarray\`
+Fake terms: \`fakeparser\`, \`wronglexer\`, \`badtoken\`
+
+## Realistic mixed context:
+"The \`parser\` uses a \`lexer\` to create \`token\` objects, but \`fakeparser\` and \`wronglexer\` don't exist."
+
+"Initialize a \`List\` with \`ArrayList\`, not with \`FakeList\` or \`BogusList\`."
+
+This tests the visual difference between real and fake symbols!`;
+
+        window.brokk.clear();
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+    }
+
+    function listMockSymbols() {
+        const symbols = Array.from(window.javaBridge._mockSymbolsSet).sort();
+        const symbolList = symbols.map(s => `- \`${s}\``).join('\n');
+        const content = `# Mock Symbol Database (${symbols.length} symbols)
+
+## All Available Symbols:
+${symbolList}
+
+## Usage:
+These symbols will be highlighted when they appear in inline code blocks.
+Symbols get the \`.symbol-exists\` CSS class which adds:
+- Underline decoration
+- Pointer cursor on hover
+- Light blue background on hover
+
+**Test it:** Try typing some of these symbols in the markdown playground below!`;
+
+        window.brokk.clear();
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false });
+    }
+
+    // Update symbol count display
+    function updateSymbolCount() {
+        const count = window.javaBridge._mockSymbolsSet.size;
+        const symbolCountEl = document.getElementById('symbol-count');
+        if (symbolCountEl) {
+            symbolCountEl.textContent = count;
+        }
+    }
+
+    // Ensure functions are available globally for onclick handlers
+    window.showSymbolTestContent = showSymbolTestContent;
+    window.streamSymbolTestContent = streamSymbolTestContent;
+    window.showJavaSymbols = showJavaSymbols;
+    window.showPythonSymbols = showPythonSymbols;
+    window.showJavaScriptSymbols = showJavaScriptSymbols;
+    window.showMixedSymbols = showMixedSymbols;
+    window.listMockSymbols = listMockSymbols;
+    window.updateSymbolCount = updateSymbolCount;
+
     (function () {
         const mdInput = document.getElementById('md-playground');
         let rafId = 0;
@@ -851,8 +1185,9 @@ if (buffer.length > 0) {
             });
         });
 
-        // Initialize search state display on load
+        // Initialize search state display and symbol count on load
         getSearchStateAndDisplay();
+        updateSymbolCount();
     })();
 
 </script>

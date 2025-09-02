@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.InMemoryRepo;
@@ -73,7 +72,7 @@ class EditBlockTest {
 
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
-        assertEquals("foo.txt", blocks[0].filename().toString());
+        assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
         assertEquals("Tooooo\n", blocks[0].afterText());
     }
@@ -99,7 +98,7 @@ class EditBlockTest {
 
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
-        assertEquals("foo.txt", blocks[0].filename().toString());
+        assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
         assertEquals("Tooooo\n", blocks[0].afterText());
     }
@@ -134,11 +133,11 @@ class EditBlockTest {
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(2, blocks.length);
         // first block
-        assertEquals("foo.txt", blocks[0].filename().toString());
+        assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("one\n", blocks[0].beforeText());
         assertEquals("two\n", blocks[0].afterText());
         // second block
-        assertEquals("foo.txt", blocks[1].filename().toString());
+        assertEquals("foo.txt", blocks[1].rawFileName().toString());
         assertEquals("three\n", blocks[1].beforeText());
         assertEquals("four\n", blocks[1].afterText());
     }
@@ -203,10 +202,10 @@ class EditBlockTest {
 
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
-        assertEquals("filename/to/a/file2.txt", blocks[0].filename());
+        assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
         assertEquals("", blocks[0].beforeText().trim());
         assertEquals("three", blocks[0].afterText().trim());
-        assertEquals("filename/to/a/file1.txt", blocks[1].filename());
+        assertEquals("filename/to/a/file1.txt", blocks[1].rawFileName());
         assertEquals("one", blocks[1].beforeText().trim());
         assertEquals("two", blocks[1].afterText().trim());
     }
@@ -242,8 +241,6 @@ class EditBlockTest {
         var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getEditableFiles())
                 .blocks();
-        var ca = new CodeAgent(ctx, new Service.UnavailableStreamingModel());
-        ca.preCreateNewFiles(blocks);
         EditBlock.applyEditBlocks(ctx, io, blocks);
 
         // existing filename
@@ -285,6 +282,36 @@ class EditBlockTest {
         var result = EditBlock.applyEditBlocks(ctx, io, blocks);
 
         assertNotEquals(List.of(), result.failedBlocks());
+    }
+
+    @Test
+    void testApplyEditsFailsForInvalidFilename(@TempDir Path tempDir) throws IOException {
+        TestConsoleIO io = new TestConsoleIO();
+
+        String invalidFilename = "invalid\0filename.txt";
+        String response =
+                """
+                          ```
+                          %s
+                          <<<<<<< SEARCH
+                          a
+                          =======
+                          b
+                          >>>>>>> REPLACE
+                          ```
+                          """
+                        .formatted(invalidFilename);
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of());
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getEditableFiles())
+                .blocks();
+        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+
+        assertEquals(1, result.failedBlocks().size());
+        assertEquals(
+                EditBlock.EditBlockFailureReason.FILE_NOT_FOUND,
+                result.failedBlocks().getFirst().reason());
     }
 
     /**
@@ -335,13 +362,12 @@ class EditBlockTest {
         TestContextManager ctx = new TestContextManager(tempDir, Set.of());
         var result = EditBlockParser.instance.parseEditBlocks(edit, ctx.getEditableFiles());
         assertEquals(1, result.blocks().size());
-        assertNull(result.blocks().getFirst().filename());
+        assertNull(result.blocks().getFirst().rawFileName());
     }
 
     /** Test detection of a possible "mangled" or fuzzy filename match. */
     @Test
-    void testResolveFilenameIgnoreCase(@TempDir Path tempDir)
-            throws EditBlock.SymbolAmbiguousException, EditBlock.SymbolNotFoundException {
+    void testResolveFilenameIgnoreCase(@TempDir Path tempDir) throws EditBlock.SymbolResolutionException {
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
         var f = EditBlock.resolveProjectFile(ctx, "fOo.TXt");
         assertEquals("foo.txt", f.getFileName());
@@ -485,7 +511,7 @@ class EditBlockTest {
         assertNull(result.parseError(), "No parse errors expected");
 
         var block = result.blocks().getFirst();
-        assertEquals("foo.txt", block.filename());
+        assertEquals("foo.txt", block.rawFileName());
         assertEquals("old line\n", block.beforeText());
         assertEquals("new line\n", block.afterText());
     }

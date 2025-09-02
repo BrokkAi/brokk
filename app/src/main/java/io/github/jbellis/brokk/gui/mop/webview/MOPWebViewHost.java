@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
@@ -32,6 +33,12 @@ public final class MOPWebViewHost extends JPanel {
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile boolean darkTheme = true; // Default to dark theme
+    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+
+    // Bridge readiness tracking
+    private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
+    private volatile boolean bridgeInitialized = false;
 
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
@@ -48,7 +55,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
@@ -91,6 +98,13 @@ public final class MOPWebViewHost extends JPanel {
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
             var bridge = new MOPBridge(view.getEngine());
+            if (contextManager != null) {
+                bridge.setContextManager(contextManager);
+            }
+            if (chrome != null) {
+                bridge.setChrome(chrome);
+            }
+            bridge.setHostComponent(fxPanel);
             bridgeRef.set(bridge);
 
             // Add JavaScript error handling
@@ -103,11 +117,6 @@ public final class MOPWebViewHost extends JPanel {
                 if (newException != null) {
                     logger.error("WebView Load Error: {}", newException.getMessage(), newException);
                 }
-            });
-
-            // Add listener for resource loading errors
-            view.getEngine().setOnError(errorEvent -> {
-                logger.error("WebView Resource Load Error: {}", errorEvent.getMessage());
             });
 
             // Expose Java object to JS after the page loads
@@ -127,6 +136,7 @@ public final class MOPWebViewHost extends JPanel {
                     var originalLog = console.log;
                     var originalError = console.error;
                     var originalWarn = console.warn;
+                    var originalInfo = console.info;
 
                     function toStringWithStack(arg) {
                         return (arg && typeof arg === 'object' && 'stack' in arg) ? arg.stack : String(arg);
@@ -146,6 +156,11 @@ public final class MOPWebViewHost extends JPanel {
                         var msg = Array.from(arguments).map(toStringWithStack).join(' ');
                         if (window.javaBridge) window.javaBridge.jsLog('WARN', msg);
                         originalWarn.apply(console, arguments);
+                    };
+                    console.info = function() {
+                        var msg = Array.from(arguments).map(toStringWithStack).join(' ');
+                        if (window.javaBridge) window.javaBridge.jsLog('INFO', msg);
+                        originalInfo.apply(console, arguments);
                     };
                 })();
                 """); // Install wheel event override for platform-specific scroll speed
@@ -264,8 +279,9 @@ public final class MOPWebViewHost extends JPanel {
                 logger.info("Loading WebView content from embedded server: {}", url);
                 view.getEngine().load(url);
             }
-            // Apply initial theme
-            applyTheme(Theme.create(darkTheme));
+            // Initial theme — queue until bridge ready
+            boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+            setInitialTheme(darkTheme, isDevMode);
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -277,9 +293,28 @@ public final class MOPWebViewHost extends JPanel {
                 bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
     }
 
-    public void setTheme(boolean isDark) {
-        darkTheme = isDark; // Remember the last requested theme
-        sendOrQueue(new HostCommand.SetTheme(isDark), bridge -> bridge.setTheme(isDark));
+    /**
+     * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
+     * reports it is ready.
+     */
+    public void setInitialTheme(boolean isDark, boolean isDevMode) {
+        darkTheme = isDark;
+        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
+        applyTheme(Theme.create(isDark));
+    }
+
+    /**
+     * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
+     * command is queued so that the frontend is updated once the bridge appears.
+     */
+    public void setRuntimeTheme(boolean isDark, boolean isDevMode) {
+        darkTheme = isDark;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setTheme(isDark, isDevMode);
+        } else {
+            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode));
+        }
         applyTheme(Theme.create(isDark));
     }
 
@@ -388,11 +423,34 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
-    private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
+    public void onAnalyzerReadyResponse(String contextId) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
+            logger.debug("onAnalyzerReady ignored; bridge not ready for context: {}", contextId);
+            return;
+        }
+        bridge.onAnalyzerReadyResponse(contextId);
+    }
+
+    public String getContextCacheId() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("getContextCacheId ignored; bridge not ready");
+            return "no-bridge";
+        }
+        return bridge.getContextCacheId();
+    }
+
+    private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
+        var bridge = bridgeRef.get();
+
+        // Only SetTheme commands need to wait for bridge ready; other commands can execute once bridge exists
+        boolean needsBridgeReady = command instanceof HostCommand.SetTheme;
+        boolean canExecute = bridge != null && (!needsBridgeReady || bridgeInitialized);
+
+        if (!canExecute) {
             pendingCommands.add(command);
-            logger.debug("Buffered command, bridge not ready yet: {}", command);
+            logger.debug("Buffered command, waiting for bridge ready: {}", command);
         } else {
             action.accept(bridge);
         }
@@ -422,13 +480,42 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
                 }
             });
             pendingCommands.clear();
+        }
+    }
+
+    public void onBridgeReady() {
+        bridgeInitialized = true;
+        bridgeReadyFuture.complete(null);
+        flushBufferedCommands();
+    }
+
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        this.contextManager = contextManager;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setContextManager(contextManager);
+        }
+    }
+
+    public void setSymbolRightClickHandler(@Nullable io.github.jbellis.brokk.gui.Chrome chrome) {
+        this.chrome = chrome;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setChrome(chrome);
+        }
+    }
+
+    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setHostComponent(hostComponent);
         }
     }
 

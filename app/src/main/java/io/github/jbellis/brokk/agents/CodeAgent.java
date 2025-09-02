@@ -29,12 +29,10 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -444,52 +442,6 @@ public class CodeAgent {
     }
 
     /**
-     * Pre-creates empty files for SearchReplaceBlocks representing new files (those with empty beforeText). This
-     * ensures files exist on disk before they are added to the context, preventing race conditions with UI updates.
-     *
-     * @param blocks Collection of SearchReplaceBlocks potentially containing new file creations
-     */
-    @VisibleForTesting
-    public List<ProjectFile> preCreateNewFiles(Collection<EditBlock.SearchReplaceBlock> blocks) {
-        List<ProjectFile> newFiles = new ArrayList<>();
-        for (EditBlock.SearchReplaceBlock block : blocks) {
-            // Skip blocks that aren't for new files (new files have empty beforeText)
-            if (block.filename() == null || !block.beforeText().trim().isEmpty()) {
-                continue;
-            }
-
-            // We're creating a new file so resolveProjectFile is complexity we don't need, just use the filename
-            ProjectFile file = contextManager.toFile(block.filename());
-            newFiles.add(file);
-
-            // Create the empty file if it doesn't exist yet
-            if (!file.exists()) {
-                try {
-                    file.write(""); // Using ProjectFile.write handles directory creation internally
-                    logger.debug("Pre-created empty file: {}", file);
-                } catch (IOException e) {
-                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
-                }
-            }
-        }
-
-        // add new files to git and the Workspace
-        if (!newFiles.isEmpty()) {
-            try {
-                contextManager.getRepo().add(newFiles);
-                // the file watcher that normally does this automatically is paused during task execution.
-                // clear the cache manually so BuildAgent's call to CM::getTestFiles sees the new files as part of the
-                // project.
-                contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
-                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
-            }
-            contextManager.editFiles(newFiles);
-        }
-        return newFiles;
-    }
-
-    /**
      * Prepares messages for storage in a TaskEntry. This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI
      * messages. AI messages containing SEARCH/REPLACE blocks will have their raw text preserved, rather than converting
      * blocks to HTML placeholders or summarizing block-only messages.
@@ -655,13 +607,24 @@ public class CodeAgent {
             List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
         // Identify files referenced by blocks that are not already editable
+        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
         var filesToAdd = blocksToApply.stream()
-                .map(EditBlock.SearchReplaceBlock::filename)
-                .filter(Objects::nonNull)
+                .filter(editBlock -> Objects.nonNull(editBlock.rawFileName()))
                 .distinct()
-                .map(contextManager::toFile) // Convert filename string to ProjectFile
+                .map(editBlock -> {
+                    final var f = editBlock.rawFileName();
+                    try {
+                        return contextManager.toFile(f);
+                    } catch (IllegalArgumentException e) {
+                        invalidFileBlocks.add(
+                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
                 .filter(file -> !contextManager.getEditableFiles().contains(file))
                 .toList();
+
         // Check for conflicts with read-only files
         var readOnlyFiles = filesToAdd.stream()
                 .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
@@ -677,10 +640,6 @@ public class CodeAgent {
             throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
         }
 
-        // Pre-create empty files for any new files from the current LLM response segment
-        // (and add to git + workspace). This prevents UI race conditions.
-        preCreateNewFiles(blocksToApply);
-
         EditBlock.EditResult editResult;
         try {
             editResult = EditBlock.applyEditBlocks(contextManager, io, blocksToApply);
@@ -691,6 +650,7 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
+        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 
@@ -793,7 +753,7 @@ public class CodeAgent {
                             .formatted(
                                     failedBlocks.size(),
                                     failedBlocks.stream()
-                                            .map(b -> b.block().filename())
+                                            .map(b -> b.block().rawFileName())
                                             .collect(Collectors.joining(",")));
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, msg);
                     return new Step.Fatal(details);

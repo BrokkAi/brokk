@@ -6,6 +6,7 @@ import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -47,8 +48,8 @@ public class VoiceInputButton extends JButton {
     @Nullable
     private volatile Thread micCaptureThread = null;
 
-    private @Nullable ImageIcon micOnIcon;
-    private @Nullable ImageIcon micOffIcon;
+    private @Nullable Icon micOnIcon;
+    private @Nullable Icon micOffIcon;
 
     /**
      * Creates a new voice input button.
@@ -78,39 +79,42 @@ public class VoiceInputButton extends JButton {
         int normalButtonHeight = referenceButton.getPreferredSize().height;
 
         // Determine appropriate icon size, leaving some padding similar to default button margins
-        Insets buttonMargin = UIManager.getInsets("Button.margin");
-        if (buttonMargin == null) {
-            // Fallback if Look and Feel doesn't provide Button.margin
-            // These values are typical for many L&Fs
-            buttonMargin = new Insets(2, 14, 2, 14);
-        }
-        // Calculate icon size to fit within button height considering vertical margins
-        int iconDisplaySize = normalButtonHeight - (buttonMargin.top + buttonMargin.bottom);
-        iconDisplaySize = Math.max(8, iconDisplaySize); // Ensure a minimum practical size
+        SwingUtilities.invokeLater(() -> {
+            Insets buttonMargin = UIManager.getInsets("Button.margin");
+            if (buttonMargin == null) {
+                // Fallback if Look and Feel doesn't provide Button.margin
+                // These values are typical for many L&Fs
+                buttonMargin = new Insets(2, 14, 2, 14);
+            }
+            // Calculate icon size to fit within button height considering vertical margins
+            int iconDisplaySize = normalButtonHeight - (buttonMargin.top + buttonMargin.bottom);
+            iconDisplaySize = Math.max(8, iconDisplaySize); // Ensure a minimum practical size
 
-        // Load mic icons
-        try {
-            micOnIcon = new ImageIcon(requireNonNull(getClass().getResource("/mic-on.png")));
-            micOffIcon = new ImageIcon(requireNonNull(getClass().getResource("/mic-off.png")));
-            // Scale icons to fit the dynamic button size
-            micOnIcon = new ImageIcon(
-                    micOnIcon.getImage().getScaledInstance(iconDisplaySize, iconDisplaySize, Image.SCALE_SMOOTH));
-            micOffIcon = new ImageIcon(
-                    micOffIcon.getImage().getScaledInstance(iconDisplaySize, iconDisplaySize, Image.SCALE_SMOOTH));
-            logger.trace("Successfully loaded and scaled mic icons to {}x{}", iconDisplaySize, iconDisplaySize);
-        } catch (Exception e) {
-            logger.warn("Failed to load mic icons", e);
-            // We'll fall back to text if icons can't be loaded
-            micOnIcon = null;
-            micOffIcon = null;
-        }
+            // Load mic icons
+            try {
+                micOnIcon = Icons.MIC;
+                micOffIcon = Icons.MIC_OFF;
+                if (micOnIcon instanceof SwingUtil.ThemedIcon icon) {
+                    micOnIcon = icon.withSize(iconDisplaySize);
+                }
+                if (micOffIcon instanceof SwingUtil.ThemedIcon icon) {
+                    micOffIcon = icon.withSize(iconDisplaySize);
+                }
+                logger.trace("Successfully loaded and scaled mic icons to {}x{}", iconDisplaySize, iconDisplaySize);
+            } catch (Exception e) {
+                logger.warn("Failed to load mic icons", e);
+                // We'll fall back to text if icons can't be loaded
+                micOnIcon = null;
+                micOffIcon = null;
+            }
 
-        // Set default appearance
-        if (micOffIcon == null) {
-            setText("Mic");
-        } else {
-            setIcon(micOffIcon);
-        }
+            // Set default appearance
+            if (micOffIcon == null) {
+                setText("Mic");
+            } else {
+                setIcon(micOffIcon);
+            }
+        });
 
         Dimension buttonSize = new Dimension(normalButtonHeight, normalButtonHeight);
         setPreferredSize(buttonSize);
@@ -147,10 +151,10 @@ public class VoiceInputButton extends JButton {
 
         // Register for service/model reload notifications so we can update the button state dynamically.
         try {
-            contextManager.addServiceListener(serviceListener);
+            contextManager.addModelReloadListener(serviceListener);
         } catch (Exception e) {
             // Safe to ignore if contextManager doesn't support listeners for some reason.
-            logger.debug("Could not register service listener for VoiceInputButton", e);
+            logger.debug("Could not register model reload listener for VoiceInputButton", e);
         }
     }
 
@@ -185,7 +189,7 @@ public class VoiceInputButton extends JButton {
     public void removeNotify() {
         super.removeNotify();
         // Unregister the listener to prevent memory leaks
-        contextManager.removeServiceListener(serviceListener);
+        contextManager.removeModelReloadListener(serviceListener);
     }
 
     /** Starts capturing audio from the default microphone to micBuffer on a background thread. */

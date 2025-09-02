@@ -63,7 +63,7 @@ class EditBlockConflictsTest {
 
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
-        assertEquals("foo.txt", blocks[0].filename().toString());
+        assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
         assertEquals("Tooooo\n", blocks[0].afterText());
     }
@@ -92,11 +92,11 @@ class EditBlockConflictsTest {
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(2, blocks.length);
         // first block
-        assertEquals("foo.txt", blocks[0].filename().toString());
+        assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("one\n", blocks[0].beforeText());
         assertEquals("two\n", blocks[0].afterText());
         // second block
-        assertEquals("foo.txt", blocks[1].filename().toString());
+        assertEquals("foo.txt", blocks[1].rawFileName().toString());
         assertEquals("three\n", blocks[1].beforeText());
         assertEquals("four\n", blocks[1].afterText());
     }
@@ -149,10 +149,10 @@ class EditBlockConflictsTest {
 
         EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
-        assertEquals("filename/to/a/file2.txt", blocks[0].filename());
+        assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
         assertEquals("", blocks[0].beforeText().trim());
         assertEquals("three", blocks[0].afterText().trim());
-        assertEquals("filename/to/a/file1.txt", blocks[1].filename());
+        assertEquals("filename/to/a/file1.txt", blocks[1].rawFileName());
         assertEquals("one", blocks[1].beforeText().trim());
         assertEquals("two", blocks[1].afterText().trim());
     }
@@ -231,8 +231,7 @@ class EditBlockConflictsTest {
 
     /** Test detection of a possible "mangled" or fuzzy filename match. */
     @Test
-    void testResolveFilenameIgnoreCase(@TempDir Path tempDir)
-            throws EditBlock.SymbolAmbiguousException, EditBlock.SymbolNotFoundException {
+    void testResolveFilenameIgnoreCase(@TempDir Path tempDir) throws EditBlock.SymbolResolutionException {
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
         var f = EditBlock.resolveProjectFile(ctx, "fOo.TXt");
         assertEquals("foo.txt", f.getFileName());
@@ -364,7 +363,7 @@ class EditBlockConflictsTest {
         assertNull(result.parseError(), "No parse errors expected");
 
         var block = result.blocks().getFirst();
-        assertEquals("foo.txt", block.filename());
+        assertEquals("foo.txt", block.rawFileName());
         assertEquals("old line\n", block.beforeText());
         assertEquals("new line\n", block.afterText());
     }
@@ -455,7 +454,7 @@ class EditBlockConflictsTest {
         assertNotNull(result.parseError(), "Expect parse error for the malformed block");
 
         var goodBlock = result.blocks().getFirst();
-        assertEquals("bar.txt", goodBlock.filename());
+        assertEquals("bar.txt", goodBlock.rawFileName());
         assertEquals("some\n", goodBlock.beforeText());
         assertEquals("other\n", goodBlock.afterText());
     }

@@ -95,6 +95,10 @@ public interface IAnalyzer {
      * Implementation-specific search method called by the default searchDefinitions. Subclasses should implement this
      * method to provide their specific search logic.
      *
+     * <p><b>Performance Warning:</b> The default implementation iterates over all declarations in the project, which
+     * can be very slow for large codebases. Production-ready implementations should override this method with a more
+     * efficient approach, such as using an index.
+     *
      * @param originalPattern The original search pattern provided by the user
      * @param fallbackPattern The lowercase fallback pattern (null if not using fallback)
      * @param compiledPattern The compiled regex pattern (null if using fallback)

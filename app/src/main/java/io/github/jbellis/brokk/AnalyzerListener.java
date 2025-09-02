@@ -26,4 +26,7 @@ public interface AnalyzerListener {
      * @param externalRequest true if the build was triggered by an external request.
      */
     void afterEachBuild(boolean externalRequest);
+
+    /** Called when the analyzer transitions from not-ready to ready state. */
+    default void onAnalyzerReady() {}
 }

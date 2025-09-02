@@ -75,8 +75,7 @@ class SimplePerformanceTest {
     void testViewportCaching() {
         ViewportCache cache = new ViewportCache(TEST_CACHE_VALIDITY_MS);
 
-        // First calculation
-        long startTime1 = System.nanoTime();
+        // First calculation - should invoke the expensive calculation
         ViewportRange range1 = cache.getOrCalculate("test-key", () -> {
             try {
                 Thread.sleep(TEST_SIMULATED_CALCULATION_TIME_MS);
@@ -85,26 +84,28 @@ class SimplePerformanceTest {
             }
             return new ViewportRange(100, 200);
         });
-        long duration1 = System.nanoTime() - startTime1;
 
-        // Second calculation (should use cache)
-        long startTime2 = System.nanoTime();
+        // Second calculation (should use cache and NOT invoke the expensive calculation)
         ViewportRange range2 = cache.getOrCalculate("test-key", () -> {
             fail("Should not recalculate when cache is valid");
             return new ViewportRange(0, 0);
         });
-        long duration2 = System.nanoTime() - startTime2;
 
-        // Results should be identical
+        // Results should be identical (cache hit)
         assertEquals(range1.startLine, range2.startLine);
         assertEquals(range1.endLine, range2.endLine);
 
-        // Cached access should be much faster
-        assertTrue(
-                duration2 < duration1 / TEST_EXPECTED_CACHE_SPEED_FACTOR,
-                "Cached access should be much faster: " + TimeUnit.NANOSECONDS.toMillis(duration1)
-                        + "ms vs " + TimeUnit.NANOSECONDS.toMillis(duration2)
-                        + "ms");
+        // Test cache expiry
+        try {
+            Thread.sleep(TEST_CACHE_VALIDITY_MS + 10);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // After expiry, should calculate again
+        ViewportRange range3 = cache.getOrCalculate("test-key", () -> new ViewportRange(300, 400));
+        assertEquals(300, range3.startLine);
+        assertEquals(400, range3.endLine);
     }
 
     @Test

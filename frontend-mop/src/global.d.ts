@@ -9,7 +9,7 @@ declare global {
       onEvent: (payload: BrokkEvent) => Promise<void>;
       getSelection: () => string;
       clear: () => void;
-      setTheme: (dark: boolean) => void;
+      setTheme: (dark: boolean, isDevMode?: boolean) => void;
       showSpinner: (message?: string) => void;
       hideSpinner: () => void;
 
@@ -20,12 +20,17 @@ declare global {
       prevMatch: () => void;
       scrollToCurrent: () => void;
       getSearchState: () => { total: number; current: number; query: string; caseSensitive: boolean; };
+
+      // Symbol lookup API
+      refreshSymbolLookup: (contextId?: string) => void;
+      onSymbolLookupResponse?: (results: Record<string, string>, seq: number, contextId: string) => void;
     };
     javaBridge?: {
       onAck: (epoch: number) => void;
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
+      onSymbolClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
+      lookupSymbolsAsync?: (symbolNamesJson: string, seq: number | null, contextId: string) => void;
     };
   }
 }
-

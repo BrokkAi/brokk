@@ -1,13 +1,18 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -32,6 +37,9 @@ public final class MOPBridge {
     private final AtomicInteger epoch = new AtomicInteger();
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
+    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable Chrome chrome;
+    private volatile @Nullable java.awt.Component hostComponent;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -65,24 +73,36 @@ public final class MOPBridge {
     }
 
     public void setSearch(String query, boolean caseSensitive) {
-        var js = "window.brokk.setSearch(" + toJson(query) + ", " + caseSensitive + ")";
+        var js = "if (window.brokk && window.brokk.setSearch) { window.brokk.setSearch(" + toJson(query) + ", "
+                + caseSensitive + "); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void clearSearch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.clearSearch()"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.clearSearch) { window.brokk.clearSearch(); }"));
     }
 
     public void nextMatch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.nextMatch()"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.nextMatch) { window.brokk.nextMatch(); }"));
     }
 
     public void prevMatch() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.prevMatch()"));
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.prevMatch) { window.brokk.prevMatch(); }"));
     }
 
     public void scrollToCurrent() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.scrollToCurrent()"));
+        Platform.runLater(() -> engine.executeScript(
+                "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
+    }
+
+    public void onAnalyzerReadyResponse(String contextId) {
+        logger.debug("Notifying frontend that analyzer is ready for context: {}", contextId);
+        var js = "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup("
+                + toJson(contextId) + "); }";
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
@@ -94,17 +114,23 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark) {
-        Platform.runLater(() -> engine.executeScript("window.brokk.setTheme(" + isDark + ")"));
+    public void setTheme(boolean isDark, boolean isDevMode) {
+        var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
+                + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void showSpinner(String message) {
         var jsonMessage = toJson(message);
-        Platform.runLater(() -> engine.executeScript("window.brokk.showSpinner(" + jsonMessage + ")"));
+        var js = "if (window.brokk && window.brokk.showSpinner) { window.brokk.showSpinner(" + jsonMessage
+                + "); } else { console.error('showSpinner called - bridge not ready yet'); }";
+        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void hideSpinner() {
-        Platform.runLater(() -> engine.executeScript("window.brokk.hideSpinner()"));
+        Platform.runLater(
+                () -> engine.executeScript(
+                        "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
     }
 
     public void clear() {
@@ -184,7 +210,8 @@ public final class MOPBridge {
         var e = event.getEpoch();
         awaiting.put(e, new CompletableFuture<>());
         var json = toJson(event);
-        Platform.runLater(() -> engine.executeScript("window.brokk.onEvent(" + json + ")"));
+        Platform.runLater(() -> engine.executeScript("if (window.brokk && window.brokk.onEvent) { window.brokk.onEvent("
+                + json + "); } else { console.error('onEvent called - bridge not ready yet'); }"));
     }
 
     public void onAck(int e) {
@@ -198,7 +225,8 @@ public final class MOPBridge {
         var future = new CompletableFuture<String>();
         Platform.runLater(() -> {
             try {
-                Object result = engine.executeScript("window.brokk.getSelection()");
+                Object result = engine.executeScript(
+                        "(window.brokk && window.brokk.getSelection) ? window.brokk.getSelection() : ''");
                 future.complete(result != null ? result.toString() : "");
             } catch (Exception ex) {
                 logger.error("Failed to get selection from WebView", ex);
@@ -233,11 +261,142 @@ public final class MOPBridge {
         }
     }
 
+    public void setContextManager(@Nullable IContextManager contextManager) {
+        this.contextManager = contextManager;
+    }
+
+    public void setChrome(@Nullable Chrome chrome) {
+        this.chrome = chrome;
+    }
+
+    public void setHostComponent(@Nullable java.awt.Component hostComponent) {
+        this.hostComponent = hostComponent;
+    }
+
+    public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
+        // Assert we're not blocking the EDT with this call
+        assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
+
+        logger.debug(
+                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
+        logger.debug("ContextManager available: {}", contextManager != null);
+
+        // Parse symbol names (keep existing parsing logic)
+        Set<String> symbolNames;
+        try {
+            symbolNames = MAPPER.readValue(symbolNamesJson, new TypeReference<Set<String>>() {});
+        } catch (Exception e) {
+            logger.warn("Failed to parse symbol names JSON: {}", symbolNamesJson, e);
+            sendEmptyResponse(seq, contextId);
+            return;
+        }
+
+        if (symbolNames.isEmpty()) {
+            sendEmptyResponse(seq, contextId);
+            return;
+        }
+
+        if (contextManager == null) {
+            logger.warn("No context manager available for symbol lookup");
+            sendEmptyResponse(seq, contextId);
+            return;
+        }
+
+        // Use Chrome's background task system instead of raw CompletableFuture.supplyAsync()
+        contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
+            // Assert background task is not running on EDT
+            assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
+
+            try {
+                logger.debug(
+                        "Starting streaming symbol lookup for {} symbols in context {}", symbolNames.size(), contextId);
+
+                // Use streaming lookup to send results as they become available
+                SymbolLookupService.lookupSymbols(
+                        symbolNames,
+                        contextManager,
+                        // Result callback - called for each individual symbol result
+                        (symbolName, fqn) -> {
+                            // Send individual result immediately on UI thread
+                            Platform.runLater(() -> {
+                                try {
+                                    var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
+                                    var resultsJson = toJson(singleResult);
+                                    var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
+                                            + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
+                                            + toJson(contextId) + "); }";
+                                    engine.executeScript(js);
+                                } catch (Exception e) {
+                                    logger.warn(
+                                            "Failed to send streaming symbol lookup result for '{}'", symbolName, e);
+                                }
+                            });
+                        },
+                        // Completion callback - called when all symbols are processed
+                        () -> {
+                            logger.debug(
+                                    "Streaming symbol lookup completed for {} symbols in context {}",
+                                    symbolNames.size(),
+                                    contextId);
+                        });
+
+            } catch (Exception e) {
+                logger.warn("Symbol lookup failed for seq={}, contextId={}", seq, contextId, e);
+                Platform.runLater(() -> {
+                    sendEmptyResponse(seq, contextId);
+                });
+            }
+            return null;
+        });
+    }
+
+    private void sendEmptyResponse(int seq, String contextId) {
+        try {
+            var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
+                    + "window.brokk.onSymbolLookupResponse({}, " + seq + ", " + toJson(contextId) + "); }";
+            engine.executeScript(js);
+        } catch (Exception e) {
+            logger.warn("Failed to send empty symbol lookup response", e);
+        }
+    }
+
+    public void onSymbolClick(String symbolName, boolean symbolExists, @Nullable String fqn, int x, int y) {
+        logger.debug("Symbol clicked: {}, exists: {}, fqn: {} at ({}, {})", symbolName, symbolExists, fqn, x, y);
+
+        SwingUtilities.invokeLater(() -> {
+            var component = hostComponent != null
+                    ? hostComponent
+                    : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
+                            .getFocusOwner();
+
+            if (component != null && contextManager != null) {
+                if (chrome != null) {
+                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
+                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
+                                            contextManager)
+                            .show(component, x, y);
+                } else {
+                    logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
+                }
+            }
+        });
+    }
+
+    public String getContextCacheId() {
+        return "main-context";
+    }
+
     private static String toJson(Object obj) {
         try {
             return MAPPER.writeValueAsString(obj);
         } catch (JsonProcessingException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    public void onBridgeReady() {
+        if (hostComponent instanceof MOPWebViewHost host) {
+            host.onBridgeReady();
         }
     }
 

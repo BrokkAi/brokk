@@ -16,6 +16,13 @@ import java.util.concurrent.*;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
+
+    /** Callback interface for analyzer update events. */
+    interface AnalyzerCallback {
+        /** Called when the analyzer transitions from not-ready to ready state. */
+        default void onAnalyzerReady() {}
+    }
+
     default EditBlockParser getParserForWorkspace() {
         throw new UnsupportedOperationException();
     }
@@ -72,6 +79,15 @@ public interface IContextManager {
     default void addContextListener(ContextListener listener) {}
 
     default void removeContextListener(ContextListener listener) {}
+
+    /**
+     * Adds a callback that will be notified when the analyzer is updated.
+     *
+     * @param callback The callback to add. Must not be null.
+     */
+    default void addAnalyzerCallback(AnalyzerCallback callback) {}
+
+    default void removeAnalyzerCallback(AnalyzerCallback callback) {}
 
     default ProjectFile toFile(String relName) {
         throw new UnsupportedOperationException();

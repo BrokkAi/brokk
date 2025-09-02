@@ -8,8 +8,34 @@ import type {
 } from './shared';
 import { currentExpandIds } from './expand-state';
 
+// Global error handlers for uncaught errors and promise rejections
+self.onerror = (event) => {
+  const message = event.message || 'Unknown error';
+  const filename = event.filename || 'unknown';
+  const lineno = event.lineno || 0;
+  const colno = event.colno || 0;
+
+  // Try to get additional error information
+  if (event.error) {
+    unhandledError('[markdown-worker]', event.error.message || message, 'at', `${filename}:${lineno}:${colno}`, event.error.stack);
+  } else {
+    unhandledError('[markdown-worker]', message, 'at', `${filename}:${lineno}:${colno}`);
+  }
+  return true;
+};
+
+self.onunhandledrejection = (event) => {
+  const reason = event.reason || 'Unknown rejection';
+  const stack = event.reason?.stack;
+  unhandledError('[markdown-worker]', reason, stack);
+  event.preventDefault();
+};
+
 // Initialize the processor, which will asynchronously load Shiki.
 const ENABLE_WORKER_LOG = false;
+
+// Worker startup logging
+log('info', '[markdown-worker] Worker Startup: markdown.worker.ts loaded');
 initProcessor();
 
 let buffer = '';
@@ -98,6 +124,24 @@ function safeParseAndPost(seq: number, text: string, fast: boolean = false) {
     const error = e instanceof Error ? e : new Error(String(e));
     post(<ErrorMsg>{ type: 'error', message: error.message, stack: error.stack, seq: seq });
   }
+}
+
+function unhandledError(...args: unknown[]) {
+  const message = args
+      .map(arg => {
+        if (typeof arg === 'string') {
+          return arg;
+        }
+        if (arg instanceof Error) {
+          return arg.stack || arg.message;
+        }
+        if (typeof arg === 'object' && arg !== null) {
+          return JSON.stringify(arg);
+        }
+        return String(arg);
+      })
+      .join(' ');
+  post(<LogMsg>{ type: 'log', level: 'error', message });
 }
 
 function log(level: LogMsg['level'], ...args: unknown[]) {

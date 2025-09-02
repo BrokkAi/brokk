@@ -92,9 +92,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
-    private static final int DROPDOWN_MENU_WIDTH = 1000; // Pixels
-    private static final int TRUNCATION_LENGTH = 100; // Characters
-
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
@@ -406,20 +403,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = new JPanel(new BorderLayout(H_GAP, 0));
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
-        // Left Panel (Mic + History) (West)
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         leftPanel.add(micButton);
         leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
-        JButton historyButton = new JButton("History ▼");
-        historyButton.setToolTipText("Select a previous instruction from history");
-        historyButton.addActionListener(e -> showHistoryMenu(historyButton));
-        leftPanel.add(historyButton);
-        leftPanel.add(Box.createHorizontalStrut(H_GAP));
-
         leftPanel.add(modelSelector.getComponent());
-
         topBarPanel.add(leftPanel, BorderLayout.WEST);
+
+        var historyDropdown = createHistoryDropdown();
+        topBarPanel.add(historyDropdown, BorderLayout.CENTER);
+
         return topBarPanel;
     }
 
@@ -572,48 +564,64 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    private void showHistoryMenu(Component invoker) {
-        logger.trace("Showing history menu");
-        JPopupMenu historyMenu = new JPopupMenu();
+    private JComboBox<Object> createHistoryDropdown() {
+        final var placeholder = "History";
+        final var noHistory = "(No history items)";
+
         var project = chrome.getProject();
         List<String> historyItems = project.loadTextHistory();
-        logger.trace("History items loaded: {}", historyItems.size());
-        if (historyItems.isEmpty()) {
-            JMenuItem emptyItem = new JMenuItem("(No history items)");
-            emptyItem.setEnabled(false);
-            historyMenu.add(emptyItem);
-        } else {
-            for (int i = historyItems.size() - 1; i >= 0; i--) {
-                String item = historyItems.get(i);
-                String itemWithoutNewlines = item.replace('\n', ' ');
-                String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
-                        ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
-                        : itemWithoutNewlines;
-                String escapedItem = item.replace("&", "&amp;")
-                        .replace("<", "&lt;")
-                        .replace(">", "&gt;")
-                        .replace("\"", "&quot;");
-                JMenuItem menuItem = new JMenuItem(displayText);
-                menuItem.setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
-                menuItem.addActionListener(event -> {
-                    // Hide overlay and enable input field and deep scan button
-                    commandInputOverlay.hideOverlay();
-                    instructionsArea.setEnabled(true);
 
-                    // Set text and request focus
-                    instructionsArea.setText(item);
-                    commandInputUndoManager.discardAllEdits(); // Clear undo history for new text
-                    instructionsArea.requestFocusInWindow();
-                });
-                historyMenu.add(menuItem);
+        var model = new DefaultComboBoxModel<>();
+        model.addElement(placeholder);
+
+        if (historyItems.isEmpty()) {
+            model.addElement(noHistory);
+        } else {
+            for (String item : historyItems) {
+                model.addElement(item);
             }
         }
-        chrome.themeManager.registerPopupMenu(historyMenu);
-        historyMenu.setMinimumSize(new Dimension(DROPDOWN_MENU_WIDTH, 0));
-        historyMenu.setPreferredSize(new Dimension(DROPDOWN_MENU_WIDTH, historyMenu.getPreferredSize().height));
-        historyMenu.pack();
-        logger.trace("Showing history menu with preferred width: {}", DROPDOWN_MENU_WIDTH);
-        historyMenu.show(invoker, 0, invoker.getHeight());
+
+        var dropdown = new JComboBox<>(model);
+        dropdown.setToolTipText("Select a previous instruction from history");
+
+        dropdown.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof String historyItem) {
+                    setText(historyItem);
+                    setEnabled(true);
+                    if (historyItem.equals(noHistory) || historyItem.equals(placeholder)) {
+                        setToolTipText(null);
+                    } else {
+                        setToolTipText(historyItem);
+                    }
+                }
+                return this;
+            }
+        });
+
+        dropdown.addActionListener(e -> {
+            var selected = dropdown.getSelectedItem();
+            if (selected instanceof String historyItem
+                    && !selected.equals(placeholder)
+                    && !selected.equals(noHistory)) {
+                // This is a valid history item
+                commandInputOverlay.hideOverlay();
+                instructionsArea.setEnabled(true);
+
+                instructionsArea.setText(historyItem);
+                commandInputUndoManager.discardAllEdits();
+                instructionsArea.requestFocusInWindow();
+
+                // Reset to placeholder
+                SwingUtilities.invokeLater(() -> dropdown.setSelectedItem(placeholder));
+            }
+        });
+
+        return dropdown;
     }
 
     /**
@@ -1361,6 +1369,29 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         if (contextHasImages() && !models.supportsVision(modelToUse)) {
             showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Code)");
             return;
+        }
+
+        // If Workspace is empty, ask the user how to proceed
+        if (chrome.getContextManager().topContext().isEmpty()) {
+            String message =
+                    "Are you sure you want to code against an empty Workspace? This is the right thing to do if you want to create new source files with no other context. Otherwise, run Search first or manually add context to the Workspace.";
+            Object[] options = {"Code", "Search", "Cancel"};
+            int choice = JOptionPane.showOptionDialog(
+                    chrome.getFrame(),
+                    message,
+                    "Empty Workspace",
+                    JOptionPane.YES_NO_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    options,
+                    options[0]);
+
+            if (choice == 1) { // Search
+                runSearchCommand();
+                return;
+            } else if (choice != 0) { // Cancel or closed dialog
+                return;
+            }
         }
 
         chrome.getProject().addToInstructionsHistory(input, 20);

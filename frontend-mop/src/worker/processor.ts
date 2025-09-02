@@ -15,7 +15,6 @@ import {ensureLang} from './shiki/ensure-langs';
 import {shikiPluginPromise} from './shiki/shiki-plugin';
 import { resetForBubble } from '../lib/edit-block/id-generator';
 
-
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
 }

@@ -158,12 +158,35 @@ public class SwingUtil {
      * Icon wrapper that always fetches the current value from UIManager. By delegating on every call we ensure the
      * image really changes after a theme switch without recreating every component that uses it.
      */
-    private record ThemedIcon(String uiKey) implements Icon {
+    public static class ThemedIcon implements Icon {
+
+        private final String uiKey;
+        private final int displaySize;
+
+        public ThemedIcon(String uiKey) {
+            this(uiKey, -1);
+        }
+
+        public ThemedIcon(String uiKey, int displaySize) {
+            this.uiKey = uiKey;
+            this.displaySize = displaySize;
+        }
+
+        public String uiKey() {
+            return this.uiKey;
+        }
+
+        public ThemedIcon withSize(int displaySize) {
+            return new ThemedIcon(this.uiKey, displaySize);
+        }
 
         /** Retrieve the up-to-date delegate icon (or a simple fallback). */
-        private Icon delegate() {
+        public Icon delegate() {
             Object value = UIManager.get(uiKey);
-            if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
+            if (value instanceof ImageIcon svgIcon && displaySize > 0) {
+                return new ImageIcon(
+                        svgIcon.getImage().getScaledInstance(displaySize, displaySize, Image.SCALE_SMOOTH));
+            } else if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
                 return icon;
             }
             return createSimpleFallbackIcon();

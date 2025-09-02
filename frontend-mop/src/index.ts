@@ -1,10 +1,16 @@
 import './styles/global.scss';
 import {mount, tick} from 'svelte';
+import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
+import {reparseAll} from './stores/bubblesStore';
+import {log, createLogger} from './lib/logging';
+import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+
+const mainLog = createLogger('main');
 
 let searchCtrl: SearchController | null = null;
 
@@ -29,6 +35,10 @@ function initializeApp(): void {
         target: document.getElementById('mop-root')!,
         props: {bubblesStore, spinnerStore}
     } as any);
+
+    // Set initial production class on body for dev mode detection
+    const isProduction = !import.meta.env.DEV;
+    document.body.classList.toggle('production', isProduction);
 }
 
 function setupBrokkInterface(): any[] {
@@ -49,8 +59,19 @@ function setupBrokkInterface(): any[] {
         nextMatch: () => searchCtrl?.next(),
         prevMatch: () => searchCtrl?.prev(),
         scrollToCurrent: () => searchCtrl?.scrollCurrent(),
-        getSearchState: () => searchCtrl?.getState()
+        getSearchState: () => searchCtrl?.getState(),
+
+        // Symbol lookup API
+        refreshSymbolLookup: refreshSymbolLookup,
+        onSymbolLookupResponse: onSymbolResolutionResponse,
+
     };
+
+    // Signal to Java that the bridge is ready
+    if (window.javaBridge && window.javaBridge.onBridgeReady) {
+        window.javaBridge.onBridgeReady();
+    }
+
     return buffer;
 }
 
@@ -72,12 +93,25 @@ function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
 }
 
-function setAppTheme(dark: boolean): void {
+function setAppTheme(dark: boolean, isDevMode?: boolean): void {
+    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode);
     themeStore.set(dark);
     const html = document.querySelector('html')!;
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
+    mainLog.info(`set theme dark: ${dark} dev mode: ${isDevMode}`);
+    let isProduction: boolean;
+    if (isDevMode !== undefined) {
+        // Java explicitly told us dev mode status
+        isProduction = !isDevMode;
+    } else {
+        // Fall back to frontend-only detection (for compatibility)
+        isProduction = !import.meta.env.DEV;
+    }
+    document.body.classList.toggle('production', isProduction);
 }
 
 function showSpinnerMessage(message = ''): void {
@@ -87,6 +121,24 @@ function showSpinnerMessage(message = ''): void {
 function hideSpinnerMessage(): void {
     spinnerStore.hide();
 }
+
+/**
+ * Generic symbol refresh mechanism that clears cache and triggers UI refresh.
+ * Can be called from multiple scenarios: analyzer ready, context switch,
+ * manual refresh, configuration changes, error recovery, etc.
+ *
+ * @param contextId - The context ID to refresh symbols for (defaults to 'main-context')
+ */
+function refreshSymbolLookup(contextId: string = 'main-context'): void {
+    mainLog.debug(`[symbol-refresh] Refreshing symbols for context: ${contextId}, clearing cache and triggering UI refresh`);
+
+    // Clear symbol cache to ensure fresh lookups
+    clearSymbolCache(contextId);
+
+    // Trigger symbol lookup for visible symbols to highlight them
+    reparseAll(contextId);
+}
+
 
 function replayBufferedItems(buffer: any[]): void {
     // Replay buffered calls and events in sequence order

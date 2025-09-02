@@ -1162,7 +1162,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 var markdownPanel = MarkdownOutputPool.instance().borrow();
-                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.withContextForLookups(contextManager, this);
                 markdownPanel.setText(combinedMessages);
 
                 // Use shared utility method to create searchable content panel without scroll pane
@@ -1484,6 +1484,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public ContextManager getContextManager() {
         return contextManager;
+    }
+
+    public ProjectFilesPanel getProjectFilesPanel() {
+        return projectFilesPanel;
     }
 
     public List<ContextFragment> getSelectedFragments() {

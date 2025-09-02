@@ -443,7 +443,8 @@ public class ContextAgent {
                     return Map.entry(cu, skeleton);
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                // Use merge function (v1, v2) -> v1 to handle potential duplicate keys by keeping the first value
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
     /** Exactly one of {filenames, summaries, contentsMap} must be non-empty. */
@@ -1021,7 +1022,8 @@ public class ContextAgent {
                     }
                 })
                 .filter(entry -> !entry.getValue().isEmpty()) // Filter out files that couldn't be read
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                // Use merge function (v1, v2) -> v1 to handle potential duplicate keys by keeping the first value
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
 
     // --- Helper methods ---
