@@ -209,7 +209,19 @@ public final class LineEditorParser {
                     break;
                 }
 
-                parts.add(new OutputPart.Edit(path, type, requireNonNull(begin), end, type == Type.DELETE_LINES ? "" : body));
+                int beginNonNull;
+                Integer endAttr = end;
+                String contentNormalized = (type == Type.DELETE_LINES) ? "" : body;
+
+                if (type == Type.PREPEND || type == Type.APPEND) {
+                    // PREPEND/APPEND must not specify begin/end; normalize to a dummy beginline
+                    beginNonNull = 1;
+                    endAttr = null;
+                } else {
+                    beginNonNull = requireNonNull(begin);
+                }
+
+                parts.add(new OutputPart.Edit(path, type, beginNonNull, endAttr, contentNormalized));
                 idx = close.end();
             }
         }
