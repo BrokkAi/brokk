@@ -12,20 +12,13 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.dialogs.analyzer.AnalyzerSettingsPanel;
-import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
-import io.github.jbellis.brokk.mcp.McpConfig;
-import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.IOException;
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,10 +35,8 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.BorderFactory;
-import javax.swing.ListSelectionModel;
 import javax.swing.SwingWorker;
 import javax.swing.UIManager;
-import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -77,9 +68,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JTextArea reviewGuideArea;
-
-    private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
-    private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
     private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
@@ -195,10 +183,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         dataRetentionPanelInner = new DataRetentionPanel(project, this);
         projectSubTabbedPane.addTab(
                 "Data Retention", null, dataRetentionPanelInner, "Data retention policy for this project");
-
-        // MCP Servers Tab
-        var mcpPanel = createMcpPanel();
-        projectSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
 
         // Jira Tab is now removed, its contents moved to the "Issues" tab's Jira card.
 
@@ -652,303 +636,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         return analyzersPanel;
-    }
-
-    private JLabel createMcpServerUrlErrorLabel() {
-        var urlErrorLabel = new JLabel("Invalid URL");
-        var errorColor = UIManager.getColor("Label.errorForeground");
-        // A fallback to a softer, brownish-red if not defined in the theme
-        if (errorColor == null) {
-            errorColor = new Color(219, 49, 49);
-        }
-        urlErrorLabel.setForeground(errorColor);
-        urlErrorLabel.setVisible(false);
-        return urlErrorLabel;
-    }
-
-    private JPanel createMcpPanel() {
-        var mcpPanel = new JPanel(new BorderLayout(5, 5));
-        mcpPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-        // Server list
-        mcpServersList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        mcpServersList.setCellRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof McpServer server) {
-                    setText(server.name() + " (" + server.url() + ")");
-                }
-                return this;
-            }
-        });
-        var scrollPane = new JScrollPane(mcpServersList);
-        mcpPanel.add(scrollPane, BorderLayout.CENTER);
-
-        // Buttons
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var addButton = new JButton("Add...");
-        var editButton = new JButton("Edit...");
-        var removeButton = new JButton("Remove");
-
-        // Enable and wire up action listeners for MCP server management.
-        addButton.setEnabled(true);
-        editButton.setEnabled(false);
-        removeButton.setEnabled(false);
-
-        // Enable Edit/Remove when a server is selected
-        mcpServersList.addListSelectionListener(e -> {
-            boolean hasSelection = !mcpServersList.isSelectionEmpty();
-            editButton.setEnabled(hasSelection);
-            removeButton.setEnabled(hasSelection);
-        });
-
-        // Add new MCP server (name + url). Tools can be fetched later.
-        addButton.addActionListener(e -> showMcpServerDialog("Add MCP Server", null, server -> {
-            mcpServersListModel.addElement(server);
-            mcpServersList.setSelectedValue(server, true);
-        }));
-
-        // Edit selected MCP server
-        editButton.addActionListener(e -> {
-            int idx = mcpServersList.getSelectedIndex();
-            if (idx < 0) return;
-            McpServer existing = mcpServersListModel.getElementAt(idx);
-            showMcpServerDialog("Edit MCP Server", existing, updated -> {
-                mcpServersListModel.setElementAt(updated, idx);
-                mcpServersList.setSelectedIndex(idx);
-            });
-        });
-
-        // Remove selected MCP server with confirmation
-        removeButton.addActionListener(e -> {
-            int idx = mcpServersList.getSelectedIndex();
-            if (idx >= 0) {
-                int confirm = JOptionPane.showConfirmDialog(
-                        SettingsProjectPanel.this,
-                        "Remove selected MCP server?",
-                        "Confirm Remove",
-                        JOptionPane.YES_NO_OPTION);
-                if (confirm == JOptionPane.YES_OPTION) {
-                    mcpServersListModel.removeElementAt(idx);
-                }
-            }
-        });
-
-        buttonPanel.add(addButton);
-        buttonPanel.add(editButton);
-        buttonPanel.add(removeButton);
-        mcpPanel.add(buttonPanel, BorderLayout.SOUTH);
-
-        return mcpPanel;
-    }
-
-    private void showMcpServerDialog(
-            String title, @Nullable McpServer existing, java.util.function.Consumer<McpServer> onSave) {
-        JTextField nameField = new JTextField(existing != null ? existing.name() : "");
-        JTextField urlField = new JTextField(existing != null ? existing.url().toString() : "");
-        JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
-        JPasswordField tokenField = new JPasswordField();
-        JLabel tokenLabel = new JLabel("Bearer Token:");
-        var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
-        showTokenButton.setToolTipText("Show/Hide token");
-        showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
-        showTokenButton.setContentAreaFilled(false);
-        showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
-
-        char defaultEchoChar = tokenField.getEchoChar();
-        showTokenButton.addActionListener(ae -> {
-            if (showTokenButton.isSelected()) {
-                tokenField.setEchoChar((char) 0);
-                showTokenButton.setIcon(Icons.VISIBILITY);
-            } else {
-                tokenField.setEchoChar(defaultEchoChar);
-                showTokenButton.setIcon(Icons.VISIBILITY_OFF);
-            }
-        });
-
-        var tokenPanel = new JPanel(new BorderLayout());
-        tokenPanel.add(tokenField, BorderLayout.CENTER);
-        tokenPanel.add(showTokenButton, BorderLayout.EAST);
-
-        String existingToken = existing != null ? existing.bearerToken() : null;
-        if (existingToken != null && !existingToken.isEmpty()) {
-            useTokenCheckbox.setSelected(true);
-            String displayToken = existingToken;
-            if (!displayToken.regionMatches(true, 0, "Bearer ", 0, 7)) {
-                displayToken = "Bearer " + displayToken;
-            }
-            tokenField.setText(displayToken);
-            tokenLabel.setVisible(true);
-            tokenPanel.setVisible(true);
-        } else {
-            tokenLabel.setVisible(false);
-            tokenPanel.setVisible(false);
-        }
-
-        useTokenCheckbox.addActionListener(ae -> {
-            boolean sel = useTokenCheckbox.isSelected();
-            tokenLabel.setVisible(sel);
-            tokenPanel.setVisible(sel);
-            SwingUtilities.invokeLater(() -> {
-                java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
-                if (w != null) w.pack();
-                tokenPanel.revalidate();
-                tokenPanel.repaint();
-            });
-        });
-
-        JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
-        urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
-
-        JPanel panel = new JPanel(new GridLayout(0, 1));
-        panel.add(new JLabel("Name:"));
-        panel.add(nameField);
-        panel.add(new JLabel("URL:"));
-        panel.add(urlField);
-        panel.add(urlErrorLabel);
-        panel.add(useTokenCheckbox);
-        panel.add(tokenLabel);
-        panel.add(tokenPanel);
-
-        var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
-        final var dialog = optionPane.createDialog(SettingsProjectPanel.this, title);
-
-        optionPane.addPropertyChangeListener(pce -> {
-            if (pce.getSource() != optionPane || !pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
-                return;
-            }
-            var value = optionPane.getValue();
-            if (value == JOptionPane.UNINITIALIZED_VALUE) {
-                return;
-            }
-
-            if (value.equals(JOptionPane.OK_OPTION)) {
-                String name = nameField.getText().trim();
-                String rawUrl = urlField.getText().trim();
-                boolean useToken = useTokenCheckbox.isSelected();
-                List<String> existingTools = (existing != null) ? existing.tools() : null;
-                McpServer newServer = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, existingTools);
-
-                if (newServer != null) {
-                    onSave.accept(newServer);
-                    dialog.setVisible(false);
-                } else {
-                    urlErrorLabel.setVisible(true);
-                    dialog.pack();
-                    dialog.setVisible(true);
-                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
-                }
-            } else {
-                dialog.setVisible(false);
-            }
-        });
-
-        dialog.setVisible(true);
-    }
-
-    /**
-     * Shared helper: create a debounced URL DocumentListener that validates the URL and toggles the provided error
-     * label. Debounce interval is 500ms.
-     */
-    private DocumentListener createUrlValidationListener(JTextField urlField, JLabel urlErrorLabel) {
-        final javax.swing.Timer[] debounceTimer = new javax.swing.Timer[1];
-        return new DocumentListener() {
-            private void scheduleValidation() {
-                if (debounceTimer[0] != null && debounceTimer[0].isRunning()) {
-                    debounceTimer[0].stop();
-                }
-                debounceTimer[0] = new javax.swing.Timer(500, ev -> {
-                    String text = urlField.getText().trim();
-                    boolean ok = true;
-                    if (text.isEmpty()) {
-                        ok = false;
-                    } else {
-                        try {
-                            URL u = new URI(text).toURL();
-                            String host = u.getHost();
-                            if (host == null || host.isEmpty()) ok = false;
-                        } catch (URISyntaxException | MalformedURLException ex) {
-                            ok = false;
-                        }
-                    }
-                    urlErrorLabel.setVisible(!ok);
-                    // Repack containing dialog/window so visibility change is applied
-                    SwingUtilities.invokeLater(() -> {
-                        java.awt.Window w = SwingUtilities.getWindowAncestor(urlField);
-                        if (w != null) w.pack();
-                    });
-                });
-                debounceTimer[0].setRepeats(false);
-                debounceTimer[0].start();
-            }
-
-            @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                scheduleValidation();
-            }
-
-            @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                scheduleValidation();
-            }
-
-            @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
-                scheduleValidation();
-            }
-        };
-    }
-
-    /**
-     * Helper to validate inputs from Add/Edit dialogs and construct an McpServer. Returns null if validation failed.
-     *
-     * <p>This method also normalizes bearer token inputs to start with "Bearer " and updates the provided tokenField
-     * with the normalized value (so the user sees the normalized form).
-     */
-    private @Nullable McpServer createMcpServerFromInputs(
-            String name,
-            String rawUrl,
-            boolean useToken,
-            JPasswordField tokenField,
-            @Nullable List<String> existingTools) {
-
-        // Validate URL presence and format - inline validation will show error
-        if (rawUrl.isEmpty()) {
-            return null;
-        }
-
-        URL url;
-        try {
-            var u = new URI(rawUrl).toURL();
-            String host = u.getHost();
-            if (host == null || host.isEmpty()) throw new MalformedURLException("Missing host");
-            url = u;
-        } catch (Exception mfe) {
-            return null;
-        }
-
-        // Name fallback (only check emptiness; name is non-null)
-        if (name.isEmpty()) name = rawUrl;
-
-        // Token normalization (non-obstructive)
-        String token = null;
-        if (useToken) {
-            String raw = new String(tokenField.getPassword()).trim();
-            if (!raw.isEmpty()) {
-                if (!raw.regionMatches(true, 0, "Bearer ", 0, 7)) {
-                    raw = "Bearer " + raw;
-                    // Update displayed field so the user sees the normalized form
-                    tokenField.setText(raw);
-                }
-                token = raw;
-            } else {
-                token = null; // empty token => treat as null
-            }
-        }
-
-        return new McpServer(name, url, existingTools, token);
     }
 
     private void testJiraConnectionAction() {
@@ -1546,13 +1233,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Data Retention Tab
         if (dataRetentionPanelInner != null) dataRetentionPanelInner.loadPolicy();
-
-        // MCP Servers Tab
-        mcpServersListModel.clear();
-        var mcpConfig = chrome.getProject().getMcpConfig();
-        for (McpServer server : mcpConfig.servers()) {
-            mcpServersListModel.addElement(server);
-        }
     }
 
     private void loadBuildPanelSettings() {
@@ -1713,14 +1393,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         for (AnalyzerSettingsPanel panel : analyzerSettingsPanels) {
             panel.saveSettings();
         }
-
-        // MCP Servers Tab
-        var servers = new ArrayList<McpServer>();
-        for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-            servers.add(mcpServersListModel.getElementAt(i));
-        }
-        var newMcpConfig = new McpConfig(servers);
-        project.setMcpConfig(newMcpConfig);
 
         // After applying data retention, model list might need refresh
         chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {

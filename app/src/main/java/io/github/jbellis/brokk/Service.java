@@ -13,14 +13,10 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import io.github.jbellis.brokk.mcp.McpConfig;
-import io.github.jbellis.brokk.mcp.McpServer;
-import io.github.jbellis.brokk.mcp.McpStreamingChatModel;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -265,7 +261,7 @@ public class Service {
         var tempModelInfoMap = new ConcurrentHashMap<String, Map<String, Object>>();
 
         try {
-            fetchAvailableModels(policy, project.getMcpConfig(), tempModelLocations, tempModelInfoMap);
+            fetchAvailableModels(policy, tempModelLocations, tempModelInfoMap);
         } catch (IOException e) {
             logger.error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
             // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
@@ -434,7 +430,6 @@ public class Service {
      */
     protected void fetchAvailableModels(
             MainProject.DataRetentionPolicy policy,
-            McpConfig mcpConfig,
             Map<String, String> locationsTarget,
             Map<String, Map<String, Object>> infoTarget)
             throws IOException {
@@ -582,66 +577,6 @@ public class Service {
             }
 
             logger.info("Discovered {} models eligible for use.", locationsTarget.size());
-        }
-
-        // Discover additional models from configured MCP servers (if any)
-        for (McpServer server : mcpConfig.servers()) {
-            try {
-                logger.debug("Checking MCP server for models: {} ({})", server.name(), server.url());
-                URL modelsUrl;
-                try {
-                    modelsUrl = server.url().toURI().resolve("models").toURL();
-                } catch (Exception e) {
-                    logger.warn("Could not resolve models URL for MCP server {}: {}", server.name(), e.getMessage());
-                    continue;
-                }
-                Request.Builder reqBuilder =
-                        new Request.Builder().url(modelsUrl).get();
-                String bearer = server.bearerToken();
-                if (bearer != null && !bearer.isBlank()) {
-                    reqBuilder.header("Authorization", bearer);
-                }
-                try (Response mresp = httpClient.newCall(reqBuilder.build()).execute()) {
-                    if (!mresp.isSuccessful()) {
-                        String body = mresp.body() != null ? mresp.body().string() : "(no body)";
-                        logger.warn(
-                                "Failed to fetch models from MCP server {}: HTTP {} - {}",
-                                server.name(),
-                                mresp.code(),
-                                body);
-                        continue;
-                    }
-                    String bodyStr = mresp.body() != null ? mresp.body().string() : "";
-                    JsonNode root = objectMapper.readTree(bodyStr);
-                    JsonNode data = root.path("models");
-                    if (!data.isArray()) {
-                        logger.warn("MCP server {} returned unexpected models payload: {}", server.name(), bodyStr);
-                        continue;
-                    }
-                    for (JsonNode modelNode : data) {
-                        String modelId = modelNode.path("name").asText();
-                        if (modelId == null || modelId.isBlank()) continue;
-                        String displayName = "%s (%s)".formatted(modelId, server.name());
-                        // incorporate server details for unique identifier
-                        String locationKey = server.url() + "/" + modelId;
-                        Map<String, Object> modelInfo = new HashMap<>();
-                        modelInfo.put("model_location", modelId);
-                        modelInfo.put("mcp_base_url", server.url().toString());
-                        if (server.bearerToken() != null) modelInfo.put("mcp_bearer_token", server.bearerToken());
-                        modelInfo.put("mode", "chat");
-                        modelInfo.put("is_private", true);
-                        modelInfo.put("max_input_tokens", 32768);
-                        modelInfo.put("max_output_tokens", 8192);
-                        infoTarget.put(locationKey, Map.copyOf(modelInfo));
-                        locationsTarget.put(displayName, locationKey);
-                        logger.debug("Discovered MCP model {} -> {}", displayName, locationKey);
-                    }
-                }
-            } catch (IOException ex) {
-                logger.warn("Could not connect to MCP server {}: {}", server.name(), ex.getMessage());
-            } catch (Exception ex) {
-                logger.warn("Error discovering models from MCP server {}: {}", server.name(), ex.getMessage(), ex);
-            }
         }
     }
 
@@ -819,41 +754,6 @@ public class Service {
         if (location == null) {
             logger.error("Location not found for model name: {}", config.name);
             return null;
-        }
-
-        // If this model was discovered from an MCP server, construct a client that talks directly to that MCP base URL.
-        var mInfo = getModelInfo(location);
-        if (mInfo != null && mInfo.containsKey("mcp_base_url")) {
-            try {
-                String mcpBase = mInfo.get("mcp_base_url").toString();
-                Object modelIdObj = mInfo.get("model_location");
-                if (!(modelIdObj instanceof String modelId) || modelId.isBlank()) {
-                    logger.error("Missing or invalid 'model_location' for MCP model at {}", location);
-                    return null;
-                }
-                final String bearerToken =
-                        mInfo.getOrDefault("mcp_bearer_token", "").toString();
-                String modelName = config.name;
-                if (modelName.contains(" ")) {
-                    modelName = modelName.substring(0, modelName.indexOf(" "));
-                }
-                return new McpStreamingChatModel.Builder()
-                        .modelName(modelName)
-                        .logRequests(true)
-                        .logResponses(true)
-                        .bearerToken(bearerToken)
-                        .baseUrl(mcpBase)
-                        .readTimeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME))
-                        .build();
-            } catch (Exception e) {
-                logger.error(
-                        "Failed to construct MCP model client for {} at {}: {}",
-                        config.name,
-                        location,
-                        e.getMessage(),
-                        e);
-                return null;
-            }
         }
 
         // default request parameters

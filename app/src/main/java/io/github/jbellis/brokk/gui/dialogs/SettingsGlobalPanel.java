@@ -7,12 +7,21 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.mcp.McpConfig;
+import io.github.jbellis.brokk.mcp.McpServer;
+import io.github.jbellis.brokk.mcp.McpUtils;
 import java.awt.*;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
@@ -46,6 +55,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JTextField gitHubTokenField; // Null if GitHub tab not shown
+
+    private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
+    private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -81,6 +93,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             globalSubTabbedPane.addTab(
                     SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
         }
+
+        // MCP Servers Tab
+        var mcpPanel = createMcpPanel();
+        globalSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
 
         add(globalSubTabbedPane, BorderLayout.CENTER);
     }
@@ -405,6 +421,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (gitHubTokenField != null) { // Only if panel was created
             gitHubTokenField.setText(MainProject.getGitHubToken());
         }
+
+        // MCP Servers Tab
+        mcpServersListModel.clear();
+        var mcpConfig = chrome.getProject().getMcpConfig();
+        for (McpServer server : mcpConfig.servers()) {
+            mcpServersListModel.addElement(server);
+        }
     }
 
     public boolean applySettings() {
@@ -479,12 +502,450 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         }
 
+        // MCP Servers Tab
+        var servers = new ArrayList<McpServer>();
+        for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+            servers.add(mcpServersListModel.getElementAt(i));
+        }
+        var newMcpConfig = new McpConfig(servers);
+        chrome.getProject().setMcpConfig(newMcpConfig);
+
         return true;
     }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         SwingUtilities.updateComponentTreeUI(this);
+    }
+
+    private JLabel createMcpServerUrlErrorLabel() {
+        var urlErrorLabel = new JLabel("Invalid URL");
+        var errorColor = UIManager.getColor("Label.errorForeground");
+        // A fallback to a softer, brownish-red if not defined in the theme
+        if (errorColor == null) {
+            errorColor = new Color(219, 49, 49);
+        }
+        urlErrorLabel.setForeground(errorColor);
+        urlErrorLabel.setVisible(false);
+        return urlErrorLabel;
+    }
+
+    private JPanel createMcpPanel() {
+        var mcpPanel = new JPanel(new BorderLayout(5, 5));
+        mcpPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // Server list
+        mcpServersList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        mcpServersList.setCellRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof McpServer server) {
+                    setText(server.name() + " (" + server.url() + ")");
+                }
+                return this;
+            }
+        });
+        var scrollPane = new JScrollPane(mcpServersList);
+        mcpPanel.add(scrollPane, BorderLayout.CENTER);
+
+        // Buttons
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var addButton = new JButton("Add...");
+        var editButton = new JButton("Edit...");
+        var removeButton = new JButton("Remove");
+
+        // Enable and wire up action listeners for MCP server management.
+        addButton.setEnabled(true);
+        editButton.setEnabled(false);
+        removeButton.setEnabled(false);
+
+        // Enable Edit/Remove when a server is selected
+        mcpServersList.addListSelectionListener(e -> {
+            boolean hasSelection = !mcpServersList.isSelectionEmpty();
+            editButton.setEnabled(hasSelection);
+            removeButton.setEnabled(hasSelection);
+        });
+
+        // Add new MCP server (name + url). Tools can be fetched later.
+        addButton.addActionListener(e -> showMcpServerDialog("Add MCP Server", null, server -> {
+            mcpServersListModel.addElement(server);
+            mcpServersList.setSelectedValue(server, true);
+        }));
+
+        // Edit selected MCP server
+        editButton.addActionListener(e -> {
+            int idx = mcpServersList.getSelectedIndex();
+            if (idx < 0) return;
+            McpServer existing = mcpServersListModel.getElementAt(idx);
+            showMcpServerDialog("Edit MCP Server", existing, updated -> {
+                mcpServersListModel.setElementAt(updated, idx);
+                mcpServersList.setSelectedIndex(idx);
+            });
+        });
+
+        // Remove selected MCP server with confirmation
+        removeButton.addActionListener(e -> {
+            int idx = mcpServersList.getSelectedIndex();
+            if (idx >= 0) {
+                int confirm = JOptionPane.showConfirmDialog(
+                        SettingsGlobalPanel.this,
+                        "Remove selected MCP server?",
+                        "Confirm Remove",
+                        JOptionPane.YES_NO_OPTION);
+                if (confirm == JOptionPane.YES_OPTION) {
+                    mcpServersListModel.removeElementAt(idx);
+                }
+            }
+        });
+
+        buttonPanel.add(addButton);
+        buttonPanel.add(editButton);
+        buttonPanel.add(removeButton);
+        mcpPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        return mcpPanel;
+    }
+
+    private void showMcpServerDialog(
+            String title, @Nullable McpServer existing, java.util.function.Consumer<McpServer> onSave) {
+        final var fetchedTools = new Object() {
+            @Nullable
+            List<String> value = existing != null ? existing.tools() : null;
+        };
+        JTextField nameField = new JTextField(existing != null ? existing.name() : "");
+        JTextField urlField = new JTextField(existing != null ? existing.url().toString() : "");
+        JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
+        JPasswordField tokenField = new JPasswordField();
+        JLabel tokenLabel = new JLabel("Bearer Token:");
+        var showTokenButton = new JToggleButton(Icons.VISIBILITY_OFF);
+        showTokenButton.setToolTipText("Show/Hide token");
+        showTokenButton.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+        showTokenButton.setContentAreaFilled(false);
+        showTokenButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+        char defaultEchoChar = tokenField.getEchoChar();
+        showTokenButton.addActionListener(ae -> {
+            if (showTokenButton.isSelected()) {
+                tokenField.setEchoChar((char) 0);
+                showTokenButton.setIcon(Icons.VISIBILITY);
+            } else {
+                tokenField.setEchoChar(defaultEchoChar);
+                showTokenButton.setIcon(Icons.VISIBILITY_OFF);
+            }
+        });
+
+        var tokenPanel = new JPanel(new BorderLayout());
+        tokenPanel.add(tokenField, BorderLayout.CENTER);
+        tokenPanel.add(showTokenButton, BorderLayout.EAST);
+
+        String existingToken = existing != null ? existing.bearerToken() : null;
+        if (existingToken != null && !existingToken.isEmpty()) {
+            useTokenCheckbox.setSelected(true);
+            String displayToken = existingToken;
+            if (displayToken.regionMatches(false, 0, "Bearer ", 0, 7)) {
+                displayToken = displayToken.substring(7);
+            }
+            tokenField.setText(displayToken);
+            tokenLabel.setVisible(true);
+            tokenPanel.setVisible(true);
+        } else {
+            tokenLabel.setVisible(false);
+            tokenPanel.setVisible(false);
+        }
+
+        useTokenCheckbox.addActionListener(ae -> {
+            boolean sel = useTokenCheckbox.isSelected();
+            tokenLabel.setVisible(sel);
+            tokenPanel.setVisible(sel);
+            SwingUtilities.invokeLater(() -> {
+                java.awt.Window w = SwingUtilities.getWindowAncestor(tokenPanel);
+                if (w != null) w.pack();
+                tokenPanel.revalidate();
+                tokenPanel.repaint();
+            });
+        });
+
+        var fetchToolsButton = new JButton("Fetch Tools");
+        var toolsTextArea = new JTextArea(5, 20);
+        toolsTextArea.setEditable(false);
+        var toolsScrollPane = new JScrollPane(toolsTextArea);
+        toolsScrollPane.setVisible(false);
+
+        if (fetchedTools.value != null && !fetchedTools.value.isEmpty()) {
+            toolsTextArea.setText(String.join("\n", fetchedTools.value));
+            toolsScrollPane.setVisible(true);
+        }
+
+        fetchToolsButton.addActionListener(e -> {
+            String rawUrl = urlField.getText().trim();
+            if (rawUrl.isEmpty()) {
+                JOptionPane.showMessageDialog(fetchToolsButton, "URL is required.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            URL url;
+            try {
+                url = new URI(rawUrl).toURL();
+            } catch (MalformedURLException | URISyntaxException ex) {
+                JOptionPane.showMessageDialog(fetchToolsButton, "Invalid URL.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            String bearerToken = null;
+            if (useTokenCheckbox.isSelected()) {
+                String rawToken = new String(tokenField.getPassword()).trim();
+                if (!rawToken.isEmpty()) {
+                    if (rawToken.regionMatches(true, 0, "Bearer ", 0, 7)) {
+                        bearerToken = rawToken;
+                    } else {
+                        bearerToken = "Bearer " + rawToken;
+                    }
+                }
+            }
+            final String finalBearerToken = bearerToken;
+
+            fetchToolsButton.setEnabled(false);
+            fetchToolsButton.setText("Fetching...");
+
+            new SwingWorker<List<String>, Void>() {
+                @Override
+                protected List<String> doInBackground() {
+                    return McpUtils.fetchTools(url, finalBearerToken);
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        List<String> tools = get();
+                        fetchedTools.value = tools;
+                        if (tools.isEmpty()) {
+                            toolsTextArea.setText("No tools found or failed to fetch.");
+                        } else {
+                            toolsTextArea.setText(String.join("\n", tools));
+                        }
+                        toolsScrollPane.setVisible(true);
+                        SwingUtilities.getWindowAncestor(fetchToolsButton).pack();
+                    } catch (Exception ex) {
+                        logger.error("Error fetching MCP tools", ex);
+                        fetchedTools.value = null;
+                        toolsTextArea.setText("Error fetching tools: " + ex.getMessage());
+                        toolsScrollPane.setVisible(true);
+                        SwingUtilities.getWindowAncestor(fetchToolsButton).pack();
+                    } finally {
+                        fetchToolsButton.setEnabled(true);
+                        fetchToolsButton.setText("Fetch Tools");
+                    }
+                }
+            }.execute();
+        });
+
+        JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
+        urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
+
+        var panel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 2, 2, 2);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        // Row 0: Name
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        panel.add(new JLabel("Name:"), gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1;
+        panel.add(nameField, gbc);
+
+        // Row 1: URL
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        panel.add(new JLabel("URL:"), gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1;
+        panel.add(urlField, gbc);
+
+        // Row 2: URL Error
+        gbc.gridx = 1;
+        gbc.gridy = 2;
+        panel.add(urlErrorLabel, gbc);
+
+        // Row 3: Token checkbox
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 2;
+        panel.add(useTokenCheckbox, gbc);
+        gbc.gridwidth = 1;
+
+        // Row 4: Token
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        panel.add(tokenLabel, gbc);
+        gbc.gridx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1;
+        panel.add(tokenPanel, gbc);
+
+        // Row 5: Fetch Tools Button
+        gbc.gridx = 1;
+        gbc.gridy = 5;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.weightx = 0;
+        gbc.anchor = GridBagConstraints.WEST;
+        panel.add(fetchToolsButton, gbc);
+
+        // Row 6: Tools Pane
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.gridwidth = 2;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 1;
+        gbc.weighty = 1;
+        gbc.insets = new Insets(8, 0, 0, 0);
+        panel.add(toolsScrollPane, gbc);
+
+        var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        final var dialog = optionPane.createDialog(SettingsGlobalPanel.this, title);
+
+        optionPane.addPropertyChangeListener(pce -> {
+            if (pce.getSource() != optionPane || !pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
+                return;
+            }
+            var value = optionPane.getValue();
+            if (value == JOptionPane.UNINITIALIZED_VALUE) {
+                return;
+            }
+
+            if (value.equals(JOptionPane.OK_OPTION)) {
+                String name = nameField.getText().trim();
+                String rawUrl = urlField.getText().trim();
+                boolean useToken = useTokenCheckbox.isSelected();
+                McpServer newServer = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, fetchedTools.value);
+
+                if (newServer != null) {
+                    onSave.accept(newServer);
+                    dialog.setVisible(false);
+                } else {
+                    urlErrorLabel.setVisible(true);
+                    dialog.pack();
+                    dialog.setVisible(true);
+                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                }
+            } else {
+                dialog.setVisible(false);
+            }
+        });
+
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Shared helper: create a debounced URL DocumentListener that validates the URL and toggles the provided error
+     * label. Debounce interval is 500ms.
+     */
+    private DocumentListener createUrlValidationListener(JTextField urlField, JLabel urlErrorLabel) {
+        final javax.swing.Timer[] debounceTimer = new javax.swing.Timer[1];
+        return new DocumentListener() {
+            private void scheduleValidation() {
+                if (debounceTimer[0] != null && debounceTimer[0].isRunning()) {
+                    debounceTimer[0].stop();
+                }
+                debounceTimer[0] = new javax.swing.Timer(500, ev -> {
+                    String text = urlField.getText().trim();
+                    boolean ok = true;
+                    if (text.isEmpty()) {
+                        ok = false;
+                    } else {
+                        try {
+                            URL u = new URI(text).toURL();
+                            String host = u.getHost();
+                            if (host == null || host.isEmpty()) ok = false;
+                        } catch (URISyntaxException | MalformedURLException ex) {
+                            ok = false;
+                        }
+                    }
+                    urlErrorLabel.setVisible(!ok);
+                    // Repack containing dialog/window so visibility change is applied
+                    SwingUtilities.invokeLater(() -> {
+                        java.awt.Window w = SwingUtilities.getWindowAncestor(urlField);
+                        if (w != null) w.pack();
+                    });
+                });
+                debounceTimer[0].setRepeats(false);
+                debounceTimer[0].start();
+            }
+
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                scheduleValidation();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                scheduleValidation();
+            }
+        };
+    }
+
+    /**
+     * Helper to validate inputs from Add/Edit dialogs and construct an McpServer. Returns null if validation failed.
+     *
+     * <p>This method also normalizes bearer token inputs if they start with "Bearer " and updates the provided
+     * tokenField with the normalized value (so the user sees the normalized form).
+     */
+    private @Nullable McpServer createMcpServerFromInputs(
+            String name, String rawUrl, boolean useToken, JPasswordField tokenField, @Nullable List<String> tools) {
+
+        // Validate URL presence and format - inline validation will show error
+        if (rawUrl.isEmpty()) {
+            return null;
+        }
+
+        URL url;
+        try {
+            var u = new URI(rawUrl).toURL();
+            String host = u.getHost();
+            if (host == null || host.isEmpty()) throw new MalformedURLException("Missing host");
+            url = u;
+        } catch (Exception mfe) {
+            return null;
+        }
+
+        // Name fallback (only check emptiness; name is non-null)
+        if (name.isEmpty()) name = rawUrl;
+
+        // Token normalization (non-obstructive)
+        String token = null;
+        if (useToken) {
+            String raw = new String(tokenField.getPassword()).trim();
+            if (!raw.isEmpty()) {
+                String bearerToken;
+                if (raw.regionMatches(true, 0, "Bearer ", 0, 7)) {
+                    bearerToken = raw;
+                    tokenField.setText(raw.substring(7).trim());
+                } else {
+                    bearerToken = "Bearer " + raw;
+                }
+                token = bearerToken;
+            } else {
+                token = null; // empty token => treat as null
+            }
+        }
+
+        return new McpServer(name, url, tools, token);
     }
 
     // --- Inner Classes for Quick Models Table (Copied from SettingsDialog) ---
