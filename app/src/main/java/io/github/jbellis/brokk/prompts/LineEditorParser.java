@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.prompts;
 
+import static java.util.Objects.requireNonNull;
+
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.LineEdit;
 import org.apache.logging.log4j.LogManager;
@@ -23,12 +25,12 @@ import java.util.regex.Pattern;
  * Parser for the line-based edit format:
  *
  * - <brk_delete_file path="..." />
- * - <brk_edit_file path="..." beginline=1 endline=3>...content...</brk_edit_file>
+ * - <brk_edit_file path="..." type="insert|replace|delete_lines" ...>...content...</brk_edit_file>
  *
  * Notes:
  * - path must be quoted (single or double quotes)
- * - beginline/endline must be non-negative integers (1-based for beginline, inclusive range)
- * - Closing tag </brk_edit_file> is required. We also accept </brk_update_file> for compatibility.
+ * - beginline/endline must be integers.
+ * - Closing tag </brk_edit_file> is required.
  *
  * This parser is read-only: it does not touch the filesystem. It returns a mixed stream
  * of OutputParts (plain text, edit, delete). The materialization to ProjectFile happens
@@ -42,6 +44,7 @@ public final class LineEditorParser {
 
     private LineEditorParser() {}
 
+    public enum Type { INSERT, REPLACE, DELETE_LINES }
 
     // <brk_delete_file ... />
     private static final Pattern DELETE_TAG = Pattern.compile(
@@ -53,9 +56,9 @@ public final class LineEditorParser {
             "<\\s*brk_edit_file\\s+([^>]*?)>",
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
-    // </brk_edit_file> or </brk_update_file> (compat)
+    // </brk_edit_file>
     private static final Pattern EDIT_CLOSE_TAG = Pattern.compile(
-            "</\\s*(brk_edit_file|brk_update_file)\\s*>",
+            "</\\s*brk_edit_file\\s*>",
             Pattern.CASE_INSENSITIVE);
 
     // Generic attribute parser: key=value where value may be in single or double quotes or be an unquoted token
@@ -68,7 +71,7 @@ public final class LineEditorParser {
 
     public sealed interface OutputPart permits OutputPart.Text, OutputPart.Edit, OutputPart.Delete {
         record Text(String text) implements OutputPart {}
-        record Edit(String path, int beginLine, int endLine, String content) implements OutputPart {}
+        record Edit(String path, Type type, int beginLine, @Nullable Integer endLine, String content) implements OutputPart {}
         record Delete(String path) implements OutputPart {}
     }
 
@@ -135,28 +138,62 @@ public final class LineEditorParser {
                 var attrs = parseAttributes(openAttrText);
 
                 var path = attrs.get("path");
-                var begin = parseInt(attrs.get("beginline"));
-                var end = parseInt(attrs.get("endline"));
-
-                if (path == null || path.isBlank() || begin == null || end == null) {
-                    errors.add("brk_edit_file missing one of required attributes: path, beginline, endline.");
-                    // Stop on first structural error; keep the malformed open tag as plain text
+                if (path == null || path.isBlank()) {
+                    errors.add("brk_edit_file missing required path attribute.");
                     parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
                     break;
                 }
 
-                // Find closing tag
+                var typeStr = attrs.get("type");
+                if (typeStr == null) {
+                    errors.add("brk_edit_file missing required type attribute.");
+                    parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
+                    break;
+                }
+
+                Type type;
+                try {
+                    type = Type.valueOf(typeStr.toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    errors.add("brk_edit_file has unknown type: '" + typeStr + "'. Must be one of INSERT, REPLACE, DELETE_LINES.");
+                    parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
+                    break;
+                }
+
                 var bodyStart = next.end();
                 var close = findNext(EDIT_CLOSE_TAG, content, bodyStart);
                 if (close == null) {
                     errors.add("Missing closing </brk_edit_file> tag.");
-                    // Treat entire rest as plain text
                     parts.add(new OutputPart.Text(content.substring(next.start())));
                     break;
                 }
-
                 var body = content.substring(bodyStart, close.start());
-                parts.add(new OutputPart.Edit(path, begin, end, body));
+
+                var begin = parseInt(attrs.get("beginline"));
+                var end = parseInt(attrs.get("endline"));
+
+                String error = null;
+                if (type == Type.INSERT) {
+                    if (begin == null) {
+                        error = "brk_edit_file with type=\"insert\" must have a beginline attribute.";
+                    }
+                } else { // REPLACE or DELETE_LINES
+                    if (begin == null || end == null) {
+                        error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline and endline attributes.";
+                    } else if (begin > end) {
+                        error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline <= endline.";
+                    } else if (type == Type.DELETE_LINES && !body.isEmpty()) {
+                        error = "brk_edit_file with type=\"delete_lines\" must have an empty body.";
+                    }
+                }
+
+                if (error != null) {
+                    errors.add(error);
+                    parts.add(new OutputPart.Text(content.substring(next.start(), close.end())));
+                    break;
+                }
+
+                parts.add(new OutputPart.Edit(path, type, requireNonNull(begin), end, type == Type.DELETE_LINES ? "" : body));
                 idx = close.end();
             }
         }
@@ -229,9 +266,21 @@ public final class LineEditorParser {
             if (part instanceof OutputPart.Delete(String path)) {
                 var pf = cm.toFile(path);
                 edits.add(new LineEdit.DeleteFile(pf));
-            } else if (part instanceof OutputPart.Edit(String path, int beginLine, int endLine, String content)) {
+            } else if (part instanceof OutputPart.Edit(var path, var type, var beginLine, var endLine, var content)) {
                 var pf = cm.toFile(path);
-                edits.add(new LineEdit.EditFile(pf, beginLine, endLine, content));
+                switch (type) {
+                    case INSERT -> {
+                        // For inserts, the engine uses endLine < beginLine.
+                        // For a new file, this is normalized to beginline=1, endline=0.
+                        if (pf.exists()) {
+                            edits.add(new LineEdit.EditFile(pf, beginLine, beginLine - 1, content));
+                        } else {
+                            edits.add(new LineEdit.EditFile(pf, 1, 0, content));
+                        }
+                    }
+                    case REPLACE -> edits.add(new LineEdit.EditFile(pf, beginLine, requireNonNull(endLine), content));
+                    case DELETE_LINES -> edits.add(new LineEdit.EditFile(pf, beginLine, requireNonNull(endLine), ""));
+                }
             }
         }
         return edits;
@@ -366,8 +415,8 @@ public final class LineEditorParser {
         if (part instanceof OutputPart.Delete(String path)) {
             return reprDelete(path);
         }
-        if (part instanceof OutputPart.Edit(String path, int begin, int end, String content)) {
-            return reprEdit(path, begin, end, content);
+        if (part instanceof OutputPart.Edit(var path, var type, var begin, var end, var content)) {
+            return reprEdit(path, type, begin, end, content);
         }
         if (part instanceof OutputPart.Text(String text)) {
             return text;
@@ -384,11 +433,17 @@ public final class LineEditorParser {
             return reprDelete(canonicalPath(file));
         }
         if (edit instanceof LineEdit.EditFile(ProjectFile file, int beginLine, int endLine, String content)) {
-            return reprEdit(
-                    canonicalPath(file),
-                    beginLine,
-                    endLine,
-                    content);
+            Type type;
+            Integer endlineAttr = endLine;
+            if (endLine < beginLine) {
+                type = Type.INSERT;
+                endlineAttr = null;
+            } else if (content.isEmpty()) {
+                type = Type.DELETE_LINES;
+            } else {
+                type = Type.REPLACE;
+            }
+            return reprEdit(canonicalPath(file), type, beginLine, endlineAttr, content);
         }
         return edit.toString();
     }
@@ -397,12 +452,18 @@ public final class LineEditorParser {
         return "<brk_delete_file path=\"%s\" />".formatted(path);
     }
 
-    private static String reprEdit(String path, int begin, int end, String content) {
+    private static String reprEdit(String path, Type type, int begin, @Nullable Integer end, String content) {
+        var typeStr = type.toString().toLowerCase(Locale.ROOT);
+        var endlineAttr = "";
+        if (type == Type.REPLACE || type == Type.DELETE_LINES) {
+            endlineAttr = " endline=%d".formatted(requireNonNull(end));
+        }
+
         return """
-               <brk_edit_file path="%s" beginline=%d endline=%d>
+               <brk_edit_file path="%s" type="%s" beginline=%d%s>
                %s
                </brk_edit_file>
-               """.stripIndent().formatted(path, begin, end, content);
+               """.stripIndent().formatted(path, typeStr, begin, endlineAttr, content);
     }
 
     /**
