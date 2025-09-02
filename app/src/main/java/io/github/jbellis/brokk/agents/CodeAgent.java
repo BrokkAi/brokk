@@ -213,7 +213,7 @@ public class CodeAgent {
                 ? loopContext.userGoal()
                 : loopContext.userGoal() + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
-        // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
+        // Prepare messages for TaskEntry log: filter raw messages and keep Line Edit tags verbatim
         var finalMessages = forArchitect
                 ? List.copyOf(io.getLlmRawMessages(false))
                 : prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
@@ -227,7 +227,7 @@ public class CodeAgent {
     /**
      * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
      * same request / parse / apply FSM that {@link #runTask(String, boolean)} uses, but it stops after all
-     * SEARCH/REPLACE blocks have been applied (no build verification is performed).
+     * Line Edit tags have been applied (no build verification is performed).
      *
      * @param file the file to edit
      * @param instructions user instructions describing the desired change
@@ -355,7 +355,7 @@ public class CodeAgent {
         var lepResult = LineEditorParser.instance.parse(llmText);
         var newlyParsedEdits = LineEditorParser.materializeEdits(lepResult, contextManager);
         if (metrics != null) {
-            metrics.totalEditBlocks += newlyParsedEdits.size();
+            metrics.totalLineEdits += newlyParsedEdits.size();
         }
 
         if (lepResult.parseError() != null) {
@@ -499,7 +499,7 @@ public class CodeAgent {
 
     /**
      * Prepares messages for storage in a TaskEntry. This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI
-     * messages. AI messages containing SEARCH/REPLACE blocks will have their raw text preserved, rather than converting
+     * messages. AI messages containing Line Edit tags will have their raw text preserved, rather than converting
      * blocks to HTML placeholders or summarizing block-only messages.
      */
     private static List<ChatMessage> prepareMessagesForTaskEntryLog(List<ChatMessage> rawMessages) {
@@ -510,7 +510,7 @@ public class CodeAgent {
                         case AI -> {
                             var aiMessage = (AiMessage) message;
                             // Pass through AI messages with their original text.
-                            // Raw S/R blocks are preserved.
+                            // Raw Line Edit tags are preserved.
                             // If the text is blank, effectively filter out the message.
                             yield aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
                         }
@@ -589,7 +589,7 @@ public class CodeAgent {
 
                 %s
 
-                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
+                Please analyze the error message, review the conversation history for previous attempts, and provide Line Edit tags to fix the error.
 
                 IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
                 do your best to explain the problem but DO NOT provide any edits.
@@ -617,19 +617,6 @@ public class CodeAgent {
                 """
                 .stripIndent()
                 .formatted(repr);
-    }
-
-    static class EditStopException extends RuntimeException {
-        final TaskResult.StopDetails stopDetails;
-
-        public EditStopException(TaskResult.StopDetails stopDetails) {
-            super(stopDetails.reason().name() + ": " + stopDetails.explanation());
-            this.stopDetails = stopDetails;
-        }
-
-        public EditStopException(TaskResult.StopReason stopReason) {
-            this(new TaskResult.StopDetails(stopReason));
-        }
     }
 
     Step requestPhase(
@@ -775,7 +762,7 @@ public class CodeAgent {
 
         var failures = applyResult.failures();
         if (metrics != null) {
-            metrics.failedEditBlocks += failures.size();
+            metrics.failedLineEdits += failures.size();
         }
 
         int attempted = ws.pendingEdits().size();
@@ -1003,8 +990,8 @@ public class CodeAgent {
         int totalCachedTokens = 0;
         int totalThinkingTokens = 0;
         int totalOutputTokens = 0;
-        int totalEditBlocks = 0;
-        int failedEditBlocks = 0;
+        int totalLineEdits = 0;
+        int failedLineEdits = 0;
         int parseRetries = 0;
         int buildFailures = 0;
         int applyRetries = 0;
@@ -1037,8 +1024,8 @@ public class CodeAgent {
             jsonMap.put("cachedInputTokens", totalCachedTokens);
             jsonMap.put("reasoningTokens", totalThinkingTokens);
             jsonMap.put("outputTokens", totalOutputTokens);
-            jsonMap.put("editBlocksTotal", totalEditBlocks);
-            jsonMap.put("editBlocksFailed", failedEditBlocks);
+            jsonMap.put("editBlocksTotal", totalLineEdits);
+            jsonMap.put("editBlocksFailed", failedLineEdits);
             jsonMap.put("buildFailures", buildFailures);
             jsonMap.put("parseRetries", parseRetries);
             jsonMap.put("applyRetries", applyRetries);
