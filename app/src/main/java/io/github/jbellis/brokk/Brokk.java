@@ -118,9 +118,10 @@ public class Brokk {
     }
 
     private static void setupSystemPropertiesAndIcon() {
-        // Hardcode FlatLaf UI scale to 2.0x; must be set before FlatLaf.setup()
-        System.setProperty("flatlaf.uiScale", "2.0");
-        logger.info("FlatLaf uiScale set to 2.0x");
+        // Prefer built-in JRE UI scaling; must be set before any UI is initialized
+        System.clearProperty("flatlaf.uiScale"); // ensure FlatLaf doesn't add extra scaling
+        System.setProperty("sun.java2d.uiScale", "2.0");
+        logger.info("JRE uiScale (sun.java2d.uiScale) set to 2.0x");
         System.setProperty("apple.laf.useScreenMenuBar", "true");
         if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
             System.setProperty("apple.awt.application.name", "Brokk");
