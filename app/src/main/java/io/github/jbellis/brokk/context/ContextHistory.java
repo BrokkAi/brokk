@@ -15,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -182,6 +184,53 @@ public class ContextHistory {
         redo.clear();
         selected = newFrozen;
         liveContext = newLive;
+    }
+
+    /**
+     * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
+     * top context's action starts with "Loaded external changes", it updates the count and replaces it. Otherwise, it
+     * pushes a new context entry.
+     *
+     * @return The new frozen context if a change was made, otherwise null.
+     */
+    public synchronized @Nullable Context processExternalFileChangesIfNeeded() {
+        var fr = liveContext.freezeAndCleanup();
+        if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+            var topCtx = topContext();
+            var previousAction = topCtx.getAction();
+            if (!previousAction.startsWith("Loaded external changes")) {
+                // If the previous action is not about external changes, push a new context
+                var newLiveContext = fr.liveContext()
+                        .withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes"));
+                var cleaned = newLiveContext.freezeAndCleanup();
+                pushLiveAndFrozen(cleaned.liveContext(), cleaned.frozenContext());
+                return cleaned.frozenContext();
+            }
+
+            // Parse the existing action to extract the count if present
+            var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
+            var matcher = pattern.matcher(previousAction);
+            int newCount;
+            if (matcher.matches() && matcher.group(1) != null) {
+                var countGroup = matcher.group(1);
+                try {
+                    newCount = Integer.parseInt(countGroup) + 1;
+                } catch (NumberFormatException e) {
+                    newCount = 2;
+                }
+            } else {
+                newCount = 2;
+            }
+
+            // Form the new action string with the updated count
+            var newAction =
+                    newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
+            var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
+            var cleaned = newLiveContext.freezeAndCleanup();
+            replaceTop(cleaned.liveContext(), cleaned.frozenContext());
+            return cleaned.frozenContext();
+        }
+        return null;
     }
 
     /* ─────────────── undo / redo  ────────────── */
