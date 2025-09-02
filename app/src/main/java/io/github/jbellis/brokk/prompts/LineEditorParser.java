@@ -122,8 +122,9 @@ public final class LineEditorParser {
                 var path = attrs.get("path");
                 if (path == null || path.isBlank()) {
                     errors.add("brk_delete_file missing required path attribute.");
-                    // Treat as plain text to avoid losing data
+                    // Stop on first structural error; keep the malformed tag as plain text
                     parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
+                    break;
                 } else {
                     parts.add(new OutputPart.Delete(path));
                 }
@@ -139,10 +140,9 @@ public final class LineEditorParser {
 
                 if (path == null || path.isBlank() || begin == null || end == null) {
                     errors.add("brk_edit_file missing one of required attributes: path, beginline, endline.");
-                    // Treat as plain text (open tag only)
+                    // Stop on first structural error; keep the malformed open tag as plain text
                     parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
-                    idx = next.end();
-                    continue;
+                    break;
                 }
 
                 // Find closing tag
