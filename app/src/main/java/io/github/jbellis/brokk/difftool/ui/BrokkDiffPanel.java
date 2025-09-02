@@ -715,6 +715,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return contextManager;
     }
 
+    /** Returns the number of file comparisons in this panel. */
+    public int getFileComparisonCount() {
+        return fileComparisons.size();
+    }
+
     public void launchComparison() {
         logger.info(
                 "Navigation Step 0: Launching diff comparison with {} files, starting with file index {}",
@@ -835,20 +840,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         cachedPanel.resetToFirstDifference();
 
         // Apply theme to ensure proper syntax highlighting
+        logger.debug("Navigation Step 5a: Applying theme to cached panel {}", fileIndex);
         cachedPanel.applyTheme(theme);
 
         // Reset dirty state after theme application to prevent false save prompts
         // Theme application can trigger document events that incorrectly mark documents as dirty
+        logger.debug("Navigation Step 5b: Resetting document dirty state after theme for panel {}", fileIndex);
         resetDocumentDirtyStateAfterTheme(cachedPanel);
 
         // Re-establish component resize listeners and set flag for layout reset on next resize
         cachedPanel.refreshComponentListeners();
         needsLayoutReset = true;
 
-        // Ensure diff highlights are properly displayed after theme application
-        SwingUtilities.invokeLater(() -> {
-            cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
-        });
+        // Apply diff highlights immediately after theme to prevent timing issues
+        logger.debug("Navigation Step 5c: Applying diff highlights immediately for panel {}", fileIndex);
+        cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
@@ -919,22 +925,35 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     public void showInFrame(String title) {
         var frame = Chrome.newFrame(title);
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+
+        // Always intercept close and decide explicitly in windowClosing.
+        // This ensures quit actions (eg. Cmd+Q) are intercepted and the user can be prompted.
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.getContentPane().add(this);
 
         // Get saved bounds from Project via the stored ContextManager
         var bounds = contextManager.getProject().getDiffWindowBounds();
         frame.setBounds(bounds);
 
-        // Save window position and size when closing
+        // Save window position and size when closing. We handle the actual disposal here so a
+        // global quit (Cmd+Q) still triggers our prompt and can be cancelled by the user.
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
-                if (!checkUnsavedChangesBeforeClose()) {
-                    frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-                    return;
+                // Ask user to save if there are unsaved changes. If they cancel, do nothing and keep window open.
+                if (checkUnsavedChangesBeforeClose()) {
+                    // User chose to proceed (and possibly saved). Persist window bounds and dispose.
+                    try {
+                        contextManager.getProject().saveDiffWindowBounds(frame);
+                    } catch (Exception ex) {
+                        // Be robust: log and continue with dispose even if saving bounds fails.
+                        logger.warn("Failed to save diff window bounds on close: {}", ex.getMessage(), ex);
+                    }
+                    // Explicitly dispose the frame to close the window.
+                    frame.dispose();
+                } else {
+                    // User cancelled - do nothing to prevent closing.
                 }
-                contextManager.getProject().saveDiffWindowBounds(frame);
             }
         });
 
@@ -1122,6 +1141,37 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // For NO_OPTION, just continue to return true - caller will handle disposal
         }
         return true; // OK to close
+    }
+
+    /**
+     * Public wrapper for close confirmation. This method is safe to call from any thread: it will ensure the
+     * interactive confirmation (and any saves) are performed on the EDT.
+     *
+     * @param parentWindow the parent window to use for dialogs (may be null)
+     * @return true if it's OK to close (user allowed or saved), false to cancel quit
+     */
+    public boolean confirmClose(Window parentWindow) {
+        // If already on EDT, call directly
+        if (SwingUtilities.isEventDispatchThread()) {
+            return checkUnsavedChangesBeforeClose();
+        }
+        // Otherwise, run on EDT and wait for result
+        var result = new java.util.concurrent.atomic.AtomicBoolean(true);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    result.set(checkUnsavedChangesBeforeClose());
+                } catch (Exception e) {
+                    logger.warn("Error while confirming close on EDT: {}", e.getMessage(), e);
+                    // Be conservative: cancel quit on unexpected error
+                    result.set(false);
+                }
+            });
+        } catch (Exception e) {
+            logger.error("Failed to run close confirmation on EDT: {}", e.getMessage(), e);
+            return false;
+        }
+        return result.get();
     }
 
     /**
@@ -1332,5 +1382,133 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Remove all components
         removeAll();
+    }
+
+    /**
+     * Check if this diff panel matches the given file comparisons. Used to find existing panels showing the same
+     * content to avoid duplicates.
+     *
+     * @param leftSources The left sources to match
+     * @param rightSources The right sources to match
+     * @return true if this panel shows the same content
+     */
+    public boolean matchesContent(List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        logger.debug(
+                "matchesContent called with {} left sources, {} right sources. This panel has {} fileComparisons",
+                leftSources.size(),
+                rightSources.size(),
+                fileComparisons.size());
+
+        if (fileComparisons.size() != leftSources.size() || leftSources.size() != rightSources.size()) {
+            logger.debug(
+                    "Size mismatch - panel: {}, left: {}, right: {}",
+                    fileComparisons.size(),
+                    leftSources.size(),
+                    rightSources.size());
+            return false;
+        }
+
+        // Check if this is an uncommitted changes diff (all left sources are HEAD, all right sources are FileSource)
+        boolean isUncommittedChanges = leftSources.stream()
+                        .allMatch(src -> src instanceof BufferSource.StringSource ss && "HEAD".equals(ss.title()))
+                && rightSources.stream().allMatch(src -> src instanceof BufferSource.FileSource);
+
+        if (isUncommittedChanges) {
+            logger.debug("Detected uncommitted changes diff - using set-based comparison instead of order-based");
+            return matchesUncommittedChangesContent(leftSources, rightSources);
+        }
+
+        // Regular order-based comparison for other types of diffs
+        for (int i = 0; i < fileComparisons.size(); i++) {
+            var existing = fileComparisons.get(i);
+            var leftSource = leftSources.get(i);
+            var rightSource = rightSources.get(i);
+
+            logger.debug("Comparing sources at index {}", i);
+            boolean leftMatches = sourcesMatch(existing.leftSource, leftSource);
+            boolean rightMatches = sourcesMatch(existing.rightSource, rightSource);
+
+            logger.debug("Index {} - left matches: {}, right matches: {}", i, leftMatches, rightMatches);
+
+            if (!leftMatches || !rightMatches) {
+                logger.debug("Content match FAILED at index {}", i);
+                return false;
+            }
+        }
+        logger.debug("Content match SUCCESS - all sources matched");
+        return true;
+    }
+
+    private boolean matchesUncommittedChangesContent(List<BufferSource> leftSources, List<BufferSource> rightSources) {
+        logger.debug("matchesUncommittedChangesContent: Comparing sets of {} files", leftSources.size());
+
+        // Extract the set of filenames from the requested sources (right sources are FileSource)
+        var requestedFiles = rightSources.stream()
+                .filter(src -> src instanceof BufferSource.FileSource)
+                .map(src -> ((BufferSource.FileSource) src).title())
+                .collect(java.util.stream.Collectors.toSet());
+
+        // Extract the set of filenames from existing panel
+        var existingFiles = fileComparisons.stream()
+                .filter(fc -> fc.rightSource instanceof BufferSource.FileSource)
+                .map(fc -> ((BufferSource.FileSource) fc.rightSource).title())
+                .collect(java.util.stream.Collectors.toSet());
+
+        logger.debug(
+                "matchesUncommittedChangesContent: requested files = {}, existing files = {}",
+                requestedFiles,
+                existingFiles);
+
+        boolean matches = requestedFiles.equals(existingFiles);
+        logger.debug("matchesUncommittedChangesContent: set comparison result = {}", matches);
+        return matches;
+    }
+
+    private boolean sourcesMatch(BufferSource source1, BufferSource source2) {
+        logger.debug(
+                "sourcesMatch: comparing {} with {}",
+                source1.getClass().getSimpleName(),
+                source2.getClass().getSimpleName());
+
+        if (source1.getClass() != source2.getClass()) {
+            logger.debug(
+                    "sourcesMatch: class mismatch - {} vs {}",
+                    source1.getClass().getSimpleName(),
+                    source2.getClass().getSimpleName());
+            return false;
+        }
+
+        if (source1 instanceof BufferSource.FileSource fs1 && source2 instanceof BufferSource.FileSource fs2) {
+            boolean matches = fs1.file().equals(fs2.file());
+            logger.debug("sourcesMatch FileSource: '{}' vs '{}' -> {}", fs1.file(), fs2.file(), matches);
+            return matches;
+        }
+
+        if (source1 instanceof BufferSource.StringSource ss1 && source2 instanceof BufferSource.StringSource ss2) {
+            // Use lightweight comparison - filename and title should uniquely identify content
+            // For git diffs, title contains commit ID which uniquely identifies the content
+            boolean filenameMatch = java.util.Objects.equals(ss1.filename(), ss2.filename());
+            boolean titleMatch = java.util.Objects.equals(ss1.title(), ss2.title());
+            boolean sizeMatch = ss1.content().length() == ss2.content().length();
+
+            logger.debug(
+                    "sourcesMatch StringSource: filename('{}' vs '{}')={}, title('{}' vs '{}')={}, size({}vs{})={}",
+                    ss1.filename(),
+                    ss2.filename(),
+                    filenameMatch,
+                    ss1.title(),
+                    ss2.title(),
+                    titleMatch,
+                    ss1.content().length(),
+                    ss2.content().length(),
+                    sizeMatch);
+
+            boolean result = filenameMatch && titleMatch && sizeMatch;
+            logger.debug("sourcesMatch StringSource result: {}", result);
+            return result;
+        }
+
+        logger.debug("sourcesMatch: unknown source type, returning false");
+        return false;
     }
 }

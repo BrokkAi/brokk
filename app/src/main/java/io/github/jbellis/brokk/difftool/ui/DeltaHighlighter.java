@@ -19,10 +19,16 @@ public final class DeltaHighlighter {
     private DeltaHighlighter() {} // Utility class
 
     public static void highlight(FilePanel panel, AbstractDelta<String> delta, boolean originalSide) {
+        logger.trace(
+                "DIFF DEBUG: DeltaHighlighter.highlight() called for {} side, delta type: {}",
+                originalSide ? "original" : "revised",
+                delta.getType());
+
         @Nullable BufferDocumentIF bufferDocument = panel.getBufferDocument();
         if (bufferDocument == null) {
             logger.trace(
-                    "Skipping highlight: bufferDocument is null for {} side", originalSide ? "original" : "revised");
+                    "DIFF DEBUG: Skipping highlight - bufferDocument is null for {} side",
+                    originalSide ? "original" : "revised");
             return;
         }
 
@@ -119,14 +125,21 @@ public final class DeltaHighlighter {
         // Apply the highlight
         try {
             logger.trace(
-                    "Adding highlight: chunk pos={}, size={}, fromOffset={}, toOffset={}, side={}",
+                    "DIFF DEBUG: Adding highlight - chunk pos={}, size={}, fromOffset={}, toOffset={}, side={}",
                     chunk.getPosition(),
                     chunk.size(),
                     fromOffset,
                     toOffset,
                     originalSide ? "original" : "revised");
             panel.getHighlighter().addHighlight(JMHighlighter.LAYER0, fromOffset, toOffset, painter);
+            logger.trace("DIFF DEBUG: Highlight added successfully to {} side", originalSide ? "original" : "revised");
         } catch (BadLocationException ex) {
+            logger.trace(
+                    "DIFF DEBUG: BadLocationException adding highlight at offset {} to {} on {} side: {}",
+                    fromOffset,
+                    toOffset,
+                    originalSide ? "original" : "revised",
+                    ex.getMessage());
             throw new RuntimeException(
                     "Error adding highlight at offset " + fromOffset + " to "
                             + toOffset + " on " + (originalSide ? "original" : "revised")

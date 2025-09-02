@@ -339,7 +339,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
      * Helper method to dispose items outside of locks to prevent blocking. This allows other cache operations to
      * proceed while disposal is happening.
      *
-     * Disposal of Swing-related resources must happen on the Event Dispatch Thread (EDT). If called off-EDT, we
+     * <p>Disposal of Swing-related resources must happen on the Event Dispatch Thread (EDT). If called off-EDT, we
      * enqueue the dispose() call onto the EDT to ensure Swing safety.
      */
     private void disposeDeferred(java.util.Collection<V> items) {

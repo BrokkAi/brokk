@@ -248,6 +248,29 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             diffNode.diff();
             this.patch = diffNode.getPatch();
 
+            // DEBUG: Log diff calculation results
+            var filename = diffNode.getName();
+            if (patch != null && !patch.getDeltas().isEmpty()) {
+                logger.trace(
+                        "DIFF DEBUG [{}]: Found {} deltas to highlight",
+                        filename,
+                        patch.getDeltas().size());
+                for (int i = 0; i < patch.getDeltas().size(); i++) {
+                    var delta = patch.getDeltas().get(i);
+                    logger.trace(
+                            "DIFF DEBUG [{}]: Delta {}: {} at source lines {}-{}, target lines {}-{}",
+                            filename,
+                            i,
+                            delta.getType(),
+                            delta.getSource().getPosition(),
+                            delta.getSource().getPosition() + delta.getSource().size() - 1,
+                            delta.getTarget().getPosition(),
+                            delta.getTarget().getPosition() + delta.getTarget().size() - 1);
+                }
+            } else {
+                logger.trace("DIFF DEBUG [{}]: No deltas found - files are identical or patch is null", filename);
+            }
+
             // Try to preserve selected delta position, or find best alternative
             var previousDelta = selectedDelta;
             if (patch != null && !patch.getDeltas().isEmpty()) {
@@ -294,9 +317,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /** Tells each FilePanel to re-apply highlights, then repaint the parent panel. */
     private void reDisplay() {
-        for (var fp : filePanels.values()) {
-            fp.reDisplay();
+        var filename = diffNode != null ? diffNode.getName() : "unknown";
+        logger.trace("DIFF DEBUG [{}]: reDisplay() called for {} file panels", filename, filePanels.size());
+        for (var entry : filePanels.entrySet()) {
+            logger.trace("DIFF DEBUG [{}]: Calling reDisplay() on panel side: {}", filename, entry.getKey());
+            entry.getValue().reDisplay();
         }
+        logger.trace("DIFF DEBUG [{}]: Calling repaint() on main panel", filename);
         mainPanel.repaint();
     }
 

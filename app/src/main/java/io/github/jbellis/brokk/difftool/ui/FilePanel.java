@@ -374,12 +374,22 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Access the shared patch from the parent BufferDiffPanel
         var patch = diffPanel.getPatch();
-        if (patch == null) return;
+        if (patch == null) {
+            logger.trace("DIFF DEBUG [{}]: paintRevisionHighlights - patch is null", name);
+            return;
+        }
 
         boolean isOriginal = BufferDocumentIF.ORIGINAL.equals(name);
+        logger.trace(
+                "DIFF DEBUG [{}]: paintRevisionHighlights - panel side: {}, deltas: {}",
+                name,
+                isOriginal ? "ORIGINAL" : "REVISED",
+                patch.getDeltas().size());
 
         // Skip viewport optimization when navigating to ensure highlights appear
-        if (isNavigatingToDiff.get()) {
+        boolean isNavigating = isNavigatingToDiff.get();
+        logger.trace("DIFF DEBUG [{}]: isNavigatingToDiff = {}", name, isNavigating);
+        if (isNavigating) {
             paintAllDeltas(patch, isOriginal);
             return;
         }
@@ -397,27 +407,24 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
         }
 
-        // Get visible line range with caching for performance
-        var visibleRange = getVisibleLineRange();
-        if (visibleRange == null) {
-            // Fallback to highlighting all deltas if viewport calculation fails
-            paintAllDeltas(patch, isOriginal);
-            return;
-        }
-
-        // Use streams to filter and highlight visible deltas
-        patch.getDeltas().stream()
-                .filter(delta -> deltaIntersectsViewport(delta, visibleRange.start, visibleRange.end))
-                .forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
+        // TEMPORARY FIX: Always paint all deltas to debug viewport optimization issue
+        logger.trace("DIFF DEBUG [{}]: Temporarily disabling viewport optimization - painting all deltas", name);
+        paintAllDeltas(patch, isOriginal);
     }
 
     /** Fallback method to paint all deltas (original behavior). */
     private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch, boolean isOriginal) {
+        logger.trace(
+                "DIFF DEBUG [{}]: paintAllDeltas - highlighting {} deltas for {} panel",
+                name,
+                patch.getDeltas().size(),
+                isOriginal ? "ORIGINAL" : "REVISED");
         patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
     }
 
     /** Cached viewport calculation to avoid expensive repeated calls. */
     @Nullable
+    @SuppressWarnings("unused") // Temporarily disabled for debugging
     private VisibleRange getVisibleLineRange() {
         if (bufferDocument == null) {
             return null;
@@ -466,6 +473,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /** Check if a delta intersects with the visible line range. */
+    @SuppressWarnings("unused") // Temporarily disabled for debugging
     private boolean deltaIntersectsViewport(AbstractDelta<String> delta, int startLine, int endLine) {
         boolean originalSide = BufferDocumentIF.ORIGINAL.equals(name);
         var result = DiffHighlightUtil.isChunkVisible(delta, startLine, endLine, originalSide);
