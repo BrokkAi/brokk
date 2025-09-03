@@ -123,14 +123,9 @@ public class Brokk {
     }
 
     private static void setupSystemPropertiesAndIcon() {
-        // Prefer built-in JRE UI scaling; must be set before any UI is initialized
-        System.clearProperty("flatlaf.uiScale"); // ensure FlatLaf doesn't add extra scaling
-        if (Environment.isMacOs()) {
-            System.clearProperty("sun.java2d.uiScale");
-            logger.info("macOS detected; using default JRE HiDPI scaling (no override).");
-        } else {
+  
+        if (!Environment.isMacOs()){
             var existing = System.getProperty("sun.java2d.uiScale");
-            boolean isLinux = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
             if (existing != null) {
                 logger.info("sun.java2d.uiScale already set to {}. Respecting user override.", existing);
             } else {
@@ -154,7 +149,7 @@ public class Brokk {
                 }
 
                 if (!appliedPref) {
-                    if (isLinux) {
+                    if (Environment.isLinux()) {
                         var detected = detectLinuxUiScale();
                         if (detected != null && detected > 0.0) {
                             System.setProperty("sun.java2d.uiScale", Double.toString(detected));
