@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import java.util.*;
 import java.util.Optional;
 import org.treesitter.TSLanguage;
@@ -17,40 +18,9 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Optional<String> extractClassName(String reference) {
-        if (reference.trim().isEmpty()) {
-            return Optional.empty();
-        }
-
-        var trimmed = reference.trim();
-
-        // Java uses . as separator for Class.method
-        if (!trimmed.contains(".")) {
-            return Optional.empty();
-        }
-
-        var lastDot = trimmed.lastIndexOf('.');
-        if (lastDot <= 0 || lastDot >= trimmed.length() - 1) {
-            return Optional.empty(); // Starts with . or ends with .
-        }
-
-        var lastPart = trimmed.substring(lastDot + 1);
-        var beforeLast = trimmed.substring(0, lastDot);
-
-        // Java heuristic: methods are typically camelCase, classes are PascalCase
-        // Accept if last part looks like a camelCase method and beforeLast contains valid identifiers
-        if (hasUppercaseClassName(beforeLast) && lastPart.matches("[a-z_][a-zA-Z0-9_]*")) {
-            return Optional.of(beforeLast);
-        }
-
-        return Optional.empty();
+        return ClassNameExtractor.extractForJava(reference);
     }
 
-    private static boolean hasUppercaseClassName(String beforeLast) {
-        // Find the rightmost segment after the last dot
-        var lastDot = beforeLast.lastIndexOf('.');
-        var lastSegment = lastDot >= 0 ? beforeLast.substring(lastDot + 1) : beforeLast;
-        return lastSegment.matches("[A-Z][a-zA-Z0-9_]*");
-    }
 
     @Override
     protected TSLanguage createTSLanguage() {

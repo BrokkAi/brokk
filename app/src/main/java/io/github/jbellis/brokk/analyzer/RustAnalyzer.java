@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -18,32 +19,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Optional<String> extractClassName(String reference) {
-        if (reference.trim().isEmpty()) {
-            return Optional.empty();
-        }
-
-        var trimmed = reference.trim();
-
-        // Rust uses :: as separator for Struct::method or mod::Struct::method
-        if (!trimmed.contains("::")) {
-            return Optional.empty();
-        }
-
-        var lastDoubleColon = trimmed.lastIndexOf("::");
-        if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) {
-            return Optional.empty(); // Starts with :: or ends with ::
-        }
-
-        var lastPart = trimmed.substring(lastDoubleColon + 2);
-        var beforeLast = trimmed.substring(0, lastDoubleColon);
-
-        // Rust heuristic: methods are typically snake_case, types/structs are PascalCase
-        // Accept if last part looks like a method (snake_case or camelCase) and beforeLast contains valid identifiers
-        if (lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*") && beforeLast.matches("[a-zA-Z_:][a-zA-Z0-9_:]*")) {
-            return Optional.of(beforeLast);
-        }
-
-        return Optional.empty();
+        return ClassNameExtractor.extractForRust(reference);
     }
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(

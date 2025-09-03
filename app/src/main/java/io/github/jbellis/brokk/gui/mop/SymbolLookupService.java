@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.mop;
 
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import java.util.Comparator;
@@ -128,32 +129,35 @@ public class SymbolLookupService {
                 return new SymbolInfo(false, null);
             }
 
-            // Fallback: If search failed and looks like method reference, try searching for the class name
+            // Fallback: If search failed and looks like method reference, try searching for the class name.
+            // Normalize and try several candidate variants (e.g. strip templates, swap separators) to improve hit rate.
             var extractedClassName = analyzer.extractClassName(trimmed);
             if (extractedClassName.isPresent()) {
-                var className = extractedClassName.get();
-                logger.trace("Attempting fallback class search for extracted class name: '{}'", className);
+                var rawClassName = extractedClassName.get();
+                logger.trace("Attempting fallback class search for extracted class name: '{}'", rawClassName);
 
-                // Try exact FQN match for extracted class name
-                var classDefinition = analyzer.getDefinition(className);
-                if (classDefinition.isPresent() && classDefinition.get().isClass()) {
-                    logger.trace(
-                            "Found class via method reference fallback: {}",
-                            classDefinition.get().fqName());
-                    return new SymbolInfo(true, classDefinition.get().fqName());
-                }
+                var candidates = ClassNameExtractor.normalizeVariants(rawClassName);
 
-                // Try pattern search for extracted class name
-                var classSearchResults = analyzer.searchDefinitions(className);
-                if (!classSearchResults.isEmpty()) {
-                    var classMatches = findAllClassMatches(className, classSearchResults);
-                    if (!classMatches.isEmpty()) {
-                        var commaSeparatedFqns = classMatches.stream()
-                                .map(CodeUnit::fqName)
-                                .sorted()
-                                .collect(Collectors.joining(","));
-                        logger.trace("Found class(es) via method reference fallback: {}", commaSeparatedFqns);
-                        return new SymbolInfo(true, commaSeparatedFqns);
+                for (var candidate : candidates) {
+                    // Try exact FQN match for candidate
+                    var classDefinition = analyzer.getDefinition(candidate);
+                    if (classDefinition.isPresent() && classDefinition.get().isClass()) {
+                        logger.trace("Found class via method reference fallback (exact): {}", classDefinition.get().fqName());
+                        return new SymbolInfo(true, classDefinition.get().fqName());
+                    }
+
+                    // Try pattern search for candidate
+                    var classSearchResults = analyzer.searchDefinitions(candidate);
+                    if (!classSearchResults.isEmpty()) {
+                        var classMatches = findAllClassMatches(candidate, classSearchResults);
+                        if (!classMatches.isEmpty()) {
+                            var commaSeparatedFqns = classMatches.stream()
+                                    .map(CodeUnit::fqName)
+                                    .sorted()
+                                    .collect(Collectors.joining(","));
+                            logger.trace("Found class(es) via method reference fallback (pattern): {}", commaSeparatedFqns);
+                            return new SymbolInfo(true, commaSeparatedFqns);
+                        }
                     }
                 }
             }

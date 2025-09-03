@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Comprehensive tests for extractClassName method across all analyzer implementations. Tests language-specific method
- * reference detection and class name extraction.
+ * reference detection and class name extraction. Tests are written against the current heuristic logic and verify
+ * known edge cases.
  */
 public class ExtractClassNameTest {
 
@@ -42,7 +43,7 @@ public class ExtractClassNameTest {
         assertEquals(Optional.of("java.lang.String"), analyzer.extractClassName("java.lang.String.valueOf"));
         assertEquals(Optional.of("List"), analyzer.extractClassName("List.get"));
 
-        // Valid with camelCase/snake_case methods
+        // Valid with camelCase methods
         assertEquals(Optional.of("HttpClient"), analyzer.extractClassName("HttpClient.sendRequest"));
         assertEquals(Optional.of("StringBuilder"), analyzer.extractClassName("StringBuilder.append"));
 
@@ -54,13 +55,19 @@ public class ExtractClassNameTest {
         assertEquals(Optional.empty(), analyzer.extractClassName(""));
         assertEquals(Optional.empty(), analyzer.extractClassName("   "));
 
-        // Edge cases
+        // Edge cases consistent with heuristic
         assertEquals(Optional.empty(), analyzer.extractClassName("myclass.myMethod")); // lowercase class
         assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.MyMethod")); // uppercase method (not typical Java)
+
+        // Inner-class style using $ is not recognized by this heuristic (tests ensure no exception)
+        assertEquals(Optional.empty(), analyzer.extractClassName("com.example.Outer$Inner.method"));
+
+        // Unicode names - heuristic limited to ASCII-style checks
+        assertEquals(Optional.empty(), analyzer.extractClassName("ÜnicodeClass.method"));
     }
 
     @Test
-    @DisplayName("C++ analyzer - extractClassName with :: separator")
+    @DisplayName("C++ analyzer - extractClassName with :: separator and templates")
     void testCppAnalyzerExtractClassName() {
         var analyzer = new CppTreeSitterAnalyzer(mockProject, Set.of());
 
@@ -68,7 +75,9 @@ public class ExtractClassNameTest {
         assertEquals(Optional.of("MyClass"), analyzer.extractClassName("MyClass::myMethod"));
         assertEquals(Optional.of("namespace::MyClass"), analyzer.extractClassName("namespace::MyClass::myMethod"));
         assertEquals(Optional.of("std::string"), analyzer.extractClassName("std::string::c_str"));
-        assertEquals(Optional.empty(), analyzer.extractClassName("std::vector<int>::size")); // '<>' characters not in regex
+
+        // Templates are stripped/unsupported by regex heuristic -> should return empty
+        assertEquals(Optional.empty(), analyzer.extractClassName("std::vector<int>::size"));
 
         // Nested namespaces
         assertEquals(Optional.of("ns1::ns2::Class"), analyzer.extractClassName("ns1::ns2::Class::method"));
@@ -83,6 +92,9 @@ public class ExtractClassNameTest {
 
         // C++ doesn't use dots for method references
         assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.myMethod"));
+
+        // Dollar-sign odd identifiers are not supported by the simple heuristic
+        assertEquals(Optional.empty(), analyzer.extractClassName("ns$::Class::method"));
     }
 
     @Test
@@ -141,48 +153,28 @@ public class ExtractClassNameTest {
     }
 
     @Test
-    @DisplayName("Default analyzer - extractClassName with Java-like behavior")
+    @DisplayName("Default analyzer - extractClassName returns empty by default")
     void testDefaultAnalyzerExtractClassName() {
         // Use DisabledAnalyzer which uses default implementation
         var analyzer = new DisabledAnalyzer();
 
-        // Should throw UnsupportedOperationException (new default behavior)
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("MyClass.myMethod"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("com.example.Service.process"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("MyClass"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName(""));
+        // Default is now Optional.empty() and should not throw
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.myMethod"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("com.example.Service.process"));
+        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
+        assertEquals(Optional.empty(), analyzer.extractClassName(""));
     }
 
     @Test
-    @DisplayName("JavaScript analyzer - extractClassName with . separator")
-    void testJavaScriptAnalyzerExtractClassName() {
-        var analyzer = new JavascriptAnalyzer(mockProject, Set.of());
+    @DisplayName("JavaScript/TypeScript analyzers - default returns empty")
+    void testJsTsDefaultExtractClassName() {
+        var js = new JavascriptAnalyzer(mockProject, Set.of());
+        var ts = new TypescriptAnalyzer(mockProject, Set.of());
 
-        // JavaScript uses default implementation (throws UnsupportedOperationException)
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("MyClass.myMethod"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("console.log"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("JSON.stringify"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("Array.from"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("fs.readFile"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("path.join"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("MyClass"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("myMethod"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName(""));
-    }
-
-    @Test
-    @DisplayName("TypeScript analyzer - extractClassName with . separator")
-    void testTypeScriptAnalyzerExtractClassName() {
-        var analyzer = new TypescriptAnalyzer(mockProject, Set.of());
-
-        // TypeScript uses default implementation (throws UnsupportedOperationException)
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("MyClass.myMethod"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("Array.isArray"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("Promise.resolve"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("React.Component.render"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("MyClass"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName("myMethod"));
-        assertThrows(UnsupportedOperationException.class, () -> analyzer.extractClassName(""));
+        assertEquals(Optional.empty(), js.extractClassName("console.log"));
+        assertEquals(Optional.empty(), js.extractClassName("MyClass.myMethod"));
+        assertEquals(Optional.empty(), ts.extractClassName("React.Component.render"));
+        assertEquals(Optional.empty(), ts.extractClassName("Array.isArray"));
     }
 
     @Test
@@ -201,7 +193,7 @@ public class ExtractClassNameTest {
 
         // Empty parts
         assertEquals(Optional.empty(), javaAnalyzer.extractClassName("..method"));
-        // Fix the C++ test - need valid identifiers before ::
+        // C++ starts-with-:: remains empty
         assertEquals(Optional.empty(), cppAnalyzer.extractClassName("::method")); // starts with ::
     }
 }

@@ -4,6 +4,7 @@ import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 import static java.util.Optional.*;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import io.github.jbellis.brokk.analyzer.cpp.NamespaceProcessor;
 import io.github.jbellis.brokk.analyzer.cpp.SkeletonGenerator;
 import java.io.IOException;
@@ -24,32 +25,7 @@ public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Optional<String> extractClassName(String reference) {
-        if (reference.trim().isEmpty()) {
-            return Optional.empty();
-        }
-
-        var trimmed = reference.trim();
-
-        // C++ uses :: as separator for Class::method
-        if (!trimmed.contains("::")) {
-            return Optional.empty();
-        }
-
-        var lastDoubleColon = trimmed.lastIndexOf("::");
-        if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) {
-            return Optional.empty(); // Starts with :: or ends with ::
-        }
-
-        var lastPart = trimmed.substring(lastDoubleColon + 2);
-        var beforeLast = trimmed.substring(0, lastDoubleColon);
-
-        // C++ heuristic: both class and method can be PascalCase or camelCase
-        // Just check that both parts contain valid identifier characters
-        if (lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*") && beforeLast.matches("[a-zA-Z_:][a-zA-Z0-9_:]*")) {
-            return Optional.of(beforeLast);
-        }
-
-        return Optional.empty();
+        return ClassNameExtractor.extractForCpp(reference);
     }
 
     private final SkeletonGenerator skeletonGenerator;
