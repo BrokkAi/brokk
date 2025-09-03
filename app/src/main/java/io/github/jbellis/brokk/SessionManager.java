@@ -7,10 +7,6 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -31,6 +27,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     /** Record representing session metadata for the sessions management system. */
@@ -172,16 +171,15 @@ public class SessionManager implements AutoCloseable {
     }
 
     /** Detailed report of sessions quarantined during a scan. */
-    public record QuarantineReport(Set<UUID> quarantinedSessionIds,
-                                   List<String> quarantinedFilesWithoutUuid,
-                                   int movedCount) {}
+    public record QuarantineReport(
+            Set<UUID> quarantinedSessionIds, List<String> quarantinedFilesWithoutUuid, int movedCount) {}
 
     /**
      * Scans the sessions directory for all .zip files, treating any with invalid UUID filenames or missing/invalid
      * manifest.json as unreadable and moving them to the 'unreadable' subfolder. Also attempts to load each valid-UUID
      * session's history to exercise migrations. Returns a report detailing what was quarantined.
      *
-     * This runs synchronously; intended to be invoked from a background task.
+     * <p>This runs synchronously; intended to be invoked from a background task.
      */
     public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
         int moved = 0;
@@ -189,7 +187,8 @@ public class SessionManager implements AutoCloseable {
         var quarantinedNoUuid = new ArrayList<String>();
 
         try (var stream = Files.list(sessionsDir)) {
-            for (Path zipPath : stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
+            for (Path zipPath :
+                    stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
                 var maybeUuid = parseUuidFromFilename(zipPath);
                 if (maybeUuid.isEmpty()) {
                     // Non-UUID filenames are unreadable by definition.
@@ -299,7 +298,7 @@ public class SessionManager implements AutoCloseable {
 
     private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
         try (var fs =
-                     FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
             Path manifestPath = fs.getPath("manifest.json");
             String json = AbstractProject.objectMapper.writeValueAsString(sessionInfo);
             Files.writeString(manifestPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -408,8 +407,7 @@ public class SessionManager implements AutoCloseable {
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         var future = sessionExecutorByKey.submit(
-                sessionId.toString(),
-                () -> loadHistoryOrQuarantine(sessionId, contextManager));
+                sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
         try {
             return future.get();
@@ -445,8 +443,7 @@ public class SessionManager implements AutoCloseable {
                         // TaskFragment IDs are hashes, so this typically won't contribute to maxNumericId.
                         // If some TaskFragments had numeric IDs historically, this would catch them.
                         maxNumericId = Math.max(
-                                maxNumericId,
-                                Integer.parseInt(taskEntry.log().id()));
+                                maxNumericId, Integer.parseInt(taskEntry.log().id()));
                     } catch (NumberFormatException e) {
                         // Ignore non-numeric IDs
                     }

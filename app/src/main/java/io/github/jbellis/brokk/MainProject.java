@@ -158,7 +158,6 @@ public final class MainProject extends AbstractProject {
             projectProps.clear();
         }
 
-
         // Migrate Architect options from projectProps to workspace properties (centralized in AbstractProject)
         boolean needsProjectSave = false;
         boolean migratedArchitectSettings = false;
@@ -171,7 +170,8 @@ public final class MainProject extends AbstractProject {
                         ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
                 migratedArchitectSettings = true;
             }
-            projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY); needsProjectSave = true;
+            projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY);
+            needsProjectSave = true;
             // Ensure projectProps is saved if a key is removed, even if not transferred (e.g. already in workspace)
             // migratedArchitectSettings specifically tracks if data was written to workspaceProps.
             if (!migratedArchitectSettings && workspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
@@ -191,7 +191,8 @@ public final class MainProject extends AbstractProject {
                         ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
                 migratedArchitectSettings = true;
             }
-            projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY); needsProjectSave = true;
+            projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
+            needsProjectSave = true;
             // projectPropsChangedByMigration = projectPropsChangedByMigration ||
             // projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
         }
@@ -682,7 +683,6 @@ public final class MainProject extends AbstractProject {
             logger.error("Error saving properties to {}: {}", propertiesFile, e.getMessage());
         }
     }
-
 
     @Override
     public boolean isGitHubRepo() {

@@ -12,7 +12,6 @@ import io.github.jbellis.brokk.context.ContentDtos.DiffContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.FullContentMetadataDto;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
 import io.github.jbellis.brokk.util.migrationv3.HistoryV3Migrator;
-
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InvalidObjectException;

@@ -301,7 +301,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             submitBackgroundTask("Quarantine unreadable sessions", () -> {
                 var sessionManager = project.getSessionManager();
 
-                // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger migration
+                // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger
+                // migration
                 var report = sessionManager.quarantineUnreadableSessions(this);
 
                 // Mark migration pass complete to avoid re-running on subsequent startups
