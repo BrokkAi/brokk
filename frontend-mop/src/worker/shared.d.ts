@@ -9,7 +9,7 @@ export interface ChunkMsg {
 
 export interface ClearMsg {
     type: 'clear-state';
-    flushBeforeClear: boolean;s
+    flushBeforeClear: boolean;
 }
 
 export interface ParseMsg {
@@ -68,4 +68,25 @@ export interface EditBlockProperties {
     search?: string;
     replace?: string;
     headerOk: boolean;
+}
+
+export interface LineEditBlockProperties {
+    // Common identity and state
+    bubbleId: number;
+    id: string;
+    isExpanded: boolean;
+    headerOk: boolean;
+
+    // File and operation
+    filename: string;
+    op: 'insert' | 'replace' | 'delete_lines' | 'prepend' | 'append' | 'delete_file';
+
+    // Optional range and body (not applicable to delete_file)
+    beginline?: number;
+    endline?: number;
+    body?: string;
+
+    // Header metrics
+    adds?: number;
+    dels?: number;
 }
