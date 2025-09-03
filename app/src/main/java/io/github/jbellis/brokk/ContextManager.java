@@ -415,11 +415,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.updateCommitPanel();
 
                 // update Workspace
-                var fr = liveContext().freezeAndCleanup();
                 // we can't rely on pushContext's change detection because here we care about the contents and not the
                 // fragment identity
-                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                    processExternalFileChanges(fr);
+                if (processExternalFileChangesIfNeeded()) {
                     // analyzer refresh will call this too, but it will be delayed
                     io.updateWorkspace();
                 }
@@ -455,10 +453,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
 
                 // re-freeze context w/ new analyzer
-                var fr = liveContext().freezeAndCleanup();
-                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                    processExternalFileChanges(fr);
-                }
+                processExternalFileChangesIfNeeded();
                 io.updateWorkspace();
 
                 if (externalRequest && io instanceof Chrome chrome) {
@@ -1412,44 +1407,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Processes external file changes by deciding whether to replace the top context or push a new one. If the current
-     * top context's action starts with "Loaded external changes", it updates the count and replaces it. Otherwise, it
-     * pushes a new context entry.
+     * Processes external file changes by checking for workspace content changes and then deciding whether to replace
+     * the top context or push a new one.
      *
-     * @param fr The FreezeResult containing the updated live and frozen contexts reflecting the external changes.
+     * @return true if context has changed, false otherwise
      */
-    private void processExternalFileChanges(Context.FreezeResult fr) {
-        var topCtx = topContext();
-        var previousAction = topCtx.getAction();
-        if (!previousAction.startsWith("Loaded external changes")) {
-            // If the previous action is not about external changes, push a new context
-            pushContext(currentLiveCtx -> fr.liveContext()
-                    .withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes")));
-            return;
+    private boolean processExternalFileChangesIfNeeded() {
+        var newFrozenContext = contextHistory.processExternalFileChangesIfNeeded();
+        if (newFrozenContext != null) {
+            contextPushed(newFrozenContext);
+            return true;
         }
-
-        // Parse the existing action to extract the count if present
-        var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
-        var matcher = pattern.matcher(previousAction);
-        int newCount;
-        if (matcher.matches() && matcher.group(1) != null) {
-            var countGroup = matcher.group(1);
-            try {
-                newCount = Integer.parseInt(countGroup) + 1;
-            } catch (NumberFormatException e) {
-                newCount = 2;
-            }
-        } else {
-            newCount = 2;
-        }
-
-        // Form the new action string with the updated count
-        var newAction = newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
-        var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
-        var cleaned = newLiveContext.freezeAndCleanup();
-        contextHistory.replaceTop(cleaned.liveContext(), cleaned.frozenContext());
-        SwingUtilities.invokeLater(() -> notifyContextListeners(cleaned.frozenContext()));
-        project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+        return false;
     }
 
     /**
@@ -1468,13 +1437,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return newLiveContext;
         }
 
-        var frozen = contextHistory.topContext();
-        captureGitState(frozen);
-        // Ensure listeners are notified on the EDT
-        SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
-
-        project.getSessionManager()
-                .saveHistory(contextHistory, currentSessionId); // Persist the history of frozen contexts
+        contextPushed(contextHistory.topContext());
 
         // Check conversation history length on the new live context
         if (!newLiveContext.getTaskHistory().isEmpty()) {
@@ -1501,6 +1464,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         }
         return newLiveContext;
+    }
+
+    private void contextPushed(Context frozen) {
+        captureGitState(frozen);
+        // Ensure listeners are notified on the EDT
+        SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+
+        project.getSessionManager()
+                .saveHistory(contextHistory, currentSessionId); // Persist the history of frozen contexts
     }
 
     /**

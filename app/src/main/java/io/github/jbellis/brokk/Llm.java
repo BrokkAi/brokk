@@ -150,8 +150,10 @@ public class Llm {
             throw new InterruptedException();
         }
 
-        // latch for awaiting the complete response
-        var latch = new CountDownLatch(1);
+        // latch for awaiting any response from llm
+        var llmResponseLatch = new AtomicReference<>(new CountDownLatch(1));
+        var firstToken = new AtomicBoolean(true);
+        var completed = new AtomicBoolean(false);
         var cancelled = new AtomicBoolean(false);
         var lock = new ReentrantLock(); // Used by ifNotCancelled
 
@@ -171,8 +173,12 @@ public class Llm {
                 // litellm is fucking us over again, try to recover
                 logger.error(e);
                 errorRef.set(e);
-                latch.countDown(); // Ensure we release the lock if an exception occurs
+                completed.set(true); // Ensure we release the lock if an exception occurs
             } finally {
+                if (firstToken.get()) {
+                    firstToken.set(false);
+                }
+                requireNonNull(llmResponseLatch.get()).countDown();
                 lock.unlock();
             }
         };
@@ -219,7 +225,7 @@ public class Llm {
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
                     }
-                    latch.countDown();
+                    completed.set(true);
                 });
             }
 
@@ -229,7 +235,7 @@ public class Llm {
                     logger.debug(th);
                     io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
-                    latch.countDown();
+                    completed.set(true);
                 });
             }
         };
@@ -239,14 +245,21 @@ public class Llm {
         model.chat(request, finalHandler);
 
         try {
-            if (!latch.await(Service.LLM_MAX_RESPONSE_TIME, TimeUnit.SECONDS)) {
+            while (!completed.get()) {
+                var llmResponseTimeout = getLlmResponseTimeoutSeconds(firstToken.get());
+                boolean timeout = !requireNonNull(llmResponseLatch.get()).await(llmResponseTimeout, TimeUnit.SECONDS);
                 lock.lock(); // LockNotBeforeTry
                 try {
-                    cancelled.set(true); // Ensure callback stops echoing
+                    if (timeout) {
+                        cancelled.set(true); // Ensure callback stops echoing
+                        errorRef.set(new HttpException(504, "LLM timed out"));
+                        completed.set(true);
+                    } else {
+                        llmResponseLatch.set(new CountDownLatch(1));
+                    }
                 } finally {
                     lock.unlock();
                 }
-                errorRef.set(new HttpException(504, "LLM timed out"));
             }
         } catch (InterruptedException e) {
             lock.lock(); // LockNotBeforeTry
@@ -285,6 +298,13 @@ public class Llm {
             io.llmOutput("\n", ChatMessageType.AI);
         }
         return StreamingResult.fromResponse(response, null);
+    }
+
+    private long getLlmResponseTimeoutSeconds(boolean firstToken) {
+        long firstTokenTimeoutSeconds = Service.getProcessingTier(model) == Service.ProcessingTier.FLEX
+                ? Service.FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
+                : Service.DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
+        return firstToken ? firstTokenTimeoutSeconds : Service.NEXT_TOKEN_TIMEOUT_SECONDS;
     }
 
     private static class LitellmException extends LangChain4jException {

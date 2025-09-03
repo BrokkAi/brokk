@@ -43,8 +43,9 @@ public class Service {
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
-    // TODO replace this when we consistently get thinking tokens
-    public static final int LLM_MAX_RESPONSE_TIME = 6 * 60;
+    public static final long FLEX_FIRST_TOKEN_TIMEOUT_SECONDS = 15L * 60L; // 15 minutes
+    public static final long DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS = 2L * 60L; // 2 minutes
+    public static final long NEXT_TOKEN_TIMEOUT_SECONDS = 60L; // 1 minute
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
@@ -767,7 +768,10 @@ public class Service {
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
-                .timeout(Duration.ofSeconds(LLM_MAX_RESPONSE_TIME));
+                .timeout(Duration.ofSeconds(
+                        config.tier == ProcessingTier.FLEX
+                                ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
+                                : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
         if (config.tier != ProcessingTier.DEFAULT) {
             builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
         }
@@ -965,6 +969,25 @@ public class Service {
 
         var supports = info.get("supports_vision");
         return supports instanceof Boolean boolVal && boolVal;
+    }
+
+    /** Returns the configured processing tier for the given model (defaults to DEFAULT). */
+    public static ProcessingTier getProcessingTier(StreamingChatModel model) {
+        if (model instanceof OpenAiStreamingChatModel om) {
+            var tier = om.defaultRequestParameters().serviceTier();
+            if (tier == null) {
+                return ProcessingTier.DEFAULT;
+            }
+            var normalized = tier.toLowerCase(Locale.ROOT);
+            if ("flex".equals(normalized)) {
+                return ProcessingTier.FLEX;
+            } else if ("priority".equals(normalized)) {
+                return ProcessingTier.PRIORITY;
+            } else {
+                return ProcessingTier.DEFAULT;
+            }
+        }
+        return ProcessingTier.DEFAULT;
     }
 
     /**

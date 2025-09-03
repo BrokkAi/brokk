@@ -246,15 +246,45 @@ Configuration is defined in the root `package.json`:
 ### Local jDeploy Usage
 
 ```bash
-# Build JAR first
+# 1. Build the shadow JAR first
 ./gradlew shadowJar
 
-# Package with jDeploy
-npm install -g jdeploy  # If not installed
-jdeploy package         # Creates jdeploy-bundle/
+# 2. Get the current git version (same as CI does)
+VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --always --dirty=-SNAPSHOT)
 
-# Test packaged application
-node jdeploy-bundle/jdeploy.js
+# 3. Update both version and JAR path in package.json
+JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
+jq '.version = "'$VERSION'" | .jdeploy.jar = "'$JAR_FILE'"' package.json > package.tmp.json && mv package.tmp.json package.json
+
+# 4. Install jDeploy if not installed
+npm install -g jdeploy
+
+# 5. Package with jDeploy
+jdeploy package
+
+# 6. Test the packaged application
+./jdeploy-bundle/jdeploy.js
+
+# Alternative: Install locally for testing (links to PATH)
+jdeploy install
+# Then run from anywhere: brokk
+
+# Alternative: Test JAR directly without jDeploy
+java --add-modules jdk.incubator.vector -jar app/build/libs/brokk-*.jar
+
+# Optional: Build native installers locally
+# Define your target platforms (customize as needed):
+TARGETS="mac-x64,mac-arm64,win,linux"  # Available: mac-x64, mac-arm64, win, linux
+
+# Add bundles/installers to package.json:
+jq --argjson targets "$(echo $TARGETS | jq -R 'split(",")')" '.jdeploy.bundles = $targets | .jdeploy.installers = $targets' package.json > package.tmp.json && mv package.tmp.json package.json
+
+# Then package with installers
+jdeploy package
+
+# Generated files will be in:
+# - jdeploy/bundles/ - Platform-specific app bundles for selected targets
+# - jdeploy/installers/ - Native installers for selected targets
 ```
 
 ### Release Process Integration
