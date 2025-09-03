@@ -92,6 +92,17 @@ public interface IAnalyzer {
     }
 
     /**
+     * Provides a search facility that is based on auto-complete logic based on (non-regex) user-input. By default, this
+     * hands over to {@link IAnalyzer#searchDefinitions(String)}.
+     *
+     * @param query the search query
+     * @return a list of candidates where their fully qualified names may match the query.
+     */
+    default List<CodeUnit> autocompleteDefinitions(String query) {
+        return searchDefinitions(".*" + query + ".*");
+    }
+
+    /**
      * Implementation-specific search method called by the default searchDefinitions. Subclasses should implement this
      * method to provide their specific search logic.
      *

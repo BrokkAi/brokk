@@ -21,11 +21,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
@@ -60,6 +62,9 @@ public abstract class TreeSitterAnalyzer
             new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
+    private final NavigableSet<String> autocompleteSymbolIndex =
+            new ConcurrentSkipListSet<>(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, List<CodeUnit>> codeUnitsBySymbol = new ConcurrentHashMap<>();
     // SHA-1 hash of each analysed file, used to detect modifications
     private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
     private final Map<ProjectFile, TSTree> parsedTreeCache =
@@ -175,6 +180,7 @@ public abstract class TreeSitterAnalyzer
             Map<CodeUnit, List<CodeUnit>> children,
             Map<CodeUnit, List<String>> signatures,
             Map<CodeUnit, List<Range>> sourceRanges,
+            Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements // Added for module-level imports
             ) {}
 
@@ -356,16 +362,9 @@ public abstract class TreeSitterAnalyzer
 
     /** All CodeUnits we know about (top-level + children). */
     private Stream<CodeUnit> allCodeUnits() {
-        // Stream top-level declarations
-        Stream<CodeUnit> topLevelStream = topLevelDeclarations.values().stream().flatMap(Collection::stream);
-
-        // Stream parents from childrenByParent (they might not be in topLevelDeclarations if they are nested)
-        Stream<CodeUnit> parentStream = childrenByParent.keySet().stream();
-
-        // Stream children from childrenByParent
-        Stream<CodeUnit> childrenStream = childrenByParent.values().stream().flatMap(Collection::stream);
-
-        return Stream.of(topLevelStream, parentStream, childrenStream).flatMap(s -> s);
+        return Stream.concat(
+                topLevelDeclarations.values().stream().flatMap(Collection::stream),
+                childrenByParent.values().stream().flatMap(Collection::stream));
     }
 
     /** De-duplicate and materialise into a List once. */
@@ -423,6 +422,11 @@ public abstract class TreeSitterAnalyzer
     @Override
     public List<CodeUnit> searchDefinitionsImpl(
             String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
+        // an explicit search for everything should return everything, not just classes
+        if (originalPattern.equals(".*")) {
+            return uniqueCodeUnitList();
+        }
+
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
             return uniqueCodeUnitList().stream()
@@ -434,6 +438,33 @@ public abstract class TreeSitterAnalyzer
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
                     .toList();
         }
+    }
+
+    @Override
+    public List<CodeUnit> autocompleteDefinitions(@Nullable String query) {
+        if (query == null || query.isEmpty()) {
+            return List.of();
+        }
+
+        var results = new LinkedHashSet<CodeUnit>();
+        final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
+        // Case-insensitive prefix search
+        autocompleteSymbolIndex.tailSet(query).stream()
+                .takeWhile(symbol -> symbol.toLowerCase(Locale.ROOT).startsWith(lowerCaseQuery))
+                .flatMap(symbol -> codeUnitsBySymbol.getOrDefault(symbol, List.of()).stream())
+                .forEach(results::add);
+
+        // CamelCase search heuristic
+        if (query.length() > 1 && query.chars().allMatch(Character::isUpperCase)) {
+            var camelCasePattern = Pattern.compile(
+                    query.chars().mapToObj(c -> String.valueOf((char) c)).collect(Collectors.joining("[a-z0-9_]*")));
+            autocompleteSymbolIndex.stream()
+                    .filter(symbol -> camelCasePattern.matcher(symbol).find())
+                    .flatMap(symbol -> codeUnitsBySymbol.getOrDefault(symbol, List.of()).stream())
+                    .forEach(results::add);
+        }
+
+        return new ArrayList<>(results);
     }
 
     /**
@@ -775,6 +806,7 @@ public abstract class TreeSitterAnalyzer
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
+        Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
 
@@ -784,7 +816,7 @@ public abstract class TreeSitterAnalyzer
         TSNode rootNode = tree.getRootNode();
         if (rootNode.isNull()) {
             log.warn("Parsing failed or produced null root node for {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), List.of());
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
         }
         // Log root node type
         String rootNodeType = rootNode.getType();
@@ -1028,6 +1060,15 @@ public abstract class TreeSitterAnalyzer
                 continue;
             }
 
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new ArrayList<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new ArrayList<>())
+                        .add(cu);
+            }
+
             String signature =
                     buildSignatureString(node, simpleName, fileBytes, primaryCaptureName, modifierKeywords, file);
             log.trace(
@@ -1199,6 +1240,7 @@ public abstract class TreeSitterAnalyzer
                 finalLocalChildren,
                 localSignatures,
                 finalLocalSourceRanges,
+                localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements));
     }
 
@@ -2009,6 +2051,22 @@ public abstract class TreeSitterAnalyzer
 
                 Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
 
+                var symbolsToPurge = new HashSet<String>();
+                var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
+                for (var entry : codeUnitsBySymbol.entrySet()) {
+                    var symbol = entry.getKey();
+                    var cus = entry.getValue();
+                    var remaining = cus.stream().filter(fromFile.negate()).toList();
+                    if (remaining.isEmpty()) {
+                        symbolsToPurge.add(symbol);
+                    } else if (remaining.size() < cus.size()) {
+                        symbolsToUpdate.put(symbol, remaining);
+                    }
+                }
+                symbolsToUpdate.forEach(codeUnitsBySymbol::put);
+                symbolsToPurge.forEach(codeUnitsBySymbol::remove);
+                symbolsToPurge.forEach(autocompleteSymbolIndex::remove);
+
                 childrenByParent.keySet().removeIf(fromFile);
                 signatures.keySet().removeIf(fromFile);
                 sourceRanges.keySet().removeIf(fromFile);
@@ -2096,6 +2154,18 @@ public abstract class TreeSitterAnalyzer
         }
 
         topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
+
+        analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
+            autocompleteSymbolIndex.add(symbol);
+            codeUnitsBySymbol.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
+                if (existing == null) {
+                    return List.copyOf(cus);
+                }
+                var merged = new ArrayList<>(existing);
+                cus.stream().filter(c -> !merged.contains(c)).forEach(merged::add);
+                return List.copyOf(merged);
+            });
+        });
 
         analysisResult
                 .children()
