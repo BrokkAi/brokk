@@ -7,6 +7,10 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -16,20 +20,17 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.HashSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     /** Record representing session metadata for the sessions management system. */
@@ -170,8 +171,6 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    public record QuarantineResult(int moved, boolean activeQuarantined) {}
-
     /** Detailed report of sessions quarantined during a scan. */
     public record QuarantineReport(Set<UUID> quarantinedSessionIds,
                                    List<String> quarantinedFilesWithoutUuid,
@@ -191,56 +190,33 @@ public class SessionManager implements AutoCloseable {
 
         try (var stream = Files.list(sessionsDir)) {
             for (Path zipPath : stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
-                String fileName = zipPath.getFileName().toString();
-                String idPart = fileName.substring(0, fileName.length() - 4);
+                var maybeUuid = parseUuidFromFilename(zipPath);
+                if (maybeUuid.isEmpty()) {
+                    // Non-UUID filenames are unreadable by definition.
+                    moveZipToUnreadable(zipPath, null);
+                    quarantinedNoUuid.add(zipPath.getFileName().toString());
+                    moved++;
+                    continue;
+                }
 
-                UUID sessionId = null;
+                var sessionId = maybeUuid.get();
+                var info = readSessionInfoFromZip(zipPath);
+                if (info.isEmpty()) {
+                    quarantinedIds.add(sessionId);
+                    moved++;
+                    continue;
+                }
+
+                // Exercise migrations and quarantine if history read fails.
                 try {
-                    sessionId = UUID.fromString(idPart);
-                } catch (IllegalArgumentException e) {
-                    // Invalid UUID in filename => unreadable
+                    loadHistoryOrQuarantine(sessionId, contextManager);
+                } catch (IOException e) {
+                    quarantinedIds.add(sessionId);
+                    moved++;
+                    continue;
                 }
 
-                boolean unreadable = false;
-                if (sessionId == null) {
-                    unreadable = true; // invalid filename
-                } else {
-                    var info = readSessionInfoFromZip(zipPath);
-                    if (info.isEmpty()) {
-                        unreadable = true;
-                    } else {
-                        sessionsCache.putIfAbsent(sessionId, info.get());
-                        try {
-                            var ch = loadHistoryInternal(sessionId, contextManager);
-                            if (ch == null) {
-                                unreadable = true;
-                            }
-                        } catch (IOException e) {
-                            logger.warn("Error loading history for session {}: {}", sessionId, e.getMessage());
-                            unreadable = true;
-                        }
-                    }
-                }
-
-                if (unreadable) {
-                    if (sessionId != null) {
-                        moveSessionToUnreadable(sessionId);
-                        quarantinedIds.add(sessionId);
-                        moved++;
-                    } else {
-                        try {
-                            Path unreadableDir = sessionsDir.resolve("unreadable");
-                            Files.createDirectories(unreadableDir);
-                            Path targetPath = unreadableDir.resolve(zipPath.getFileName());
-                            Files.move(zipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                            logger.info("Moved unreadable session zip {} to {}", fileName, unreadableDir);
-                            quarantinedNoUuid.add(fileName);
-                            moved++;
-                        } catch (IOException e) {
-                            logger.error("Error moving unreadable history zip {}: {}", fileName, e.getMessage());
-                        }
-                    }
-                }
+                sessionsCache.putIfAbsent(sessionId, info.get());
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
@@ -294,6 +270,19 @@ public class SessionManager implements AutoCloseable {
         return sessionsDir.resolve(sessionId.toString() + ".zip");
     }
 
+    private Optional<UUID> parseUuidFromFilename(Path zipPath) {
+        var fileName = zipPath.getFileName().toString();
+        if (!fileName.endsWith(".zip")) {
+            return Optional.empty();
+        }
+        var idPart = fileName.substring(0, fileName.length() - 4);
+        try {
+            return Optional.of(UUID.fromString(idPart));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
     private Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
         if (!Files.exists(zipPath)) return Optional.empty();
         try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
@@ -310,12 +299,47 @@ public class SessionManager implements AutoCloseable {
 
     private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
         try (var fs =
-                FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+                     FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
             Path manifestPath = fs.getPath("manifest.json");
             String json = AbstractProject.objectMapper.writeValueAsString(sessionInfo);
             Files.writeString(manifestPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             logger.error("Error writing manifest.json to {}: {}", zipPath.getFileName(), e.getMessage());
+            throw e;
+        }
+    }
+
+    private void moveZipToUnreadable(Path zipPath, @Nullable UUID sessionId) {
+        if (sessionId != null) {
+            // Will also remove from cache and serialize by sessionId.
+            moveSessionToUnreadable(sessionId);
+            return;
+        }
+
+        var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
+            Path unreadableDir = sessionsDir.resolve("unreadable");
+            try {
+                Files.createDirectories(unreadableDir);
+                Path targetPath = unreadableDir.resolve(zipPath.getFileName());
+                Files.move(zipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                logger.info("Moved unreadable session zip {} to {}", zipPath.getFileName(), unreadableDir);
+            } catch (IOException e) {
+                logger.error("Error moving unreadable history zip {}: {}", zipPath.getFileName(), e.getMessage());
+            }
+        });
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws IOException {
+        try {
+            return loadHistoryInternal(sessionId, contextManager);
+        } catch (IOException e) {
+            moveSessionToUnreadable(sessionId);
             throw e;
         }
     }
@@ -383,14 +407,9 @@ public class SessionManager implements AutoCloseable {
 
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
-        var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try {
-                return loadHistoryInternal(sessionId, contextManager);
-            } catch (IOException e) {
-                logger.error("Error loading context history for session {}", sessionId, e);
-                return null;
-            }
-        });
+        var future = sessionExecutorByKey.submit(
+                sessionId.toString(),
+                () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
         try {
             return future.get();
@@ -399,16 +418,15 @@ public class SessionManager implements AutoCloseable {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
+            // tryLoadHistoryOrQuarantine already quarantines on failure.
             return null;
         }
     }
 
-    private @Nullable ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
+    private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
         var sessionHistoryPath = getSessionHistoryPath(sessionId);
         ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
-        if (ch == null) {
-            return null;
-        }
+
         // Resetting nextId based on loaded fragments.
         // Only consider numeric IDs for dynamic fragments.
         // Hashes will not parse to int and will be skipped by this logic.
