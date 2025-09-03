@@ -321,9 +321,16 @@ public abstract class TreeSitterAnalyzer
 
     /** All CodeUnits we know about (top-level + children). */
     private Stream<CodeUnit> allCodeUnits() {
-        return Stream.concat(
-                topLevelDeclarations.values().stream().flatMap(Collection::stream),
-                childrenByParent.values().stream().flatMap(Collection::stream));
+        // Stream top-level declarations
+        Stream<CodeUnit> topLevelStream = topLevelDeclarations.values().stream().flatMap(Collection::stream);
+
+        // Stream parents from childrenByParent (they might not be in topLevelDeclarations if they are nested)
+        Stream<CodeUnit> parentStream = childrenByParent.keySet().stream();
+
+        // Stream children from childrenByParent
+        Stream<CodeUnit> childrenStream = childrenByParent.values().stream().flatMap(Collection::stream);
+
+        return Stream.of(topLevelStream, parentStream, childrenStream).flatMap(s -> s);
     }
 
     /** De-duplicate and materialise into a List once. */
@@ -420,15 +427,38 @@ public abstract class TreeSitterAnalyzer
                     Pattern.CASE_INSENSITIVE);
         }
 
-        // Over-approximate: iterate the symbol index and accept any symbol that contains the query (case-insensitive).
-        // Also accept symbols matching the camel-case heuristic when applicable. Treat '.' and '$' equivalently by
-        // normalizing both the symbol and the query before substring checks.
+        // If the query looks like a simple non-hierarchical prefix (no dots/dollars, not a camel all-upper pattern),
+        // leverage the NavigableSet for an efficient prefix scan.
+        boolean usePrefixOptimization =
+                !lowerCaseQuery.contains(".") && !lowerCaseQuery.contains("$") && !isAllUpper && query.length() >= 2;
+
+        if (usePrefixOptimization) {
+            try {
+                // tailSet(query) gives us a view starting at the smallest element >= query according to the set's
+                // comparator (case-insensitive). Iterate until symbols no longer start with the query prefix.
+                for (String symbol : autocompleteSymbolIndex.tailSet(query)) {
+                    String symbolLower = symbol.toLowerCase(Locale.ROOT);
+                    if (!symbolLower.startsWith(lowerCaseQuery)) break;
+                    results.addAll(codeUnitsBySymbol.getOrDefault(symbol, List.of()));
+                }
+            } catch (IllegalArgumentException e) {
+                // Defensive fallback; fall through to the generic scan below if tailSet fails for some reason.
+            }
+        }
+
+        // Generic over-approximate scan: accept any symbol that contains the query (case-insensitive), or matches
+        // the camel-case heuristic. Skip symbols already handled by the prefix optimization to avoid redundant work.
         for (String symbol : autocompleteSymbolIndex) {
             String symbolLower = symbol.toLowerCase(Locale.ROOT);
             String normalizedSymbol = symbolLower.replace('$', '.');
+
+            if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
+                // already collected by prefix scan
+                continue;
+            }
+
             boolean matches = false;
 
-            // Match either raw lowercase contains or normalized-hierarchy contains
             if (symbolLower.contains(lowerCaseQuery) || normalizedSymbol.contains(normalizedQuery)) {
                 matches = true;
             } else if (isAllUpper
@@ -438,17 +468,16 @@ public abstract class TreeSitterAnalyzer
             }
 
             if (matches) {
-                codeUnitsBySymbol.getOrDefault(symbol, List.of()).forEach(results::add);
+                results.addAll(codeUnitsBySymbol.getOrDefault(symbol, List.of()));
             }
         }
 
         // ALSO: make sure to match against CodeUnit fully-qualified names (FQNs).
         // Some queries are hierarchical and mix '.'/'$' and might not be present as keys in the symbol index.
         // Normalize FQNs by mapping '$' -> '.' and do a case-insensitive contains check.
-        String normalizedQueryForFqn = normalizedQuery; // already lowercased and normalized
         for (CodeUnit cu : uniqueCodeUnitList()) {
             String fq = cu.fqName().toLowerCase(Locale.ROOT).replace('$', '.');
-            if (fq.contains(normalizedQueryForFqn)) {
+            if (fq.contains(normalizedQuery)) {
                 results.add(cu);
             }
         }
