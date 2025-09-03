@@ -569,18 +569,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         final var noHistory = "(No history items)";
 
         var project = chrome.getProject();
-        List<String> historyItems = project.loadTextHistory();
 
         var model = new DefaultComboBoxModel<>();
         model.addElement(placeholder);
-
-        if (historyItems.isEmpty()) {
-            model.addElement(noHistory);
-        } else {
-            for (String item : historyItems) {
-                model.addElement(item);
-            }
-        }
 
         var dropdown = new JComboBox<>(model);
         dropdown.setToolTipText("Select a previous instruction from history");
@@ -609,16 +600,40 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     && !selected.equals(placeholder)
                     && !selected.equals(noHistory)) {
                 // This is a valid history item
-                commandInputOverlay.hideOverlay();
-                instructionsArea.setEnabled(true);
+                Objects.requireNonNull(commandInputOverlay).hideOverlay();
+                Objects.requireNonNull(instructionsArea).setEnabled(true);
 
                 instructionsArea.setText(historyItem);
-                commandInputUndoManager.discardAllEdits();
+                Objects.requireNonNull(commandInputUndoManager).discardAllEdits();
                 instructionsArea.requestFocusInWindow();
 
                 // Reset to placeholder
                 SwingUtilities.invokeLater(() -> dropdown.setSelectedItem(placeholder));
             }
+        });
+
+        dropdown.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                model.removeAllElements();
+                model.addElement(placeholder);
+                List<String> historyItems = project.loadTextHistory();
+
+                logger.trace("History items loaded: {}", historyItems.size());
+                if (historyItems.isEmpty()) {
+                    model.addElement(noHistory);
+                } else {
+                    for (var item : historyItems) {
+                        model.addElement(item);
+                    }
+                }
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
         return dropdown;
