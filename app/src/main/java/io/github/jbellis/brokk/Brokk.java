@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.ModelSupport;
@@ -23,23 +23,23 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.WindowEvent;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Security;
 import java.util.*;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -123,8 +123,8 @@ public class Brokk {
     }
 
     private static void setupSystemPropertiesAndIcon() {
-  
-        if (!Environment.isMacOs()){
+
+        if (!Environment.isMacOs()) {
             var existing = System.getProperty("sun.java2d.uiScale");
             if (existing != null) {
                 logger.info("sun.java2d.uiScale already set to {}. Respecting user override.", existing);
@@ -141,7 +141,9 @@ public class Brokk {
                             logger.info("Applied user UI scale preference (normalized): {}", normalized);
                             appliedPref = true;
                         } else {
-                            logger.warn("Ignoring non-positive UI scale preference '{}'; falling back to detection.", uiPref);
+                            logger.warn(
+                                    "Ignoring non-positive UI scale preference '{}'; falling back to detection.",
+                                    uiPref);
                         }
                     } catch (NumberFormatException nfe) {
                         logger.warn("Invalid UI scale preference '{}'; falling back to detection.", uiPref);
@@ -156,6 +158,15 @@ public class Brokk {
                             logger.info("Applied sun.java2d.uiScale from environment: {}", detected);
                         } else {
                             logger.info("No reliable Linux UI scale detected; leaving sun.java2d.uiScale unset.");
+                        }
+                    } else if (Environment.isWindows()) {
+                        var detected = tryDetectScaleViaWindows();
+                        if (detected != null && detected > 0.0) {
+                            var normalized = normalizeUiScaleToAllowed(detected);
+                            System.setProperty("sun.java2d.uiScale", Double.toString(normalized));
+                            logger.info("Applied sun.java2d.uiScale from environment: {}", normalized);
+                        } else {
+                            logger.info("No reliable Windows UI scale detected; leaving sun.java2d.uiScale unset.");
                         }
                     } else {
                         logger.info("Non-macOS, non-Linux platform detected. Leaving sun.java2d.uiScale unset.");
@@ -235,7 +246,9 @@ public class Brokk {
             if (line.regionMatches(true, 0, "Scale:", 0, "Scale:".length())) {
                 var val = line.substring("Scale:".length()).trim();
                 try {
-                    var tokens = Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().splitToList(val);
+                    var tokens = Splitter.on(Pattern.compile("\\s+"))
+                            .omitEmptyStrings()
+                            .splitToList(val);
                     if (!tokens.isEmpty()) {
                         currentScale = Double.parseDouble(tokens.get(0));
                     }
@@ -289,6 +302,74 @@ public class Brokk {
         return null;
     }
 
+    private static @Nullable Double tryDetectScaleViaWindows() {
+        // Try GraphicsConfiguration first (preferred): reflects Java's scaling for the default screen device.
+        try {
+            var ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+            var gd = ge.getDefaultScreenDevice();
+            if (gd != null) {
+                var gc = gd.getDefaultConfiguration();
+                if (gc != null) {
+                    var tx = gc.getDefaultTransform();
+                    double scaleX = tx.getScaleX();
+                    double scaleY = tx.getScaleY();
+                    if (scaleX > 0.0 && Math.abs(scaleX - scaleY) < 1e-6) {
+                        logger.debug("Windows scale from GraphicsConfiguration: {}", scaleX);
+                        return scaleX;
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            // GraphicsEnvironment/Toolkit calls can fail (headless etc.); fall through to next method.
+            logger.debug("GraphicsConfiguration-based Windows scale detection failed: {}", t.toString());
+        }
+
+        // Fallback: Toolkit DPI (96 DPI == 1.0)
+        try {
+            int dpi = Toolkit.getDefaultToolkit().getScreenResolution();
+            if (dpi > 0) {
+                double dpiScale = dpi / 96.0;
+                logger.debug("Windows scale from Toolkit DPI: {} (dpi={})", dpiScale, dpi);
+                return dpiScale;
+            }
+        } catch (Throwable t) {
+            logger.debug("Toolkit DPI based detection failed: {}", t.toString());
+        }
+
+        // Last resort: query registry AppliedDPI (HKCU). Format may be decimal or hex (e.g., 0x60).
+        var lines = runCommand("reg", "query", "HKCU\\Control Panel\\Desktop\\WindowMetrics", "/v", "AppliedDPI");
+        if (lines == null || lines.isEmpty()) {
+            return null;
+        }
+        for (var raw : lines) {
+            var line = raw.trim();
+            if (line.toLowerCase(Locale.ROOT).contains("applieddpi")) {
+                var parts =
+                        Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().splitToList(line);
+                if (parts.size() >= 3) {
+                    var valStr = parts.get(parts.size() - 1);
+                    try {
+                        int appliedDpi;
+                        if (valStr.startsWith("0x")) {
+                            appliedDpi = Integer.parseInt(valStr.substring(2), 16);
+                        } else {
+                            appliedDpi = Integer.parseInt(valStr);
+                        }
+                        if (appliedDpi > 0) {
+                            double dpiScale = appliedDpi / 96.0;
+                            logger.debug(
+                                    "Windows scale from registry AppliedDPI: {} (appliedDPI={})", dpiScale, appliedDpi);
+                            return dpiScale;
+                        }
+                    } catch (NumberFormatException nfe) {
+                        logger.debug("Failed to parse AppliedDPI: {}", valStr);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     private static @Nullable java.util.List<String> runCommand(String... command) {
         try {
             var pb = new ProcessBuilder(command);
@@ -302,8 +383,8 @@ public class Brokk {
             }
             var lines = new java.util.ArrayList<String>();
             try (var is = proc.getInputStream();
-                 var isr = new InputStreamReader(is, UTF_8);
-                 var br = new BufferedReader(isr)) {
+                    var isr = new InputStreamReader(is, UTF_8);
+                    var br = new BufferedReader(isr)) {
                 String line;
                 while ((line = br.readLine()) != null) {
                     lines.add(line);

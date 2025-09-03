@@ -50,8 +50,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JRadioButton uiScaleAutoRadio; // Hidden on macOS
+
     @Nullable
     private JRadioButton uiScaleCustomRadio; // Hidden on macOS
+
     @Nullable
     private JComboBox<String> uiScaleCombo; // Hidden on macOS
 
