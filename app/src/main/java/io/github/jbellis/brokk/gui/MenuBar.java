@@ -233,8 +233,7 @@ public class MenuBar {
         newSessionItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager()
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
         }));
         contextMenu.add(newSessionItem);
 
@@ -245,8 +244,7 @@ public class MenuBar {
             chrome.getContextManager()
                     .createSessionFromContextAsync(
                             chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
+                    .thenRun(() -> chrome.getProject().getMainProject().sessionsListChanged());
         }));
         contextMenu.add(newSessionCopyWorkspaceItem);
 

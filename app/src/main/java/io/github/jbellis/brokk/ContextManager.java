@@ -336,9 +336,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             "Skipped moving currently active session {} due to unreadable history; user may move or delete it manually.",
                             currentSessionId);
                 }
-                if (moved > 0 && io instanceof Chrome chrome) {
-                    SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+                if (moved > 0 && io instanceof Chrome) {
+                    mainProject.sessionsListChanged();
                 }
             });
         }
@@ -1963,11 +1962,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (currentSession.isPresent()
                 && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
             renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                SwingUtilities.invokeLater(() -> {
-                    if (io instanceof Chrome chrome) {
-                        chrome.getHistoryOutputPanel().updateSessionComboBox();
-                    }
-                });
+                if (io instanceof Chrome) {
+                    project.getMainProject().sessionsListChanged();
+                }
             });
         }
 
