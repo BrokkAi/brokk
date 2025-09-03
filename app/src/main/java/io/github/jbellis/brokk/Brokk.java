@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
@@ -23,10 +22,8 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.WindowEvent;
-import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -37,9 +34,7 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -81,6 +76,7 @@ public class Brokk {
     public static final CompletableFuture<@Nullable AbstractModel> embeddingModelFuture;
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
+    private static final SystemScaleProvider systemScaleProvider = new SystemScaleProviderImpl();
 
     // Helper record for argument parsing result
     private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, @Nullable String projectPathArg) {}
@@ -198,16 +194,7 @@ public class Brokk {
     }
 
     private static @Nullable Double detectLinuxUiScale() {
-        // Try KDE/Plasma first (kscreen-doctor), then GNOME (gsettings)
-        var kde = tryDetectScaleViaKscreenDoctor();
-        if (kde != null) {
-            return normalizeUiScaleToAllowed(kde);
-        }
-        var gnome = tryDetectScaleViaGsettings();
-        if (gnome != null) {
-            return normalizeUiScaleToAllowed(gnome);
-        }
-        return null;
+        return SystemScaleDetector.detectLinuxUiScale(systemScaleProvider);
     }
 
     private static double normalizeUiScaleToAllowed(double v) {
@@ -217,187 +204,8 @@ public class Brokk {
         return (double) rounded;
     }
 
-    private static @Nullable Double tryDetectScaleViaKscreenDoctor() {
-        var lines = runCommand("kscreen-doctor", "-o");
-        if (lines == null || lines.isEmpty()) {
-            return null;
-        }
-        Double firstScale = null;
-        Double currentScale = null;
-        boolean currentPrimary = false;
-
-        for (var raw : lines) {
-            var line = raw.trim();
-            if (line.startsWith("Output")) {
-                // New block: if previous block was primary and had a scale, prefer it
-                if (currentPrimary && currentScale != null) {
-                    logger.debug("KScreen (primary) scale detected: {}", currentScale);
-                    return currentScale;
-                }
-                if (firstScale == null && currentScale != null) {
-                    firstScale = currentScale;
-                }
-                // reset for new block
-                currentScale = null;
-                currentPrimary = false;
-                continue;
-            }
-
-            if (line.regionMatches(true, 0, "Scale:", 0, "Scale:".length())) {
-                var val = line.substring("Scale:".length()).trim();
-                try {
-                    var tokens = Splitter.on(Pattern.compile("\\s+"))
-                            .omitEmptyStrings()
-                            .splitToList(val);
-                    if (!tokens.isEmpty()) {
-                        currentScale = Double.parseDouble(tokens.get(0));
-                    }
-                } catch (NumberFormatException nfe) {
-                    logger.debug("Failed parsing KScreen scale from '{}'", line);
-                }
-                continue;
-            }
-
-            if (line.toLowerCase(Locale.ROOT).startsWith("primary:")) {
-                var val = line.substring("primary:".length()).trim().toLowerCase(Locale.ROOT);
-                currentPrimary = val.startsWith("yes") || val.startsWith("true");
-            }
-        }
-
-        // After loop, last block check
-        if (currentPrimary && currentScale != null) {
-            logger.debug("KScreen (primary) scale detected at end: {}", currentScale);
-            return currentScale;
-        }
-        if (firstScale != null) {
-            logger.debug("KScreen (first output) scale detected: {}", firstScale);
-            return firstScale;
-        }
-        return null;
-    }
-
-    private static @Nullable Double tryDetectScaleViaGsettings() {
-        var lines = runCommand("gsettings", "get", "org.gnome.desktop.interface", "scaling-factor");
-        if (lines == null || lines.isEmpty()) {
-            return null;
-        }
-        var out = String.join(" ", lines).trim();
-        // Expected formats: "uint32 2" or "2"
-        String numberPart = out;
-        if (out.startsWith("uint32")) {
-            var parts = Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().splitToList(out);
-            if (parts.size() >= 2) {
-                numberPart = parts.get(1);
-            }
-        }
-        try {
-            int i = Integer.parseInt(numberPart);
-            if (i >= 1) {
-                logger.debug("GNOME scaling-factor detected: {}", i);
-                return (double) i;
-            }
-        } catch (NumberFormatException nfe) {
-            logger.debug("Failed parsing gsettings scaling-factor from '{}'", out);
-        }
-        return null;
-    }
-
     private static @Nullable Double tryDetectScaleViaWindows() {
-        // Try GraphicsConfiguration first (preferred): reflects Java's scaling for the default screen device.
-        try {
-            var ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-            var gd = ge.getDefaultScreenDevice();
-            if (gd != null) {
-                var gc = gd.getDefaultConfiguration();
-                if (gc != null) {
-                    var tx = gc.getDefaultTransform();
-                    double scaleX = tx.getScaleX();
-                    double scaleY = tx.getScaleY();
-                    if (scaleX > 0.0 && Math.abs(scaleX - scaleY) < 1e-6) {
-                        logger.debug("Windows scale from GraphicsConfiguration: {}", scaleX);
-                        return scaleX;
-                    }
-                }
-            }
-        } catch (Throwable t) {
-            // GraphicsEnvironment/Toolkit calls can fail (headless etc.); fall through to next method.
-            logger.debug("GraphicsConfiguration-based Windows scale detection failed: {}", t.toString());
-        }
-
-        // Fallback: Toolkit DPI (96 DPI == 1.0)
-        try {
-            int dpi = Toolkit.getDefaultToolkit().getScreenResolution();
-            if (dpi > 0) {
-                double dpiScale = dpi / 96.0;
-                logger.debug("Windows scale from Toolkit DPI: {} (dpi={})", dpiScale, dpi);
-                return dpiScale;
-            }
-        } catch (Throwable t) {
-            logger.debug("Toolkit DPI based detection failed: {}", t.toString());
-        }
-
-        // Last resort: query registry AppliedDPI (HKCU). Format may be decimal or hex (e.g., 0x60).
-        var lines = runCommand("reg", "query", "HKCU\\Control Panel\\Desktop\\WindowMetrics", "/v", "AppliedDPI");
-        if (lines == null || lines.isEmpty()) {
-            return null;
-        }
-        for (var raw : lines) {
-            var line = raw.trim();
-            if (line.toLowerCase(Locale.ROOT).contains("applieddpi")) {
-                var parts =
-                        Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().splitToList(line);
-                if (parts.size() >= 3) {
-                    var valStr = parts.get(parts.size() - 1);
-                    try {
-                        int appliedDpi;
-                        if (valStr.startsWith("0x")) {
-                            appliedDpi = Integer.parseInt(valStr.substring(2), 16);
-                        } else {
-                            appliedDpi = Integer.parseInt(valStr);
-                        }
-                        if (appliedDpi > 0) {
-                            double dpiScale = appliedDpi / 96.0;
-                            logger.debug(
-                                    "Windows scale from registry AppliedDPI: {} (appliedDPI={})", dpiScale, appliedDpi);
-                            return dpiScale;
-                        }
-                    } catch (NumberFormatException nfe) {
-                        logger.debug("Failed to parse AppliedDPI: {}", valStr);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private static @Nullable java.util.List<String> runCommand(String... command) {
-        try {
-            var pb = new ProcessBuilder(command);
-            pb.redirectErrorStream(true);
-            var proc = pb.start();
-            boolean finished = proc.waitFor(1, TimeUnit.SECONDS);
-            if (!finished) {
-                proc.destroyForcibly();
-                logger.warn("Command timed out: {}", String.join(" ", command));
-                return null;
-            }
-            var lines = new java.util.ArrayList<String>();
-            try (var is = proc.getInputStream();
-                    var isr = new InputStreamReader(is, UTF_8);
-                    var br = new BufferedReader(isr)) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    lines.add(line);
-                }
-            }
-            if (proc.exitValue() != 0) {
-                logger.debug("Command exited with non-zero status {}: {}", proc.exitValue(), String.join(" ", command));
-            }
-            return lines;
-        } catch (IOException | InterruptedException e) {
-            logger.debug("Failed running command '{}': {}", String.join(" ", command), e.toString());
-            return null;
-        }
+        return SystemScaleDetector.tryDetectScaleViaWindows(systemScaleProvider);
     }
 
     private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
