@@ -133,16 +133,39 @@ public class Brokk {
             boolean isLinux = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
             if (existing != null) {
                 logger.info("sun.java2d.uiScale already set to {}. Respecting user override.", existing);
-            } else if (isLinux) {
-                var detected = detectLinuxUiScale();
-                if (detected != null && detected > 0.0) {
-                    System.setProperty("sun.java2d.uiScale", Double.toString(detected));
-                    logger.info("Applied sun.java2d.uiScale from environment: {}", detected);
-                } else {
-                    logger.info("No reliable Linux UI scale detected; leaving sun.java2d.uiScale unset.");
-                }
             } else {
-                logger.info("Non-macOS, non-Linux platform detected. Leaving sun.java2d.uiScale unset.");
+                // Apply saved UI preference first (takes precedence over detection)
+                String uiPref = MainProject.getUiScalePref();
+                boolean appliedPref = false;
+                if (!"auto".equalsIgnoreCase(uiPref)) {
+                    try {
+                        double custom = Double.parseDouble(uiPref);
+                        if (custom > 0.0) {
+                            double normalized = normalizeUiScaleToAllowed(custom);
+                            System.setProperty("sun.java2d.uiScale", Double.toString(normalized));
+                            logger.info("Applied user UI scale preference (normalized): {}", normalized);
+                            appliedPref = true;
+                        } else {
+                            logger.warn("Ignoring non-positive UI scale preference '{}'; falling back to detection.", uiPref);
+                        }
+                    } catch (NumberFormatException nfe) {
+                        logger.warn("Invalid UI scale preference '{}'; falling back to detection.", uiPref);
+                    }
+                }
+
+                if (!appliedPref) {
+                    if (isLinux) {
+                        var detected = detectLinuxUiScale();
+                        if (detected != null && detected > 0.0) {
+                            System.setProperty("sun.java2d.uiScale", Double.toString(detected));
+                            logger.info("Applied sun.java2d.uiScale from environment: {}", detected);
+                        } else {
+                            logger.info("No reliable Linux UI scale detected; leaving sun.java2d.uiScale unset.");
+                        }
+                    } else {
+                        logger.info("Non-macOS, non-Linux platform detected. Leaving sun.java2d.uiScale unset.");
+                    }
+                }
             }
         }
         System.setProperty("apple.laf.useScreenMenuBar", "true");
@@ -172,13 +195,20 @@ public class Brokk {
         // Try KDE/Plasma first (kscreen-doctor), then GNOME (gsettings)
         var kde = tryDetectScaleViaKscreenDoctor();
         if (kde != null) {
-            return kde;
+            return normalizeUiScaleToAllowed(kde);
         }
         var gnome = tryDetectScaleViaGsettings();
         if (gnome != null) {
-            return gnome;
+            return normalizeUiScaleToAllowed(gnome);
         }
         return null;
+    }
+
+    private static double normalizeUiScaleToAllowed(double v) {
+        int rounded = (int) Math.round(v);
+        if (rounded < 1) rounded = 1;
+        if (rounded > 5) rounded = 5;
+        return (double) rounded;
     }
 
     private static @Nullable Double tryDetectScaleViaKscreenDoctor() {
