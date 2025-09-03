@@ -302,20 +302,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 var sessionManager = project.getSessionManager();
 
                 // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger migration
-                var result = sessionManager.quarantineUnreadableSessions(currentSessionId, this);
+                var report = sessionManager.quarantineUnreadableSessions(this);
 
                 // Mark migration pass complete to avoid re-running on subsequent startups
                 mainProject.setMigrationsToSessionsV3Complete(true);
 
                 // Log and refresh UI if anything was moved
-                logger.info("Quarantine complete; moved {} unreadable session zip(s).", result.moved());
-                if (result.moved() > 0 && io instanceof Chrome chrome) {
+                logger.info("Quarantine complete; moved {} unreadable session zip(s).", report.movedCount());
+                if (report.movedCount() > 0 && io instanceof Chrome chrome) {
                     SwingUtilities.invokeLater(
                             () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
                 }
 
                 // If the active session was unreadable, create a new session and notify the user
-                if (result.activeQuarantined()) {
+                if (report.quarantinedSessionIds().contains(currentSessionId)) {
                     createOrReuseSession(DEFAULT_SESSION_NAME);
                     SwingUtilities.invokeLater(() -> io.systemNotify(
                             "Your previously active session was unreadable and has been moved to the 'unreadable' folder. A new session has been created.",
