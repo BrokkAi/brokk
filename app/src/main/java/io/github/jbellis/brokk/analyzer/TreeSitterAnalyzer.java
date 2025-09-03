@@ -53,6 +53,19 @@ public abstract class TreeSitterAnalyzer
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
+    // Common separators across languages to denote hierarchy or member access.
+    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
+    private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
+    private static boolean containsAnyHierarchySeparator(String s) {
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            if (s.contains(sep)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
     private final ThreadLocal<TSQuery> query;
@@ -429,7 +442,7 @@ public abstract class TreeSitterAnalyzer
         // If the query looks like a simple non-hierarchical prefix (no dots/dollars, not a camel all-upper pattern),
         // leverage the NavigableSet view from the symbolIndex for an efficient prefix scan.
         boolean usePrefixOptimization =
-                !lowerCaseQuery.contains(".") && !lowerCaseQuery.contains("$") && !isAllUpper && query.length() >= 2;
+                !containsAnyHierarchySeparator(lowerCaseQuery) && !isAllUpper && query.length() >= 2;
 
         NavigableSet<String> keys = symbolIndex.navigableKeySet();
 
