@@ -22,6 +22,36 @@ import org.treesitter.TreeSitterCpp;
 public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LogManager.getLogger(CppTreeSitterAnalyzer.class);
 
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        if (reference.trim().isEmpty()) {
+            return Optional.empty();
+        }
+
+        var trimmed = reference.trim();
+
+        // C++ uses :: as separator for Class::method
+        if (!trimmed.contains("::")) {
+            return Optional.empty();
+        }
+
+        var lastDoubleColon = trimmed.lastIndexOf("::");
+        if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) {
+            return Optional.empty(); // Starts with :: or ends with ::
+        }
+
+        var lastPart = trimmed.substring(lastDoubleColon + 2);
+        var beforeLast = trimmed.substring(0, lastDoubleColon);
+
+        // C++ heuristic: both class and method can be PascalCase or camelCase
+        // Just check that both parts contain valid identifier characters
+        if (lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*") && beforeLast.matches("[a-zA-Z_:][a-zA-Z0-9_:]*")) {
+            return Optional.of(beforeLast);
+        }
+
+        return Optional.empty();
+    }
+
     private final SkeletonGenerator skeletonGenerator;
     private final NamespaceProcessor namespaceProcessor;
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();

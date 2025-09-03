@@ -128,6 +128,36 @@ public class SymbolLookupService {
                 return new SymbolInfo(false, null);
             }
 
+            // Fallback: If search failed and looks like method reference, try searching for the class name
+            var extractedClassName = analyzer.extractClassName(trimmed);
+            if (extractedClassName.isPresent()) {
+                var className = extractedClassName.get();
+                logger.trace("Attempting fallback class search for extracted class name: '{}'", className);
+
+                // Try exact FQN match for extracted class name
+                var classDefinition = analyzer.getDefinition(className);
+                if (classDefinition.isPresent() && classDefinition.get().isClass()) {
+                    logger.trace(
+                            "Found class via method reference fallback: {}",
+                            classDefinition.get().fqName());
+                    return new SymbolInfo(true, classDefinition.get().fqName());
+                }
+
+                // Try pattern search for extracted class name
+                var classSearchResults = analyzer.searchDefinitions(className);
+                if (!classSearchResults.isEmpty()) {
+                    var classMatches = findAllClassMatches(className, classSearchResults);
+                    if (!classMatches.isEmpty()) {
+                        var commaSeparatedFqns = classMatches.stream()
+                                .map(CodeUnit::fqName)
+                                .sorted()
+                                .collect(Collectors.joining(","));
+                        logger.trace("Found class(es) via method reference fallback: {}", commaSeparatedFqns);
+                        return new SymbolInfo(true, commaSeparatedFqns);
+                    }
+                }
+            }
+
             return new SymbolInfo(false, null);
 
         } catch (Exception e) {

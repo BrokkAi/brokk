@@ -220,6 +220,18 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    /** Container for a function’s location and current source text. */
+    /** Container for a function's location and current source text. */
     record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {}
+
+    /**
+     * Extracts the class name from a reference that might be in the format "ClassName.methodName". This method provides
+     * language-specific logic for detecting and extracting class names from method or member references.
+     *
+     * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
+     * @return Optional containing the extracted class name if the reference appears to be a method/member reference, empty otherwise
+     */
+    default Optional<String> extractClassName(String reference) {
+        throw new UnsupportedOperationException();
+    }
+
 }

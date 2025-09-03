@@ -16,6 +16,36 @@ import org.treesitter.TreeSitterRust;
 public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        if (reference.trim().isEmpty()) {
+            return Optional.empty();
+        }
+
+        var trimmed = reference.trim();
+
+        // Rust uses :: as separator for Struct::method or mod::Struct::method
+        if (!trimmed.contains("::")) {
+            return Optional.empty();
+        }
+
+        var lastDoubleColon = trimmed.lastIndexOf("::");
+        if (lastDoubleColon <= 0 || lastDoubleColon >= trimmed.length() - 2) {
+            return Optional.empty(); // Starts with :: or ends with ::
+        }
+
+        var lastPart = trimmed.substring(lastDoubleColon + 2);
+        var beforeLast = trimmed.substring(0, lastDoubleColon);
+
+        // Rust heuristic: methods are typically snake_case, types/structs are PascalCase
+        // Accept if last part looks like a method (snake_case or camelCase) and beforeLast contains valid identifiers
+        if (lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*") && beforeLast.matches("[a-zA-Z_:][a-zA-Z0-9_:]*")) {
+            return Optional.of(beforeLast);
+        }
+
+        return Optional.empty();
+    }
+
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             /* classLikeNodeTypes  */ Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
             /* functionLikeNodes   */ Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),

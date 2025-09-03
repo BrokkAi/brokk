@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -13,6 +14,36 @@ import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        if (reference.trim().isEmpty()) {
+            return Optional.empty();
+        }
+
+        var trimmed = reference.trim();
+
+        // Python uses . as separator for Class.method
+        if (!trimmed.contains(".")) {
+            return Optional.empty();
+        }
+
+        var lastDot = trimmed.lastIndexOf('.');
+        if (lastDot <= 0 || lastDot == trimmed.length() - 1) {
+            return Optional.empty(); // Starts or ends with dot
+        }
+
+        var lastPart = trimmed.substring(lastDot + 1);
+        var beforeLast = trimmed.substring(0, lastDot);
+
+        // Python heuristic: methods are typically snake_case, classes are PascalCase
+        // Accept if last part looks like a method and beforeLast contains valid identifiers
+        if (lastPart.matches("[a-zA-Z_][a-zA-Z0-9_]*") && beforeLast.matches("[a-zA-Z_.][a-zA-Z0-9_.]*")) {
+            return Optional.of(beforeLast);
+        }
+
+        return Optional.empty();
+    }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
