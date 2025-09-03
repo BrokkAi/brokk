@@ -1,6 +1,6 @@
 <script lang="ts">
   import {symbolCacheStore, getCacheStats, getCacheSize, CACHE_CONFIG} from '../stores/symbolCacheStore';
-  import {isDebugEnabled} from '../lib/debug';
+  import {isDebugEnabled} from '../dev/debug';
   import {onMount, onDestroy} from 'svelte';
 
   // Use centralized debug configuration

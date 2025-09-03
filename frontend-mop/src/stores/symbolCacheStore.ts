@@ -1,6 +1,6 @@
 import {writable, get, readable} from 'svelte/store';
 import {createLogger} from '../lib/logging';
-import {mockExtractSymbol, type MockSymbolResult} from '../lib/mockSymbolExtractor';
+import {mockExtractSymbol, type MockSymbolResult} from '../dev/mockSymbolExtractor';
 
 const log = createLogger('symbol-cache-store');
 

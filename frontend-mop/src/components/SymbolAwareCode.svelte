@@ -2,7 +2,7 @@
   import {onMount} from 'svelte';
   import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry} from '../stores/symbolCacheStore';
   import {createLogger} from '../lib/logging';
-  import {isDebugEnabled} from '../lib/debug';
+  import {isDebugEnabled} from '../dev/debug';
 
   let {children, ...rest} = $props();
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { getCacheStats, getCacheSize, getInflightRequestsCount } from '../stores/symbolCacheStore';
-  import { isDebugEnabled } from '../lib/debug';
+  import { getCacheStats, getCacheSize, getInflightRequestsCount } from '../../stores/symbolCacheStore';
+  import { isDebugEnabled } from '../debug';
 
   let stats = $state({
     requests: 0,
