@@ -63,6 +63,7 @@ public final class MainProject extends AbstractProject {
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
 
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
+    private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
 
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
@@ -270,11 +271,6 @@ public final class MainProject extends AbstractProject {
     @Override
     public MainProject getMainProject() {
         return this;
-    }
-
-    @Override
-    public Path getMasterRootPathForConfig() {
-        return this.masterRootPathForConfig;
     }
 
     private static synchronized Properties loadGlobalProperties() {
@@ -989,6 +985,15 @@ public final class MainProject extends AbstractProject {
 
     public void setLastMergeMode(GitRepo.MergeMode mode) {
         mainWorkspaceProps.setProperty(LAST_MERGE_MODE_KEY, mode.name());
+        persistWorkspacePropertiesFile();
+    }
+
+    public boolean isMigrationsToSessionsV3Complete() {
+        return Boolean.parseBoolean(mainWorkspaceProps.getProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, "false"));
+    }
+
+    public void setMigrationsToSessionsV3Complete(boolean complete) {
+        mainWorkspaceProps.setProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, String.valueOf(complete));
         persistWorkspacePropertiesFile();
     }
 

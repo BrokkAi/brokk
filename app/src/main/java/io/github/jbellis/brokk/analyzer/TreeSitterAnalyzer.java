@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.GitDistance;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -35,7 +34,6 @@ import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -635,16 +633,6 @@ public abstract class TreeSitterAnalyzer
                     }
                     return Optional.of(String.join("\n\n", individualMethodSources));
                 });
-    }
-
-    @Override
-    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
-        try {
-            return GitDistance.getPagerank(this, project.getRoot(), seedClassWeights, k, reversed);
-        } catch (GitAPIException e) {
-            log.error("Git-related exception raised while computing page rank, returning empty result.", e);
-            return Collections.emptyList();
-        }
     }
 
     /* ---------- abstract hooks ---------- */

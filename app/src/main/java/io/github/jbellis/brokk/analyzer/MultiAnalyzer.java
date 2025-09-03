@@ -5,8 +5,6 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class MultiAnalyzer
         implements IAnalyzer,
@@ -15,8 +13,6 @@ public class MultiAnalyzer
                 SkeletonProvider,
                 SourceCodeProvider,
                 IncrementalUpdateProvider {
-    private static final Logger logger = LogManager.getLogger(MultiAnalyzer.class);
-
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -62,34 +58,6 @@ public class MultiAnalyzer
                                 .stream())
                 .distinct()
                 .collect(Collectors.toList());
-    }
-
-    @Override
-    public List<CodeUnitRelevance> getRelevantCodeUnits(Map<String, Double> seedClassWeights, int k, boolean reversed) {
-        if (seedClassWeights.isEmpty()) {
-            logger.warn("MultiAnalyzer pagerank called with empty seed classes -- sub analyzer will be ~random");
-        }
-
-        for (var analyzer : delegates.values()) {
-            boolean meetsSeedCriteria = false;
-            if (seedClassWeights.isEmpty()) {
-                meetsSeedCriteria = true; // No seeds to check, so criteria met.
-            } else {
-                // Check if at least one seed FQ name has a definition in this analyzer.
-                for (String fqName : seedClassWeights.keySet()) {
-                    Optional<CodeUnit> definition = analyzer.getDefinition(fqName);
-                    if (definition.isPresent()) {
-                        meetsSeedCriteria = true;
-                        break;
-                    }
-                }
-            }
-
-            if (meetsSeedCriteria) {
-                return analyzer.getRelevantCodeUnits(seedClassWeights, k, reversed);
-            }
-        }
-        return List.of(); // No suitable analyzer found
     }
 
     @Override

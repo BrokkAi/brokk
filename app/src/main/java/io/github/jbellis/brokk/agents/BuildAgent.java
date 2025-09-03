@@ -11,6 +11,8 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import eu.hansolo.fx.jdkmon.tools.Distro;
+import eu.hansolo.fx.jdkmon.tools.Finder;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
@@ -18,6 +20,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -32,6 +35,8 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.Comparator;
+import java.util.Locale;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -48,6 +53,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
+
+    public static final String JAVA_HOME_SENTINEL = "$JAVA_HOME";
 
     private final Llm llm;
     private final ToolRegistry toolRegistry;
@@ -324,6 +331,59 @@ public class BuildAgent {
         return "Abort signal received and processed.";
     }
 
+    /**
+     * Detect a JDK to use for this project. - If JAVA_HOME is set and points to a JDK (has bin/javac), return the
+     * sentinel so it stays dynamic. - Otherwise, choose the most suitable JDK using Finder (by latest version/release
+     * date) and return its path. - If nothing is found, fall back to the sentinel.
+     */
+    public static @Nullable String detectJdk() {
+        var env = System.getenv("JAVA_HOME");
+        try {
+            if (env != null && !env.isBlank()) {
+                var home = Path.of(env);
+                if (isJdkHome(home)) {
+                    return JAVA_HOME_SENTINEL;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Invalid JAVA_HOME '{}': {}", env, e.getMessage());
+        }
+
+        // Fallback: use Finder to locate installed JDKs and pick the most suitable one
+        try {
+            var finder = new Finder();
+            var distros = finder.getDistributions();
+            if (distros != null && !distros.isEmpty()) {
+                Comparator<Distro> distroComparator = Comparator.comparing(Distro::getVersionNumber)
+                        .thenComparing(
+                                d -> d.getReleaseDate().orElse(null), Comparator.nullsLast(Comparator.naturalOrder()));
+                var best = distros.stream().max(distroComparator).orElse(null);
+                if (best != null) {
+                    var p = best.getPath();
+                    if (p != null && !p.isBlank()) return p;
+                    var loc = best.getLocation();
+                    if (loc != null && !loc.isBlank()) return loc;
+                }
+            }
+        } catch (Throwable t) {
+            logger.warn("Failed to detect JDK via Finder", t);
+        }
+
+        // user will need to download something, leave it alone in the meantime
+        return null;
+    }
+
+    private static boolean isJdkHome(Path home) {
+        var bin = home.resolve("bin");
+        var javac = bin.resolve(exeName("javac"));
+        return Files.isRegularFile(javac);
+    }
+
+    private static String exeName(String base) {
+        var os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        return os.contains("win") ? base + ".exe" : base;
+    }
+
     /** Holds semi-structured information about a project's build process */
     public record BuildDetails(
             String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> excludedDirectories) {
@@ -359,7 +419,7 @@ public class BuildAgent {
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
-            return details.testAllCommand();
+            return prefixWithJavaHomeIfNeeded(cm.getProject(), details.testAllCommand());
         }
 
         // Proceed with workspace-specific test determination
@@ -392,7 +452,7 @@ public class BuildAgent {
                     cm.getProject().getRoot(),
                     summaries,
                     getBuildLintAllCommand(details));
-            return getBuildLintAllCommand(details);
+            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -406,6 +466,30 @@ public class BuildAgent {
      */
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
         return cm.submitBackgroundTask("Determine build verification command", () -> determineVerificationCommand(cm));
+    }
+
+    private static String prefixWithJavaHomeIfNeeded(IProject project, String command) {
+        if (command.isBlank()) {
+            return command;
+        }
+        // Only prefix for Java projects
+        if (project.getBuildLanguage() != Language.JAVA) {
+            return command;
+        }
+        var trimmed = command.stripLeading();
+        if (trimmed.startsWith("JAVA_HOME=")) {
+            return command;
+        }
+
+        String jdk = project.getJdk();
+        if (JAVA_HOME_SENTINEL.equals(jdk)) {
+            var env = System.getenv("JAVA_HOME");
+            jdk = (env == null || env.isBlank()) ? null : env;
+        }
+        if (jdk == null || jdk.isBlank()) {
+            return command;
+        }
+        return "JAVA_HOME=" + jdk + " " + command;
     }
 
     public static String getBuildLintSomeCommand(
@@ -422,7 +506,7 @@ public class BuildAgent {
             logger.debug(
                     "Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}",
                     getBuildLintAllCommand(details));
-            return getBuildLintAllCommand(details);
+            return prefixWithJavaHomeIfNeeded(cm.getProject(), getBuildLintAllCommand(details));
         }
 
         List<String> targetItems;
@@ -441,7 +525,7 @@ public class BuildAgent {
 
             if (analyzer.isEmpty()) {
                 logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
-                return details.buildLintCommand();
+                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
             }
 
             var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
@@ -455,7 +539,7 @@ public class BuildAgent {
                 logger.debug(
                         "No classes found in workspace test files for class-based template, using build/lint command: {}",
                         details.buildLintCommand());
-                return details.buildLintCommand();
+                return prefixWithJavaHomeIfNeeded(cm.getProject(), details.buildLintCommand());
             }
             logger.debug("Using classes-based template with {} classes", targetItems.size());
         }
@@ -464,7 +548,7 @@ public class BuildAgent {
         String listKey = isFilesBased ? "files" : (isFqBased ? "fqclasses" : "classes");
         String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, listKey);
         logger.debug("Interpolated test command: '{}'", interpolatedCommand);
-        return interpolatedCommand;
+        return prefixWithJavaHomeIfNeeded(cm.getProject(), interpolatedCommand);
     }
 
     private static String getBuildLintAllCommand(BuildDetails details) {

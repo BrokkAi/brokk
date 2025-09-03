@@ -6,9 +6,8 @@ import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.JoernAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.analyzer.SkeletonProvider;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
@@ -292,24 +291,20 @@ public class Context {
         var ineligibleSources = Streams.concat(
                         editableFiles.stream(), readonlyFiles.stream(), virtualFragments.stream())
                 .filter(f -> !f.isEligibleForAutoContext())
-                .flatMap(f -> f.sources().stream()) // No analyzer
+                .flatMap(f -> f.files().stream())
                 .collect(Collectors.toSet());
 
         // Collect initial seeds
-        var weightedSeeds = new HashMap<String, Double>();
+        HashMap<ProjectFile, Double> weightedSeeds = new HashMap<>();
         // editable files have a weight of 1.0, each
-        editableFiles.stream()
-                .flatMap(f -> f.sources().stream())
-                .forEach(
-                        unit -> { // No analyzer
-                            weightedSeeds.put(unit.fqName(), 1.0);
-                        });
+        editableFiles.stream().flatMap(cf -> cf.files().stream()).forEach(f -> {
+            weightedSeeds.put(f, 1.0);
+        });
         // everything else splits a weight of 1.0
         Streams.concat(readonlyFiles.stream(), virtualFragments.stream())
-                .flatMap(f -> f.sources().stream()) // No analyzer
-                .forEach(unit -> {
-                    weightedSeeds.merge(
-                            unit.fqName(), 1.0 / (readonlyFiles.size() + virtualFragments.size()), Double::sum);
+                .flatMap(cf -> cf.files().stream()) // No analyzer
+                .forEach(f -> {
+                    weightedSeeds.merge(f, 1.0 / (readonlyFiles.size() + virtualFragments.size()), Double::sum);
                 });
 
         // If no seeds, we can't compute pagerank
@@ -327,59 +322,32 @@ public class Context {
     public static SkeletonFragment buildAutoContextFragment(
             IContextManager contextManager,
             IAnalyzer analyzer,
-            Map<String, Double> weightedSeeds,
-            Set<CodeUnit> ineligibleSources,
+            Map<ProjectFile, Double> weightedSeeds,
+            Set<ProjectFile> ineligibleSources,
             int topK) {
-        var pagerankResults = AnalyzerUtil.combinedRankingFor(
-                analyzer, contextManager.getProject().getRoot(), weightedSeeds);
+        var skp = analyzer.as(SkeletonProvider.class)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Cannot find related classes: Code Intelligence is not available."));
+
+        var pagerankResults = AnalyzerUtil.combinedRankingFor(contextManager.getProject(), weightedSeeds);
 
         List<String> targetFqns = new ArrayList<>();
-        for (var codeUnit : pagerankResults) {
-            var fqcn = codeUnit.fqName();
-            var sourceFileOption = analyzer.getFileFor(fqcn);
-            if (sourceFileOption.isEmpty()) {
-                logger.warn("No source file found for class {}", fqcn);
+        for (var sourceFile : pagerankResults) {
+            // Check if the class or its parent is in ineligible classnames
+            boolean eligible = !ineligibleSources.contains(sourceFile);
+            if (!eligible) {
                 continue;
             }
-            var sourceFile = sourceFileOption.get();
-            // Check if the class or its parent is in ineligible classnames
-            boolean eligible = !ineligibleSources.contains(codeUnit);
-            if (fqcn.contains("$")) {
-                var parentFqcn = fqcn.substring(0, fqcn.indexOf('$'));
-                // FIXME generalize this
-                // Check if the analyzer supports cuClass and cast if necessary
-                if (analyzer instanceof JoernAnalyzer aa) {
-                    // Use the analyzer helper method which handles splitting correctly
-                    @Nullable var parentUnitOpt = aa.cuClassOrNull(parentFqcn, sourceFile); // Returns scala.Option
-                    if (parentUnitOpt != null && ineligibleSources.contains(parentUnitOpt)) {
-                        eligible = false;
-                    }
-                } else {
-                    logger.warn(
-                            "Analyzer of type {} does not support direct CodeUnit creation, skipping parent eligibility check for {}",
-                            analyzer.getClass().getSimpleName(),
-                            fqcn);
-                }
-            }
 
-            if (eligible) {
-                // Check if skeleton exists before adding, to ensure it's a valid target for summary
-                if (analyzer.as(SkeletonProvider.class)
-                        .flatMap(skp -> skp.getSkeleton(fqcn))
-                        .isPresent()) {
-                    targetFqns.add(fqcn);
-                }
-            }
+            targetFqns.addAll(skp.getSkeletons(sourceFile).values());
             if (targetFqns.size() >= topK) {
                 break;
             }
         }
         if (targetFqns.isEmpty()) {
-            // Pass contextManager to SkeletonFragment constructor
             return new SkeletonFragment(
                     contextManager, List.of(), ContextFragment.SummaryType.CODEUNIT_SKELETON); // Empty
         }
-        // Pass contextManager to SkeletonFragment constructor
         return new SkeletonFragment(contextManager, targetFqns, ContextFragment.SummaryType.CODEUNIT_SKELETON);
     }
 

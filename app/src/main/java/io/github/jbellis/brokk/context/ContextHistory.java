@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -35,7 +36,7 @@ public class ContextHistory {
 
     public record GitState(String commitHash, @Nullable String diff) {}
 
-    public record DeletedFile(ProjectFile file, String content) {}
+    public record DeletedFile(ProjectFile file, String content, boolean wasTracked) {}
 
     public record ContextHistoryEntryInfo(List<DeletedFile> deletedFiles) {}
 
@@ -220,12 +221,15 @@ public class ContextHistory {
                 return;
             }
 
-            var filesToRestore = new ArrayList<ProjectFile>();
+            var trackedToStage = new ArrayList<ProjectFile>();
+
             for (var deletedFile : info.deletedFiles()) {
                 var pf = deletedFile.file();
                 try {
                     pf.write(deletedFile.content());
-                    filesToRestore.add(pf);
+                    if (deletedFile.wasTracked()) {
+                        trackedToStage.add(pf);
+                    }
                 } catch (IOException e) {
                     var msg = "Failed to restore deleted file during undo: " + pf;
                     io.toolError(msg, "Undo Error");
@@ -233,13 +237,13 @@ public class ContextHistory {
                 }
             }
 
-            if (!filesToRestore.isEmpty() && project.hasGit()) {
+            if (!trackedToStage.isEmpty() && project.hasGit()) {
                 try {
-                    project.getRepo().add(filesToRestore);
+                    project.getRepo().add(trackedToStage);
                     io.systemOutput("Restored and staged files: "
                             + String.join(
                                     ", ",
-                                    filesToRestore.stream()
+                                    trackedToStage.stream()
                                             .map(Object::toString)
                                             .toList()));
                 } catch (Exception e) {
@@ -283,9 +287,15 @@ public class ContextHistory {
         getEntryInfo(popped.id()).ifPresent(info -> {
             var filesToDelete =
                     info.deletedFiles().stream().map(DeletedFile::file).toList();
-            if (!filesToDelete.isEmpty() && project.hasGit()) {
+            if (!filesToDelete.isEmpty()) {
                 try {
-                    project.getRepo().forceRemoveFiles(filesToDelete);
+                    if (project.hasGit()) {
+                        project.getRepo().forceRemoveFiles(filesToDelete);
+                    } else {
+                        for (var file : filesToDelete) {
+                            Files.deleteIfExists(file.absPath());
+                        }
+                    }
                     io.systemOutput("Deleted files as part of redo: "
                             + String.join(
                                     ", ",

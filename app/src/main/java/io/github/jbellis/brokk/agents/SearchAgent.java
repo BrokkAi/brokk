@@ -77,16 +77,11 @@ public class SearchAgent {
     // State toggles
     private boolean beastMode;
 
-    public SearchAgent(
-            String goal,
-            ContextManager contextManager,
-            StreamingChatModel model,
-            ToolRegistry toolRegistry,
-            int ordinal) {
+    public SearchAgent(String goal, ContextManager contextManager, StreamingChatModel model, int ordinal) {
         this.goal = goal;
         this.cm = contextManager;
         this.model = model;
-        this.toolRegistry = toolRegistry;
+        this.toolRegistry = contextManager.getToolRegistry();
 
         this.io = contextManager.getIo();
         this.llm = contextManager.getLlm(model, "Search: " + goal);
