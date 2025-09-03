@@ -23,28 +23,35 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parser for the typed, line-based edit format:
+ * ED-mode parser for Brokk line-edit fences.
  *
- * <ul>
- *   <li>{@code <brk_delete_file path="..." />}
- *   <li>{@code <brk_edit_file path="..." type="insert" beginline=...>}
- *   <li>{@code <brk_edit_file path="..." type="replace" beginline=... endline=...>}
- *   <li>{@code <brk_edit_file path="..." type="delete_lines" beginline=... endline=...>}
- * </ul>
+ * This class parses mixed content containing BRK_EDIT_ED/BRK_EDIT_END blocks (with ED commands),
+ * BRK_EDIT_RM lines (file deletes), and passthrough plain text. It is read-only and does not
+ * access the filesystem; translation to LineEdit operations happens in {@link #materializeEdits}.
  *
- * Notes:
- * <ul>
- *   <li>`path` must be quoted (single or double quotes).
- *   <li>`type` is required for `brk_edit_file` and must be one of `insert`, `replace`, or
- *       `delete_lines`.
- *   <li>`beginline` is required for all `brk_edit_file` types.
- *   <li>`endline` is required for `replace` and `delete_lines`, and must be omitted for `insert`.
- *   <li>Closing tag `</brk_edit_file>` is required.
- * </ul>
+ * Input grammar (high level):
+ * - Fences are ALL CAPS and appear alone on their own lines:
+ *   - "BRK_EDIT_ED &lt;path&gt;" ... commands ... "BRK_EDIT_END"
+ *   - "BRK_EDIT_RM &lt;path&gt;"
+ * - &lt;path&gt; is the remainder of the fence line after the first space and may contain spaces.
+ * - Supported commands (numeric addresses only; 1-based):
+ *   - "n i"           insert before line n; body required
+ *   - "n a"           append after line n (0 a allowed); body required
+ *   - "n[,m] c"       replace inclusive range with body
+ *   - "n[,m] d"       delete inclusive range (no body)
+ * - Body for i/a/c ends with a single '.' on a line by itself. For the final body in a block,
+ *   that terminating dot may be omitted.
+ * - Escaping: a literal "." line is written as "\.", and a literal "\" line as "\\"
+ * - Other ED commands (e.g., w, q) are ignored. Shell "!" is ignored and reported as a parse warning.
  *
- * This parser is read-only: it does not touch the filesystem. It returns a mixed stream of
- * OutputParts (plain text, edit, delete). The materialization to ProjectFile happens in
- * `materializeEdits` to keep parsing independent from workspace state.
+ * Legacy typed tags (&lt;brk_edit_file&gt; ... &lt;/brk_edit_file&gt; and variants) are not supported by
+ * this parser. If detected, the entire input is treated as plain text and a parse error is recorded
+ * so the caller can display a helpful message.
+ *
+ * The parse result is a sequence of {@code OutputPart} objects ({@code Text}, {@code EdBlock}, {@code Delete}).
+ * Use {@link #materializeEdits} to convert them into concrete {@link io.github.jbellis.brokk.LineEdit}
+ * operations. Edit operations are sorted per file in descending line order to avoid line-number shifts
+ * when applied.
  */
 public final class LineEditorParser {
 
@@ -56,33 +63,39 @@ public final class LineEditorParser {
 
     public enum Type { INSERT, REPLACE, DELETE_LINES, PREPEND, APPEND }
 
-    // <brk_delete_file ... />
-    private static final Pattern DELETE_TAG = Pattern.compile(
-            "<\\s*brk_delete_file\\s+([^>/]*?)\\s*/\\s*>",
-            Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
-
-    // <brk_edit_file ...> (we do not capture body here; see parse loop)
-    private static final Pattern EDIT_OPEN_TAG = Pattern.compile(
-            "<\\s*brk_edit_file\\s+([^>]*?)>",
-            Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
-
-    // </brk_edit_file>
-    private static final Pattern EDIT_CLOSE_TAG = Pattern.compile(
-            "</\\s*brk_edit_file\\s*>",
-            Pattern.CASE_INSENSITIVE);
-
-    // Generic attribute parser: key=value where value may be in single or double quotes or be an unquoted token
-    private static final Pattern ATTR = Pattern.compile(
-            "(\\w+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'>/]+))");
-
     // ---------------------------
     // Public result model
     // ---------------------------
 
-    public sealed interface OutputPart permits OutputPart.Text, OutputPart.Edit, OutputPart.Delete {
+    public sealed interface OutputPart permits OutputPart.Text, OutputPart.EdBlock, OutputPart.Delete {
+        /** Plain text outside of any BRK_EDIT fences */
         record Text(String text) implements OutputPart {}
-        record Edit(String path, Type type, int beginLine, @Nullable Integer endLine, String content) implements OutputPart {}
+
+        /**
+         * One BRK_EDIT_ED block for a single file. It may contain multiple ED commands.
+         * Commands must be expressed with absolute numeric addresses (no regex, no navigation).
+         */
+        record EdBlock(String path, List<EdCommand> commands) implements OutputPart {}
+
+        /** One BRK_EDIT_RM line (remove a file). */
         record Delete(String path) implements OutputPart {}
+    }
+
+    /** ED commands supported in the BRK_EDIT_ED block. */
+    public sealed interface EdCommand
+            permits EdCommand.InsertBefore, EdCommand.AppendAfter, EdCommand.ChangeRange, EdCommand.DeleteRange {
+
+        /** n i  — insert before line n; body required. */
+        record InsertBefore(int line, List<String> body) implements EdCommand {}
+
+        /** n a  — append after line n; body required (0a allowed). */
+        record AppendAfter(int line, List<String> body) implements EdCommand {}
+
+        /** n1,n2 c  — replace inclusive range; body required. If n2 omitted, n1==n2. */
+        record ChangeRange(int begin, int end, List<String> body) implements EdCommand {}
+
+        /** n1,n2 d  — delete inclusive range. If n2 omitted, n1==n2. */
+        record DeleteRange(int begin, int end) implements EdCommand {}
     }
 
     public record ExtendedParseResult(List<OutputPart> parts, @Nullable String parseError) {
@@ -97,248 +110,311 @@ public final class LineEditorParser {
     }
 
     /**
-     * Parse mixed content containing delete/edit tags and plain text.
-     * Returns parts in input order plus a combined parseError string if any non-fatal issues occurred.
+     * Parse mixed content containing BRK_EDIT_ED / BRK_EDIT_RM blocks and plain text.
+     * ED semantics:
+     * - Fences are exact uppercase keywords on their own line: "BRK_EDIT_ED <path>", "BRK_EDIT_END", "BRK_EDIT_RM <path>"
+     * - <path> is "rest of the line after the first space", trimmed; may include spaces.
+     * - Supported commands inside ED blocks:
+     *     n i     (insert before n)      body until a single '.' line; last body in a block may omit '.'
+     *     n a     (append after n)       body as above; '0 a' is allowed
+     *     n[,m] c (change range)         body as above
+     *     n[,m] d (delete range)         no body
+     * - All addresses are absolute numeric (1-based; 0 allowed only for 'a'); no regex, no navigation.
+     * - 'w', 'q' and other non-edit commands are ignored. Shell ('!') is ignored but noted as a parse warning.
      */
     public ExtendedParseResult parse(String content) {
+        // Minimal guard for legacy typed-tag inputs (e.g., <brk_edit_file ...> ... </brk_edit_file>)
+        // Our parser is ED-fence based. If we detect an open <brk_edit_file> without the correct
+        // </brk_edit_file> close (including the alias-mismatch case like </brk_update_file>),
+        // we treat the whole input as plain text and surface a clear parse error.
+        var lower = content.toLowerCase(Locale.ROOT);
+        if (lower.contains("<brk_edit_file")) {
+            if (!lower.contains("</brk_edit_file>")) {
+                var onlyText = new ArrayList<OutputPart>();
+                onlyText.add(new OutputPart.Text(content));
+                return new ExtendedParseResult(onlyText, "Missing closing </brk_edit_file> tag");
+            }
+            // If both open and close typed tags are present, we still do not support typed parsing here.
+            // Treat it as plain text with a helpful error so callers know why nothing was parsed.
+            var onlyText = new ArrayList<OutputPart>();
+            onlyText.add(new OutputPart.Text(content));
+            return new ExtendedParseResult(onlyText,
+                                           "Typed <brk_edit_file> blocks are not supported by ED parser; use BRK_EDIT_ED / BRK_EDIT_END.");
+        }
+
         var parts = new ArrayList<OutputPart>();
         var errors = new ArrayList<String>();
 
-        int idx = 0;
-        final int n = content.length();
+        // Split preserving trailing empty segment if text ends with '\n'
+        var lines = content.split("\n", -1);
+        int i = 0;
 
-        while (idx < n) {
-            // Find next tag (either delete or edit)
-            var nextDelete = findNext(DELETE_TAG, content, idx);
-            var nextEditOpen = findNext(EDIT_OPEN_TAG, content, idx);
+        var textBuf = new StringBuilder();
 
-            var next = earliest(nextDelete, nextEditOpen);
+        while (i < lines.length) {
+            var line = lines[i];
+            var trimmed = line.trim();
 
-            if (next == null) {
-                // No more tags — remainder is plain text
-                var tail = content.substring(idx);
-                if (!tail.isEmpty()) {
-                    parts.add(new OutputPart.Text(tail));
+            // helpers to flush accumulated text
+            Runnable flushText = () -> {
+                if (textBuf.length() > 0) {
+                    parts.add(new OutputPart.Text(textBuf.toString()));
+                    textBuf.setLength(0);
                 }
-                break;
+            };
+
+            // BRK_EDIT_RM <path>
+            if (line.startsWith("BRK_EDIT_RM")) {
+                int sp = trimmed.indexOf(' ');
+                if (sp < 0) {
+                    // malformed; keep as text to avoid accidental edits, and record an error
+                    textBuf.append(line);
+                    if (i < lines.length - 1) textBuf.append('\n');
+                    errors.add("BRK_EDIT_RM missing filename.");
+                    i++;
+                    continue;
+                }
+                String path = trimmed.substring(sp + 1).trim();
+                flushText.run();
+                parts.add(new OutputPart.Delete(path));
+                i++; // consume this line
+                continue;
             }
 
-            // Emit any preceding plain text
-            if (next.start() > idx) {
-                parts.add(new OutputPart.Text(content.substring(idx, next.start())));
+            // BRK_EDIT_ED <path>
+            if (line.startsWith("BRK_EDIT_ED")) {
+                int sp = trimmed.indexOf(' ');
+                if (sp < 0) {
+                    // malformed; keep as text
+                    textBuf.append(line);
+                    if (i < lines.length - 1) textBuf.append('\n');
+                    errors.add("BRK_EDIT_ED missing filename.");
+                    i++;
+                    continue;
+                }
+                String path = trimmed.substring(sp + 1).trim();
+
+                flushText.run();
+
+                // Parse until BRK_EDIT_END (required)
+                int blockStartIndex = i; // index of ED header line
+                i++; // advance to first command/body line
+                var commands = new ArrayList<EdCommand>();
+                boolean sawEndFence = false;
+
+                while (i < lines.length) {
+                    var cmdLine = lines[i];
+                    var cmdTrim = cmdLine.trim();
+
+                    // end of block
+                    if (cmdLine.equals("BRK_EDIT_END")) {
+                        sawEndFence = true;
+                        i++; // consume END
+                        break;
+                    }
+
+                    // ignore blank lines and non-edit noise ('w', 'q', etc.)
+                    if (cmdTrim.isEmpty()
+                            || cmdTrim.equals("w") || cmdTrim.equals("q")
+                            || cmdTrim.equals("wq") || cmdTrim.equals("qw")) {
+                        i++;
+                        continue;
+                    }
+
+                    // shell not supported; ignore but note
+                    if (cmdTrim.startsWith("!")) {
+                        errors.add("Shell command ignored inside BRK_EDIT_ED: " + cmdTrim);
+                        i++;
+                        continue;
+                    }
+
+                    // Match range command:  n[,m] [c|d]
+                    var range = RANGE_CMD.matcher(cmdTrim);
+                    // Match insert/append:  n [i|a]
+                    var ia = IA_CMD.matcher(cmdTrim);
+
+                    if (range.matches()) {
+                        int n1 = Integer.parseInt(range.group(1));
+                        int n2 = (range.group(2) == null) ? n1 : Integer.parseInt(range.group(2));
+                        char op = Character.toLowerCase(range.group(3).charAt(0));
+                        if (op == 'd') {
+                            commands.add(new EdCommand.DeleteRange(n1, n2));
+                            i++; // move to next command
+                        } else { // 'c'
+                            // read body until '.' or BRK_EDIT_END ('.' optional for final body)
+                            i++;
+                            var body = new ArrayList<String>();
+                            boolean implicitClose = false;
+                            while (i < lines.length) {
+                                var bodyLine = lines[i];
+                                var bodyTrim = bodyLine.trim();
+                                if (bodyTrim.equals("BRK_EDIT_END")) {
+                                    // treat as implicit '.' for the final command
+                                    implicitClose = true;
+                                    sawEndFence = true;
+                                    break;
+                                }
+                                if (bodyTrim.equals(".")) {
+                                    i++; // consume terminator
+                                    break;
+                                }
+                                body.add(unescapeBodyLine(bodyLine));
+                                i++;
+                            }
+                            commands.add(new EdCommand.ChangeRange(n1, n2, body));
+                            if (implicitClose) {
+                                // outer while will see END on next iteration
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (ia.matches()) {
+                        ia.reset(); ia.matches(); // safe; we already matched
+                        var addr = ia.group(1);
+                        // Sentinel for '$' (end-of-file). We'll resolve during materialization/apply.
+                        int n = "$".equals(addr) ? Integer.MAX_VALUE : Integer.parseInt(addr);
+                        char op = Character.toLowerCase(ia.group(2).charAt(0));
+
+                        i++; // advance to body
+                        var body = new ArrayList<String>();
+                        boolean implicitClose = false;
+                        while (i < lines.length) {
+                            var bodyLine = lines[i];
+                            var bodyTrim = bodyLine.trim();
+                            if (bodyTrim.equals("BRK_EDIT_END")) {
+                                implicitClose = true;
+                                sawEndFence = true;
+                                break;
+                            }
+                            if (bodyTrim.equals(".")) {
+                                i++; // consume terminator
+                                break;
+                            }
+                            body.add(unescapeBodyLine(bodyLine));
+                            i++;
+                        }
+                        if (op == 'i') {
+                            commands.add(new EdCommand.InsertBefore(n, body));
+                        } else {
+                            commands.add(new EdCommand.AppendAfter(n, body));
+                        }
+                        if (implicitClose) {
+                            // outer while will see END on next iteration
+                        }
+                        continue;
+                    }
+
+                    // Unrecognized line inside ED block: ignore silently to minimize parse churn
+                    i++;
+                }
+
+                if (!sawEndFence) {
+                    // Missing END: treat the whole block as text and report a parse error
+                    var sb = new StringBuilder();
+                    sb.append("BRK_EDIT_ED ").append(path).append('\n');
+                    for (int k = blockStartIndex + 1; k < lines.length; k++) {
+                        sb.append(lines[k]);
+                        if (k < lines.length - 1) sb.append('\n');
+                    }
+                    parts.add(new OutputPart.Text(sb.toString()));
+                    errors.add("Missing BRK_EDIT_END for " + path);
+                    break; // nothing more to parse
+                }
+
+                // Emit ED block
+                parts.add(new OutputPart.EdBlock(path, List.copyOf(commands)));
+                continue;
             }
 
-            if (next.pattern() == DELETE_TAG) {
-                // Self-closing delete tag
-                var attrText = groupOrEmpty(next, 1);
-                var attrs = parseAttributes(attrText);
-                var path = attrs.get("path");
-                if (path == null || path.isBlank()) {
-                    errors.add("brk_delete_file missing required path attribute.");
-                    // Stop on first structural error; keep the malformed tag as plain text
-                    parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
-                    break;
-                } else {
-                    parts.add(new OutputPart.Delete(path));
-                }
-                idx = next.end();
-            } else {
-                // Edit open tag
-                var openAttrText = groupOrEmpty(next, 1);
-                var attrs = parseAttributes(openAttrText);
+            // Not a fence; accumulate as text (preserving newlines)
+            textBuf.append(line);
+            if (i < lines.length - 1) textBuf.append('\n');
+            i++;
+        }
 
-                var path = attrs.get("path");
-                if (path == null || path.isBlank()) {
-                    errors.add("brk_edit_file missing required path attribute.");
-                    parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
-                    break;
-                }
-
-                var typeStr = attrs.get("type");
-                if (typeStr == null) {
-                    errors.add("brk_edit_file missing required type attribute.");
-                    parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
-                    break;
-                }
-
-                Type type;
-                try {
-                    type = Type.valueOf(typeStr.toUpperCase(Locale.ROOT));
-                } catch (IllegalArgumentException e) {
-                    errors.add("brk_edit_file has unknown type: '" + typeStr + "'. Must be one of INSERT, REPLACE, DELETE_LINES.");
-                    parts.add(new OutputPart.Text(content.substring(next.start(), next.end())));
-                    break;
-                }
-
-                var bodyStart = next.end();
-                var close = findNext(EDIT_CLOSE_TAG, content, bodyStart);
-                if (close == null) {
-                    errors.add("Missing closing </brk_edit_file> tag.");
-                    parts.add(new OutputPart.Text(content.substring(next.start())));
-                    break;
-                }
-                var body = content.substring(bodyStart, close.start());
-
-                var begin = parseInt(attrs.get("beginline"));
-                var end = parseInt(attrs.get("endline"));
-
-                String error = null;
-                if (type == Type.INSERT) {
-                    if (begin == null) {
-                        error = "brk_edit_file with type=\"insert\" must have a beginline attribute.";
-                    } else if (end != null) {
-                        error = "brk_edit_file with type=\"insert\" MUST NOT have an endline attribute.";
-                    }
-                } else if (type == Type.PREPEND || type == Type.APPEND) {
-                    if (begin != null || end != null) {
-                        error = "brk_edit_file with type=\"" + typeStr + "\" MUST NOT have beginline or endline attributes.";
-                    }
-                } else { // REPLACE or DELETE_LINES
-                    if (begin == null || end == null) {
-                        error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline and endline attributes.";
-                    } else if (begin > end) {
-                        error = "brk_edit_file with type=\""+ typeStr +"\" must have beginline <= endline.";
-                    } else if (type == Type.DELETE_LINES && !body.trim().isEmpty()) {
-                        error = "brk_edit_file with type=\"delete_lines\" must have an empty body.";
-                    }
-                }
-
-                if (error != null) {
-                    errors.add(error);
-                    parts.add(new OutputPart.Text(content.substring(next.start(), close.end())));
-                    break;
-                }
-
-                int beginNonNull;
-                Integer endAttr = end;
-                String contentNormalized = (type == Type.DELETE_LINES) ? "" : body;
-
-                if (type == Type.PREPEND || type == Type.APPEND) {
-                    // PREPEND/APPEND must not specify begin/end; normalize to a dummy beginline
-                    beginNonNull = 1;
-                    endAttr = null;
-                } else {
-                    beginNonNull = requireNonNull(begin);
-                }
-
-                parts.add(new OutputPart.Edit(path, type, beginNonNull, endAttr, contentNormalized));
-                idx = close.end();
-            }
+        // >>> NEW: flush remaining accumulated text
+        if (textBuf.length() > 0) {
+            parts.add(new OutputPart.Text(textBuf.toString()));
         }
 
         var error = errors.isEmpty() ? null : String.join("\n", errors);
         if (error != null && logger.isDebugEnabled()) {
-            logger.debug("LineEditorParser parse errors:\n{}", error);
+            logger.debug("LineEditorParser (ED mode) parse warnings:\n{}", error);
         }
         return new ExtendedParseResult(parts, error);
+    }
+
+    // Patterns for ED commands (numeric only; no regex, no navigation)
+    // Patterns for ED commands (numeric only; no regex, no navigation)
+    private static final Pattern RANGE_CMD = Pattern.compile("(?i)^(\\d+)\\s*(?:,\\s*(\\d+))?\\s*([cd])$");
+    private static final Pattern IA_CMD    = Pattern.compile("(?i)^(\\d+|\\$)\\s*([ia])$");
+
+    // Minimal unescape for body lines: "\." => ".", "\\" => "\"
+    private static String unescapeBodyLine(String line) {
+        if (line.equals("\\.")) return ".";
+        if (line.equals("\\\\")) return "\\";
+        return line;
     }
 
     // ---------------------------
     // Helpers
     // ---------------------------
 
-    private record Match(Pattern pattern, Matcher matcher) {
-        int start() { return matcher.start(); }
-        int end() { return matcher.end(); }
-        String group(int i) { return matcher.group(i); }
-    }
-
-    private static @Nullable Match findNext(Pattern pattern, String text, int from) {
-        var m = pattern.matcher(text);
-        if (m.find(from)) {
-            return new Match(pattern, m);
-        }
-        return null;
-    }
-
-    private static @Nullable Match earliest(@Nullable Match a, @Nullable Match b) {
-        if (a == null) return b;
-        if (b == null) return a;
-        return a.start() <= b.start() ? a : b;
-    }
-
-    private static String groupOrEmpty(Match m, int g) {
-        return m.group(g);
-    }
-
-    private static Map<String, String> parseAttributes(String attrText) {
-        var map = new HashMap<String, String>();
-        var m = ATTR.matcher(attrText);
-        while (m.find()) {
-            var key = m.group(1).toLowerCase(Locale.ROOT);
-            var val = Optional.ofNullable(m.group(2))
-                    .or(() -> Optional.ofNullable(m.group(3)))
-                    .or(() -> Optional.ofNullable(m.group(4)))
-                    .orElse("");
-            map.put(key, val);
-        }
-        return map;
-    }
-
-    private static @Nullable Integer parseInt(@Nullable String s) {
-        if (s == null) return null;
-        try {
-            return Integer.parseInt(s);
-        } catch (NumberFormatException e) {
-            return null;
-        }
-    }
-
     /**
-     * Convert parsed OutputParts to concrete LineEdit instances by resolving paths
-     * to ProjectFile via the provided IContextManager.
+     * Convert parsed ED parts into concrete LineEdit instances.
+     * - ED blocks expand to one or more LineEdit.EditFile operations.
+     * - BRK_EDIT_RM expands to LineEdit.DeleteFile.
+     * - We sort all EditFile operations per file in descending line order (last edits first)
+     *   to avoid line shifts; DeleteFile operations retain original order.
      */
     public static List<LineEdit> materializeEdits(ExtendedParseResult result, IContextManager cm) {
-        var edits = new ArrayList<LineEdit>();
+        var editFiles = new ArrayList<LineEdit>();
+        var deletes = new ArrayList<LineEdit>();
+
         for (var part : result.parts()) {
-            if (part instanceof OutputPart.Delete(String path)) {
-                var pf = cm.toFile(path);
-                edits.add(new LineEdit.DeleteFile(pf));
-            } else if (part instanceof OutputPart.Edit(var path, var type, var beginLine, var endLine, var content)) {
-                var pf = cm.toFile(path);
-                switch (type) {
-                    case INSERT -> {
-                        // For inserts, the engine uses endLine < beginLine.
-                        // For a new file, this is normalized to beginline=1, endline=0.
-                        if (pf.exists()) {
-                            edits.add(new LineEdit.EditFile(pf, beginLine, beginLine - 1, content));
-                        } else {
-                            edits.add(new LineEdit.EditFile(pf, 1, 0, content));
-                        }
+            if (part instanceof OutputPart.Delete del) {
+                var pf = cm.toFile(del.path());
+                deletes.add(new LineEdit.DeleteFile(pf));
+            } else if (part instanceof OutputPart.EdBlock ed) {
+                var pf = cm.toFile(ed.path());
+                for (var cmd : ed.commands()) {
+                    if (cmd instanceof EdCommand.InsertBefore ib) {
+                        // Clamp 0 -> 1 to satisfy EditFile constructor precondition (>= 1).
+                        int addr = ib.line();
+                        int begin = (addr <= 1) ? 1 : addr; // preserve Integer.MAX_VALUE sentinel
+                        String body = String.join("\n", ib.body());
+                        editFiles.add(new LineEdit.EditFile(pf, begin, begin - 1, body));
+                    } else if (cmd instanceof EdCommand.AppendAfter aa) {
+                        // NOTE: if aa.line() == Integer.MAX_VALUE (parsed from '$'), avoid overflow on +1
+                        int begin = (aa.line() == Integer.MAX_VALUE) ? Integer.MAX_VALUE : aa.line() + 1; // 0a => begin=1; $a => end
+                        String body = String.join("\n", aa.body());
+                        editFiles.add(new LineEdit.EditFile(pf, begin, begin - 1, body));
+                    } else if (cmd instanceof EdCommand.ChangeRange cr) {
+                        String body = String.join("\n", cr.body());
+                        editFiles.add(new LineEdit.EditFile(pf, cr.begin(), cr.end(), body));
+                    } else if (cmd instanceof EdCommand.DeleteRange dr) {
+                        editFiles.add(new LineEdit.EditFile(pf, dr.begin(), dr.end(), ""));
                     }
-                    case PREPEND -> {
-                        // Insert at start of file; create file if missing
-                        edits.add(new LineEdit.EditFile(pf, 1, 0, content));
-                    }
-                    case APPEND -> {
-                        if (pf.exists()) {
-                            int n = 0;
-                            try {
-                                var text = pf.read();
-                                if (!text.isEmpty()) {
-                                    if (text.endsWith("\n")) {
-                                        var s = text.substring(0, text.length() - 1);
-                                        if (!s.isEmpty()) {
-                                            n = (int) s.lines().count();
-                                        }
-                                    } else {
-                                        n = (int) text.lines().count();
-                                    }
-                                }
-                            } catch (IOException e) {
-                                n = 0;
-                            }
-                            edits.add(new LineEdit.EditFile(pf, n + 1, n, content));
-                        } else {
-                            edits.add(new LineEdit.EditFile(pf, 1, 0, content));
-                        }
-                    }
-                    case REPLACE -> edits.add(new LineEdit.EditFile(pf, beginLine, requireNonNull(endLine), content));
-                    case DELETE_LINES -> edits.add(new LineEdit.EditFile(pf, beginLine, requireNonNull(endLine), ""));
                 }
             }
         }
-        return edits;
+
+        // Sort by file then descending begin/end (last-edits-first) for cross-file determinism
+        editFiles.sort((x, y) -> {
+            var a = (LineEdit.EditFile) x;
+            var b = (LineEdit.EditFile) y;
+            int c = a.file().toString().compareTo(b.file().toString());
+            if (c != 0) return c;
+            c = Integer.compare(b.beginLine(), a.beginLine());
+            if (c != 0) return c;
+            return Integer.compare(b.endLine(), a.endLine());
+        });
+
+        var out = new ArrayList<LineEdit>(editFiles.size() + deletes.size());
+        out.addAll(editFiles);
+        out.addAll(deletes);
+        return out;
     }
 
     // -----------------------------------------------------------------------------
@@ -346,107 +422,169 @@ public final class LineEditorParser {
     // -----------------------------------------------------------------------------
 
     /**
-     * Canonical rules for the line-edit tag format.
-     * Keep this close to the parser to avoid drift between "what we ask for" and "what we accept".
+     * Canonical rules for the ED-mode edit format.
      */
     public String lineEditFormatInstructions() {
         return """
-        # Line-Edit Tag Rules (use exactly this format)
+    There are two editing commands: BRK_EDIT_ED, and BRK_EDIT_RM.
+    
+    # BRK_EDIT_ED
+    The ED format is a line-oriented text-editing format implementing a subset of `ed` commands.
+    Pay close attention to the exact syntax and semantics. (TLDR: only i,a,c,d commands with
+    absolute numeric addresses are supported.)
 
-        Provide file edits using only these tags (no backticks, no diff format, no JSON, no YAML):
-        - <brk_edit_file path="<full/path>" type="insert" beginline=<int>> ...raw code... </brk_edit_file>
-        - <brk_edit_file path="<full/path>" type="replace" beginline=<int> endline=<int>> ...raw code... </brk_edit_file>
-        - <brk_edit_file path="<full/path>" type="delete_lines" beginline=<int> endline=<int>></brk_edit_file>
-        - <brk_edit_file path="<full/path>" type="prepend"> ...raw code... </brk_edit_file>
-        - <brk_edit_file path="<full/path>" type="append"> ...raw code... </brk_edit_file>
-        - <brk_delete_file path="<full/path>" />
+    As you can see, editable files are shown with their line number prefixed, followed by a colon.
+    THESE ARE NOT PART OF THE FILE CONTENTS. USE THEM ONLY TO IDENTIFY LINE NUMBERS. DO NOT
+    COUNT LINES YOURSELF: RELY ON THE PROVIDED NUMBERING!
+    
+    Provide file edits using only these blocks (no Markdown fences, no diffs, no JSON/YAML):
 
-        Conventions:
-        - Lines are 1-based and for REPLACE/DELETE_LINES the range [beginline, endline] is inclusive.
-        - INSERT: provide beginline only. The new text is inserted at index (beginline - 1). For a new file, use beginline=1.
-        - PREPEND: insert the body at the start of the file. Do not provide beginline/endline. Creates the file if missing.
-        - APPEND: insert the body at the end of the file. Do not provide beginline/endline. Creates the file if missing.
-        - REPLACE: supply beginline and endline; the range is replaced with the body.
-        - DELETE_LINES: supply beginline and endline with an empty body.
-        - Deleting a file: use <brk_delete_file path="..."/>.
+    BRK_EDIT_ED <full/path>
+    n i
+    ...body...
+    .
+    n a
+    ...body...
+    .
+    n[,m] c
+    ...body...
+    .
+    n[,m] d
+    BRK_EDIT_END
 
-        Requirements:
-        - type attribute is REQUIRED and must be one of: insert, replace, delete_lines, prepend, append.
-        - path attribute must be the FULL file path (exact string you see in the workspace) and must be quoted.
-        - beginline is REQUIRED and must be >= 1 for type="insert".
-        - endline is REQUIRED only for type="replace" and type="delete_lines"; it MUST be omitted for type="insert".
-        - beginline and endline MUST be omitted for type="prepend" and type="append".
-        - Close edit blocks with </brk_edit_file>.
-        - DO NOT wrap edits in Markdown code fences (```), JSON, or any other wrapper.
-        - DO NOT escape characters inside the edit body; raw code goes between the open/close tags.
-        - DO NOT use unified diff, +/- prefixes, or any other diff-like markers.
+    # BRK_EDIT_RM
+    BRK_EDIT_RM <full/path>
 
-        Quality:
-        - Prefer SMALL, PRECISE edits that touch the minimal unique range of lines.
-        - Avoid overlapping edits in the same file; combine adjacent lines into a single edit.
-        - If you need multiple changes in one file, emit multiple small <brk_edit_file> blocks.
-        - Use ASCII quotes only (no "smart quotes").
+    # Conventions
+    - Fences must be ALL CAPS and alone on their own lines: BRK_EDIT_ED / BRK_EDIT_END / BRK_EDIT_RM.
+    - <full/path> is the full workspace path, the rest of the line after the first space, trimmed; it may include spaces.
+    - Addresses are absolute numeric (1-based). Ranges n,m are inclusive. No regex, no navigation (no '.', '$', '/re/').
+    - Insert/append:
+      - n i inserts before line n.
+      - n a appends after line n (use 0 a to insert at the very start).
+    - Change/delete:
+      - n[,m] c replaces the inclusive range with the body.
+      - n[,m] d deletes the inclusive range (no body).
+    - Body for i/a/c ends with a single dot '.' on a line by itself.
+      For the final body in a block, that terminating dot may be omitted.
+    - To include a literal '.' line, write '\\.'.
+      To include a literal '\\' line, write '\\\\'.
+    - 'w', 'q', and other non-edit commands are ignored. Shell '!' is not supported.
+    - Do not modify lines you don't explicitly touch.
+    - Special line numbers `0` and `$` are supported, use these to reference before-start
+      or after-end of the file.
 
-        Creating a brand new file:
-        - Use type="insert" with beginline=1 and the entire file content in the body.
+    Quality & ordering:
+    - Prefer small, precise edits (avoid overlapping edits; overlapping is an error).
+    - Emit commands in descending line order (last edits first) within each file to avoid line-number shifts.
+      We will still sort after parsing, but ordering correctly reduces mistakes.
 
-        Moving code between files:
-        - Use two edits: (1) delete_lines for the old range, (2) insert at the new location.
+    Creating or removing files:
+    - To create a new file, use: BRK_EDIT_ED <path> then 0 a or 1 i with the entire file body.
+    - To remove a file, use: BRK_EDIT_RM <path>.
 
-        If a file is read-only or not present, ask the user to make it editable or add it to the workspace.
-        """.stripIndent();
+    DO NOT wrap edits in Markdown code fences (```), diffs, JSON, or any other wrapper.
+    Use ASCII only; no smart quotes.
+    """.stripIndent();
     }
 
-    /**
-     * Example messages that demonstrate high-quality usage of <brk_...> tags.
-     * Mirrors the fidelity of the SEARCH/REPLACE examples: short rationale + minimal, precise edits.
-     */
     public List<ChatMessage> exampleMessages() {
         return List.of(
-                // Example 1: Replace a recursive factorial with math.factorial via three small edits.
-                new UserMessage("Change get_factorial() to use math.factorial"),
+                // Example 1 — WORKSPACE goes in the user message
+                new UserMessage("""
+                                        Change get_factorial() to use math.factorial
+                                        
+                                        <workspace>
+                                        <file path="mathweb/flask/app.py">
+                                        1: from flask import Flask, request
+                                        2: app = Flask(__name__)
+                                        3:
+                                        4: def index():
+                                        5:     return "ok"
+                                        6:
+                                        7: # helpers
+                                        8:
+                                        9: def get_factorial(n):
+                                        10:     if n < 0:
+                                        11:         raise ValueError("negative")
+                                        12:     if n == 0:
+                                        13:         return 1
+                                        14:     return n * get_factorial(n - 1)
+                                        15:
+                                        16: @app.route("/fact")
+                                        17: def fact():
+                                        18:     n = int(request.args.get("n", "0"))
+                                        19:     if n < 0:
+                                        20:         return "bad", 400
+                                        21:     return str(get_factorial(n))
+                                        22:
+                                        23: if __name__ == "__main__":
+                                        24:     app.run()
+                                        </file>
+                                        </workspace>
+                                        """.stripIndent()),
                 new AiMessage("""
-                To make this change we will:
-                1) Import the math module.
-                2) Remove the old recursive implementation.
-                3) Replace the call site with math.factorial(n).
+                                      We will:
+                                      1) Add the math import at the top of app.py
+                                      2) Remove the recursive implementation
+                                      3) Update the call site
+                                      
+                                      BRK_EDIT_ED mathweb/flask/app.py
+                                      21 c
+                                      return str(math.factorial(n))
+                                      .
+                                      9,14 d
+                                      1 i
+                                      import math
+                                      .
+                                      BRK_EDIT_END
+                                      """.stripIndent()),
 
-                <brk_edit_file path="mathweb/flask/app.py" type="prepend">import math
-                </brk_edit_file>
-
-                <!-- delete the old factorial impl by replacing its range with an empty body -->
-                <brk_edit_file path="mathweb/flask/app.py" type="delete_lines" beginline=12 endline=18></brk_edit_file>
-
-                <!-- update the return to call math.factorial -->
-                <brk_edit_file path="mathweb/flask/app.py" type="replace" beginline=25 endline=25>return str(math.factorial(n))
-                </brk_edit_file>
-                """.stripIndent()),
-
-                // Example 2: New file + adjust existing file with minimal edits.
-                new UserMessage("Refactor hello() into its own file."),
+                // Example 2 — WORKSPACE goes in the user message; no filler or anachronistic comments
+                new UserMessage("""
+                                        Refactor hello() into its own file.
+                                        
+                                        <workspace>
+                                        <file path="main.py">
+                                        1: import sys
+                                        2:
+                                        3: def main():
+                                        4:     hello()
+                                        5:
+                                        6: if __name__ == "__main__":
+                                        7:     main()
+                                        8:
+                                        9: def hello():
+                                        10:     \"\"\"print a greeting\"\"\"
+                                        11:     print("hello")
+                                        12:
+                                        </file>
+                                        </workspace>
+                                        """.stripIndent()),
                 new AiMessage("""
-                We will:
-                1) Create a new hello.py with hello().
-                2) Replace the function in main.py with an import.
-                3) Append a usage comment at the end of main.py.
-
-                <!-- create new file: insert entire file content at line 1 -->
-                <brk_edit_file path="hello.py" type="insert" beginline=1>def hello():
-                    \"\"\"print a greeting\"\"\"
-                    print("hello")
-                </brk_edit_file>
-
-                <!-- delete original function body in main.py by making the range empty -->
-                <brk_edit_file path="main.py" type="delete_lines" beginline=10 endline=15></brk_edit_file>
-
-                <!-- prepend the import at the top of main.py -->
-                <brk_edit_file path="main.py" type="prepend">from hello import hello
-                </brk_edit_file>
-
-                <!-- append a usage note at the end of main.py -->
-                <brk_edit_file path="main.py" type="append"># Usage: hello()
-                </brk_edit_file>
-                """.stripIndent())
+                                      We will:
+                                      1) Create a new hello.py with hello()
+                                      2) Import it in main.py and remove the old function
+                                      3) Add a usage comment at the end of main.py
+                                      
+                                      BRK_EDIT_ED hello.py
+                                      0 a
+                                      def hello():
+                                          \"\"\"print a greeting\"\"\"
+                                          print("hello")
+                                      .
+                                      BRK_EDIT_END
+                                      
+                                      BRK_EDIT_ED main.py
+                                      $ a
+                                      # Usage: hello()
+                                      .
+                                      9,12 d
+                                      1 i
+                                      from hello import hello
+                                      .
+                                      BRK_EDIT_END
+                                      """.stripIndent())
         );
     }
 
@@ -457,80 +595,86 @@ public final class LineEditorParser {
     public String instructions(String input, @Nullable ProjectFile file, String reminder) {
         var targetAttr = (file == null) ? "" : " target=\"%s\"".formatted(file);
         return """
-        <rules>
-        %s
+    <rules>
+    %s
 
-        Guidance:
-        - Think first; then produce a few short sentences explaining the changes.
-        - Then provide ONLY <brk_edit_file> / <brk_delete_file> tags for the actual edits.
-        - Keep each edit as small as possible while still unambiguous.
-        - If multiple, separate edits are required, emit multiple tag blocks.
+    Guidance:
+    - Think first; then provide a brief explanation of the changes.
+    - Then output only BRK_EDIT_ED / BRK_EDIT_RM blocks for the actual edits (no other formats).
+    - Keep edits small and **emit last-edits-first** within each file. Avoid overlapping edits.
+    - If multiple, separate edits are required, emit multiple commands inside the same ED block per file.
 
-        %s
-        </rules>
+    %s
+    </rules>
 
-        <goal%s>
-        %s
-        </goal>
-        """.stripIndent().formatted(lineEditFormatInstructions(), reminder, targetAttr, input);
+    <goal%s>
+    %s
+    </goal>
+    """.stripIndent().formatted(lineEditFormatInstructions(), reminder, targetAttr, input);
     }
 
-    /**
-     * Pretty-print a parsed OutputPart for logs and failure messages.
-     */
     public static String repr(OutputPart part) {
-        if (part instanceof OutputPart.Delete(String path)) {
-            return reprDelete(path);
+        if (part instanceof OutputPart.Delete del) {
+            return "BRK_EDIT_RM " + del.path();
         }
-        if (part instanceof OutputPart.Edit(var path, var type, var begin, var end, var content)) {
-            return reprEdit(path, type, begin, end, content);
+        if (part instanceof OutputPart.EdBlock ed) {
+            var sb = new StringBuilder();
+            sb.append("BRK_EDIT_ED ").append(ed.path()).append('\n');
+            for (var c : ed.commands()) {
+                if (c instanceof EdCommand.InsertBefore ib) {
+                    sb.append(ib.line()).append(" i\n");
+                    renderBody(sb, ib.body());
+                } else if (c instanceof EdCommand.AppendAfter aa) {
+                    sb.append(aa.line()).append(" a\n");
+                    renderBody(sb, aa.body());
+                } else if (c instanceof EdCommand.ChangeRange cr) {
+                    sb.append(cr.begin()).append(',').append(cr.end()).append(" c\n");
+                    renderBody(sb, cr.body());
+                } else if (c instanceof EdCommand.DeleteRange dr) {
+                    sb.append(dr.begin()).append(',').append(dr.end()).append(" d\n");
+                }
+            }
+            sb.append("BRK_EDIT_END");
+            return sb.toString();
         }
-        if (part instanceof OutputPart.Text(String text)) {
-            return text;
+        if (part instanceof OutputPart.Text txt) {
+            return txt.text();
         }
         return part.toString();
     }
 
-    /**
-     * Pretty-print a concrete LineEdit for logs and failure/continuation messages.
-     * Centralizes formatting so agents don't reconstruct tags manually.
-     */
     public static String repr(LineEdit edit) {
-        if (edit instanceof LineEdit.DeleteFile(ProjectFile file)) {
-            return reprDelete(canonicalPath(file));
+        if (edit instanceof LineEdit.DeleteFile df) {
+            return "BRK_EDIT_RM " + canonicalPath(df.file());
         }
-        if (edit instanceof LineEdit.EditFile(ProjectFile file, int beginLine, int endLine, String content)) {
-            Type type;
-            Integer endlineAttr = endLine;
+        if (edit instanceof LineEdit.EditFile ef) {
+            var sb = new StringBuilder();
+            sb.append("BRK_EDIT_ED ").append(canonicalPath(ef.file())).append('\n');
+            int beginLine = ef.beginLine();
+            int endLine = ef.endLine();
+            String content = ef.content();
             if (endLine < beginLine) {
-                type = Type.INSERT;
-                endlineAttr = null;
+                sb.append(beginLine).append(" i\n");
+                renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
             } else if (content.isEmpty()) {
-                type = Type.DELETE_LINES;
+                sb.append(beginLine).append(',').append(endLine).append(" d\n");
             } else {
-                type = Type.REPLACE;
+                sb.append(beginLine).append(',').append(endLine).append(" c\n");
+                renderBody(sb, content.lines().toList());
             }
-            return reprEdit(canonicalPath(file), type, beginLine, endlineAttr, content);
+            sb.append("BRK_EDIT_END");
+            return sb.toString();
         }
         return edit.toString();
     }
 
-    private static String reprDelete(String path) {
-        return "<brk_delete_file path=\"%s\" />".formatted(path);
-    }
-
-    private static String reprEdit(String path, Type type, int begin, @Nullable Integer end, String content) {
-        var typeStr = type.toString().toLowerCase(Locale.ROOT);
-        var endlineAttr = "";
-        if (type == Type.REPLACE || type == Type.DELETE_LINES) {
-            endlineAttr = " endline=%d".formatted(requireNonNull(end));
+    private static void renderBody(StringBuilder sb, List<String> lines) {
+        for (var l : lines) {
+            if (l.equals(".")) sb.append("\\.\n");
+            else if (l.equals("\\")) sb.append("\\\\\n");
+            else sb.append(l).append('\n');
         }
-
-        return """
-               <brk_edit_file path="%s" type="%s" beginline=%d%s>
-               %s
-               </brk_edit_file>
-               """.stripIndent().formatted(path, typeStr, begin, endlineAttr, content);
+        sb.append(".\n");
     }
 
     /**

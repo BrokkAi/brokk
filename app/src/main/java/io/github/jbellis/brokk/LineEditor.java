@@ -76,18 +76,39 @@ public final class LineEditor {
             }
         }
 
-        // Sort each file's edits by decreasing beginLine (and decreasing endLine as a tie-breaker).
-        for (var list : editsByFile.values()) {
-            list.sort((a, b) -> {
+        // Apply per file:
+        //   1) replacements/deletes (begin <= end) sorted descending (bottom-to-top)
+        //   2) insertions (end < begin) in original input order
+        for (var entry : editsByFile.entrySet()) {
+            var perFile = entry.getValue();
+
+            var changes = new ArrayList<LineEdit.EditFile>();
+            var inserts = new ArrayList<LineEdit.EditFile>();
+
+            for (var ef : perFile) {
+                if (ef.endLine() < ef.beginLine()) inserts.add(ef);
+                else changes.add(ef);
+            }
+
+            changes.sort((a, b) -> {
                 int c = Integer.compare(b.beginLine(), a.beginLine());
                 if (c != 0) return c;
                 return Integer.compare(b.endLine(), a.endLine());
             });
-        }
 
-        // Apply all sorted edits per file first (bottom-to-top within each file).
-        for (var entry : editsByFile.entrySet()) {
-            for (var ef : entry.getValue()) {
+            // 1) Apply bottom-to-top range edits
+            for (var ef : changes) {
+                try {
+                    applyEdit(ef, originals, failures);
+                } catch (IOException e) {
+                    var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
+                    logger.error("IO error applying {}: {}", describe(ef), msg);
+                    failures.add(new FailedEdit(ef, FailureReason.IO_ERROR, msg));
+                }
+            }
+
+            // 2) Apply insertions in original order
+            for (var ef : inserts) {
                 try {
                     applyEdit(ef, originals, failures);
                 } catch (IOException e) {
@@ -164,24 +185,27 @@ public final class LineEditor {
         originals.computeIfAbsent(pf, f -> original);
 
         if (isInsertion) {
-            // Valid insertion positions are 1..n+1
-            if (begin < 1 || begin > n + 1) {
+            // Map '$' sentinel to end-of-file (n + 1); otherwise use provided begin
+            int requestedBegin = (begin == Integer.MAX_VALUE) ? (n + 1) : begin;
+
+            // Strict validation for insertions
+            if (requestedBegin < 1 || requestedBegin > n + 1) {
                 failures.add(new FailedEdit(
                         ef,
                         FailureReason.INVALID_LINE_RANGE,
-                        "Insertion position out of bounds: beginline=%d for file with %d lines"
-                                .formatted(begin, n)));
+                        "Invalid insertion index: begin=%d for file with %d lines (valid 1..%d)"
+                                .formatted(begin, n, n + 1)));
                 return;
             }
 
             var bodyLines = splitIntoLines(body);
-            var newLines = new ArrayList<String>(n + bodyLines.size()); // capacity hint per goal
-            int insertAt = begin - 1; // 0-based insertion point
+            var newLines = new ArrayList<String>(n + bodyLines.size()); // capacity hint
+            int insertAt = requestedBegin - 1; // 0-based
             newLines.addAll(lines.subList(0, insertAt));
             newLines.addAll(bodyLines);
             newLines.addAll(lines.subList(insertAt, n));
 
-            logger.info("Inserting {} lines at {} into {}", bodyLines.size(), begin, pf);
+            logger.info("Inserting {} lines at {} into {}", bodyLines.size(), requestedBegin, pf);
             writeBack(pf, newLines);
             return;
         }

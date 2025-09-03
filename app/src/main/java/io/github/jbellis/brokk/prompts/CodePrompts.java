@@ -1,27 +1,41 @@
 package io.github.jbellis.brokk.prompts;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
-import dev.langchain4j.data.message.*;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.Content;
+import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.EditBlock;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.LineEdit;
+import io.github.jbellis.brokk.LineEditor;
+import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.ImageUtil;
-import java.awt.*;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.util.*;
-import java.util.List;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.awt.*;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
@@ -101,12 +115,10 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Redacts <brk_...> Line-Edit Tags from an AiMessage. If the message contains Line-Edit Tags, they are replaced with
-     * "[elided line-edit tag]". If the message does not contain Line-Edit Tags, or if the redacted text is blank,
-     * Optional.empty() is returned.
-     *
-     * @param aiMessage The AiMessage to process.
-     * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
+     * Redacts BRK_EDIT_ED blocks from an AiMessage (mixed content allowed).
+     * - ED blocks become a placeholder that cannot be confused with valid blocks.
+     * - BRK_EDIT_RM lines are preserved.
+     * - If there are no edits, returns the original message (unless blank).
      */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
         var parsed = LineEditorParser.instance.parse(aiMessage.text());
@@ -116,18 +128,22 @@ public abstract class CodePrompts {
             return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
         }
 
-        var redacted = redactAiMessage(parsed);
+        var redacted = redactParsedEdBlocks(parsed);
         return redacted.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redacted));
     }
 
-    private static @NotNull String redactAiMessage(LineEditorParser.ExtendedParseResult parsed) {
+    /** Helper used by redactAiMessage(AiMessage): turn parsed ED parts into redacted text. */
+    private static @NotNull String redactParsedEdBlocks(LineEditorParser.ExtendedParseResult parsed) {
         var sb = new StringBuilder();
-        var parts = parsed.parts();
-        for (LineEditorParser.OutputPart p : parts) {
+        for (LineEditorParser.OutputPart p : parsed.parts()) {
             if (p instanceof LineEditorParser.OutputPart.Text(String text)) {
                 sb.append(text);
-            } else {
-                sb.append("[elided Line-Edit tag]");
+            } else if (p instanceof LineEditorParser.OutputPart.Delete(String path)) {
+                // Keep BRK_EDIT_RM visible; it's safe and helpful in history.
+                sb.append("BRK_EDIT_RM ").append(path).append('\n');
+            } else if (p instanceof LineEditorParser.OutputPart.EdBlock ed) {
+                // Elide edit bodies with a placeholder that CANNOT be mistaken for a valid block.
+                sb.append("[[ELIDED EDIT BLOCK for ").append(ed.path()).append("]]\n");
             }
         }
         return sb.toString();
@@ -145,12 +161,12 @@ public abstract class CodePrompts {
         Context ctx = cm.liveContext();
 
         messages.add(systemMessage(cm, reminder));
+        messages.addAll(LineEditorParser.instance.exampleMessages());
         if (changedFiles.isEmpty()) {
             messages.addAll(getWorkspaceContentsMessages(ctx));
         } else {
             messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
         }
-        messages.addAll(LineEditorParser.instance.exampleMessages());
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
@@ -183,6 +199,7 @@ public abstract class CodePrompts {
                         .trim();
         messages.add(new SystemMessage(systemPrompt));
 
+        messages.addAll(LineEditorParser.instance.exampleMessages());
         messages.addAll(readOnlyMessages);
 
         try {
@@ -205,7 +222,6 @@ public abstract class CodePrompts {
             throw new UncheckedIOException(e);
         }
 
-        messages.addAll(LineEditorParser.instance.exampleMessages());
         messages.addAll(taskMessages);
         messages.add(request);
 
@@ -852,22 +868,25 @@ public abstract class CodePrompts {
 
         var sb = new StringBuilder();
         int total = failures.size();
-        boolean s1 = total == 1;
+        boolean single = total == 1;
         sb.append("""
-                <instructions>
-                # %d Line-Edit operation%s failed in %d file%s!
+            <instructions>
+            # %d edit command failure%s in %d file%s!
 
-                Review the CURRENT state of these files below in <current_content>.
-                Fix the edits by correcting line ranges or paths and return only <brk_edit_file>/<brk_delete_file> tags.
+            Review the CURRENT state of these files below in <current_content>.
+            Provide corrected **BRK_EDIT_ED / BRK_EDIT_RM** blocks for the failed edits only.
 
-                Tips:
-                - INVALID_LINE_RANGE means begin/end lines are outside the file's current bounds. For `replace` or `delete_lines`, `beginline` must be <= `endline`.
-                - FILE_NOT_FOUND means the path is wrong. To create a new file, you must use `type="insert"` with `beginline=1` and omit `endline`.
-                - IO_ERROR indicates the editor could not write or delete the file; check path and permissions.
-
-                Provide corrected Line-Edit tags for the failed edits only.
-                </instructions>
-                """.stripIndent().formatted(total, s1 ? "" : "s", byFile.size(), byFile.size() == 1 ? "" : "s"));
+            Tips:
+            - Addresses are absolute numeric (1-based). Ranges n,m are inclusive.
+            - INSERT BEFORE: `n i`; APPEND AFTER: `n a` (use `0 a` to insert at the start).
+            - CHANGE: `n[,m] c` with body ending in a single `.` (the final body in a block may omit the dot).
+            - DELETE: `n[,m] d` (no body).
+            - `w`, `q` and other non-edit commands are ignored. Shell `!` is not supported.
+            - regex addresses or s/// are not supported
+            - Emit commands in **descending line order (last edits first)** within each file to avoid line shifts.
+            - Overlapping edits are an error.
+            </instructions>
+            """.stripIndent().formatted(total, single ? "" : "s", byFile.size(), byFile.size() == 1 ? "" : "s"));
 
         for (var entry : byFile.entrySet()) {
             var file = entry.getKey();
@@ -895,21 +914,21 @@ public abstract class CodePrompts {
                 }
 
                 sb.append("""
-                        <failed_edit reason="%s">
-                        <edit>%s</edit>
-                        <commentary>%s</commentary>
-                        </failed_edit>
-                        """.stripIndent().formatted(f.reason(), details, f.commentary()));
+                    <failed_edit reason="%s">
+                    <edit>%s</edit>
+                    <commentary>%s</commentary>
+                    </failed_edit>
+                    """.stripIndent().formatted(f.reason(), details, f.commentary()));
             }
 
             sb.append("</failed_edits>\n</file>\n\n");
         }
         if (succeededCount > 0) {
             sb.append("""
-                    <note>
-                    The other %d edit%s applied successfully. Do not re-send them; only fix the failures listed above.
-                    </note>
-                    """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
+                <note>
+                The other %d edit%s applied successfully. Do not re-send them; only fix the failures listed above.
+                </note>
+                """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
         }
 
         return sb.toString();

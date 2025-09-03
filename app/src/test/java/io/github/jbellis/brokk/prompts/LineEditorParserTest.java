@@ -1,11 +1,13 @@
 package io.github.jbellis.brokk.prompts;
 
 import io.github.jbellis.brokk.LineEdit;
+import io.github.jbellis.brokk.LineEditor;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -19,35 +21,34 @@ class LineEditorParserTest {
     @Test
     void parse_singleEdit() {
         var input = """
-                Intro text
-                <brk_edit_file path="src/Main.java" type="replace" beginline=10 endline=12>
-                System.out.println("Replaced!");
-                </brk_edit_file>
-                Outro
-                """.stripIndent();
+            Intro text
+            BRK_EDIT_ED src/Main.java
+            10,12 c
+            System.out.println("Replaced!");
+            .
+            BRK_EDIT_END
+            Outro
+            """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
 
-        // Find the Edit part
-        var editOpt = r.parts().stream()
-                .filter(p -> p instanceof LineEditorParser.OutputPart.Edit)
-                .map(p -> (LineEditorParser.OutputPart.Edit) p)
+        // Find the ED block
+        var edOpt = r.parts().stream()
+                .filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock)
+                .map(p -> (LineEditorParser.OutputPart.EdBlock) p)
                 .findFirst();
-        assertTrue(editOpt.isPresent(), "Expected one edit part");
-        var edit = editOpt.orElseThrow();
-        assertEquals("src/Main.java", edit.path());
-        assertEquals(10, edit.beginLine());
-        assertEquals(12, edit.endLine());
-        assertTrue(edit.content().contains("Replaced!"));
+        assertTrue(edOpt.isPresent(), "Expected one ED block part");
+        var ed = edOpt.orElseThrow();
+        assertEquals("src/Main.java", ed.path());
+        assertFalse(ed.commands().isEmpty());
     }
 
     @Test
     void parse_deleteSelfClosing() {
-        var input = "<brk_delete_file path='obsolete.txt' />";
+        var input = "BRK_EDIT_RM obsolete.txt";
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
-        // Expect exactly one Delete part and no extra text
         assertEquals(1, r.parts().size(), "Only a single delete part is expected");
         assertInstanceOf(LineEditorParser.OutputPart.Delete.class, r.parts().get(0));
         var del = (LineEditorParser.OutputPart.Delete) r.parts().get(0);
@@ -57,48 +58,53 @@ class LineEditorParserTest {
     @Test
     void parse_mixedAndBodyPreserved() {
         var input = """
-                Before
-                <brk_edit_file path="x.txt" type="insert" beginline=1>
-                // Content can include angle brackets: <not a tag>
-                </brk_edit_file>
-                <brk_delete_file path="y.txt" />
-                After
-                """.stripIndent();
+            Before
+            BRK_EDIT_ED x.txt
+            1 i
+            // Content can include angle brackets: <not a tag>
+            .
+            BRK_EDIT_END
+            BRK_EDIT_RM y.txt
+            After
+            """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
         assertTrue(
-                r.parts().stream().anyMatch(p -> p instanceof LineEditorParser.OutputPart.Edit),
-                "Expected an edit part");
+                r.parts().stream().anyMatch(p -> p instanceof LineEditorParser.OutputPart.EdBlock),
+                "Expected an ED block");
         assertTrue(
                 r.parts().stream().anyMatch(p -> p instanceof LineEditorParser.OutputPart.Delete),
-                "Expected a delete part");
+                "Expected a delete block");
 
-        var edit = (LineEditorParser.OutputPart.Edit) r.parts().stream()
-                .filter(p -> p instanceof LineEditorParser.OutputPart.Edit)
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().stream()
+                .filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock)
                 .findFirst()
                 .orElseThrow();
-        assertTrue(edit.content().contains("<not a tag>"),
-                "Edit body should preserve angle brackets that are not closing tags");
+        var cmd = ed.commands().stream().findFirst().orElseThrow();
+        assertInstanceOf(LineEditorParser.EdCommand.InsertBefore.class, cmd);
+        var ib = (LineEditorParser.EdCommand.InsertBefore) cmd;
+        assertTrue(ib.body().getFirst().contains("<not a tag>"),
+                   "Body should preserve angle brackets");
     }
 
     @Test
-    void parse_reportsMissingAttributesButKeepsText() {
+    void parse_reportsMissingEndFence() {
         var input = """
-                <brk_edit_file path="a.txt" type="replace" beginline=5>
-                body
-                </brk_edit_file>
-                """.stripIndent();
+            BRK_EDIT_ED a.txt
+            1 c
+            body
+            .
+            BRK_EDIT_STOP
+            """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
-        assertNotNull(r.parseError(), "Expected a parse error for missing endline attribute");
+        assertNotNull(r.parseError(), "Expected a parse error for missing BRK_EDIT_END");
+        assertTrue(r.parseError().contains("Missing BRK_EDIT_END"), "Should mention missing END");
 
-        // Ensure the malformed open tag is preserved as text
+        // The malformed block should be preserved as text
         assertTrue(r.parts().get(0) instanceof LineEditorParser.OutputPart.Text,
-                "Malformed open tag should be preserved as text");
-        var concatenated = r.parts().stream()
-                .map(p -> p instanceof LineEditorParser.OutputPart.Text t ? t.text() : "")
-                .reduce("", (a, b) -> a + b);
-        assertTrue(concatenated.contains("<brk_edit_file"),
-                "Original malformed tag should be present in the output text");
+                   "Malformed block should be preserved as text");
+        var text = ((LineEditorParser.OutputPart.Text) r.parts().get(0)).text();
+        assertTrue(text.contains("BRK_EDIT_STOP"));
     }
 
     @Test
@@ -118,20 +124,263 @@ class LineEditorParserTest {
     void materialize_toLineEdit() {
         var ctx = new TestContextManager(tempDir, new NoOpConsoleIO());
         var input = """
-                <brk_delete_file path="gone.txt" />
-                <brk_edit_file path="foo/bar.txt" type="replace" beginline=2 endline=3>NEW</brk_edit_file>
-                """.stripIndent();
+            BRK_EDIT_RM gone.txt
+            BRK_EDIT_ED foo/bar.txt
+            2,3 c
+            NEW
+            .
+            BRK_EDIT_END
+            """.stripIndent();
         var parsed = LineEditorParser.instance.parse(input);
         var edits = LineEditorParser.instance.materializeEdits(parsed, ctx);
         assertEquals(2, edits.size());
-        assertTrue(edits.get(0) instanceof LineEdit.DeleteFile);
-        assertTrue(edits.get(1) instanceof LineEdit.EditFile);
+        assertTrue(edits.get(0) instanceof LineEdit.EditFile || edits.get(0) instanceof LineEdit.DeleteFile);
 
-        var edit = (LineEdit.EditFile) edits.get(1);
+        // ensure both types appear
+        assertTrue(edits.stream().anyMatch(e -> e instanceof LineEdit.DeleteFile));
+        assertTrue(edits.stream().anyMatch(e -> e instanceof LineEdit.EditFile));
+
+        var edit = (LineEdit.EditFile) edits.stream()
+                .filter(e -> e instanceof LineEdit.EditFile)
+                .findFirst().orElseThrow();
         assertEquals(2, edit.beginLine());
         assertEquals(3, edit.endLine());
         assertEquals("NEW", edit.content());
         assertTrue(edit.file().toString().endsWith("foo/bar.txt"),
-                "ProjectFile should resolve the given path via the context manager");
+                   "ProjectFile should resolve the given path via the context manager");
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void parse_implicitDotAndEscapes() {
+        var input = """
+        BRK_EDIT_ED a.txt
+        1 i
+        \\.
+        \\\\
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError(), "No errors expected for implicit body termination and escapes");
+
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
+        var cmd = (LineEditorParser.EdCommand.InsertBefore) ed.commands().getFirst();
+        assertEquals(1, cmd.line());
+        assertEquals(List.of(".", "\\"), cmd.body(), "Escaped lines must be unescaped in body");
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void parse_shellCommandWarning_andIgnoredCommands() {
+        var input = """
+        BRK_EDIT_ED a.txt
+        !echo hi
+        w
+        1 a
+        X
+        .
+        q
+        wq
+        qw
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNotNull(r.parseError(), "Shell command should produce a parse warning");
+        assertTrue(r.parseError().contains("Shell command ignored inside BRK_EDIT_ED"),
+                   "Warning should mention ignored shell command");
+
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().stream()
+                .filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock)
+                .findFirst().orElseThrow();
+
+        assertEquals(1, ed.commands().size(), "Only the real edit command should be captured");
+        var cmd = ed.commands().getFirst();
+        assertInstanceOf(LineEditorParser.EdCommand.AppendAfter.class, cmd);
+        var aa = (LineEditorParser.EdCommand.AppendAfter) cmd;
+        assertEquals(1, aa.line());
+        assertEquals(List.of("X"), aa.body());
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void parse_rmMissingFilename_reportsErrorAndKeepsText() {
+        var input = """
+        Before
+        BRK_EDIT_RM
+        After
+        """.stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNotNull(r.parseError(), "Expected error for missing filename in BRK_EDIT_RM");
+        assertTrue(r.parseError().contains("BRK_EDIT_RM missing filename."));
+        assertTrue(r.parts().stream().noneMatch(p -> p instanceof LineEditorParser.OutputPart.Delete),
+                   "No Delete part should be produced");
+        assertTrue(r.parts().stream().anyMatch(p ->
+                                                       p instanceof LineEditorParser.OutputPart.Text
+                                                               && ((LineEditorParser.OutputPart.Text) p).text().contains("BRK_EDIT_RM")),
+                   "Malformed delete line should be preserved as text");
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void parse_edMissingFilename_reportsErrorAndKeepsText() {
+        var input = """
+        BRK_EDIT_ED
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNotNull(r.parseError(), "Expected error for missing filename in BRK_EDIT_ED");
+        assertTrue(r.parseError().contains("BRK_EDIT_ED missing filename."));
+        assertTrue(r.parts().stream().allMatch(p -> p instanceof LineEditorParser.OutputPart.Text),
+                   "Malformed block should be preserved as text only");
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void parse_changeSingleLineWithoutComma() {
+        var input = """
+        BRK_EDIT_ED file.txt
+        5 c
+        X
+        .
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError());
+
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
+        var cmd = (LineEditorParser.EdCommand.ChangeRange) ed.commands().getFirst();
+        assertEquals(5, cmd.begin());
+        assertEquals(5, cmd.end());
+        assertEquals(List.of("X"), cmd.body());
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void materialize_appendZeroAndApply_createsFile(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        var input = """
+        BRK_EDIT_ED new.txt
+        0 a
+        A
+        B
+        .
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        assertNull(parsed.parseError());
+
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertTrue(res.failures().isEmpty(), "Creating a new file with 0 a should succeed");
+        assertEquals("A\nB\n", Files.readString(dir.resolve("new.txt")));
+    }
+
+    // +++ add to class LineEditorParserTest +++
+    @Test
+    void materialize_deleteRangeAndApply(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        Files.writeString(dir.resolve("a.txt"), "1\n2\n3\n4\n");
+
+        var input = """
+        BRK_EDIT_ED a.txt
+        2,3 d
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        assertNull(parsed.parseError());
+
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertTrue(res.failures().isEmpty());
+        assertEquals("1\n4\n", Files.readString(dir.resolve("a.txt")));
+    }
+
+    @Test
+    void parse_dollarAppend_parsesAndUsesSentinel() {
+        var input = """
+        BRK_EDIT_ED a.txt
+        $ a
+        X
+        .
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError());
+
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
+        var cmd = (LineEditorParser.EdCommand.AppendAfter) ed.commands().getFirst();
+        assertEquals(Integer.MAX_VALUE, cmd.line(), "Parser should map '$' to sentinel");
+        assertEquals(List.of("X"), cmd.body());
+    }
+
+    @Test
+    void e2e_appendAtEnd_withDollar(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        Files.writeString(dir.resolve("a.txt"), "A\nB\n");
+        var input = """
+        BRK_EDIT_ED a.txt
+        $ a
+        X
+        .
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertTrue(res.failures().isEmpty());
+        assertEquals("A\nB\nX\n", Files.readString(dir.resolve("a.txt")));
+    }
+
+    @Test
+    void e2e_insertAtStart_withZero(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        Files.writeString(dir.resolve("a.txt"), "B\n");
+        var input = """
+        BRK_EDIT_ED a.txt
+        0 i
+        A
+        .
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertTrue(res.failures().isEmpty());
+        assertEquals("A\nB\n", Files.readString(dir.resolve("a.txt")));
+    }
+
+    @Test
+    void e2e_insertAtEnd_withDollar(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        Files.writeString(dir.resolve("a.txt"), "A\nB\n");
+        var input = """
+        BRK_EDIT_ED a.txt
+        $ i
+        Z
+        .
+        BRK_EDIT_END
+        """.stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertTrue(res.failures().isEmpty());
+        assertEquals("A\nB\nZ\n", Files.readString(dir.resolve("a.txt")),
+                     "Insert before '$' should land at end under flexible clamping");
     }
 }
