@@ -582,7 +582,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof String historyItem) {
-                    setText(historyItem);
+                    // To prevent the dropdown from becoming excessively wide, we truncate the display text
+                    // to fit within the width of the JComboBox itself.
+                    String displayText = historyItem.replace('\n', ' ');
+                    int width = dropdown.getWidth();
+                    if (width > 20) {
+                        FontMetrics fm = getFontMetrics(getFont());
+                        if (fm.stringWidth(displayText) > width) {
+                            displayText = SwingUtilities.layoutCompoundLabel(
+                                    this,
+                                    fm,
+                                    displayText,
+                                    null,
+                                    SwingConstants.CENTER,
+                                    SwingConstants.LEFT,
+                                    SwingConstants.CENTER,
+                                    SwingConstants.LEFT,
+                                    new Rectangle(width, getHeight()),
+                                    new Rectangle(),
+                                    new Rectangle(),
+                                    0);
+                        }
+                    }
+
+                    setText(displayText);
                     setEnabled(true);
                     if (historyItem.equals(noHistory) || historyItem.equals(placeholder)) {
                         setToolTipText(null);
