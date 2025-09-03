@@ -23,15 +23,15 @@ public class Completions {
         }
 
         // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
-        List<CodeUnit> allDefs;
+        List<CodeUnit> candidates;
         try {
-            allDefs =
+            candidates =
                     analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
         } catch (Exception e) {
             // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
             // Fall back to using top-level declarations only
-            allDefs = analyzer.getAllDeclarations();
+            candidates = analyzer.getAllDeclarations();
         }
 
         var matcher = new FuzzyMatcher(query);
@@ -40,7 +40,7 @@ public class Completions {
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
         record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
         }
-        return allDefs.stream()
+        return candidates.stream()
                 .map(cu -> {
                     int score;
                     if (hierarchicalQuery) {
