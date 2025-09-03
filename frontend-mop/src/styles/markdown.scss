@@ -107,6 +107,41 @@ li > p {
   font-weight: bold;
 }
 
+/* Partial match styling - remove base underline and cursor since we use span-based highlighting */
+:not(pre) > code.symbol-exists.partial-match {
+  text-decoration: none; /* Remove underline from entire code element */
+  border-style: dashed;
+  cursor: default; /* Remove pointer cursor from entire element */
+}
+
+:not(pre) > code.symbol-exists.partial-match:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 15%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
+:not(pre) > code.symbol-exists.partial-match::after {
+  content: "◦";
+  font-size: 0.7em;
+  vertical-align: super;
+  opacity: 0.6;
+  margin-left: 1px;
+}
+
+/* Multi-range symbol highlighting - restore original underline style */
+.symbol-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Make highlighted spans clickable */
+}
+
+/* Enhanced partial match styling - use dotted underline like original */
+:not(pre) > code.symbol-exists.partial-match .symbol-highlight {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Ensure partial match highlights are clickable */
+}
+
 pre > code {
   font-size: 0.9em;
 }

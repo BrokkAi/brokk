@@ -1,5 +1,6 @@
 import {writable, get, readable} from 'svelte/store';
 import {createLogger} from '../lib/logging';
+import {mockExtractSymbol, type MockSymbolResult} from '../lib/mockSymbolExtractor';
 
 const log = createLogger('symbol-cache-store');
 
@@ -30,7 +31,7 @@ const pendingByContext = new Map<string, Set<string>>();
 
 // Symbol cache entry with resolution status
 export interface SymbolCacheEntry {
-    fqn?: string;
+    result?: MockSymbolResult | null;
     status: 'pending' | 'resolved';
     contextId: string;
     timestamp: number;
@@ -296,9 +297,13 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
                 return cache; // No changes needed
             }
 
+            // Try to extract mock symbol result
+            const mockResult = mockExtractSymbol(symbol);
+
             // Set to pending state
             const newCache = new Map(cache);
             const pendingEntry: SymbolCacheEntry = {
+                result: mockResult,
                 status: 'pending',
                 contextId: contextId,
                 timestamp: Date.now(),
@@ -317,22 +322,23 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
             cacheStats.totalSymbolsProcessed++;
 
 
-            // Add to batch instead of making immediate call
+            // Always use batching system for real backend calls
+            // Mock results are processed in the cache entry but resolved via backend
             if (window.javaBridge?.lookupSymbolsAsync) {
                 addToBatch(contextId, symbol);
             } else {
-                log.warn('Java bridge not available for symbol lookup');
-                // Set to resolved with no FQN to prevent retry loops
+                // No bridge at all - resolve with mock result if available, otherwise null
                 setTimeout(() => {
                     symbolCacheStore.update(cache => {
                         const updatedCache = new Map(cache);
-                        const errorEntry: SymbolCacheEntry = {
+                        const resolvedEntry: SymbolCacheEntry = {
+                            result: mockResult,
                             status: 'resolved',
                             contextId: contextId,
                             timestamp: Date.now(),
                             accessCount: 1
                         };
-                        const wasUpdated = upsertKey(updatedCache, cacheKey, errorEntry);
+                        const wasUpdated = upsertKey(updatedCache, cacheKey, resolvedEntry);
                         if (wasUpdated) {
                             notifyKey(cacheKey);
                         }
@@ -400,9 +406,17 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
         const keysToNotify: string[] = [];
         for (const [symbol, fqn] of Object.entries(results)) {
             const cacheKey = `${actualContextId}:${symbol}`;
+
+            // Update the mock result with the real FQN from backend
+            const existingEntry = newCache.get(cacheKey);
+            const mockResult = existingEntry?.result;
+
+            // If we don't have a mock result, try to extract one now for proper highlighting
+            const finalMockResult = mockResult || mockExtractSymbol(symbol);
+
             const resolvedEntry: SymbolCacheEntry = {
+                result: finalMockResult ? { ...finalMockResult, fqn: fqn } : { fqn: fqn, highlightRanges: [[0, symbol.length]], isPartialMatch: false, originalText: symbol },
                 status: 'resolved',
-                fqn: fqn,
                 contextId: actualContextId,
                 timestamp: Date.now(),
                 accessCount: 1
@@ -424,13 +438,19 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
 
         for (const symbolName of notFoundSymbols) {
             const cacheKey = `${actualContextId}:${symbolName}`;
+
+            // Keep the mock result but mark as not found (no FQN)
+            const existingEntry = newCache.get(cacheKey);
+            const mockResult = existingEntry?.result;
+
             // Symbol was requested but not found in results - mark as resolved with no fqn
             const notFoundEntry: SymbolCacheEntry = {
+                result: mockResult ? { ...mockResult, fqn: null } : null,
                 status: 'resolved',
                 contextId: actualContextId,
                 timestamp: Date.now(),
                 accessCount: 1
-                // Deliberately no fqn property - this indicates symbol doesn't exist
+                // Deliberately no fqn in result - this indicates symbol doesn't exist
             };
 
             // Only notify if the entry actually changed

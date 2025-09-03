@@ -2,6 +2,7 @@
   import {onMount} from 'svelte';
   import {symbolCacheStore, requestSymbolResolution, subscribeKey, type SymbolCacheEntry} from '../stores/symbolCacheStore';
   import {createLogger} from '../lib/logging';
+  import {isDebugEnabled} from '../lib/debug';
 
   let {children, ...rest} = $props();
 
@@ -9,6 +10,7 @@
 
   // Extract symbol text from children
   let symbolText = $state('');
+  let extractedText = $state(''); // Store extracted DOM text for fallback rendering
   let isValidSymbol = $state(false);
   let cacheEntry: SymbolCacheEntry | undefined = $state(undefined);
   let contextId = 'main-context';
@@ -17,13 +19,14 @@
   const componentId = `symbol-${Math.random().toString(36).substr(2, 9)}`;
 
   // Common keywords/literals across languages that should never be looked up
+  // Note: We're being selective here - Java class names like "String" are valid symbols
   const COMMON_KEYWORDS = new Set([
     // Boolean literals
     'true', 'false',
     // Null/undefined
     'null', 'undefined', 'nil', 'none',
-    // Common primitive types
-    'int', 'string', 'boolean', 'void', 'var', 'let', 'const',
+    // Common primitive types (but not Java wrapper classes)
+    'int', 'boolean', 'void', 'var', 'let', 'const',
     // Control flow keywords
     'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
     'break', 'continue', 'return',
@@ -35,23 +38,47 @@
     'try', 'catch', 'finally', 'throw', 'throws',
     // Other common keywords
     'new', 'delete', 'import', 'export', 'from', 'as', 'function', 'def',
-    'field', 'module'
+    'field', 'module',
+    // Method names that should be filtered
+    'add', 'get', 'put', 'remove', 'contains', 'isEmpty', 'size', 'toString'
   ]);
+
+  log.debug('COMMON_KEYWORDS contains add:', COMMON_KEYWORDS.has('add'));
 
   // Clean and validate symbol names, filtering out language keywords
   function cleanSymbolName(raw: string): string {
     const trimmed = raw.trim();
 
     if (trimmed.length < 2 || trimmed.length > 200) {
+      log.debug(`Symbol "${trimmed}" filtered out: length check`);
       return '';
     }
 
     // Filter out common keywords and literals
-    if (COMMON_KEYWORDS.has(trimmed.toLowerCase())) {
+    const lowerTrimmed = trimmed.toLowerCase();
+    const hasKeyword = COMMON_KEYWORDS.has(lowerTrimmed);
+    log.debug(`Checking "${trimmed}" (lower: "${lowerTrimmed}") against keywords, found: ${hasKeyword}`);
+    if (hasKeyword) {
+      log.debug(`Symbol "${trimmed}" filtered out: common keyword`);
       return '';
     }
 
+    log.debug(`Symbol "${trimmed}" passed cleaning`);
     return trimmed;
+  }
+
+  // Simple check to avoid obviously invalid symbols (performance optimization)
+  function shouldAttemptLookup(symbolText: string): boolean {
+    // Skip processing for multi-line text (code blocks)
+    if (symbolText.includes('\n')) {
+      return false;
+    }
+
+    // Very basic checks to avoid sending obviously invalid symbols to backend
+    return symbolText.length >= 2 &&
+           symbolText.length <= 200 &&
+           /^[A-Za-z]/.test(symbolText) && // Must start with a letter
+           !/\s/.test(symbolText); // No whitespace
   }
 
   // Extract text from children - for inline code, this should be simple text
@@ -91,25 +118,36 @@
   }
 
   onMount(() => {
-    // For svelte-exmarkdown inline code, the text content might be in different places
-    // First try extracting from the children function
-    symbolText = extractTextFromChildren();
-
-    // If that didn't work, try getting from current element's textContent after mount
-    if (!symbolText) {
-      // We'll need to get this from the actual DOM element after render
-      setTimeout(() => {
-        const thisElement = document.querySelector(`code[data-symbol-id="${componentId}"]`);
-        if (thisElement) {
-          const textContent = thisElement.textContent?.trim() || '';
-          log.debug(`Symbol extracted: "${textContent}"`);
-          symbolText = textContent;
-          validateAndRequestSymbol();
-        }
-      }, 0);
-    } else {
+    // Try to extract from props first
+    const propsText = extractTextFromChildren();
+    if (propsText && !propsText.includes('\n')) {
+      log.debug(`Symbol extracted from props: "${propsText}"`);
+      extractedText = propsText;
+      symbolText = propsText;
       validateAndRequestSymbol();
+      return;
     }
+
+    // Fallback to DOM extraction after mount
+    setTimeout(() => {
+      const thisElement = document.querySelector(`code[data-symbol-id="${componentId}"]`);
+      if (thisElement) {
+        const textContent = thisElement.textContent?.trim() || '';
+
+        // Skip code blocks (multi-line content) early
+        if (textContent.includes('\n')) {
+          log.debug(`Skipping code block (contains newlines): "${textContent.substring(0, 50)}..."`);
+          return;
+        }
+
+        log.debug(`Symbol extracted from DOM: "${textContent}"`);
+        extractedText = textContent; // Store for fallback rendering
+        symbolText = textContent;
+        validateAndRequestSymbol();
+      } else {
+        log.debug('Could not find element with symbol ID:', componentId);
+      }
+    }, 0);
   });
 
   function validateAndRequestSymbol() {
@@ -121,7 +159,7 @@
 
     const cleaned = cleanSymbolName(symbolText);
 
-    if (cleaned) {
+    if (cleaned && shouldAttemptLookup(cleaned)) {
       isValidSymbol = true;
       symbolText = cleaned;
 
@@ -131,7 +169,7 @@
       });
 
     } else {
-      log.debug(`Invalid symbol text: '${symbolText}'`);
+      log.debug(`Invalid symbol text: '${symbolText}' (cleaned: '${cleaned}')`);
     }
   }
 
@@ -151,20 +189,103 @@
   $effect(() => {
     if (symbolStore) {
       cacheEntry = $symbolStore;
+      log.debug(`Cache entry updated: symbolExists=${symbolExists}, symbolText="${symbolText}", extractedText="${extractedText}"`);
     }
   });
 
   // Determine if symbol exists and get FQN using derived state
-  let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry.fqn);
-  let symbolFqn = $derived(cacheEntry?.fqn);
+  let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry?.result?.fqn);
+  let symbolFqn = $derived(cacheEntry?.result?.fqn);
+  let isPartialMatch = $derived(cacheEntry?.result?.isPartialMatch || false);
+  let highlightRanges = $derived(cacheEntry?.result?.highlightRanges || []);
+  let originalText = $derived(cacheEntry?.result?.originalText);
+
+  // Debug tooltip information
+  let showTooltip = $state(false);
+  let showDebugTooltips = isDebugEnabled('showTooltips');
+
+  // Generate tooltip content for debug mode
+  let tooltipContent = $derived.by(() => {
+    if (!showDebugTooltips || !isValidSymbol) return '';
+
+    const parts = [];
+    parts.push(`Symbol: ${symbolText}`);
+
+    if (cacheEntry?.result) {
+      parts.push(`FQN: ${cacheEntry.result.fqn || 'null'}`);
+      parts.push(`Type: ${isPartialMatch ? 'Partial Match' : 'Exact Match'}`);
+      if (highlightRanges.length > 0) {
+        parts.push(`Highlight Ranges: [${highlightRanges.map(r => `${r[0]}-${r[1]}`).join(', ')}]`);
+      }
+      if (originalText && originalText !== symbolText) {
+        parts.push(`Original: ${originalText}`);
+      }
+    } else {
+      parts.push('Status: Pending/Not Found');
+    }
+
+    return parts.join('\n');
+  });
 
 
+
+  // Add text segmentation for multi-range highlighting
+  let textSegments = $derived.by(() => {
+    const displayText = symbolText || extractedText;
+    if (!symbolExists || highlightRanges.length === 0 || !displayText) {
+      return [{ text: displayText || '', highlighted: false }];
+    }
+
+    const segments = [];
+    let lastIndex = 0;
+
+    // Sort ranges by start position
+    const sortedRanges = [...highlightRanges].sort((a, b) => a[0] - b[0]);
+
+    for (const [start, end] of sortedRanges) {
+      // Add unhighlighted text before this range
+      if (start > lastIndex) {
+        segments.push({
+          text: displayText.substring(lastIndex, start),
+          highlighted: false
+        });
+      }
+      // Add highlighted range
+      segments.push({
+        text: displayText.substring(start, end),
+        highlighted: true
+      });
+      lastIndex = end;
+    }
+
+    // Add remaining unhighlighted text
+    if (lastIndex < displayText.length) {
+      segments.push({
+        text: displayText.substring(lastIndex),
+        highlighted: false
+      });
+    }
+
+    return segments;
+  });
 
   function handleClick(event: MouseEvent) {
     if (!isValidSymbol || !symbolExists) return;
 
+    // For partial matches, only handle clicks on highlighted spans
+    if (isPartialMatch) {
+      const target = event.target as HTMLElement;
+      // Only proceed if click was on a .symbol-highlight span
+      if (!target?.classList?.contains('symbol-highlight')) {
+        return;
+      }
+    }
+
+    // For partial matches, navigate using the extracted class from the original text
+    const displayText = isPartialMatch ? `${originalText} (partial match)` : symbolText;
+
     if (event.button === 0) { // Left click
-      log.info(`Left-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
+      log.info(`Left-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
 
       // Call Java bridge for left-click with coordinates
       if (window.javaBridge?.onSymbolClick) {
@@ -172,7 +293,7 @@
       }
     } else if (event.button === 2) { // Right click
       event.preventDefault();
-      log.info(`Right-clicked symbol: ${symbolText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}`);
+      log.info(`Right-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
 
       // Call Java bridge for right-click with coordinates
       if (window.javaBridge?.onSymbolClick) {
@@ -180,19 +301,58 @@
       }
     }
   }
+
+  // Mouse event handlers for tooltip
+  function handleMouseEnter() {
+    if (showDebugTooltips && isValidSymbol && tooltipContent) {
+      showTooltip = true;
+    }
+  }
+
+  function handleMouseLeave() {
+    showTooltip = false;
+  }
 </script>
 
 <code
-  class={symbolExists ? 'symbol-exists' : ''}
+  class={symbolExists ? (isPartialMatch ? 'symbol-exists partial-match' : 'symbol-exists') : ''}
   data-symbol={isValidSymbol ? symbolText : undefined}
   data-symbol-exists={symbolExists ? 'true' : 'false'}
   data-symbol-fqn={symbolFqn}
+  data-symbol-partial={isPartialMatch ? 'true' : 'false'}
+  data-symbol-original={isPartialMatch ? originalText : undefined}
   data-symbol-component="true"
   data-symbol-id={componentId}
   onclick={handleClick}
   oncontextmenu={handleClick}
+  onmouseenter={handleMouseEnter}
+  onmouseleave={handleMouseLeave}
   role={symbolExists ? 'button' : undefined}
   {...rest}
+  title={showDebugTooltips && isValidSymbol ? tooltipContent : rest.title}
 >
-  {@render children?.()}
+  {#if symbolExists}
+    {@const displayText = symbolText || extractedText}
+    {console.log(`RENDER: symbolExists=true, displayText="${displayText}", ranges=${highlightRanges.length}, segments=`, textSegments)}
+    {#if displayText && highlightRanges.length > 0}
+      <!-- Multi-range highlighting for partial matches -->
+      {#each textSegments as segment}
+        {#if segment.highlighted}
+          <span class="symbol-highlight">{segment.text}</span>
+        {:else}
+          {segment.text}
+        {/if}
+      {/each}
+    {:else if displayText}
+      <!-- Full text highlighting for exact matches -->
+      <span class="symbol-highlight">{displayText}</span>
+    {:else}
+      <!-- Fallback to children if no text available -->
+      {console.log(`RENDER: No displayText available, symbolText="${symbolText}", extractedText="${extractedText}"`)}
+      {@render children?.()}
+    {/if}
+  {:else}
+    <!-- Always render the original content while waiting for symbol resolution -->
+    {@render children?.()}
+  {/if}
 </code>
