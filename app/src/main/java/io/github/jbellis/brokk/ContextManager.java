@@ -246,7 +246,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // load session contents
         var loadedCH = sessionManager.loadHistory(currentSessionId, this);
         if (loadedCH == null) {
-            contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+            if (forceNew) {
+                contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+            } else {
+                initializeCurrentSessionAndHistory(true);
+                return;
+            }
         } else {
             contextHistory = loadedCH;
         }
@@ -2094,8 +2099,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
 
         if (loadedCh == null) {
-            contextHistory = new ContextHistory(new Context(this, "Welcome to session: " + sessionName));
-            sessionManager.saveHistory(contextHistory, currentSessionId);
+            io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
+            createOrReuseSession(DEFAULT_SESSION_NAME);
+            return;
         } else {
             contextHistory = loadedCh;
         }
