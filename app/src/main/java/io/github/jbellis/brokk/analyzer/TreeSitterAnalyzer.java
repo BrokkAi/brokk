@@ -259,53 +259,12 @@ public abstract class TreeSitterAnalyzer
                         if (!analysisResult.topLevelCUs().isEmpty()
                                 || !analysisResult.signatures().isEmpty()
                                 || !analysisResult.sourceRanges().isEmpty()) {
-                            topLevelDeclarations.put(
-                                    pf, analysisResult.topLevelCUs()); // Already unmodifiable from result
-
-                            analysisResult
-                                    .children()
-                                    .forEach((parentCU, newChildCUs) -> childrenByParent.compute(
-                                            parentCU, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                                                if (existing == null) {
-                                                    return newChildCUs; // Already unmodifiable
-                                                }
-                                                // Use Set for efficient merging and deduplication
-                                                var combined = new LinkedHashSet<>(existing);
-                                                if (!combined.addAll(newChildCUs)) {
-                                                    return existing; // No change, return original list
-                                                }
-                                                return Collections.unmodifiableList(new ArrayList<>(combined));
-                                            }));
-
-                            analysisResult
-                                    .signatures()
-                                    .forEach((cu, newSignaturesList) ->
-                                            signatures.compute(cu, (CodeUnit key, @Nullable List<String> existing) -> {
-                                                if (existing == null) {
-                                                    return newSignaturesList; // Already unmodifiable from result
-                                                }
-                                                // Use LinkedHashSet to preserve order and deduplicate
-                                                var combined = new LinkedHashSet<>(existing);
-                                                if (!combined.addAll(newSignaturesList)) {
-                                                    return existing; // No change, return original list
-                                                }
-                                                return Collections.unmodifiableList(new ArrayList<>(combined));
-                                            }));
-
-                            analysisResult
-                                    .sourceRanges()
-                                    .forEach((cu, newRangesList) -> sourceRanges.compute(
-                                            cu, (CodeUnit key, @Nullable List<Range> existingRangesList) -> {
-                                                if (existingRangesList == null) {
-                                                    return newRangesList; // Already unmodifiable
-                                                }
-                                                List<Range> combined = new ArrayList<>(existingRangesList);
-                                                combined.addAll(newRangesList);
-                                                return Collections.unmodifiableList(combined);
-                                            }));
+                            // Use the centralized ingestion logic so that the symbol index and codeUnitsBySymbol
+                            // are populated consistently for initial project analysis as well as updates.
+                            ingestAnalysisResult(pf, analysisResult);
 
                             log.trace(
-                                    "Processed file {}: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
+                                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
                                     pf,
                                     analysisResult.topLevelCUs().size(),
                                     analysisResult.signatures().size(),
@@ -441,26 +400,66 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public List<CodeUnit> autocompleteDefinitions(@Nullable String query) {
-        if (query == null || query.isEmpty()) {
+    public List<CodeUnit> autocompleteDefinitions(String query) {
+        if (query.isEmpty()) {
             return List.of();
         }
 
         var results = new LinkedHashSet<CodeUnit>();
         final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
-        // Case-insensitive prefix search
-        autocompleteSymbolIndex.tailSet(query).stream()
-                .takeWhile(symbol -> symbol.toLowerCase(Locale.ROOT).startsWith(lowerCaseQuery))
-                .flatMap(symbol -> codeUnitsBySymbol.getOrDefault(symbol, List.of()).stream())
-                .forEach(results::add);
+        // Normalize hierarchical separators so '.' and '$' are treated equivalently for matching.
+        final String normalizedQuery = lowerCaseQuery.replace('$', '.');
 
-        // CamelCase search heuristic
-        if (query.length() > 1 && query.chars().allMatch(Character::isUpperCase)) {
-            var camelCasePattern = Pattern.compile(
-                    query.chars().mapToObj(c -> String.valueOf((char) c)).collect(Collectors.joining("[a-z0-9_]*")));
-            autocompleteSymbolIndex.stream()
-                    .filter(symbol -> camelCasePattern.matcher(symbol).find())
-                    .flatMap(symbol -> codeUnitsBySymbol.getOrDefault(symbol, List.of()).stream())
+        // Determine if this is a CamelCase-style query (all uppercase letters, length > 1)
+        boolean isAllUpper = query.length() > 1 && query.chars().allMatch(Character::isUpperCase);
+        Pattern camelCasePattern = null;
+        if (isAllUpper) {
+            // Case-insensitive camel-hump matching so symbols that may be stored in different case forms still match.
+            camelCasePattern = Pattern.compile(
+                    query.chars().mapToObj(c -> String.valueOf((char) c)).collect(Collectors.joining("[a-z0-9_]*")),
+                    Pattern.CASE_INSENSITIVE);
+        }
+
+        // Over-approximate: iterate the symbol index and accept any symbol that contains the query (case-insensitive).
+        // Also accept symbols matching the camel-case heuristic when applicable. Treat '.' and '$' equivalently by
+        // normalizing both the symbol and the query before substring checks.
+        for (String symbol : autocompleteSymbolIndex) {
+            String symbolLower = symbol.toLowerCase(Locale.ROOT);
+            String normalizedSymbol = symbolLower.replace('$', '.');
+            boolean matches = false;
+
+            // Match either raw lowercase contains or normalized-hierarchy contains
+            if (symbolLower.contains(lowerCaseQuery) || normalizedSymbol.contains(normalizedQuery)) {
+                matches = true;
+            } else if (isAllUpper
+                    && camelCasePattern != null
+                    && camelCasePattern.matcher(symbol).find()) {
+                matches = true;
+            }
+
+            if (matches) {
+                codeUnitsBySymbol.getOrDefault(symbol, List.of()).forEach(results::add);
+            }
+        }
+
+        // ALSO: make sure to match against CodeUnit fully-qualified names (FQNs).
+        // Some queries are hierarchical and mix '.'/'$' and might not be present as keys in the symbol index.
+        // Normalize FQNs by mapping '$' -> '.' and do a case-insensitive contains check.
+        String normalizedQueryForFqn = normalizedQuery; // already lowercased and normalized
+        for (CodeUnit cu : uniqueCodeUnitList()) {
+            String fq = cu.fqName().toLowerCase(Locale.ROOT).replace('$', '.');
+            if (fq.contains(normalizedQueryForFqn)) {
+                results.add(cu);
+            }
+        }
+
+        // Fallback for very short queries (single letter): ensure we include declarations whose FQNs contain the query.
+        // This guarantees "E" and "e" behave identically and captures symbols that might not be present under a short
+        // symbol key in the index. (We already scanned FQNs above; this further reinforces single-letter behavior.)
+        if (query.length() == 1) {
+            String lc = lowerCaseQuery;
+            uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lc))
                     .forEach(results::add);
         }
 

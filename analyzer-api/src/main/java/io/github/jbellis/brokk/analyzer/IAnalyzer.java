@@ -93,7 +93,7 @@ public interface IAnalyzer {
 
     /**
      * Provides a search facility that is based on auto-complete logic based on (non-regex) user-input. By default, this
-     * hands over to {@link IAnalyzer#searchDefinitions(String)}.
+     * hands over to {@link IAnalyzer#searchDefinitions(String)} surrounded by wildcards.
      *
      * @param query the search query
      * @return a list of candidates where their fully qualified names may match the query.
