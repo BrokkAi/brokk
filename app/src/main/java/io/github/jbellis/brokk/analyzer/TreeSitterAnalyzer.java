@@ -27,7 +27,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
@@ -62,9 +62,8 @@ public abstract class TreeSitterAnalyzer
             new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
-    private final NavigableSet<String> autocompleteSymbolIndex =
-            new ConcurrentSkipListSet<>(String.CASE_INSENSITIVE_ORDER);
-    private final Map<String, List<CodeUnit>> codeUnitsBySymbol = new ConcurrentHashMap<>();
+    private final ConcurrentSkipListMap<String, List<CodeUnit>> symbolIndex =
+            new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
     // SHA-1 hash of each analysed file, used to detect modifications
     private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
     private final Map<ProjectFile, TSTree> parsedTreeCache =
@@ -428,18 +427,18 @@ public abstract class TreeSitterAnalyzer
         }
 
         // If the query looks like a simple non-hierarchical prefix (no dots/dollars, not a camel all-upper pattern),
-        // leverage the NavigableSet for an efficient prefix scan.
+        // leverage the NavigableSet view from the symbolIndex for an efficient prefix scan.
         boolean usePrefixOptimization =
                 !lowerCaseQuery.contains(".") && !lowerCaseQuery.contains("$") && !isAllUpper && query.length() >= 2;
 
+        NavigableSet<String> keys = symbolIndex.navigableKeySet();
+
         if (usePrefixOptimization) {
             try {
-                // tailSet(query) gives us a view starting at the smallest element >= query according to the set's
-                // comparator (case-insensitive). Iterate until symbols no longer start with the query prefix.
-                for (String symbol : autocompleteSymbolIndex.tailSet(query)) {
+                for (String symbol : keys.tailSet(query)) {
                     String symbolLower = symbol.toLowerCase(Locale.ROOT);
                     if (!symbolLower.startsWith(lowerCaseQuery)) break;
-                    results.addAll(codeUnitsBySymbol.getOrDefault(symbol, List.of()));
+                    results.addAll(symbolIndex.getOrDefault(symbol, List.of()));
                 }
             } catch (IllegalArgumentException e) {
                 // Defensive fallback; fall through to the generic scan below if tailSet fails for some reason.
@@ -448,7 +447,7 @@ public abstract class TreeSitterAnalyzer
 
         // Generic over-approximate scan: accept any symbol that contains the query (case-insensitive), or matches
         // the camel-case heuristic. Skip symbols already handled by the prefix optimization to avoid redundant work.
-        for (String symbol : autocompleteSymbolIndex) {
+        for (String symbol : keys) {
             String symbolLower = symbol.toLowerCase(Locale.ROOT);
             String normalizedSymbol = symbolLower.replace('$', '.');
 
@@ -468,7 +467,7 @@ public abstract class TreeSitterAnalyzer
             }
 
             if (matches) {
-                results.addAll(codeUnitsBySymbol.getOrDefault(symbol, List.of()));
+                results.addAll(symbolIndex.getOrDefault(symbol, List.of()));
             }
         }
 
@@ -483,8 +482,6 @@ public abstract class TreeSitterAnalyzer
         }
 
         // Fallback for very short queries (single letter): ensure we include declarations whose FQNs contain the query.
-        // This guarantees "E" and "e" behave identically and captures symbols that might not be present under a short
-        // symbol key in the index. (We already scanned FQNs above; this further reinforces single-letter behavior.)
         if (query.length() == 1) {
             String lc = lowerCaseQuery;
             uniqueCodeUnitList().stream()
@@ -2081,7 +2078,7 @@ public abstract class TreeSitterAnalyzer
 
                 var symbolsToPurge = new HashSet<String>();
                 var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
-                for (var entry : codeUnitsBySymbol.entrySet()) {
+                for (var entry : symbolIndex.entrySet()) {
                     var symbol = entry.getKey();
                     var cus = entry.getValue();
                     var remaining = cus.stream().filter(fromFile.negate()).toList();
@@ -2091,9 +2088,8 @@ public abstract class TreeSitterAnalyzer
                         symbolsToUpdate.put(symbol, remaining);
                     }
                 }
-                symbolsToUpdate.forEach(codeUnitsBySymbol::put);
-                symbolsToPurge.forEach(codeUnitsBySymbol::remove);
-                symbolsToPurge.forEach(autocompleteSymbolIndex::remove);
+                symbolsToUpdate.forEach(symbolIndex::put);
+                symbolsToPurge.forEach(symbolIndex::remove);
 
                 childrenByParent.keySet().removeIf(fromFile);
                 signatures.keySet().removeIf(fromFile);
@@ -2184,8 +2180,7 @@ public abstract class TreeSitterAnalyzer
         topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
 
         analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
-            autocompleteSymbolIndex.add(symbol);
-            codeUnitsBySymbol.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
+            symbolIndex.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
                 if (existing == null) {
                     return List.copyOf(cus);
                 }
