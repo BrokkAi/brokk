@@ -1609,11 +1609,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private JPopupMenu createSearchMenu() {
         var popupMenu = new JPopupMenu();
 
-        var answerItem = new JMenuItem("Answer from Current Workspace");
-        answerItem.setToolTipText("Ask the LLM using only the current Workspace context");
-        answerItem.addActionListener(e -> runAskCommand(getInstructions()));
-        popupMenu.add(answerItem);
-
         var scanItem = new JMenuItem("Scan Project");
         scanItem.setToolTipText("Scan the repository to add relevant files/summaries to the Workspace");
         scanItem.addActionListener(e -> runScanProjectCommand());
