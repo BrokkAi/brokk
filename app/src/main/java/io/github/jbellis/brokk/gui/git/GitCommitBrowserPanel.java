@@ -2,6 +2,8 @@ package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.SettingsChangeListener;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -39,7 +41,7 @@ import org.eclipse.jgit.api.CherryPickResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
-public class GitCommitBrowserPanel extends JPanel {
+public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListener {
 
     private static final Logger logger = LogManager.getLogger(GitCommitBrowserPanel.class);
     private static final String STASHES_VIRTUAL_BRANCH = "stashes";
@@ -113,6 +115,7 @@ public class GitCommitBrowserPanel extends JPanel {
         relativeTimeRefreshTimer = new javax.swing.Timer(60_000, e -> commitsTable.repaint());
         relativeTimeRefreshTimer.setRepeats(true);
         relativeTimeRefreshTimer.start();
+        MainProject.addSettingsChangeListener(this);
     }
 
     private void buildCommitBrowserUI() {
@@ -1587,5 +1590,19 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private void registerMenu(JPopupMenu menu) {
         chrome.getTheme().registerPopupMenu(menu);
+    }
+
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        MainProject.removeSettingsChangeListener(this);
+        relativeTimeRefreshTimer.stop();
+    }
+
+    @Override
+    public void gitHubTokenChanged() {
+        // We need to re-evaluate whether the create PR button should be enabled,
+        // which happens as part of loading commits.
+        SwingUtil.runOnEdt(this::refreshCurrentViewAfterGitOp);
     }
 }

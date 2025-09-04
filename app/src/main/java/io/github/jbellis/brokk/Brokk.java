@@ -76,6 +76,7 @@ public class Brokk {
     public static final CompletableFuture<@Nullable AbstractModel> embeddingModelFuture;
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
+    private static final SystemScaleProvider systemScaleProvider = new SystemScaleProviderImpl();
 
     // Helper record for argument parsing result
     private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, @Nullable String projectPathArg) {}
@@ -118,6 +119,57 @@ public class Brokk {
     }
 
     private static void setupSystemPropertiesAndIcon() {
+
+        if (!Environment.isMacOs()) {
+            var existing = System.getProperty("sun.java2d.uiScale");
+            if (existing != null) {
+                logger.info("sun.java2d.uiScale already set to {}. Respecting user override.", existing);
+            } else {
+                // Apply saved UI preference first (takes precedence over detection)
+                String uiPref = MainProject.getUiScalePref();
+                boolean appliedPref = false;
+                if (!"auto".equalsIgnoreCase(uiPref)) {
+                    try {
+                        double custom = Double.parseDouble(uiPref);
+                        if (custom > 0.0) {
+                            double normalized = SystemScaleDetector.normalizeUiScaleToAllowed(custom);
+                            System.setProperty("sun.java2d.uiScale", Double.toString(normalized));
+                            logger.info("Applied user UI scale preference (normalized): {}", normalized);
+                            appliedPref = true;
+                        } else {
+                            logger.warn(
+                                    "Ignoring non-positive UI scale preference '{}'; falling back to detection.",
+                                    uiPref);
+                        }
+                    } catch (NumberFormatException nfe) {
+                        logger.warn("Invalid UI scale preference '{}'; falling back to detection.", uiPref);
+                    }
+                }
+
+                if (!appliedPref) {
+                    if (Environment.isLinux()) {
+                        var detected = SystemScaleDetector.detectLinuxUiScale(systemScaleProvider);
+                        if (detected != null && detected > 0.0) {
+                            System.setProperty("sun.java2d.uiScale", Double.toString(detected));
+                            logger.info("Applied sun.java2d.uiScale from environment: {}", detected);
+                        } else {
+                            logger.info("No reliable Linux UI scale detected; leaving sun.java2d.uiScale unset.");
+                        }
+                    } else if (Environment.isWindows()) {
+                        var detected = SystemScaleDetector.tryDetectScaleViaWindows(systemScaleProvider);
+                        if (detected != null && detected > 0.0) {
+                            var normalized = SystemScaleDetector.normalizeUiScaleToAllowed(detected);
+                            System.setProperty("sun.java2d.uiScale", Double.toString(normalized));
+                            logger.info("Applied sun.java2d.uiScale from environment: {}", normalized);
+                        } else {
+                            logger.info("No reliable Windows UI scale detected; leaving sun.java2d.uiScale unset.");
+                        }
+                    } else {
+                        logger.info("Unknown platform detected. Leaving sun.java2d.uiScale unset.");
+                    }
+                }
+            }
+        }
         System.setProperty("apple.laf.useScreenMenuBar", "true");
         if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
             System.setProperty("apple.awt.application.name", "Brokk");

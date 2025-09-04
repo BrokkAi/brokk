@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -46,6 +47,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private JTextField gitHubTokenField; // Null if GitHub tab not shown
+
+    @Nullable
+    private JRadioButton uiScaleAutoRadio; // Hidden on macOS
+
+    @Nullable
+    private JRadioButton uiScaleCustomRadio; // Hidden on macOS
+
+    @Nullable
+    private JComboBox<String> uiScaleCombo; // Hidden on macOS
 
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
@@ -248,6 +258,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.anchor = GridBagConstraints.WEST;
         int row = 0;
 
+        // Theme
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0.0;
@@ -271,6 +282,61 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
 
+        // UI Scale controls (hidden on macOS)
+        if (!Environment.isMacOs()) {
+            gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
+            gbc.gridx = 0;
+            gbc.gridy = row;
+            gbc.weightx = 0.0;
+            gbc.fill = GridBagConstraints.NONE;
+            appearancePanel.add(new JLabel("UI Scale:"), gbc);
+
+            uiScaleAutoRadio = new JRadioButton("Auto (recommended)");
+            uiScaleCustomRadio = new JRadioButton("Custom:");
+            var scaleGroup = new ButtonGroup();
+            scaleGroup.add(uiScaleAutoRadio);
+            scaleGroup.add(uiScaleCustomRadio);
+
+            uiScaleCombo = new JComboBox<>();
+            final JComboBox<String> combo = uiScaleCombo;
+            var uiScaleModel = new DefaultComboBoxModel<String>();
+            uiScaleModel.addElement("1.0");
+            uiScaleModel.addElement("2.0");
+            uiScaleModel.addElement("3.0");
+            uiScaleModel.addElement("4.0");
+            uiScaleModel.addElement("5.0");
+            combo.setModel(uiScaleModel);
+            combo.setEnabled(false);
+
+            uiScaleAutoRadio.addActionListener(e -> combo.setEnabled(false));
+            uiScaleCustomRadio.addActionListener(e -> combo.setEnabled(true));
+
+            gbc.gridx = 1;
+            gbc.gridy = row++;
+            gbc.weightx = 1.0;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            appearancePanel.add(uiScaleAutoRadio, gbc);
+
+            var customPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            customPanel.add(uiScaleCustomRadio);
+            customPanel.add(combo);
+
+            gbc.gridy = row++;
+            appearancePanel.add(customPanel, gbc);
+
+            var restartLabel = new JLabel("Restart required after changing UI scale");
+            restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
+            gbc.gridy = row++;
+            gbc.insets = new Insets(0, 25, 2, 5);
+            appearancePanel.add(restartLabel, gbc);
+            gbc.insets = new Insets(2, 5, 2, 5);
+        } else {
+            uiScaleAutoRadio = null;
+            uiScaleCustomRadio = null;
+            uiScaleCombo = null;
+        }
+
+        // filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
@@ -406,6 +472,40 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             lightThemeRadio.setSelected(true);
         }
 
+        // UI Scale (if present; hidden on macOS)
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+            String pref = MainProject.getUiScalePref();
+            if ("auto".equalsIgnoreCase(pref)) {
+                uiScaleAutoRadio.setSelected(true);
+                uiScaleCombo.setSelectedItem("1.0");
+                uiScaleCombo.setEnabled(false);
+            } else {
+                uiScaleCustomRadio.setSelected(true);
+                var model = (DefaultComboBoxModel<String>) uiScaleCombo.getModel();
+                String selected = pref;
+                boolean found = false;
+                for (int i = 0; i < model.getSize(); i++) {
+                    if (pref.equals(model.getElementAt(i))) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    try {
+                        double v = Double.parseDouble(pref);
+                        int nearest = (int) Math.round(v);
+                        if (nearest < 1) nearest = 1;
+                        if (nearest > 5) nearest = 5;
+                        selected = nearest + ".0";
+                    } catch (NumberFormatException ignore) {
+                        selected = "1.0";
+                    }
+                }
+                uiScaleCombo.setSelectedItem(selected);
+                uiScaleCombo.setEnabled(true);
+            }
+        }
+
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
@@ -468,6 +568,35 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (!newTheme.equals(MainProject.getTheme())) {
             chrome.switchTheme(newIsDark);
             logger.debug("Applied Theme: {}", newTheme);
+        }
+
+        // UI Scale preference (if present; hidden on macOS)
+        if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
+            String before = MainProject.getUiScalePref();
+            if (uiScaleAutoRadio.isSelected()) {
+                if (!"auto".equalsIgnoreCase(before)) {
+                    MainProject.setUiScalePrefAuto();
+                    parentDialog.markRestartNeededForUiScale();
+                    logger.debug("Applied UI scale preference: auto");
+                }
+            } else {
+                String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
+                var allowed = java.util.Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
+                if (!allowed.contains(txt)) {
+                    JOptionPane.showMessageDialog(
+                            this,
+                            "Select a scale from 1.0, 2.0, 3.0, 4.0, or 5.0.",
+                            "Invalid UI Scale",
+                            JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+                if (!txt.equals(before)) {
+                    double v = Double.parseDouble(txt);
+                    MainProject.setUiScalePrefCustom(v);
+                    parentDialog.markRestartNeededForUiScale();
+                    logger.debug("Applied UI scale preference: {}", v);
+                }
+            }
         }
 
         // Quick Models Tab

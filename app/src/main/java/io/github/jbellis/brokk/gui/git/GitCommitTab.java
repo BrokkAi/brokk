@@ -15,6 +15,8 @@ import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -43,6 +45,7 @@ public class GitCommitTab extends JPanel {
     private FileStatusTable fileStatusPane;
     private JButton commitButton;
     private JButton stashButton;
+    private JPanel buttonPanel;
 
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
@@ -192,7 +195,8 @@ public class GitCommitTab extends JPanel {
         // Added to a top-aligned content panel below to avoid stretching the entire tab
 
         // Bottom panel for buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, Constants.V_GAP));
+        buttonPanel = new ResponsiveButtonPanel(Constants.H_GAP, Constants.V_GAP);
+        buttonPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
 
         // Commit Button
         commitButton = new JButton("Commit All..."); // Default label with ellipsis
@@ -227,11 +231,7 @@ public class GitCommitTab extends JPanel {
                     });
             dialog.setVisible(true);
         });
-        buttonPanel.add(Box.createHorizontalStrut(Constants.H_GAP)); // Add H_GAP before the Commit button
         buttonPanel.add(commitButton);
-
-        // Add horizontal glue between buttons
-        buttonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         // Stash Button
         stashButton = new JButton("Stash All"); // Default label
@@ -278,6 +278,18 @@ public class GitCommitTab extends JPanel {
 
         // Ensure initial sizing is only as large as the table contents
         shrinkTableToContents();
+
+        // Recompute button labels responsively when the panel resizes
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                updateCommitButtonText();
+                buttonPanel.revalidate();
+                buttonPanel.repaint();
+                revalidate(); // ensure BorderLayout.NORTH recalculates height if buttons wrap
+                repaint();
+            }
+        });
     }
 
     /** Updates the enabled state of commit and stash buttons based on file changes. */
@@ -367,20 +379,65 @@ public class GitCommitTab extends JPanel {
         });
     }
 
-    /** Adjusts the commit and stash button labels depending on file selection. */
+    /** Adjusts the commit and stash button labels depending on file selection and available width. */
     private void updateCommitButtonText() {
+        assert SwingUtilities.isEventDispatchThread() : "updateCommitButtonText must be called on EDT";
+
         int selectedRowCount = uncommittedFilesTable.getSelectedRowCount();
-        if (selectedRowCount > 0) {
-            commitButton.setText("Commit Selected...");
-            commitButton.setToolTipText("Commit the selected files...");
-            stashButton.setText("Stash Selected");
-            stashButton.setToolTipText("Save selected changes to the stash");
+
+        // Full labels always reflect the action; we may render them wrapped (HTML) when space is tight.
+        var commitFull = selectedRowCount > 0 ? "Commit Selected..." : "Commit All...";
+        var stashFull = selectedRowCount > 0 ? "Stash Selected" : "Stash All";
+
+        // Start with plain (single-line) labels.
+        commitButton.setText(commitFull);
+        stashButton.setText(stashFull);
+
+        // Tooltips always describe the full action
+        commitButton.setToolTipText(selectedRowCount > 0 ? "Commit the selected files..." : "Commit all files...");
+        stashButton.setToolTipText(
+                selectedRowCount > 0 ? "Save selected changes to the stash" : "Save all changes to the stash");
+
+        // Determine if we need to wrap labels so buttons can shrink horizontally to fit.
+        int availableWidth;
+        var parent = buttonPanel.getParent();
+        if (parent != null) {
+            availableWidth = parent.getWidth();
         } else {
-            commitButton.setText("Commit All...");
-            commitButton.setToolTipText("Commit all files...");
-            stashButton.setText("Stash All");
-            stashButton.setToolTipText("Save all changes to the stash");
+            availableWidth = buttonPanel.getWidth();
         }
+
+        if (availableWidth > 0) {
+            var layout = (FlowLayout) buttonPanel.getLayout();
+            var insets = buttonPanel.getInsets();
+            int neededWidth = commitButton.getPreferredSize().width
+                    + layout.getHgap()
+                    + stashButton.getPreferredSize().width
+                    + insets.left
+                    + insets.right;
+
+            if (neededWidth > availableWidth) {
+                // Wrap labels into two lines (same words, just visual break) to allow narrower buttons.
+                commitButton.setText(makeWrappedHtmlLabel(commitFull));
+                stashButton.setText(makeWrappedHtmlLabel(stashFull));
+            }
+        }
+
+        buttonPanel.revalidate();
+        buttonPanel.repaint();
+        revalidate();
+        repaint();
+    }
+
+    // Render the same label text but with a line break after the first space, allowing the JButton to be narrower.
+    private static String makeWrappedHtmlLabel(String label) {
+        int idx = label.indexOf(' ');
+        if (idx < 0) {
+            return label;
+        }
+        String first = label.substring(0, idx);
+        String rest = label.substring(idx + 1);
+        return "<html><div style='text-align:center'>" + first + "<br>" + rest + "</div></html>";
     }
 
     /**
