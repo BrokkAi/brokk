@@ -268,11 +268,12 @@ public final class LineEditor {
         final boolean isInsertion = ef.endLine() < ef.beginLine();
         final boolean isDelete = !isInsertion && ef.content().isEmpty();
         final boolean isChange = !isInsertion && !isDelete;
+        final boolean isRange = !isInsertion && (ef.endLine() != ef.beginLine());
 
         var sb = new StringBuilder();
         boolean mismatch = false;
 
-        // Always validate begin anchor
+        // Always validate begin anchor (presence; content checked in checkOneAnchor)
         var beginAnchor = ef.beginAnchor();
         if (beginAnchor == null) {
             mismatch = true;
@@ -285,7 +286,7 @@ public final class LineEditor {
             }
         }
 
-        if (isChange) {
+        if (isChange || (isDelete && isRange)) {
             var endAnchor = ef.endAnchor();
             if (endAnchor == null) {
                 mismatch = true;
@@ -303,22 +304,21 @@ public final class LineEditor {
     }
 
     private static @Nullable String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
-        var expectedRaw = anchor.content();
         var token = anchor.addrToken();
 
-        // Trim surrounding whitespace for comparison
-        var expected = expectedRaw.strip();
-
-        // If the anchor is for 0 or $ and the expected is blank (after trimming), skip validation (anchor omission allowed)
-        if (("0".equals(token) || "$".equals(token)) && expected.isEmpty()) {
+        // Always skip validation for 0 / $
+        if ("0".equals(token) || "$".equals(token)) {
             return null;
         }
+
+        var expectedRaw = anchor.content();
+        var expected = expectedRaw.strip();
 
         var actualOpt = contentForToken(lines, token);
         var actualRaw = actualOpt.orElse("");
         var actual = actualRaw.strip();
 
-        // Empty file + blank expected (after trimming) is OK
+        // Empty file + blank expected is OK
         if (!actualOpt.isPresent() && expected.isEmpty()) {
             return null;
         }

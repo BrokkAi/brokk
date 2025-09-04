@@ -877,8 +877,7 @@ Tips:
 - **Anchors are mandatory for every numeric address except `0` and `$`:**
   - After `a n` provide `n: <current line at n>` (you may omit the anchor if `n` is `0` or `$`)
   - After `c n[,m]` provide `n:` (and `m:` when present; `0`/`$` anchors may be omitted)
-  - After `d n[,m]` provide exactly one anchor for `n` (may be omitted only if `n` is `0` or `$`)
-- When anchors are present, they MUST match the current file content exactly.
+  - After `d n[,m]` provide `n:` (and `m:` when present; `0`/`$` anchors may be omitted)
 - Body is required only for **a** and **c**; end it with a single `.` on its own line.
 - Emit commands in **descending line order (last edits first)** within each file to avoid line shifts.
 - Overlapping edits are an error.
@@ -911,21 +910,21 @@ Tips:
                 }
 
                 sb.append("""
-                <failed_edit reason="%s">
-                <edit>%s</edit>
-                <commentary>%s</commentary>
-                </failed_edit>
-                """.stripIndent().formatted(f.reason(), details, f.commentary()));
+            <failed_edit reason="%s">
+            <edit>%s</edit>
+            <commentary>%s</commentary>
+            </failed_edit>
+            """.stripIndent().formatted(f.reason(), details, f.commentary()));
             }
 
             sb.append("</failed_edits>\n</file>\n\n");
         }
         if (succeededCount > 0) {
             sb.append("""
-            <note>
-            The other %d edit%s applied successfully. Do not re-send them; only fix the failures listed above.
-            </note>
-            """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
+        <note>
+        The other %d edit%s applied successfully. Do not re-send them; only fix the failures listed above.
+        </note>
+        """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
         }
 
         return sb.toString();

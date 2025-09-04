@@ -1139,6 +1139,17 @@ public class Llm {
         }
     }
 
+    /**
+     * A null-safe wrapper around an LLM {@link ChatResponse}.
+     *
+     * <p>This record normalizes potentially-missing pieces of a {@link ChatResponse} (for example when streaming
+     * responses are partial or absent) so callers can safely inspect text, reasoning and any emulated tool requests.
+     *
+     * @param text the response text, or {@code null} if none
+     * @param reasoningContent optional reasoning content (may be {@code null})
+     * @param toolRequests list of tool execution requests (never {@code null}; may be empty)
+     * @param originalResponse the original {@link ChatResponse} this was derived from (may be {@code null})
+     */
     public record NullSafeResponse(
             @Nullable String text,
             @Nullable String reasoningContent,
@@ -1166,11 +1177,33 @@ public class Llm {
         }
     }
 
+    /**
+     * Overrides the console I/O implementation used for LLM output.
+     *
+     * <p>This is useful in tests or when the default I/O obtained from the ContextManager needs to be
+     * replaced. The provided {@code io} must be non-null.
+     *
+     * @param io the non-null IConsoleIO implementation to use for LLM output
+     */
     public void setOutput(IConsoleIO io) {
         // TODO this should be final but disentangling from ContextManager is difficult
-        this.io = io;
+        this.io = requireNonNull(io);
     }
 
+    /**
+     * Token usage breakdown for a response.
+     *
+     * <p>Contains counts for:
+     * - input tokens consumed by the request,
+     * - cached input tokens (if any),
+     * - tokens consumed by model "thinking" / reasoning,
+     * - output tokens produced by the model.
+     *
+     * @param inputTokens total number of input tokens consumed by the request
+     * @param cachedInputTokens number of input tokens served from cache (0 if none)
+     * @param thinkingTokens tokens consumed by model reasoning / "thinking" (if available)
+     * @param outputTokens number of tokens produced in the model's output
+     */
     public record RichTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {}
 
     /**

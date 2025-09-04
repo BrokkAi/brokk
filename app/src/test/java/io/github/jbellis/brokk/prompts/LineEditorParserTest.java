@@ -249,6 +249,7 @@ Outro
         assertEquals("A\nB\n", Files.readString(dir.resolve("new.txt")));
     }
 
+    // --- CHANGED TEST METHOD: materialize_deleteRangeAndApply ---
     @Test
     void materialize_deleteRangeAndApply(@TempDir Path dir) throws Exception {
         var ctx = new TestContextManager(dir, new NoOpConsoleIO());
@@ -258,6 +259,7 @@ Outro
 BRK_EDIT_EX a.txt
 2,3 d
 2: 2
+3: 3
 BRK_EDIT_EX_END
 """.stripIndent();
 
@@ -270,6 +272,7 @@ BRK_EDIT_EX_END
         assertTrue(res.failures().isEmpty());
         assertEquals("1\n4\n", Files.readString(dir.resolve("a.txt")));
     }
+
 
     @Test
     void parse_dollarAppend_parsesAndUsesSentinel() {

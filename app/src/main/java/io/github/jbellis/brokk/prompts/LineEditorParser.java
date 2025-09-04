@@ -89,16 +89,24 @@ public final class LineEditorParser {
         record AppendAfter(int line, List<String> body, String anchorToken, String anchorContent) implements EdCommand {}
 
         /**
-         * n[,m] c — replace inclusive range; body required; mandatory anchors:
+         * n[,m] c — replace inclusive range; body required; anchors:
          * - If only n is provided, exactly one anchor "n: content" (end anchor equals begin).
          * - If n,m are provided, two anchors "n: content" and "m: content".
+         *   Anchors may be omitted only for 0 / $ addresses.
          */
         record ChangeRange(int begin, int end, List<String> body,
                            String beginAnchorToken, String beginAnchorContent,
                            String endAnchorToken, String endAnchorContent) implements EdCommand {}
 
-        /** n[,m] d — delete inclusive range; mandatory single anchor "n: content". */
-        record DeleteRange(int begin, int end, String anchorToken, String anchorContent) implements EdCommand {}
+        /**
+         * n[,m] d — delete inclusive range; anchors:
+         * - If only n is provided, exactly one anchor "n: content".
+         * - If n,m are provided, two anchors "n: content" and "m: content".
+         *   Anchors may be omitted only for 0 / $ addresses.
+         */
+        record DeleteRange(int begin, int end,
+                           String beginAnchorToken, String beginAnchorContent,
+                           String endAnchorToken, String endAnchorContent) implements EdCommand {}
     }
 
     public record ExtendedParseResult(List<OutputPart> parts, @Nullable String parseError) {
@@ -118,11 +126,10 @@ public final class LineEditorParser {
      * - Fences are exact uppercase keywords on their own line: "BRK_EDIT_EX <path>", "BRK_EDIT_EX_END", "BRK_EDIT_RM <path>"
      * - <path> is "rest of the line after the first space", trimmed; may include spaces.
      * - Supported commands inside ED blocks:
-     *     n i     (insert before n)      body until a single '.' line; last body in a block may omit '.'
-     *     n a     (append after n)       body as above; '0 a' is allowed
+     *     n a     (append after n)       body until a single '.' line; last body in a block may omit '.'
      *     n[,m] c (change range)         body as above
      *     n[,m] d (delete range)         no body
-     * - All addresses are absolute numeric (1-based; 0 allowed only for 'a'); no regex, no navigation.
+     * - All addresses are absolute numeric (1-based; 0 allowed only as "before first line"; '$' as end-of-file sentinel).
      * - 'w', 'q' and other non-edit commands are ignored. Shell ('!') is ignored but noted as a parse warning.
      */
     public ExtendedParseResult parse(String content) {
@@ -151,7 +158,7 @@ public final class LineEditorParser {
 
         // Helpers
         Runnable flushText = () -> {
-            if (textBuf.length() > 0) {
+            if (!textBuf.isEmpty()) {
                 parts.add(new OutputPart.Text(textBuf.toString()));
                 textBuf.setLength(0);
             }
@@ -233,31 +240,66 @@ public final class LineEditorParser {
                         char op = Character.toLowerCase(range.group(3).charAt(0));
 
                         if (op == 'd') {
-                            // Expect exactly ONE anchor line after the command (optional only if n1 is 0 or $)
+                            // Delete: expect 1 anchor for single-address; 2 anchors for range.
                             i++;
-                            var aTok = tok1;
-                            var aContent = "";
+
+                            // Begin anchor
+                            var beginTok = tok1;
+                            var beginAnchorContent = "";
                             if (i < lines.length) {
-                                var anchorLine = lines[i];
-                                var am = ANCHOR_LINE.matcher(anchorLine);
-                                if (am.matches()) {
-                                    var parsedTok = am.group(1);
-                                    var parsedContent = am.group(2);
-                                    if (!parsedTok.equals(tok1)) {
-                                        errors.add("Delete anchor token '" + parsedTok
-                                                           + "' does not match address '" + tok1 + "'");
+                                var a1Line = lines[i];
+                                var a1m = ANCHOR_LINE.matcher(a1Line);
+                                if (a1m.matches()) {
+                                    var parsedTok = a1m.group(1);
+                                    var parsedContent = a1m.group(2);
+                                    if (!parsedTok.equals(beginTok)) {
+                                        errors.add("Delete begin anchor token '" + parsedTok
+                                                           + "' does not match address '" + beginTok + "'");
                                     } else {
-                                        aContent = parsedContent;
+                                        beginAnchorContent = parsedContent;
                                     }
-                                    i++; // consumed anchor
-                                } else if (!isZeroOrDollar.test(aTok)) {
-                                    errors.add("Malformed or missing anchor line after delete command: " + anchorLine);
-                                    i++; // consume to avoid infinite loop
+                                    i++; // consumed begin anchor
+                                } else if (!isZeroOrDollar.test(beginTok)) {
+                                    errors.add("Malformed or missing first anchor after delete command: " + a1Line);
+                                    i++; // consume questionable line to avoid infinite loop
                                 }
-                            } else if (!isZeroOrDollar.test(aTok)) {
-                                errors.add("Missing anchor line after delete command for " + path);
+                            } else if (!isZeroOrDollar.test(beginTok)) {
+                                errors.add("Missing anchor line(s) after delete command for " + path);
                             }
-                            commands.add(new EdCommand.DeleteRange(n1, n2, aTok, aContent));
+
+                            // Optional end anchor (required if tok2 is present and not 0/$)
+                            String endTok;
+                            String endAnchorContent;
+                            if (tok2 != null) {
+                                endTok = tok2;
+                                endAnchorContent = "";
+                                if (i < lines.length) {
+                                    var a2Line = lines[i];
+                                    var a2m = ANCHOR_LINE.matcher(a2Line);
+                                    if (a2m.matches()) {
+                                        var parsedTok2 = a2m.group(1);
+                                        var parsedContent2 = a2m.group(2);
+                                        if (!parsedTok2.equals(endTok)) {
+                                            errors.add("Delete end anchor token '" + parsedTok2
+                                                               + "' does not match address '" + endTok + "'");
+                                        } else {
+                                            endAnchorContent = parsedContent2;
+                                        }
+                                        i++; // consumed end anchor
+                                    } else if (!isZeroOrDollar.test(endTok)) {
+                                        errors.add("Malformed or missing second anchor after delete command: " + a2Line);
+                                        i++; // consume questionable line
+                                    }
+                                } else if (!isZeroOrDollar.test(endTok)) {
+                                    errors.add("Missing second anchor line for range delete command for " + path);
+                                }
+                            } else {
+                                endTok = "";
+                                endAnchorContent = "";
+                            }
+
+                            commands.add(new EdCommand.DeleteRange(
+                                    n1, n2, beginTok, beginAnchorContent, endTok, endAnchorContent));
                             continue;
                         } else { // 'c'
                             i++;
@@ -493,8 +535,11 @@ public final class LineEditorParser {
                     } else if (cmd instanceof EdCommand.DeleteRange dr) {
                         int begin = (dr.begin() < 1) ? 1 : dr.begin();
                         int end = dr.end();
-                        var beginAnchor = new LineEdit.Anchor(dr.anchorToken(), dr.anchorContent());
-                        editFiles.add(new LineEdit.EditFile(pf, begin, end, "", beginAnchor, null));
+                        var beginAnchor = new LineEdit.Anchor(dr.beginAnchorToken(), dr.beginAnchorContent());
+                        @Nullable LineEdit.Anchor endAnchor = dr.endAnchorToken().isBlank()
+                                ? null
+                                : new LineEdit.Anchor(requireNonNull(dr.endAnchorToken()), requireNonNull(dr.endAnchorContent()));
+                        editFiles.add(new LineEdit.EditFile(pf, begin, end, "", beginAnchor, endAnchor));
                     }
                 }
             }
@@ -538,15 +583,15 @@ Edits are parsed until the mandatory BRK_EDIT_EX_END fence is encountered.
 
 Supported edits are
 a: append after given address
-c: change given address
-d: delete given address
+c: change given address or range
+d: delete given address or range
 
 An address may be a single line number, or a range denoted with commas. Additionally, two special addresses are supported:
 - `0`  -> the very start of the file (before the first line)
 - `$`  -> the end of the file (after the last line)
 
-An anchor is the exact current content of an address line, used to validate that the edit is being applied to the expected version of the file.
-For range addresses, two anchors are expected. Anchors are mandatory for all addresses except 0 and $.
+Anchors are the current content at an address line, used to validate that the edit is applied to the expected version.
+Provide one anchor per address parameter (except you may omit anchors for `0` and `$`).
 
 Body rules:
 - Only **a** and **c** have bodies. The body ends with a single dot `.` on its own line.
@@ -558,7 +603,7 @@ So, BRK_EDIT_EX commands will have some combination of these edits:
 
 BRK_EDIT_EX <full_path>
 <n> a
-<n>: <current content at n (or blank/omitted for 0/$ on empty file)>
+<n>: <current content at n (omit allowed for 0/$)>
 ...body...
 .
 <n>[,<m>] c
@@ -581,6 +626,33 @@ Conventions and constraints:
 - To remove a file, use `BRK_EDIT_RM <path>` on a single line (no END fence).
 - `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
+- Non-command, non-anchor, non-body lines inside a BRK_EDIT_EX block will be ignored by the parser; do not include commentary inside the block.
+
+## Quick cheat-sheet
+
+BRK_EDIT_EX <path>
+<n> a
+<n>: <line n>                     # omit anchor only for 0/$
+...body...
+.
+
+<n>[,<m>] c
+<n>: <line n>                     # omit anchor only for 0
+<m>: <line m>                     # when present; omit only for $
+...body...
+.
+
+<n>[,<m>] d
+<n>: <line n>                     # omit anchor only for 0/$
+<m>: <line m>                     # when present; omit only for $
+BRK_EDIT_EX_END
+
+## EBNF (informal)
+address    := "0" | "$" | INT
+range      := address [ "," address ]
+cmd        := range ("a" | "c" | "d")
+anchor     := address ":" TEXT
+body       := (LINE | "\\." | "\\\\")* "."   # final body in a block may omit the terminating "."
 
 ## Examples (no Markdown fences)
 
@@ -606,6 +678,13 @@ BRK_EDIT_EX src/Main.java
 return str(math.factorial(n))
 .
 BRK_EDIT_EX_END
+
+# Delete a range with two anchors (omit allowed only for 0/$)
+BRK_EDIT_EX app.py
+9,14 d
+9: def get_factorial(n):
+14:     return n * get_factorial(n - 1)
+BRK_EDIT_EX_END
 """.stripIndent();
     }
 
@@ -613,107 +692,106 @@ BRK_EDIT_EX_END
         return List.of(
                 // Example 1 — WORKSPACE goes in the user message
                 new UserMessage("""
-                        Change get_factorial() to use math.factorial
-                        
-                        <workspace>
-                        <file path="mathweb/flask/app.py">
-                        1: from flask import Flask, request
-                        2: app = Flask(__name__)
-                        3:
-                        4: def index():
-                        5:     return "ok"
-                        6:
-                        7: # helpers
-                        8:
-                        9: def get_factorial(n):
-                        10:     if n < 0:
-                        11:         raise ValueError("negative")
-                        12:     if n == 0:
-                        13:         return 1
-                        14:     return n * get_factorial(n - 1)
-                        15:
-                        16: @app.route("/fact")
-                        17: def fact():
-                        18:     n = int(request.args.get("n", "0"))
-                        19:     if n < 0:
-                        20:         return "bad", 400
-                        21:     return str(get_factorial(n))
-                        22:
-                        23: if __name__ == "__main__":
-                        24:     app.run()
-                        </file>
-                        </workspace>
-                        """.stripIndent()),
+                    Change get_factorial() to use math.factorial
+                    
+                    <workspace>
+                    <file path="mathweb/flask/app.py">
+                    1: from flask import Flask, request
+                    2: app = Flask(__name__)
+                    3:
+                    4: def index():
+                    5:     return "ok"
+                    6:
+                    7: # helpers
+                    8:
+                    9: def get_factorial(n):
+                    10:     if n < 0:
+                    11:         raise ValueError("negative")
+                    12:     if n == 0:
+                    13:         return 1
+                    14:     return n * get_factorial(n - 1)
+                    15:
+                    16: @app.route("/fact")
+                    17: def fact():
+                    18:     n = int(request.args.get("n", "0"))
+                    19:     if n < 0:
+                    20:         return "bad", 400
+                    21:     return str(get_factorial(n))
+                    22:
+                    23: if __name__ == "__main__":
+                    24:     app.run()
+                    </file>
+                    </workspace>
+                    """.stripIndent()),
                 new AiMessage("""
-                      We will:
-                      1) Add the math import at the top of app.py
-                      2) Remove the recursive implementation
-                      3) Update the call site
-                      
-                      BRK_EDIT_EX mathweb/flask/app.py
-                      21 c
-                      21:     return str(get_factorial(n))
-                          return str(math.factorial(n))
-                      .
-                      9,14 d
-                      9: def get_factorial(n):
-                      14: return n * get_factorial(n - 1)
-                      0 a
-                      0: from flask import Flask, request
-                      import math
-                      .
-                      BRK_EDIT_EX_END
-                      """.stripIndent()),
+                  We will:
+                  1) Add the math import at the top of app.py
+                  2) Remove the recursive implementation
+                  3) Update the call site
+                  
+                  BRK_EDIT_EX mathweb/flask/app.py
+                  21 c
+                  21:     return str(get_factorial(n))
+                      return str(math.factorial(n))
+                  .
+                  9,14 d
+                  9: def get_factorial(n):
+                  14: return n * get_factorial(n - 1)
+                  0 a
+                  0: from flask import Flask, request
+                  import math
+                  .
+                  BRK_EDIT_EX_END
+                  """.stripIndent()),
 
                 // Example 2 — WORKSPACE goes in the user message; no filler or anachronistic comments
                 new UserMessage("""
-                        Refactor hello() into its own file.
-                        
-                        <workspace>
-                        <file path="main.py">
-                        1: import sys
-                        2:
-                        3: def main():
-                        4:     hello()
-                        5:
-                        6: if __name__ == "__main__":
-                        7:     main()
-                        8:
-                        9: def hello():
-                        10:     \"\"\"print a greeting\"\"\"
-                        11:     print("hello")
-                        </file>
-                        </workspace>
-                        """.stripIndent()),
+                    Refactor hello() into its own file.
+                    
+                    <workspace>
+                    <file path="main.py">
+                    1: import sys
+                    2:
+                    3: def main():
+                    4:     hello()
+                    5:
+                    6: if __name__ == "__main__":
+                    7:     main()
+                    8:
+                    9: def hello():
+                    10:     \"\"\"print a greeting\"\"\"
+                    11:     print("hello")
+                    </file>
+                    </workspace>
+                    """.stripIndent()),
                 new AiMessage("""
-                      We will:
-                      1) Create a new hello.py with hello()
-                      2) Import it in main.py and remove the old function
-                      3) Add a usage comment at the end of main.py
-                      
-                      BRK_EDIT_EX hello.py
-                      0 a
-                      0:
-                      def hello():
-                          \"\"\"print a greeting\"\"\"
-                          print("hello")
-                      .
-                      BRK_EDIT_EX_END
-                      
-                      BRK_EDIT_EX main.py
-                      $ a
-                      $:     print("hello")
-                      # Usage: hello()
-                      .
-                      9,11 d
-                      9: def hello():
-                      11:     print("hello")
-                      0 a
-                      0: import sys
-                      from hello import hello
-                      .
-                      BRK_EDIT_EX_END
-                      """.stripIndent())
+                  We will:
+                  1) Create a new hello.py with hello()
+                  2) Import it in main.py and remove the old function
+                  3) Add a usage comment at the end of main.py
+                  
+                  BRK_EDIT_EX hello.py
+                  0 a
+                  def hello():
+                      \"\"\"print a greeting\"\"\"
+                      print("hello")
+                  .
+                  BRK_EDIT_EX_END
+                  
+                  BRK_EDIT_EX main.py
+                  $ a
+                  $:     print("hello")
+                  # Usage: hello()
+                  .
+                  9,11 d
+                  9: def hello():
+                  11:     print("hello")
+                  0 a
+                  0: import sys
+                  from hello import hello
+                  .
+                  BRK_EDIT_EX_END
+                  """.stripIndent())
         );
     }
 
@@ -768,7 +846,10 @@ Guidance:
                     renderBody(sb, cr.body());
                 } else if (c instanceof EdCommand.DeleteRange dr) {
                     sb.append(addrToString(dr.begin())).append(',').append(addrToString(dr.end())).append(" d\n");
-                    sb.append(dr.anchorToken()).append(": ").append(dr.anchorContent()).append('\n');
+                    sb.append(dr.beginAnchorToken()).append(": ").append(dr.beginAnchorContent()).append('\n');
+                    if (!dr.endAnchorToken().isBlank()) {
+                        sb.append(dr.endAnchorToken()).append(": ").append(requireNonNull(dr.endAnchorContent())).append('\n');
+                    }
                 }
             }
             sb.append("BRK_EDIT_EX_END");
