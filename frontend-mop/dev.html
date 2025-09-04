@@ -861,6 +861,9 @@ Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
 Java method references: \`List.add\`, \`String.toString\`, \`Map.put\`, \`ArrayList.size\`, \`HashMap.get\`
 More examples: \`Set.contains\`, \`Object.toString\`, \`Collection.isEmpty\`, \`Thread.run\`
 
+**Complex Method Calls with Parameters:**
+\`SwingUtil.runOnEdt(task)\`, \`SwingUtilities.invokeLater(...)\`, \`EventQueue.invokeAndWait(runnable)\`, \`JOptionPane.showMessageDialog(...)\`
+
 **Note:** Partial matches like \`List.add\` should:
 1. Have dotted underlines (not solid)
 2. Show a small ◦ indicator after the text
@@ -912,6 +915,7 @@ Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
 ## **NEW: Partial Matches During Streaming**
 Method references: \`List.add\`, \`String.toString\`, \`Map.put\`, \`ArrayList.size\`
 More examples: \`Set.contains\`, \`Object.toString\`, \`HashMap.get\`
+Complex patterns: \`SwingUtil.runOnEdt(task)\`, \`SwingUtilities.invokeLater(...)\`
 
 ## Python Symbols (Should be highlighted progressively)
 Built-ins: \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`len\`, \`range\`

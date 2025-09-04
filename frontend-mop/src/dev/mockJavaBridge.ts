@@ -25,6 +25,8 @@ export function createMockJavaBridge(): MockJavaBridge {
         'Object', 'Class', 'Exception', 'Thread', 'Runnable',
         'System', 'Math', 'File', 'Path', 'Files', 'Scanner', 'Properties',
         'Random', 'UUID', 'Pattern', 'Matcher', 'BigDecimal', 'BigInteger',
+        // Swing utility classes for complex method testing
+        'SwingUtil', 'SwingUtilities', 'EventQueue', 'JOptionPane',
         // Python symbols
         'list', 'dict', 'str', 'int', 'float', 'bool', 'len', 'range',
         'append', 'keys', 'values', 'items', 'pop', 'extend', 'join',
@@ -75,9 +77,9 @@ export function createMockJavaBridge(): MockJavaBridge {
                     continue;
                 }
 
-                // Then check for partial matches (e.g., List.add -> List)
-                // Java method reference pattern: ClassName.method
-                const javaMethodMatch = /^([A-Z][a-zA-Z0-9_]*(?:\.[A-Z][a-zA-Z0-9_]*)*?)\.([a-z_][a-zA-Z0-9_]*)$/.exec(symbol);
+                // Then check for partial matches (e.g., List.add -> List, SwingUtil.runOnEdt(...) -> SwingUtil)
+                // Java method reference pattern: ClassName.method or ClassName.method(...)
+                const javaMethodMatch = /^([A-Z][a-zA-Z0-9_]*(?:\.[A-Z][a-zA-Z0-9_]*)*?)\.([a-z_][a-zA-Z0-9_]*)(?:\([^)]*\))?$/.exec(symbol);
                 if (javaMethodMatch) {
                     const className = javaMethodMatch[1];
                     const methodName = javaMethodMatch[2];

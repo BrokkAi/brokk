@@ -26,14 +26,29 @@ public final class ClassNameExtractor {
         var trimmed = reference.trim();
         if (trimmed.isEmpty() || !trimmed.contains(".")) return Optional.empty();
 
-        var lastDot = trimmed.lastIndexOf('.');
+        // Find the last dot that's not inside parentheses
+        var lastDot = -1;
+        var parenDepth = 0;
+        for (int i = trimmed.length() - 1; i >= 0; i--) {
+            char c = trimmed.charAt(i);
+            if (c == ')') {
+                parenDepth++;
+            } else if (c == '(') {
+                parenDepth--;
+            } else if (c == '.' && parenDepth == 0) {
+                lastDot = i;
+                break;
+            }
+        }
+
         if (lastDot <= 0 || lastDot >= trimmed.length() - 1) return Optional.empty();
 
         var lastPart = trimmed.substring(lastDot + 1);
         var beforeLast = trimmed.substring(0, lastDot);
 
         // Method name heuristic: common Java method starts with lowercase or underscore
-        if (!lastPart.matches("[a-z_][a-zA-Z0-9_]*")) return Optional.empty();
+        // Now also supports method calls with parameters like "runOnEdt(...)" or "runOnEdt(task)"
+        if (!lastPart.matches("[a-z_][a-zA-Z0-9_]*(?:\\([^)]*\\))?")) return Optional.empty();
 
         // Class segment heuristic: rightmost segment should look like a PascalCase identifier
         var segLastDot = beforeLast.lastIndexOf('.');
