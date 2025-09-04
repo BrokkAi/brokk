@@ -301,7 +301,6 @@ public abstract class CodePrompts {
     }
 
     protected SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceDescriptions(cm);
         var styleGuide = cm.getProject().getStyleGuide();
 
         var text =
@@ -309,15 +308,12 @@ public abstract class CodePrompts {
           <instructions>
           %s
           </instructions>
-          <workspace-summary>
-          %s
-          </workspace-summary>
           <style_guide>
           %s
           </style_guide>
           """
                         .stripIndent()
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
+                        .formatted(systemIntro(reminder), styleGuide)
                         .trim();
 
         return new SystemMessage(text);
