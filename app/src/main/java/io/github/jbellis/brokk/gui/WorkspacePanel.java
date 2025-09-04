@@ -350,7 +350,7 @@ public class WorkspacePanel extends JPanel {
                             panel.showFragmentPreview(fragment);
                         }
                         case VIEW_HISTORY ->
-                            requireNonNull(panel.chrome.getGitPanel()).addFileHistoryTab(file);
+                            requireNonNull(panel.chrome).addFileHistoryTab(file);
                         default ->
                             throw new UnsupportedOperationException(
                                     "File action not implemented: " + WorkspaceAction.this);

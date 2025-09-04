@@ -707,10 +707,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 SwingUtil.runOnEdt(() -> {
                     chrome.systemOutput("Cherry-picked " + finalApplied + " commit(s) into '" + branchLabel + "'.");
                     refreshCurrentViewAfterGitOp();
-                    var gitPanel = chrome.getGitPanel();
-                    if (gitPanel != null) {
-                        gitPanel.updateCommitPanel();
-                    }
+                    chrome.updateCommitPanel();
                 });
             });
         });
@@ -889,10 +886,9 @@ public class GitCommitBrowserPanel extends JPanel {
         viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction(
                 (cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
 
-        viewHistoryItem.addActionListener(e -> {
-            var gitPanel = requireNonNull(chrome.getGitPanel());
-            getSelectedFilePathsFromTree().forEach(fp -> gitPanel.addFileHistoryTab(contextManager.toFile(fp)));
-        });
+        viewHistoryItem.addActionListener(e ->
+            getSelectedFilePathsFromTree().forEach(fp -> chrome.addFileHistoryTab(contextManager.toFile(fp)))
+        );
         editFileItem.addActionListener(
                 e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
         rollbackFilesItem.addActionListener(e -> {
@@ -1346,10 +1342,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 SwingUtil.runOnEdt(() -> {
                     chrome.systemOutput(msg);
                     refreshCurrentViewAfterGitOp();
-                    var gitPanel = chrome.getGitPanel(); // Optional, may be null
-                    if (gitPanel != null) {
-                        gitPanel.updateCommitPanel(); // For uncommitted changes
-                    }
+                    chrome.updateCommitPanel(); // For uncommitted changes
                 });
             } catch (GitAPIException ex) {
                 logger.error("Error pulling {}: {}", branchName, ex.getMessage());

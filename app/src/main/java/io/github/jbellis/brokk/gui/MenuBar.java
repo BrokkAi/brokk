@@ -327,16 +327,16 @@ public class MenuBar {
                 windowMenu.add(projectFilesItem);
 
                 if (chrome.getProject().hasGit()) {
-                    var gitItem = new JMenuItem("Git");
+                    var gitItem = new JMenuItem("Commit");
                     gitItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_2, modifier));
                     gitItem.addActionListener(actionEvent -> {
-                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitPanel());
+                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
                         if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
                     });
                     windowMenu.add(gitItem);
                 }
 
-                if (chrome.getProject().isGitHubRepo() && chrome.getGitPanel() != null) {
+                if (chrome.getProject().isGitHubRepo() && chrome.getProject().hasGit()) {
                     var pullRequestsItem = new JMenuItem("Pull Requests");
                     pullRequestsItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_3, modifier));
                     pullRequestsItem.addActionListener(actionEvent -> {
@@ -348,7 +348,7 @@ public class MenuBar {
 
                 if (chrome.getProject().getIssuesProvider().type()
                                 != io.github.jbellis.brokk.issues.IssueProviderType.NONE
-                        && chrome.getGitPanel() != null) {
+                        && chrome.getProject().hasGit()) {
                     var issuesItem = new JMenuItem("Issues");
                     issuesItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_4, modifier));
                     issuesItem.addActionListener(actionEvent -> {

@@ -637,10 +637,7 @@ public final class GitUiUtil {
                     chrome.systemOutput(String.format(
                             "Successfully rolled back %d file(s) to commit %s", files.size(), shortCommitId));
                     // Refresh Git panels to show the changed files
-                    var gitPanel = chrome.getGitPanel();
-                    if (gitPanel != null) {
-                        gitPanel.updateCommitPanel();
-                    }
+                    chrome.updateCommitPanel();
                 });
             } catch (Exception e) {
                 logger.error("Error rolling back files", e);

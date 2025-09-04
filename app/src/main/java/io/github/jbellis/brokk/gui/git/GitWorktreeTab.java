@@ -32,7 +32,6 @@ public class GitWorktreeTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    // private final GitPanel gitPanel; // Field is not read
 
     private JTable worktreeTable = new JTable();
     private DefaultTableModel worktreeTableModel = new DefaultTableModel();
@@ -48,12 +47,10 @@ public class GitWorktreeTab extends JPanel {
 
     public GitWorktreeTab(
             Chrome chrome,
-            ContextManager contextManager,
-            GitPanel gitPanel) { // gitPanel param kept for constructor signature compatibility
+            ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        // this.gitPanel = gitPanel; // Field is not read
 
         var project = contextManager.getProject();
         this.isWorktreeWindow = project instanceof WorktreeProject;

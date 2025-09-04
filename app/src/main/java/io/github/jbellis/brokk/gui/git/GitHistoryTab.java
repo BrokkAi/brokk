@@ -19,17 +19,15 @@ public class GitHistoryTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel;
     private final ProjectFile file;
 
     private JTable fileHistoryTable;
     private DefaultTableModel fileHistoryModel;
 
-    public GitHistoryTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, ProjectFile file) {
+    public GitHistoryTab(Chrome chrome, ContextManager contextManager, ProjectFile file) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.gitPanel = gitPanel;
         this.file = file;
         buildHistoryTabUI();
         loadFileHistory();
@@ -173,7 +171,7 @@ public class GitHistoryTab extends JPanel {
             int row = fileHistoryTable.getSelectedRow();
             if (row >= 0) {
                 var commitId = (String) fileHistoryTable.getValueAt(row, 3);
-                gitPanel.showCommitInLogTab(commitId);
+                chrome.showCommitInLogTab(commitId);
             }
         });
 

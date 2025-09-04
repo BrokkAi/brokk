@@ -43,7 +43,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel;
 
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
@@ -101,12 +100,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private final IssueService issueService;
     private final Set<Future<?>> activeFutures = ConcurrentHashMap.newKeySet();
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager, IssueService issueService) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.issueService = issueService;
-        this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
         this.httpClient = initializeHttpClient();
 
@@ -563,7 +561,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             cancelActiveFutures();
             // Ask GitPanel to recreate this tab.
             // GitPanel is final and assigned in constructor, so it won't be null here.
-            gitPanel.recreateIssuesTab();
+            chrome.recreateIssuesPanel();
         });
     }
 
@@ -624,8 +622,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         });
     }
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
-        this(chrome, contextManager, gitPanel, createDefaultIssueService(contextManager));
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager) {
+        this(chrome, contextManager, createDefaultIssueService(contextManager));
     }
 
     private static IssueService createDefaultIssueService(ContextManager contextManager) {

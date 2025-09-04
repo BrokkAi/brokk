@@ -318,8 +318,9 @@ public class ContextMenuBuilder {
         boolean hasGit = context.contextManager().getProject().hasGit();
         var historyItem = new JMenuItem("Show History");
         historyItem.addActionListener(e -> {
-            if (context.chrome().getGitPanel() != null) {
-                context.chrome().getGitPanel().addFileHistoryTab(file);
+            final var chrome = context.chrome();
+            if (chrome != null) {
+                chrome.addFileHistoryTab(file);
             } else {
                 logger.warn("GitPanel is null, cannot show history for {}", file);
             }
