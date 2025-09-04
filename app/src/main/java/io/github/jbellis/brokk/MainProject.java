@@ -62,6 +62,10 @@ public final class MainProject extends AbstractProject {
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
 
+    // Keys for Plan First and Search First workspace preferences
+    private static final String PLAN_FIRST_KEY = "planFirst";
+    private static final String SEARCH_FIRST_KEY = "searchFirst";
+
     private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
     private static final String MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY = "migrationsToSessionsV3Complete";
 
@@ -893,6 +897,26 @@ public final class MainProject extends AbstractProject {
                     "Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
         }
+    }
+
+    /** Workspace preference: whether to "Plan First" (Architect) when coding. Defaults to true on first run. */
+    public boolean getPlanFirst() {
+        return Boolean.parseBoolean(workspaceProps.getProperty(PLAN_FIRST_KEY, "true"));
+    }
+
+    public void setPlanFirst(boolean v) {
+        workspaceProps.setProperty(PLAN_FIRST_KEY, String.valueOf(v));
+        saveWorkspaceProperties();
+    }
+
+    /** Workspace preference: whether to "Search First" when in Ask/Answer mode. Defaults to true on first run. */
+    public boolean getSearchFirst() {
+        return Boolean.parseBoolean(workspaceProps.getProperty(SEARCH_FIRST_KEY, "true"));
+    }
+
+    public void setSearchFirst(boolean v) {
+        workspaceProps.setProperty(SEARCH_FIRST_KEY, String.valueOf(v));
+        saveWorkspaceProperties();
     }
 
     @Override

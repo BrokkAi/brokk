@@ -286,6 +286,15 @@ public class MenuBar {
                 e -> SwingUtilities.invokeLater(() -> ManageDependenciesDialog.show(chrome)));
         toolsMenu.add(manageDependenciesItem);
 
+        var scanProjectItem = new JMenuItem("Scan Project");
+        scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {
+            // Delegate to InstructionsPanel's scan flow which handles model selection, validation,
+            // and submission to ContextManager.
+            chrome.getInstructionsPanel().runScanProjectCommand();
+        }));
+        scanProjectItem.setEnabled(true);
+        toolsMenu.add(scanProjectItem);
+
         var upgradeAgentItem = new JMenuItem("BlitzForge...");
         upgradeAgentItem.addActionListener(e -> {
             SwingUtilities.invokeLater(() -> {
