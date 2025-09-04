@@ -535,7 +535,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(searchButton); // SplitButton with dropdown
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-
         // Flexible space between action buttons and stop button
         bottomPanel.add(Box.createHorizontalGlue());
 
