@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
