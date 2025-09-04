@@ -25,10 +25,10 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
     record DeleteFile(ProjectFile file) implements LineEdit { }
 
     /**
-     * Anchor for validating addresses. addrToken is the original token ("0", "1", ..., "$");
+     * Anchor for validating addresses. address is the original address ("0", "1", ..., "$");
      * content is the exact current line text expected at that address.
      */
-    record Anchor(String addrToken, String content) { }
+    record Anchor(String address, String content) { }
 
     /**
      * Replace a range of lines in the specified file with the provided content.

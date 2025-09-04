@@ -304,17 +304,17 @@ public final class LineEditor {
     }
 
     private static @Nullable String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
-        var token = anchor.addrToken();
+        var address = anchor.address();
 
         // Always skip validation for 0 / $
-        if ("0".equals(token) || "$".equals(token)) {
+        if ("0".equals(address) || "$".equals(address)) {
             return null;
         }
 
         var expectedRaw = anchor.content();
         var expected = expectedRaw.strip();
 
-        var actualOpt = contentForToken(lines, token);
+        var actualOpt = contentForAddress(lines, address);
         var actualRaw = actualOpt.orElse("");
         var actual = actualRaw.strip();
 
@@ -323,23 +323,23 @@ public final class LineEditor {
             return null;
         }
         if (!actual.equals(expected)) {
-            return "Anchor mismatch (" + which + "): token '" + token
-                    + "' expected [" + expectedRaw + "] but was [" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "]";
+            return "Anchor mismatch (" + which + "): line '" + address
+                    + "' expected [" + expectedRaw + "] but was [" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "]. Usually this means you cited the wrong line number.";
         }
         return null;
     }
 
-    /** Returns the exact line content for a token ("0", "1".., "$"), or empty if no such line exists. */
-    private static Optional<String> contentForToken(List<String> lines, String token) {
+    /** Returns the exact line content for an address ("0", "1".., "$"), or empty if no such line exists. */
+    private static Optional<String> contentForAddress(List<String> lines, String address) {
         int n = lines.size();
-        if ("$".equals(token)) {
+        if ("$".equals(address)) {
             return (n == 0) ? java.util.Optional.empty() : java.util.Optional.of(lines.get(n - 1));
         }
-        if ("0".equals(token)) {
+        if ("0".equals(address)) {
             return (n == 0) ? java.util.Optional.empty() : java.util.Optional.of(lines.get(0));
         }
         try {
-            int idx = Integer.parseInt(token);
+            int idx = Integer.parseInt(address);
             if (idx >= 1 && idx <= n) {
                 return java.util.Optional.of(lines.get(idx - 1));
             }

@@ -922,7 +922,7 @@ Tips:
         if (succeededCount > 0) {
             sb.append("""
         <note>
-        The other %d edit%s applied successfully. Do not re-send them; only fix the failures listed above.
+        The other %d edit%s applied successfully and are reflected in the latest file contents already. Do not re-send them; only fix the failures listed above.
         </note>
         """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
         }
