@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -135,8 +136,9 @@ public final class LineEditorParser {
             }
             var onlyText = new ArrayList<OutputPart>();
             onlyText.add(new OutputPart.Text(content));
-            return new ExtendedParseResult(onlyText,
-                                           "Typed <brk_edit_file> blocks are not supported by ED parser; use BRK_EDIT_EX / BRK_EDIT_EX_END.");
+            return new ExtendedParseResult(
+                    onlyText,
+                    "Typed <brk_edit_file> blocks are not supported by ED parser; use BRK_EDIT_EX / BRK_EDIT_EX_END.");
         }
 
         var parts = new ArrayList<OutputPart>();
@@ -147,19 +149,19 @@ public final class LineEditorParser {
 
         var textBuf = new StringBuilder();
 
-        // Patterns for EX commands (anchors are parsed by a local pattern)
-        final Pattern ANCHOR_LINE = Pattern.compile("^([0-9]+|\\$)\\s*:\\s*(.*)$");
+        // Helpers
+        Runnable flushText = () -> {
+            if (textBuf.length() > 0) {
+                parts.add(new OutputPart.Text(textBuf.toString()));
+                textBuf.setLength(0);
+            }
+        };
+        java.util.function.Predicate<String> isZeroOrDollar =
+                tok -> "0".equals(tok) || "$".equals(tok);
 
         while (i < lines.length) {
             var line = lines[i];
             var trimmed = line.trim();
-
-            Runnable flushText = () -> {
-                if (textBuf.length() > 0) {
-                    parts.add(new OutputPart.Text(textBuf.toString()));
-                    textBuf.setLength(0);
-                }
-            };
 
             // BRK_EDIT_RM <path>
             if (line.startsWith("BRK_EDIT_RM")) {
@@ -171,7 +173,7 @@ public final class LineEditorParser {
                     i++;
                     continue;
                 }
-                String path = trimmed.substring(sp + 1).trim();
+                var path = trimmed.substring(sp + 1).trim();
                 flushText.run();
                 parts.add(new OutputPart.Delete(path));
                 i++;
@@ -188,7 +190,7 @@ public final class LineEditorParser {
                     i++;
                     continue;
                 }
-                String path = trimmed.substring(sp + 1).trim();
+                var path = trimmed.substring(sp + 1).trim();
 
                 flushText.run();
 
@@ -224,76 +226,92 @@ public final class LineEditorParser {
                     var ia = IA_CMD.matcher(cmdTrim);
 
                     if (range.matches()) {
-                        String tok1 = range.group(1);
-                        String tok2 = range.group(2);
+                        var tok1 = range.group(1);
+                        var tok2 = range.group(2);
                         int n1 = parseAddr(tok1);
                         int n2 = (tok2 == null) ? n1 : parseAddr(tok2);
                         char op = Character.toLowerCase(range.group(3).charAt(0));
 
                         if (op == 'd') {
-                            // Expect exactly ONE anchor line after the command
+                            // Expect exactly ONE anchor line after the command (optional only if n1 is 0 or $)
                             i++;
-                            if (i >= lines.length) {
+                            var aTok = tok1;
+                            var aContent = "";
+                            if (i < lines.length) {
+                                var anchorLine = lines[i];
+                                var am = ANCHOR_LINE.matcher(anchorLine);
+                                if (am.matches()) {
+                                    var parsedTok = am.group(1);
+                                    var parsedContent = am.group(2);
+                                    if (!parsedTok.equals(tok1)) {
+                                        errors.add("Delete anchor token '" + parsedTok
+                                                           + "' does not match address '" + tok1 + "'");
+                                    } else {
+                                        aContent = parsedContent;
+                                    }
+                                    i++; // consumed anchor
+                                } else if (!isZeroOrDollar.test(aTok)) {
+                                    errors.add("Malformed or missing anchor line after delete command: " + anchorLine);
+                                    i++; // consume to avoid infinite loop
+                                }
+                            } else if (!isZeroOrDollar.test(aTok)) {
                                 errors.add("Missing anchor line after delete command for " + path);
-                                continue;
                             }
-                            var anchorLine = lines[i];
-                            var am = ANCHOR_LINE.matcher(anchorLine);
-                            if (!am.matches()) {
-                                errors.add("Malformed or missing anchor line after delete command: " + anchorLine);
-                                i++; // consume to avoid infinite loop
-                                continue;
-                            }
-                            var aTok = am.group(1);
-                            var aContent = am.group(2);
-                            if (!aTok.equals(tok1)) {
-                                errors.add("Delete anchor token '" + aTok + "' does not match address '" + tok1 + "'");
-                            }
-                            i++;
                             commands.add(new EdCommand.DeleteRange(n1, n2, aTok, aContent));
                             continue;
                         } else { // 'c'
-                            // Read anchors: one if single-address; two if range
-                            i++;
-                            if (i >= lines.length) {
-                                errors.add("Missing anchor line(s) after change command for " + path);
-                                continue;
-                            }
-                            // First anchor (begin)
-                            var a1Line = lines[i];
-                            var a1m = ANCHOR_LINE.matcher(a1Line);
-                            if (!a1m.matches()) {
-                                errors.add("Malformed or missing first anchor after change command: " + a1Line);
-                                i++; // consume questionable line
-                                continue;
-                            }
-                            var beginTok = a1m.group(1);
-                            var beginAnchorContent = a1m.group(2);
-                            if (!beginTok.equals(tok1)) {
-                                errors.add("Change begin anchor token '" + beginTok + "' does not match address '" + tok1 + "'");
-                            }
                             i++;
 
+                            // Begin anchor: required unless 0 or $
+                            var beginTok = tok1;
+                            var beginAnchorContent = "";
+                            if (i < lines.length) {
+                                var a1Line = lines[i];
+                                var a1m = ANCHOR_LINE.matcher(a1Line);
+                                if (a1m.matches()) {
+                                    var parsedTok = a1m.group(1);
+                                    var parsedContent = a1m.group(2);
+                                    if (!parsedTok.equals(beginTok)) {
+                                        errors.add("Change begin anchor token '" + parsedTok
+                                                           + "' does not match address '" + beginTok + "'");
+                                    } else {
+                                        beginAnchorContent = parsedContent;
+                                    }
+                                    i++; // consumed begin anchor
+                                } else if (!isZeroOrDollar.test(beginTok)) {
+                                    errors.add("Malformed or missing first anchor after change command: " + a1Line);
+                                    i++; // consume questionable line
+                                }
+                            } else if (!isZeroOrDollar.test(beginTok)) {
+                                errors.add("Missing anchor line(s) after change command for " + path);
+                            }
+
+                            // End token & anchor
                             String endTok;
                             String endAnchorContent;
                             if (tok2 != null) {
-                                if (i >= lines.length) {
+                                endTok = tok2;
+                                endAnchorContent = "";
+                                if (i < lines.length) {
+                                    var a2Line = lines[i];
+                                    var a2m = ANCHOR_LINE.matcher(a2Line);
+                                    if (a2m.matches()) {
+                                        var parsedTok2 = a2m.group(1);
+                                        var parsedContent2 = a2m.group(2);
+                                        if (!parsedTok2.equals(endTok)) {
+                                            errors.add("Change end anchor token '" + parsedTok2
+                                                               + "' does not match address '" + endTok + "'");
+                                        } else {
+                                            endAnchorContent = parsedContent2;
+                                        }
+                                        i++; // consumed end anchor
+                                    } else if (!isZeroOrDollar.test(endTok)) {
+                                        errors.add("Malformed or missing second anchor after change command: " + a2Line);
+                                        i++; // consume questionable line
+                                    }
+                                } else if (!isZeroOrDollar.test(endTok)) {
                                     errors.add("Missing second anchor line for range change command for " + path);
-                                    continue;
                                 }
-                                var a2Line = lines[i];
-                                var a2m = ANCHOR_LINE.matcher(a2Line);
-                                if (!a2m.matches()) {
-                                    errors.add("Malformed or missing second anchor after change command: " + a2Line);
-                                    i++; // consume questionable line
-                                    continue;
-                                }
-                                endTok = a2m.group(1);
-                                endAnchorContent = a2m.group(2);
-                                if (!endTok.equals(tok2)) {
-                                    errors.add("Change end anchor token '" + endTok + "' does not match address '" + tok2 + "'");
-                                }
-                                i++;
                             } else {
                                 // Single-line change: end anchor equals begin
                                 endTok = beginTok;
@@ -318,7 +336,8 @@ public final class LineEditorParser {
                                 body.add(unescapeBodyLine(bodyLine));
                                 i++;
                             }
-                            commands.add(new EdCommand.ChangeRange(n1, n2, body, beginTok, beginAnchorContent, endTok, endAnchorContent));
+                            commands.add(new EdCommand.ChangeRange(
+                                    n1, n2, body, beginTok, beginAnchorContent, endTok, endAnchorContent));
                             if (implicitClose) {
                                 // outer loop will see END next
                             }
@@ -330,25 +349,30 @@ public final class LineEditorParser {
                         var addr = ia.group(1);
                         int n = parseAddr(addr);
 
-                        // Expect exactly ONE anchor line after the 'a' command
+                        // Anchor for append-after: required unless 0 or $
                         i++;
-                        if (i >= lines.length) {
+                        var aTok = addr;
+                        var aContent = "";
+                        if (i < lines.length) {
+                            var anchorLine = lines[i];
+                            var am = ANCHOR_LINE.matcher(anchorLine);
+                            if (am.matches()) {
+                                var parsedTok = am.group(1);
+                                var parsedContent = am.group(2);
+                                if (!parsedTok.equals(aTok)) {
+                                    errors.add("Append anchor token '" + parsedTok
+                                                       + "' does not match address '" + aTok + "'");
+                                } else {
+                                    aContent = parsedContent;
+                                }
+                                i++; // consumed anchor
+                            } else if (!isZeroOrDollar.test(aTok)) {
+                                errors.add("Malformed or missing anchor line after append command: " + anchorLine);
+                                i++; // consume to avoid infinite loop
+                            }
+                        } else if (!isZeroOrDollar.test(aTok)) {
                             errors.add("Missing anchor line after append command for " + path);
-                            continue;
                         }
-                        var anchorLine = lines[i];
-                        var am = ANCHOR_LINE.matcher(anchorLine);
-                        if (!am.matches()) {
-                            errors.add("Malformed or missing anchor line after append command: " + anchorLine);
-                            i++; // consume to avoid infinite loop
-                            continue;
-                        }
-                        var aTok = am.group(1);
-                        var aContent = am.group(2);
-                        if (!aTok.equals(addr)) {
-                            errors.add("Append anchor token '" + aTok + "' does not match address '" + addr + "'");
-                        }
-                        i++;
 
                         var body = new ArrayList<String>();
                         boolean implicitClose = false;
@@ -462,7 +486,7 @@ public final class LineEditorParser {
                         int end = cr.end();
                         String body = String.join("\n", cr.body());
                         var beginAnchor = new LineEdit.Anchor(cr.beginAnchorToken(), cr.beginAnchorContent());
-                        @Nullable LineEdit.Anchor endAnchor = (cr.endAnchorToken() == null)
+                        @Nullable LineEdit.Anchor endAnchor = cr.endAnchorToken().isBlank()
                                 ? null
                                 : new LineEdit.Anchor(requireNonNull(cr.endAnchorToken()), requireNonNull(cr.endAnchorContent()));
                         editFiles.add(new LineEdit.EditFile(pf, begin, end, body, beginAnchor, endAnchor));
@@ -503,15 +527,14 @@ public final class LineEditorParser {
         return """
 There are two editing commands: BRK_EDIT_EX, and BRK_EDIT_RM.
 
-# BRK_EDIT_EX (ED mode with MANDATORY ANCHORS)
+# BRK_EDIT_EX (ED mode with MANDATORY ANCHORS, except 0/$)
 The BRK_EDIT_EX format is a line-oriented editing format with a small subset of classic `ex`:
 **a**, **c**, **d** using absolute addresses. Addresses are 1-based integers. Additionally:
 - `0`  -> the very start of the file (before the first line)
 - `$`  -> the end of the file (after the last line)
 
-**Anchors are mandatory.** Immediately after each command line, you MUST provide anchor line(s)
-confirming the current file content at the addressed line(s). The system validates anchors and will
-retry if they don't match.
+**Anchors are mandatory for every numeric address** you provide, **except** that you may omit anchors for `0` and `$`.
+When anchors are present, the system will validate them; when omitted for `0`/`$`, validation is skipped for that address.
 
 Anchor syntax:
 - One line: `<addr>: <exact current line text>` (no escaping; copy the line verbatim)
@@ -520,8 +543,8 @@ Anchor syntax:
 - For `d n[,m]`: provide exactly one anchor for `n`.
 
 Special anchors:
-- `0:` refers to the first line’s current content. If the file is empty (or being created), leave it blank: `0:`
-- `$:` refers to the last line’s current content. If the file is empty, leave it blank: `$:`
+- `0:` refers to the first line’s current content. If the file is empty (or being created), you may omit the anchor line, or include it blank as `0:`.
+- `$:` refers to the last line’s current content. If the file is empty, you may omit the anchor line, or include it blank as `$:`.
 
 Body rules:
 - Only **a** and **c** have bodies. The body ends with a single dot `.` on its own line.
@@ -531,16 +554,16 @@ Emit edits using ONLY these fences (ALL CAPS, each on its own line; no Markdown 
 
 BRK_EDIT_EX <full/path>
 n a
-n: <current content at n (or blank for 0/$ on empty file)>
+n: <current content at n (or blank/omitted for 0/$ on empty file)>
 ...body...
 .
 n[,m] c
-n: <current content at n>
-m: <current content at m>            # required only when m is present
+n: <current content at n (omit allowed for 0)>
+m: <current content at m (omit allowed for $)>    # required only when m is present
 ...body...
 .
 n[,m] d
-n: <current content at n>
+n: <current content at n (omit allowed for 0/$)>
 BRK_EDIT_EX_END
 
 Path rules:
@@ -549,29 +572,29 @@ Path rules:
 Conventions and constraints:
 - All addresses are absolute and inclusive for ranges; **n,m** are 1-based integers (with `0` and `$` as described).
 - Do not overlap edits. Emit commands **last-edits-first** within each file to avoid line shifts.
-- To create a new file, use `BRK_EDIT_EX <path>` with `0 a` and the entire file body; include `0:` anchor (blank).
+- To create a new file, use `BRK_EDIT_EX <path>` with `0 a` and the entire file body; you may omit the `0:` anchor.
 - To remove a file, use `BRK_EDIT_RM <path>` on a single line (no END fence).
+- `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
+- ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
 
 ## Examples (no Markdown fences)
 
-# Append one line at end-of-file
+# Append one line at end-of-file (anchor omitted for '$')
 BRK_EDIT_EX src/main.py
 $ a
-$: print("done_last_line")           # blank if the file is empty
 print("done")
 .
 BRK_EDIT_EX_END
 
-# Insert two lines at the start of the file (anchor '0:' = current first line, or blank if empty/new)
+# Insert two lines at the start of the file (anchor omitted for '0')
 BRK_EDIT_EX README.md
 0 a
-0: # Project Title                      # if file exists; leave blank if creating
 # Project Title
 A short description.
 .
 BRK_EDIT_EX_END
 
-# Replace a single line (line 21)
+# Replace a single line (line 21; anchors required)
 BRK_EDIT_EX src/Main.java
 21 c
 21: return str(get_factorial(n))
@@ -732,7 +755,7 @@ Guidance:
                 } else if (c instanceof EdCommand.ChangeRange cr) {
                     sb.append(addrToString(cr.begin())).append(',').append(addrToString(cr.end())).append(" c\n");
                     sb.append(cr.beginAnchorToken()).append(": ").append(cr.beginAnchorContent()).append('\n');
-                    if (cr.endAnchorToken() != null) {
+                    if (!cr.endAnchorToken().isBlank()) {
                         sb.append(cr.endAnchorToken()).append(": ").append(requireNonNull(cr.endAnchorContent())).append('\n');
                     }
                     renderBody(sb, cr.body());

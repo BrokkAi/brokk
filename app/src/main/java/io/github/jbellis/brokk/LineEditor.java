@@ -294,14 +294,21 @@ public final class LineEditor {
 
     private static String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
         var expected = anchor.content();
-        var actualOpt = contentForToken(lines, anchor.addrToken());
+        var token = anchor.addrToken();
+
+        // New: if the anchor is for 0 or $ and the expected is blank, skip validation (anchor omission allowed)
+        if (("0".equals(token) || "$".equals(token)) && expected.isEmpty()) {
+            return null;
+        }
+
+        var actualOpt = contentForToken(lines, token);
         var actual = actualOpt.orElse("");
         // Empty file + blank expected is OK
         if (!actualOpt.isPresent() && expected.isEmpty()) {
             return null;
         }
         if (!actual.equals(expected)) {
-            return "Anchor mismatch (" + which + "): token '" + anchor.addrToken()
+            return "Anchor mismatch (" + which + "): token '" + token
                     + "' expected [" + expected + "] but was [" + (actualOpt.isPresent() ? actual : "<no line>") + "]";
         }
         return null;

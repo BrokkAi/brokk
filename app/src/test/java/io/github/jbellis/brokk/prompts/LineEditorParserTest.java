@@ -21,14 +21,16 @@ class LineEditorParserTest {
     @Test
     void parse_singleEdit() {
         var input = """
-    Intro text
-    BRK_EDIT_EX src/Main.java
-    10,12 c
-    System.out.println("Replaced!");
-    .
-    BRK_EDIT_EX_END
-    Outro
-    """.stripIndent();
+Intro text
+BRK_EDIT_EX src/Main.java
+10,12 c
+10: old10
+12: old12
+System.out.println("Replaced!");
+.
+BRK_EDIT_EX_END
+Outro
+""".stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
@@ -57,15 +59,15 @@ class LineEditorParserTest {
     @Test
     void parse_mixedAndBodyPreserved() {
         var input = """
-        Before
-        BRK_EDIT_EX x.txt
-        0 a
-        // Content can include angle brackets: <not a tag>
-        .
-        BRK_EDIT_EX_END
-        BRK_EDIT_RM y.txt
-        After
-        """.stripIndent();
+    Before
+    BRK_EDIT_EX x.txt
+    0 a
+    // Content can include angle brackets: <not a tag>
+    .
+    BRK_EDIT_EX_END
+    BRK_EDIT_RM y.txt
+    After
+    """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
         assertTrue(
@@ -124,13 +126,15 @@ class LineEditorParserTest {
     void materialize_toLineEdit() {
         var ctx = new TestContextManager(tempDir, new NoOpConsoleIO());
         var input = """
-            BRK_EDIT_RM gone.txt
-            BRK_EDIT_EX foo/bar.txt
-            2,3 c
-            NEW
-            .
-            BRK_EDIT_EX_END
-            """.stripIndent();
+        BRK_EDIT_RM gone.txt
+        BRK_EDIT_EX foo/bar.txt
+        2,3 c
+        2: old2
+        3: old3
+        NEW
+        .
+        BRK_EDIT_EX_END
+        """.stripIndent();
         var parsed = LineEditorParser.instance.parse(input);
         var edits = LineEditorParser.instance.materializeEdits(parsed, ctx);
         assertEquals(2, edits.size());
@@ -170,38 +174,6 @@ class LineEditorParserTest {
     }
 
     @Test
-    void parse_shellCommandWarning_andIgnoredCommands() {
-        var input = """
-        BRK_EDIT_EX a.txt
-        !echo hi
-        w
-        1 a
-        X
-        .
-        q
-        wq
-        qw
-        BRK_EDIT_EX_END
-        """.stripIndent();
-
-        var r = LineEditorParser.instance.parse(input);
-        assertNotNull(r.parseError(), "Shell command should produce a parse warning");
-        assertTrue(r.parseError().contains("Shell command ignored inside BRK_EDIT_EX"),
-                   "Warning should mention ignored shell command");
-
-        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().stream()
-                .filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock)
-                .findFirst().orElseThrow();
-
-        assertEquals(1, ed.commands().size(), "Only the real edit command should be captured");
-        var cmd = ed.commands().getFirst();
-        assertInstanceOf(LineEditorParser.EdCommand.AppendAfter.class, cmd);
-        var aa = (LineEditorParser.EdCommand.AppendAfter) cmd;
-        assertEquals(1, aa.line());
-        assertEquals(List.of("X"), aa.body());
-    }
-
-    @Test
     void parse_rmMissingFilename_reportsErrorAndKeepsText() {
         var input = """
         Before
@@ -237,12 +209,13 @@ class LineEditorParserTest {
     @Test
     void parse_changeSingleLineWithoutComma() {
         var input = """
-        BRK_EDIT_EX file.txt
-        5 c
-        X
-        .
-        BRK_EDIT_EX_END
-        """.stripIndent();
+    BRK_EDIT_EX file.txt
+    5 c
+    5: OLD
+    X
+    .
+    BRK_EDIT_EX_END
+    """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError());
@@ -282,10 +255,12 @@ class LineEditorParserTest {
         Files.writeString(dir.resolve("a.txt"), "1\n2\n3\n4\n");
 
         var input = """
-        BRK_EDIT_EX a.txt
-        2,3 d
-        BRK_EDIT_EX_END
-        """.stripIndent();
+    BRK_EDIT_EX a.txt
+    2,3 d
+    2: 2
+    3: 3
+    BRK_EDIT_EX_END
+    """.stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);
         assertNull(parsed.parseError());

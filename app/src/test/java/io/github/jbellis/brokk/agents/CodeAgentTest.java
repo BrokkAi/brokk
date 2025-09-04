@@ -124,15 +124,17 @@ class CodeAgentTest {
     @Test
     void testParsePhase_partialParseWithError() {
         var loopContext = createBasicLoopContext("test goal");
-        // A valid edit block followed by trailing prose. The parser should extract
-        // the block, and the prose will be ignored when materializing edits.
+        // A valid ED block followed by trailing prose.
         String llmText =
                 """
-                         <brk_edit_file path="file.java" type="replace" beginline=1 endline=1>
-                         System.out.println("World");
-                         </brk_edit_file>
-                         This is some trailing text.
-                         """;
+                BRK_EDIT_EX file.java
+                1 c
+                1: old
+                new
+                .
+                BRK_EDIT_EX_END
+                This is some trailing text.
+                """;
 
         var result = codeAgent.parsePhase(loopContext, llmText, false, null);
 
@@ -145,6 +147,7 @@ class CodeAgentTest {
                 continueStep.loopContext().editState().pendingEdits().size(),
                 "One block should be parsed and now pending.");
     }
+
 
     // P-3a: parsePhase – isPartial flag handling (with zero blocks)
     @Test
@@ -167,19 +170,23 @@ class CodeAgentTest {
         var loopContext = createBasicLoopContext("test goal");
         String llmTextWithBlock =
                 """
-                                  <brk_edit_file path="file.java" type="replace" beginline=1 endline=1>
-                                  System.out.println("World");
-                                  </brk_edit_file>
-                                  """;
+                BRK_EDIT_EX file.java
+                1 c
+                1: old
+                new
+                .
+                BRK_EDIT_EX_END
+                """;
 
         var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
-                .contains("continue from there"));
+                           .contains("continue from there"));
         assertEquals(1, retryStep.loopContext().editState().pendingEdits().size());
     }
+
 
     // A-1: applyPhase – read-only conflict
     @Test
@@ -394,10 +401,13 @@ class CodeAgentTest {
 
         var firstResponse =
                 """
-                            <brk_edit_file path="test.txt" type="replace" beginline=1 endline=1>
-                            goodbye
-                            </brk_edit_file>
-                            """;
+                BRK_EDIT_EX test.txt
+                1 c
+                1: hello
+                goodbye
+                .
+                BRK_EDIT_EX_END
+                """;
         var secondResponse = "I am unable to fix the build error.";
         var stubModel = new ScriptedLanguageModel(firstResponse, secondResponse);
 
@@ -421,6 +431,7 @@ class CodeAgentTest {
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));
         assertEquals("goodbye", file.read().strip()); // The edit was made and not reverted
     }
+
 
     // CF-1: changedFiles tracking after successful apply
     @Test

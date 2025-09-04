@@ -39,7 +39,11 @@ class LineEditorTest {
         var pf = new ProjectFile(dir, "a.txt");
         Files.writeString(pf.absPath(), "L1\nL2\nL3\n");
 
-        var edits = java.util.List.of(new LineEdit.EditFile(pf, 2, 2, "Two"));
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 2, 2, "Two",
+                        new LineEdit.Anchor("2", "L2"),
+                        new LineEdit.Anchor("2", "L2")));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertTrue(res.failures().isEmpty());
@@ -54,9 +58,14 @@ class LineEditorTest {
         Files.writeString(pf.absPath(), "B\n");
 
         var edits = java.util.List.of(
-                new LineEdit.EditFile(pf, 1, 0, "A"),
-                // After first edit, file has 2 lines; append at end using begin=n+1=3
-                new LineEdit.EditFile(pf, 3, 0, "C"));
+                // insert at start (use 0 anchor, omitted validation)
+                new LineEdit.EditFile(
+                        pf, 1, 0, "A",
+                        new LineEdit.Anchor("0", ""), null),
+                // append at end using '$' sentinel so we can omit anchor validation
+                new LineEdit.EditFile(
+                        pf, Integer.MAX_VALUE, Integer.MAX_VALUE - 1, "C",
+                        new LineEdit.Anchor("$", ""), null));
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
         assertTrue(res.failures().isEmpty());
@@ -68,7 +77,10 @@ class LineEditorTest {
         var cm = new TestContextManager(dir);
         var pf = new ProjectFile(dir, "new.txt");
 
-        var edits = java.util.List.of(new LineEdit.EditFile(pf, 1, 0, "Hello\nWorld"));
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 1, 0, "Hello\nWorld",
+                        new LineEdit.Anchor("0", ""), null));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertTrue(res.failures().isEmpty());
@@ -81,7 +93,10 @@ class LineEditorTest {
         var pf = new ProjectFile(dir, "a.txt");
         Files.writeString(pf.absPath(), "Only\nOne\n");
 
-        var edits = java.util.List.of(new LineEdit.EditFile(pf, 3, 4, "X"));
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 3, 4, "X",
+                        new LineEdit.Anchor("3", ""), new LineEdit.Anchor("4", "")));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertEquals(1, res.failures().size());
@@ -94,7 +109,10 @@ class LineEditorTest {
         var cm = new TestContextManager(dir);
         var pf = new ProjectFile(dir, "missing.txt");
 
-        var edits = java.util.List.of(new LineEdit.EditFile(pf, 1, 1, "X"));
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 1, 1, "X",
+                        new LineEdit.Anchor("1", ""), new LineEdit.Anchor("1", "")));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertEquals(1, res.failures().size());
@@ -121,7 +139,10 @@ class LineEditorTest {
         Files.writeString(pf.absPath(), "L1\nL2\n");
 
         // Insert at position 4 (valid positions are 1..3)
-        var edits = java.util.List.of(new LineEdit.EditFile(pf, 4, 3, "X"));
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 4, 3, "X",
+                        new LineEdit.Anchor("3", ""), null));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertEquals(1, res.failures().size());
@@ -134,7 +155,10 @@ class LineEditorTest {
         var cm = new TestContextManager(dir);
         var pf = new ProjectFile(dir, "new.txt");
 
-        var edits = java.util.List.of(new LineEdit.EditFile(pf, 1, 0, "Hello"));
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 1, 0, "Hello",
+                        new LineEdit.Anchor("0", ""), null));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertTrue(res.failures().isEmpty());
@@ -149,8 +173,10 @@ class LineEditorTest {
         Files.writeString(pf.absPath(), "A\nB\nC\nD\n");
 
         // Intentionally provide edits in an order that would be wrong without internal sorting.
-        var insertAt2 = new LineEdit.EditFile(pf, 2, 1, "I");      // insert before line 2
-        var replace2to3 = new LineEdit.EditFile(pf, 2, 3, "X");    // replace lines 2..3 with "X"
+        var insertAt2 = new LineEdit.EditFile(
+                pf, 2, 1, "I", new LineEdit.Anchor("1", "A"), null);      // insert before line 2; anchor on line 1
+        var replace2to3 = new LineEdit.EditFile(
+                pf, 2, 3, "X", new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("3", "C"));    // replace lines 2..3 with "X"
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(insertAt2, replace2to3));
 
