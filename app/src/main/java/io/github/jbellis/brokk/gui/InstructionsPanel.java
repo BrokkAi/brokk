@@ -167,9 +167,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeButton.setToolTipText("Tell the LLM to write code using the current context and selected model");
         codeButton.addActionListener(e -> runCodeCommand()); // Main button action
 
-        searchButton = new SplitButton("Search");
-        searchButton.setMnemonic(KeyEvent.VK_S);
-        searchButton.setToolTipText("Explore the codebase beyond the current context using the selected model");
+        searchButton = new SplitButton("Ask");
+        searchButton.setMnemonic(KeyEvent.VK_A); // optional
+        searchButton.setToolTipText("Ask the model a question using the selected model and current context");
         searchButton.addActionListener(e -> runSearchCommand()); // Main action unchanged
         searchButton.setMenuSupplier(this::createSearchMenu);
 
