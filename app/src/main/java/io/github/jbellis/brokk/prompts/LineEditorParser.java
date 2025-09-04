@@ -157,8 +157,6 @@ public final class LineEditorParser {
                 textBuf.setLength(0);
             }
         };
-        java.util.function.Predicate<String> isZeroOrDollar =
-                addr -> "0".equals(addr) || "$".equals(addr);
 
         while (i < lines.length) {
             var line = lines[i];
@@ -204,7 +202,7 @@ public final class LineEditorParser {
                     var cmdLine = lines[i];
                     var cmdTrim = cmdLine.trim();
 
-                    if (cmdLine.equals("BRK_EDIT_EX_END")) {
+                    if (cmdLine.equals(END_FENCE)) {
                         sawEndFence = true;
                         i++;
                         break;
@@ -233,144 +231,25 @@ public final class LineEditorParser {
                         int n2 = (addr2 == null) ? n1 : parseAddr(addr2);
                         char op = Character.toLowerCase(range.group(3).charAt(0));
 
+                        i++; // move past the command line
+
+                        // Parse anchors for range commands (change/delete)
+                        var opName = (op == 'd') ? "delete" : "change";
+                        var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
+                        i = anchors.nextIndex();
+
                         if (op == 'd') {
-                            // Delete: expect 1 anchor for single-address; 2 anchors for range.
-                            i++;
-
-                            // Begin anchor
-                            var beginAnchorContent = "";
-                            if (i < lines.length) {
-                                var a1Line = lines[i];
-                                var a1m = ANCHOR_LINE.matcher(a1Line);
-                                if (a1m.matches()) {
-                                    var parsedAddr = a1m.group(1);
-                                    var parsedContent = a1m.group(2);
-                                    if (!parsedAddr.equals(addr1)) {
-                                        errors.add("Delete begin anchor line '" + parsedAddr
-                                                           + "' does not match address '" + addr1 + "'");
-                                    } else {
-                                        beginAnchorContent = parsedContent;
-                                    }
-                                    i++; // consumed begin anchor
-                                } else if (!isZeroOrDollar.test(addr1)) {
-                                    errors.add("Malformed or missing first anchor after delete command: " + a1Line);
-                                    i++; // consume questionable line to avoid infinite loop
-                                }
-                            } else if (!isZeroOrDollar.test(addr1)) {
-                                errors.add("Missing anchor line(s) after delete command for " + path);
-                            }
-
-                            // Optional end anchor (required if addr2 is present and not 0/$)
-                            String endAnchorContent;
-                            if (addr2 == null) {
-                                addr2 = "";
-                                endAnchorContent = "";
-                            } else {
-                                endAnchorContent = "";
-                                if (i < lines.length) {
-                                    var a2Line = lines[i];
-                                    var a2m = ANCHOR_LINE.matcher(a2Line);
-                                    if (a2m.matches()) {
-                                        var parsedAddr2 = a2m.group(1);
-                                        var parsedContent2 = a2m.group(2);
-                                        if (!parsedAddr2.equals(addr2)) {
-                                            errors.add("Delete end anchor line '" + parsedAddr2
-                                                               + "' does not match address '" + addr2 + "'");
-                                        } else {
-                                            endAnchorContent = parsedContent2;
-                                        }
-                                        i++; // consumed end anchor
-                                    } else if (!isZeroOrDollar.test(addr2)) {
-                                        errors.add("Malformed or missing second anchor after delete command: " + a2Line);
-                                        i++; // consume questionable line
-                                    }
-                                } else if (!isZeroOrDollar.test(addr2)) {
-                                    errors.add("Missing second anchor line for range delete command for " + path);
-                                }
-                            }
-
                             commands.add(new EdCommand.DeleteRange(
-                                    n1, n2, addr1, beginAnchorContent, addr2, endAnchorContent));
+                                    n1, n2, addr1, anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
                             continue;
                         } else { // 'c'
-                            i++;
-
-                            // Begin anchor: required unless 0 or $
-                            var beginAnchorContent = "";
-                            if (i < lines.length) {
-                                var a1Line = lines[i];
-                                var a1m = ANCHOR_LINE.matcher(a1Line);
-                                if (a1m.matches()) {
-                                    var parsedAddr = a1m.group(1);
-                                    var parsedContent = a1m.group(2);
-                                    if (!parsedAddr.equals(addr1)) {
-                                        errors.add("Change begin anchor line '" + parsedAddr
-                                                           + "' does not match address '" + addr1 + "'");
-                                    } else {
-                                        beginAnchorContent = parsedContent;
-                                    }
-                                    i++; // consumed begin anchor
-                                } else if (!isZeroOrDollar.test(addr1)) {
-                                    errors.add("Malformed or missing first anchor after change command: " + a1Line);
-                                    i++; // consume questionable line
-                                }
-                            } else if (!isZeroOrDollar.test(addr1)) {
-                                errors.add("Missing anchor line(s) after change command for " + path);
-                            }
-
-                            // End address & anchor
-                            String endAnchorContent;
-                            if (addr2 == null) {
-                                // Single-line change: end anchor equals begin
-                                addr2 = addr1;
-                                endAnchorContent = beginAnchorContent;
-                            } else {
-                                endAnchorContent = "";
-                                if (i < lines.length) {
-                                    var a2Line = lines[i];
-                                    var a2m = ANCHOR_LINE.matcher(a2Line);
-                                    if (a2m.matches()) {
-                                        var parsedAddr2 = a2m.group(1);
-                                        var parsedContent2 = a2m.group(2);
-                                        if (!parsedAddr2.equals(addr2)) {
-                                            errors.add("Change end anchor line '" + parsedAddr2
-                                                               + "' does not match address '" + addr2 + "'");
-                                        } else {
-                                            endAnchorContent = parsedContent2;
-                                        }
-                                        i++; // consumed end anchor
-                                    } else if (!isZeroOrDollar.test(addr2)) {
-                                        errors.add("Malformed or missing second anchor after change command: " + a2Line);
-                                        i++; // consume questionable line
-                                    }
-                                } else if (!isZeroOrDollar.test(addr2)) {
-                                    errors.add("Missing second anchor line for range change command for " + path);
-                                }
-                            }
-
-                            // Body until '.' or implicit end
-                            var body = new ArrayList<String>();
-                            boolean implicitClose = false;
-                            while (i < lines.length) {
-                                var bodyLine = lines[i];
-                                var bodyTrim = bodyLine.trim();
-                                if (bodyTrim.equals("BRK_EDIT_EX_END")) {
-                                    implicitClose = true;
-                                    sawEndFence = true;
-                                    break;
-                                }
-                                if (bodyTrim.equals(".")) {
-                                    i++;
-                                    break;
-                                }
-                                body.add(unescapeBodyLine(bodyLine));
-                                i++;
+                            var bodyRes = readBody(lines, i);
+                            i = bodyRes.nextIndex();
+                            if (bodyRes.implicitClose()) {
+                                sawEndFence = true; // outer loop will see END next
                             }
                             commands.add(new EdCommand.ChangeRange(
-                                    n1, n2, body, addr1, beginAnchorContent, addr2, endAnchorContent));
-                            if (implicitClose) {
-                                // outer loop will see END next
-                            }
+                                    n1, n2, bodyRes.body(), addr1, anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
                             continue;
                         }
                     }
@@ -379,51 +258,22 @@ public final class LineEditorParser {
                         var addr = ia.group(1);
                         int n = parseAddr(addr);
 
-                        // Anchor for append-after: required unless 0 or $
-                        i++;
-                        var aContent = "";
-                        if (i < lines.length) {
-                            var anchorLine = lines[i];
-                            var am = ANCHOR_LINE.matcher(anchorLine);
-                            if (am.matches()) {
-                                var parsedAddr = am.group(1);
-                                var parsedContent = am.group(2);
-                                if (!parsedAddr.equals(addr)) {
-                                    errors.add("Append anchor line '" + parsedAddr
-                                                       + "' does not match address '" + addr + "'");
-                                } else {
-                                    aContent = parsedContent;
-                                }
-                                i++; // consumed anchor
-                            } else if (!isZeroOrDollar.test(addr)) {
-                                errors.add("Malformed or missing anchor line after append command: " + anchorLine);
-                                i++; // consume to avoid infinite loop
-                            }
-                        } else if (!isZeroOrDollar.test(addr)) {
-                            errors.add("Missing anchor line after append command for " + path);
-                        }
+                        i++; // move to (optional) anchor line
+                        var allowOmit = isZeroOrDollar(addr);
+                        var anchor = readAnchorLine(
+                                lines, i, addr, allowOmit,
+                                "Append anchor",
+                                "Malformed or missing anchor line after append command: ",
+                                "Missing anchor line after append command for " + path,
+                                errors);
+                        i = anchor.nextIndex();
 
-                        var body = new ArrayList<String>();
-                        boolean implicitClose = false;
-                        while (i < lines.length) {
-                            var bodyLine = lines[i];
-                            var bodyTrim = bodyLine.trim();
-                            if (bodyTrim.equals("BRK_EDIT_EX_END")) {
-                                implicitClose = true;
-                                sawEndFence = true;
-                                break;
-                            }
-                            if (bodyTrim.equals(".")) {
-                                i++;
-                                break;
-                            }
-                            body.add(unescapeBodyLine(bodyLine));
-                            i++;
+                        var bodyRes = readBody(lines, i);
+                        i = bodyRes.nextIndex();
+                        if (bodyRes.implicitClose()) {
+                            sawEndFence = true; // outer loop will see END next
                         }
-                        commands.add(new EdCommand.AppendAfter(n, body, addr, aContent));
-                        if (implicitClose) {
-                            // outer loop will see END next
-                        }
+                        commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), addr, anchor.content()));
                         continue;
                     }
 
@@ -452,7 +302,7 @@ public final class LineEditorParser {
             i++;
         }
 
-        if (textBuf.length() > 0) {
+        if (!textBuf.isEmpty()) {
             parts.add(new OutputPart.Text(textBuf.toString()));
         }
 
@@ -467,6 +317,126 @@ public final class LineEditorParser {
     private static final Pattern RANGE_CMD = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(?:,\\s*([0-9]+|\\$))?\\s*([cd])$");
     private static final Pattern IA_CMD    = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(a)$");
     private static final Pattern ANCHOR_LINE = Pattern.compile("^([0-9]+|\\$)\\s*:\\s*(.*)$");
+    private static final String END_FENCE = "BRK_EDIT_EX_END";
+
+    // Lightweight result records (Java 21)
+    private record BodyReadResult(List<String> body, int nextIndex, boolean implicitClose) {}
+    private record AnchorReadResult(String content, int nextIndex) {}
+    private record RangeAnchors(String endAddr, String beginContent, String endContent, int nextIndex) { }
+
+    private static boolean isZeroOrDollar(String addr) {
+        return "0".equals(addr) || "$".equals(addr);
+    }
+
+    /** Reads the body for 'a' and 'c'. Stops at a single '.' line or at BRK_EDIT_EX_END (implicit close, without consuming it). */
+    private static BodyReadResult readBody(String[] lines, int startIndex) {
+        var body = new ArrayList<String>();
+        int i = startIndex;
+        boolean implicitClose = false;
+
+        while (i < lines.length) {
+            var bodyLine = lines[i];
+            var bodyTrim = bodyLine.trim();
+
+            if (END_FENCE.equals(bodyTrim)) {
+                implicitClose = true;    // do not consume END fence; outer loop will handle
+                break;
+            }
+            if (".".equals(bodyTrim)) {
+                i++;                     // consume explicit terminator
+                break;
+            }
+            body.add(unescapeBodyLine(bodyLine));
+            i++;
+        }
+        return new BodyReadResult(body, i, implicitClose);
+    }
+
+    /**
+     * Reads a single anchor line for an expected address. If allowOmit==true and the next line is not an anchor,
+     * nothing is consumed and no error is reported. On malformed lines (when not allowed to omit), we report an error
+     * and consume one line to avoid infinite loops, mirroring the previous behavior.
+     */
+    private static AnchorReadResult readAnchorLine(
+            String[] lines, int index, String expectedAddr, boolean allowOmit,
+            String mismatchLabel, String malformedPrefix, String eofMessage, List<String> errors) {
+
+        int i = index;
+
+        if (i >= lines.length) {
+            if (!allowOmit) {
+                errors.add(eofMessage);
+            }
+            return new AnchorReadResult("", i);
+        }
+
+        var line = lines[i];
+        var m = ANCHOR_LINE.matcher(line);
+        if (m.matches()) {
+            var parsedAddr = m.group(1);
+            var parsedContent = m.group(2);
+            if (!parsedAddr.equals(expectedAddr)) {
+                errors.add(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
+            }
+            return new AnchorReadResult(parsedContent, i + 1); // consume anchor line
+        }
+
+        if (!allowOmit) {
+            errors.add(malformedPrefix + line);
+            return new AnchorReadResult("", i + 1); // consume questionable line to avoid infinite loop
+        }
+
+        // Optional and not present; do not consume
+        return new AnchorReadResult("", i);
+    }
+
+    /**
+     * Reads anchors for range commands ('change' / 'delete') and returns normalized end address + contents.
+     * Behavior matches the previous inlined logic, including error wording and consumption rules.
+     */
+    private static RangeAnchors readRangeAnchors(
+            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors) {
+
+        int i = startIndex;
+
+        // Begin anchor: required unless 0/$
+        var a1 = readAnchorLine(
+                lines, i, addr1, isZeroOrDollar(addr1),
+                capitalize(opName) + " begin anchor",
+                "Malformed or missing first anchor after " + opName + " command: ",
+                "Missing anchor line(s) after " + opName + " command for " + path,
+                errors);
+        i = a1.nextIndex();
+
+        // End anchor logic differs per op and presence of addr2
+        if (addr2 == null) {
+            if ("change".equals(opName)) {
+                // Single-line change: end anchor equals begin
+                return new RangeAnchors(addr1, a1.content(), a1.content(), i);
+            } else { // delete
+                // Single-address delete: no end anchor
+                return new RangeAnchors("", a1.content(), "", i);
+            }
+        }
+
+        // Range form: parse second anchor, required unless 0/$
+        var a2 = readAnchorLine(
+                lines, i, addr2, isZeroOrDollar(addr2),
+                capitalize(opName) + " end anchor",
+                "Malformed or missing second anchor after " + opName + " command: ",
+                "Missing second anchor line for range " + opName + " command for " + path,
+                errors);
+        i = a2.nextIndex();
+
+        return new RangeAnchors(addr2, a1.content(), a2.content(), i);
+    }
+
+    private static String capitalize(String s) {
+        if (s.isEmpty()) return s;
+        char c0 = s.charAt(0);
+        if (Character.isUpperCase(c0)) return s;
+        return Character.toUpperCase(c0) + s.substring(1);
+    }
 
     private static int parseAddr(String address) {
         return "$".equals(address) ? Integer.MAX_VALUE : Integer.parseInt(address);
