@@ -105,7 +105,7 @@ public interface IContextManager {
         // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
         // project-relative path by stripping the leading slash. If that file exists, return it.
         if (trimmed.startsWith(File.separator)) {
-            var candidateRel = trimmed.substring(1).trim();
+            var candidateRel = trimmed.substring(File.separator.length()).trim();
             var candidate = new ProjectFile(project.getRoot(), candidateRel);
             if (candidate.exists()) {
                 return candidate;
