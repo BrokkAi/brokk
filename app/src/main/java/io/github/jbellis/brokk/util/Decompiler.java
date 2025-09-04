@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.util;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.AbstractProject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;

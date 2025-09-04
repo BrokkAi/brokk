@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.io.File;
 import java.io.IOException;

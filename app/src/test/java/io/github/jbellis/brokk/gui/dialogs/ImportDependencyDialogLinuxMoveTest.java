@@ -12,14 +12,13 @@ import java.nio.file.StandardCopyOption;
 import org.junit.jupiter.api.Test;
 
 /**
- * Reproduces the directory move used by ImportDependencyDialog.performGitImport:
- * - Create a non-empty "cloned" directory in a temp location (/dev/shm preferred on Linux).
- * - Move it into a temp "dependencies" directory within the project root.
+ * Reproduces the directory move used by ImportDependencyDialog.performGitImport: - Create a non-empty "cloned"
+ * directory in a temp location (/dev/shm preferred on Linux). - Move it into a temp "dependencies" directory within the
+ * project root.
  *
- * On Linux, when source and destination are on different filesystems (e.g., tmpfs -> ext4),
- * Files.move(source, dest, REPLACE_EXISTING) may fail with DirectoryNotEmptyException
- * due to JDK-8201407. This test expects the move to succeed; thus it will fail on Linux CI,
- * demonstrating the bug.
+ * <p>On Linux, when source and destination are on different filesystems (e.g., tmpfs -> ext4), Files.move(source, dest,
+ * REPLACE_EXISTING) may fail with DirectoryNotEmptyException due to JDK-8201407. This test expects the move to succeed;
+ * thus it will fail on Linux CI, demonstrating the bug.
  */
 public class ImportDependencyDialogLinuxMoveTest {
     @Test
@@ -51,9 +50,7 @@ public class ImportDependencyDialogLinuxMoveTest {
             Files.move(source, dest, StandardCopyOption.REPLACE_EXISTING);
 
             // If move "succeeds" (same FS), assert the file is present at destination.
-            assertTrue(
-                    Files.exists(dest.resolve("README.md")),
-                    "Move completed but README.md missing at destination");
+            assertTrue(Files.exists(dest.resolve("README.md")), "Move completed but README.md missing at destination");
         } catch (FileSystemException e) {
             // Let the exception propagate (test fails), which demonstrates the bug on Linux.
             throw e;
@@ -78,12 +75,12 @@ public class ImportDependencyDialogLinuxMoveTest {
         if (!Files.exists(root)) return;
         try (var stream = Files.walk(root)) {
             stream.sorted((a, b) -> Integer.compare(b.getNameCount(), a.getNameCount()))
-                  .forEach(p -> {
-                      try {
-                          Files.deleteIfExists(p);
-                      } catch (IOException ignore) {
-                      }
-                  });
+                    .forEach(p -> {
+                        try {
+                            Files.deleteIfExists(p);
+                        } catch (IOException ignore) {
+                        }
+                    });
         }
     }
 }

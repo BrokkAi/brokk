@@ -13,7 +13,6 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import io.github.jbellis.brokk.AbstractProject;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -1071,7 +1070,8 @@ public class Service {
                 .addFormDataPart("user_id", kp.userId().toString());
 
         if (includeDebugLog) {
-            var debugLogPath = Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.DEBUG_LOG_FILE);
+            var debugLogPath =
+                    Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.DEBUG_LOG_FILE);
             var debugFile = debugLogPath.toFile();
             if (debugFile.exists()) {
                 try {

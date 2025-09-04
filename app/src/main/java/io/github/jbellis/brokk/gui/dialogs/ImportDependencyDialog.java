@@ -2,13 +2,13 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.util.Decompiler;
-import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.awt.*;
 import java.io.File;
@@ -94,8 +94,10 @@ public class ImportDependencyDialog {
 
         DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
             this.chrome = chrome;
-            this.dependenciesRoot =
-                    chrome.getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            this.dependenciesRoot = chrome.getProject()
+                    .getRoot()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR);
             this.listener = listener;
         }
 
