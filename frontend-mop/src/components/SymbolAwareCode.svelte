@@ -54,15 +54,27 @@
       return '';
     }
 
-    // Filter out common keywords and literals
+    // For partial matches like "List.add", don't filter based on method names
+    // Only filter if the entire symbol is a keyword (not just part of it)
     const lowerTrimmed = trimmed.toLowerCase();
+
+    // Allow symbols with dots (method references) even if they contain method names
+    if (trimmed.includes('.')) {
+      console.warn(`[SYMBOL-DEBUG] Allowing dotted symbol: "${trimmed}" (method reference)`);
+      log.debug(`Symbol "${trimmed}" allowed as method reference`);
+      return trimmed;
+    }
+
     const hasKeyword = COMMON_KEYWORDS.has(lowerTrimmed);
+    console.warn(`[SYMBOL-DEBUG] Checking "${trimmed}" (lower: "${lowerTrimmed}") against keywords, found: ${hasKeyword}`);
     log.debug(`Checking "${trimmed}" (lower: "${lowerTrimmed}") against keywords, found: ${hasKeyword}`);
     if (hasKeyword) {
+      console.warn(`[SYMBOL-DEBUG] Symbol "${trimmed}" filtered out: common keyword`);
       log.debug(`Symbol "${trimmed}" filtered out: common keyword`);
       return '';
     }
 
+    console.warn(`[SYMBOL-DEBUG] Symbol "${trimmed}" passed cleaning`);
     log.debug(`Symbol "${trimmed}" passed cleaning`);
     return trimmed;
   }
@@ -151,24 +163,31 @@
   });
 
   function validateAndRequestSymbol() {
+    console.warn(`[SYMBOL-DEBUG] validateAndRequestSymbol called with symbolText: "${symbolText}"`);
+
     // Verify we're in browser environment (not server-side rendering)
     if (typeof window === 'undefined') {
+      console.warn(`[SYMBOL-DEBUG] Skipping - no browser environment`);
       log.debug('Skipping symbol validation - no browser environment');
       return;
     }
 
     const cleaned = cleanSymbolName(symbolText);
+    console.warn(`[SYMBOL-DEBUG] Cleaned symbol: "${symbolText}" -> "${cleaned}"`);
 
     if (cleaned && shouldAttemptLookup(cleaned)) {
       isValidSymbol = true;
       symbolText = cleaned;
+      console.warn(`[SYMBOL-DEBUG] Symbol marked as valid, requesting resolution for: "${symbolText}"`);
 
       // Request symbol resolution
       requestSymbolResolution(symbolText, contextId).catch(error => {
+        console.warn(`[SYMBOL-DEBUG] Symbol resolution failed for ${symbolText}:`, error);
         log.warn(`Symbol resolution failed for ${symbolText}:`, error);
       });
 
     } else {
+      console.warn(`[SYMBOL-DEBUG] Invalid symbol: "${symbolText}" (cleaned: "${cleaned}")`);
       log.debug(`Invalid symbol text: '${symbolText}' (cleaned: '${cleaned}')`);
     }
   }
@@ -215,7 +234,7 @@
       parts.push(`FQN: ${cacheEntry.result.fqn || 'null'}`);
       parts.push(`Type: ${isPartialMatch ? 'Partial Match' : 'Exact Match'}`);
       if (highlightRanges.length > 0) {
-        parts.push(`Highlight Ranges: [${highlightRanges.map(r => `${r[0]}-${r[1]}`).join(', ')}]`);
+        parts.push(`Highlight Ranges: [${highlightRanges.map(r => `${r.start}-${r.end}`).join(', ')}]`);
       }
       if (originalText && originalText !== symbolText) {
         parts.push(`Original: ${originalText}`);
@@ -240,9 +259,10 @@
     let lastIndex = 0;
 
     // Sort ranges by start position
-    const sortedRanges = [...highlightRanges].sort((a, b) => a[0] - b[0]);
+    const sortedRanges = [...highlightRanges].sort((a, b) => a.start - b.start);
 
-    for (const [start, end] of sortedRanges) {
+    for (const range of sortedRanges) {
+      const {start, end} = range;
       // Add unhighlighted text before this range
       if (start > lastIndex) {
         segments.push({

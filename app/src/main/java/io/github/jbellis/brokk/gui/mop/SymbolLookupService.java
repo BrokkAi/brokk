@@ -16,7 +16,37 @@ import org.slf4j.LoggerFactory;
 public class SymbolLookupService {
     private static final Logger logger = LoggerFactory.getLogger(SymbolLookupService.class);
 
-    private record SymbolInfo(boolean exists, @Nullable String fqn) {}
+    /** Structured result for symbol lookup with highlight range support */
+    public record SymbolLookupResult(
+            @Nullable String fqn,
+            List<HighlightRange> highlightRanges,
+            boolean isPartialMatch,
+            @Nullable String originalText) {
+        public static SymbolLookupResult notFound(String originalText) {
+            return new SymbolLookupResult(null, List.of(), false, originalText);
+        }
+
+        public static SymbolLookupResult exactMatch(String fqn, String originalText) {
+            return new SymbolLookupResult(
+                    fqn, List.of(new HighlightRange(0, originalText.length())), false, originalText);
+        }
+
+        public static SymbolLookupResult partialMatch(String fqn, String originalText, String extractedClassName) {
+            // Calculate highlight range for the extracted class name within original text
+            int classStart = originalText.indexOf(extractedClassName);
+            if (classStart >= 0) {
+                int classEnd = classStart + extractedClassName.length();
+                return new SymbolLookupResult(
+                        fqn, List.of(new HighlightRange(classStart, classEnd)), true, originalText);
+            }
+            // Fallback: highlight entire text if we can't find the class name
+            return new SymbolLookupResult(
+                    fqn, List.of(new HighlightRange(0, originalText.length())), true, originalText);
+        }
+    }
+
+    /** Character range for highlighting [start, end) */
+    public record HighlightRange(int start, int end) {}
 
     /**
      * Streaming symbol lookup that sends results incrementally as they become available. This provides better perceived
@@ -24,16 +54,27 @@ public class SymbolLookupService {
      *
      * @param symbolNames Set of symbol names to lookup
      * @param contextManager Context manager for accessing analyzer
-     * @param resultCallback Called for each symbol result (symbolName, fqn). fqn is null for non-existent symbols
+     * @param resultCallback Called for each symbol result (symbolName, SymbolLookupResult). Result contains fqn,
+     *     highlight ranges, and partial match info
      * @param completionCallback Called when all symbols have been processed
      */
     public static void lookupSymbols(
             Set<String> symbolNames,
             @Nullable IContextManager contextManager,
-            BiConsumer<String, String> resultCallback,
+            BiConsumer<String, SymbolLookupResult> resultCallback,
             @Nullable Runnable completionCallback) {
 
+        logger.debug(
+                "[SYMBOL-DEBUG] SymbolLookupService.lookupSymbols called with {} symbols: {}",
+                symbolNames.size(),
+                symbolNames);
+        logger.debug("[SYMBOL-DEBUG] contextManager is null: {}", contextManager == null);
+
         if (symbolNames.isEmpty() || contextManager == null) {
+            logger.debug(
+                    "[SYMBOL-DEBUG] Early return - symbolNames empty: {}, contextManager null: {}",
+                    symbolNames.isEmpty(),
+                    contextManager == null);
             if (completionCallback != null) {
                 completionCallback.run();
             }
@@ -58,21 +99,22 @@ public class SymbolLookupService {
             }
 
             // Process each symbol individually and send result immediately
+            logger.debug("[SYMBOL-DEBUG] Processing {} symbols with analyzer", symbolNames.size());
             for (var symbolName : symbolNames) {
+                logger.debug("[SYMBOL-DEBUG] Processing symbol: '{}'", symbolName);
                 try {
-                    var symbolInfo = checkSymbolExists(analyzer, symbolName);
+                    var symbolResult = checkSymbolExists(analyzer, symbolName);
+                    logger.debug("[SYMBOL-DEBUG] Symbol '{}' result: {}", symbolName, symbolResult);
 
-                    // Send result immediately (both found and not found symbols)
-                    if (symbolInfo.exists() && symbolInfo.fqn() != null) {
-                        resultCallback.accept(symbolName, symbolInfo.fqn());
-                    } else {
-                        // Send null fqn for non-existent symbols so frontend knows they don't exist
-                        resultCallback.accept(symbolName, null);
-                    }
+                    // Send result immediately (always send the SymbolLookupResult)
+                    resultCallback.accept(symbolName, symbolResult);
+                    logger.debug("[SYMBOL-DEBUG] Callback completed for symbol: '{}'", symbolName);
                 } catch (Exception e) {
-                    logger.warn("Error processing symbol '{}' in streaming lookup", symbolName, e);
-                    // Send null result for failed lookups
-                    resultCallback.accept(symbolName, null);
+                    logger.warn("[SYMBOL-DEBUG] Error processing symbol '{}' in streaming lookup", symbolName, e);
+                    // Send not found result for failed lookups
+                    var notFoundResult = SymbolLookupResult.notFound(symbolName);
+                    resultCallback.accept(symbolName, notFoundResult);
+                    logger.debug("[SYMBOL-DEBUG] Sent not-found result for symbol: '{}'", symbolName);
                 }
             }
 
@@ -88,9 +130,9 @@ public class SymbolLookupService {
         }
     }
 
-    private static SymbolInfo checkSymbolExists(IAnalyzer analyzer, String symbolName) {
+    private static SymbolLookupResult checkSymbolExists(IAnalyzer analyzer, String symbolName) {
         if (symbolName.trim().isEmpty()) {
-            return new SymbolInfo(false, null);
+            return SymbolLookupResult.notFound(symbolName);
         }
 
         var trimmed = symbolName.trim();
@@ -99,51 +141,32 @@ public class SymbolLookupService {
             // First try exact FQN match
             var definition = analyzer.getDefinition(trimmed);
             if (definition.isPresent() && definition.get().isClass()) {
-                return new SymbolInfo(true, definition.get().fqName());
+                return SymbolLookupResult.exactMatch(definition.get().fqName(), trimmed);
             }
 
-            // Then try pattern search
+            // Then try pattern search for exact matches
             var searchResults = analyzer.searchDefinitions(trimmed);
-
             if (!searchResults.isEmpty()) {
-                logger.trace(
-                        "Search results for '{}': {}",
-                        trimmed,
-                        searchResults.stream().limit(5).map(cu -> cu.fqName()).toList());
-
-                // For Java, return all exact class matches; for other languages, find best match
-                if (searchResults.isEmpty()) {
-                    logger.trace("No matches found for '{}'", trimmed);
-                    return new SymbolInfo(false, null);
-                }
-
-                // Try class matching first (handles multiple classes with same name)
                 var classMatches = findAllClassMatches(trimmed, searchResults);
                 if (!classMatches.isEmpty()) {
                     var commaSeparatedFqns =
                             classMatches.stream().map(CodeUnit::fqName).sorted().collect(Collectors.joining(","));
-                    return new SymbolInfo(true, commaSeparatedFqns);
+                    return SymbolLookupResult.exactMatch(commaSeparatedFqns, trimmed);
                 }
-
-                // Only return true for class symbols, not methods or fields
-                return new SymbolInfo(false, null);
             }
 
-            // Fallback: If search failed and looks like method reference, try searching for the class name.
-            // Normalize and try several candidate variants (e.g. strip templates, swap separators) to improve hit rate.
+            // Fallback: Try partial matching via class name extraction
             var extractedClassName = analyzer.extractClassName(trimmed);
             if (extractedClassName.isPresent()) {
                 var rawClassName = extractedClassName.get();
-                logger.trace("Attempting fallback class search for extracted class name: '{}'", rawClassName);
 
                 var candidates = ClassNameExtractor.normalizeVariants(rawClassName);
-
                 for (var candidate : candidates) {
                     // Try exact FQN match for candidate
                     var classDefinition = analyzer.getDefinition(candidate);
                     if (classDefinition.isPresent() && classDefinition.get().isClass()) {
-                        logger.trace("Found class via method reference fallback (exact): {}", classDefinition.get().fqName());
-                        return new SymbolInfo(true, classDefinition.get().fqName());
+                        return SymbolLookupResult.partialMatch(
+                                classDefinition.get().fqName(), trimmed, rawClassName);
                     }
 
                     // Try pattern search for candidate
@@ -155,18 +178,17 @@ public class SymbolLookupService {
                                     .map(CodeUnit::fqName)
                                     .sorted()
                                     .collect(Collectors.joining(","));
-                            logger.trace("Found class(es) via method reference fallback (pattern): {}", commaSeparatedFqns);
-                            return new SymbolInfo(true, commaSeparatedFqns);
+                            return SymbolLookupResult.partialMatch(commaSeparatedFqns, trimmed, rawClassName);
                         }
                     }
                 }
             }
 
-            return new SymbolInfo(false, null);
+            return SymbolLookupResult.notFound(trimmed);
 
         } catch (Exception e) {
             logger.trace("Error checking symbol existence for '{}': {}", trimmed, e.getMessage());
-            return new SymbolInfo(false, null);
+            return SymbolLookupResult.notFound(trimmed);
         }
     }
 

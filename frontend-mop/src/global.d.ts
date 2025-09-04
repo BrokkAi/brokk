@@ -1,4 +1,5 @@
 import type { BrokkEvent, BufferItem } from './types';
+import type { SymbolLookupResult } from './stores/symbolCacheStore';
 
 export {};
 
@@ -23,7 +24,7 @@ declare global {
 
       // Symbol lookup API
       refreshSymbolLookup: (contextId?: string) => void;
-      onSymbolLookupResponse?: (results: Record<string, string>, seq: number, contextId: string) => void;
+      onSymbolLookupResponse?: (results: Record<string, SymbolLookupResult>, seq: number, contextId: string) => void;
     };
     javaBridge?: {
       onAck: (epoch: number) => void;

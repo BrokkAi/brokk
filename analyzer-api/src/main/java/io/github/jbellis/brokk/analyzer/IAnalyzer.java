@@ -224,19 +224,21 @@ public interface IAnalyzer {
     record FunctionLocation(ProjectFile file, int startLine, int endLine, String code) {}
 
     /**
-     * Extracts the class/module/type name from a reference that looks like a method/member reference,
-     * such as "MyClass.myMethod" (Java/Python/JS) or "ns::Type::method" (C++/Rust).
+     * Extracts the class/module/type name from a reference that looks like a method/member reference, such as
+     * "MyClass.myMethod" (Java/Python/JS) or "ns::Type::method" (C++/Rust).
      *
      * <p>Important semantics and limitations:
+     *
      * <ul>
      *   <li>This method is intentionally heuristic: it does not parse source code and therefore may produce false
      *       positives or false negatives depending on naming conventions and unusual identifier characters.
      *   <li>Typical return values:
      *       <ul>
-     *         <li>Language/module-qualified identifiers, e.g. "com.example.MyClass" or "crate::mod::Type"</li>
-     *         <li>Module names such as "os.path" (Python) or "std::string" (C++) when appropriate</li>
+     *         <li>Language/module-qualified identifiers, e.g. "com.example.MyClass" or "crate::mod::Type"
+     *         <li>Module names such as "os.path" (Python) or "std::string" (C++) when appropriate
      *       </ul>
-     *   <li>When the analyzer cannot determine a plausible class/module name, the method returns {@link Optional#empty()}.
+     *   <li>When the analyzer cannot determine a plausible class/module name, the method returns
+     *       {@link Optional#empty()}.
      *   <li>The default implementation returns {@link Optional#empty()}. Language-specific analyzers may override this
      *       method to supply language-aware heuristics.
      *   <li>Callers should treat the returned string as a search token rather than a guaranteed exact FQN. Callers may
@@ -245,11 +247,10 @@ public interface IAnalyzer {
      * </ul>
      *
      * @param reference The reference string to analyze (e.g., "MyClass.myMethod", "package::Class::method")
-     * @return Optional containing the extracted class/module name if the reference appears to be a method/member reference,
-     *     empty otherwise
+     * @return Optional containing the extracted class/module name if the reference appears to be a method/member
+     *     reference, empty otherwise
      */
     default Optional<String> extractClassName(String reference) {
         return Optional.empty();
     }
-
 }

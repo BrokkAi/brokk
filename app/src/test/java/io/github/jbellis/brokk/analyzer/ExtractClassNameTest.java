@@ -11,8 +11,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Comprehensive tests for extractClassName method across all analyzer implementations. Tests language-specific method
- * reference detection and class name extraction. Tests are written against the current heuristic logic and verify
- * known edge cases.
+ * reference detection and class name extraction. Tests are written against the current heuristic logic and verify known
+ * edge cases.
  */
 public class ExtractClassNameTest {
 
@@ -57,7 +57,8 @@ public class ExtractClassNameTest {
 
         // Edge cases consistent with heuristic
         assertEquals(Optional.empty(), analyzer.extractClassName("myclass.myMethod")); // lowercase class
-        assertEquals(Optional.empty(), analyzer.extractClassName("MyClass.MyMethod")); // uppercase method (not typical Java)
+        assertEquals(
+                Optional.empty(), analyzer.extractClassName("MyClass.MyMethod")); // uppercase method (not typical Java)
 
         // Inner-class style using $ is not recognized by this heuristic (tests ensure no exception)
         assertEquals(Optional.empty(), analyzer.extractClassName("com.example.Outer$Inner.method"));
@@ -104,7 +105,9 @@ public class ExtractClassNameTest {
 
         // Valid Rust method references
         assertEquals(Optional.of("MyStruct"), analyzer.extractClassName("MyStruct::new"));
-        assertEquals(Optional.of("std::collections::HashMap"), analyzer.extractClassName("std::collections::HashMap::insert"));
+        assertEquals(
+                Optional.of("std::collections::HashMap"),
+                analyzer.extractClassName("std::collections::HashMap::insert"));
         assertEquals(Optional.of("Vec"), analyzer.extractClassName("Vec::push"));
 
         // Snake case methods (typical in Rust)
@@ -112,7 +115,8 @@ public class ExtractClassNameTest {
         assertEquals(Optional.of("std::fs::File"), analyzer.extractClassName("std::fs::File::create_new"));
 
         // Module paths
-        assertEquals(Optional.of("crate::utils::Helper"), analyzer.extractClassName("crate::utils::Helper::do_something"));
+        assertEquals(
+                Optional.of("crate::utils::Helper"), analyzer.extractClassName("crate::utils::Helper::do_something"));
 
         // Invalid cases - should return empty
         assertEquals(Optional.empty(), analyzer.extractClassName("MyStruct"));
@@ -189,7 +193,8 @@ public class ExtractClassNameTest {
 
         // Multiple separators
         assertEquals(Optional.of("ns1::ns2::Class"), cppAnalyzer.extractClassName("ns1::ns2::Class::method"));
-        assertEquals(Optional.of("com.example.deep.Class"), javaAnalyzer.extractClassName("com.example.deep.Class.method"));
+        assertEquals(
+                Optional.of("com.example.deep.Class"), javaAnalyzer.extractClassName("com.example.deep.Class.method"));
 
         // Empty parts
         assertEquals(Optional.empty(), javaAnalyzer.extractClassName("..method"));

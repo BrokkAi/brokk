@@ -2,6 +2,19 @@ import {writable, get, readable} from 'svelte/store';
 import {createLogger} from '../lib/logging';
 import {mockExtractSymbol, type MockSymbolResult} from '../dev/mockSymbolExtractor';
 
+// Backend response interfaces (matches Java records)
+export interface HighlightRange {
+    start: number;
+    end: number;
+}
+
+export interface SymbolLookupResult {
+    fqn: string | null;
+    highlightRanges: HighlightRange[];
+    isPartialMatch: boolean;
+    originalText: string | null;
+}
+
 const log = createLogger('symbol-cache-store');
 
 // Cache configuration
@@ -31,7 +44,7 @@ const pendingByContext = new Map<string, Set<string>>();
 
 // Symbol cache entry with resolution status
 export interface SymbolCacheEntry {
-    result?: MockSymbolResult | null;
+    result?: MockSymbolResult | SymbolLookupResult | null;
     status: 'pending' | 'resolved';
     contextId: string;
     timestamp: number;
@@ -75,7 +88,17 @@ export function subscribeKey(cacheKey: string) {
 function shallowEqual(a: SymbolCacheEntry | undefined, b: SymbolCacheEntry | undefined): boolean {
     if (a === b) return true;
     if (!a || !b) return false;
-    return a.status === b.status && a.fqn === b.fqn && a.contextId === b.contextId;
+
+    // Compare basic fields
+    if (a.status !== b.status || a.contextId !== b.contextId) {
+        return false;
+    }
+
+    // Compare result FQNs
+    const aFqn = a.result?.fqn;
+    const bFqn = b.result?.fqn;
+
+    return aFqn === bFqn;
 }
 
 /**
@@ -228,12 +251,17 @@ function processBatchForContext(contextId: string, immediate: boolean = false): 
 
     // Make single batched request
     const sequence = getNextSequence(contextId);
+    console.warn(`[SYMBOL-DEBUG] Making backend call for ${symbolArray.length} symbols:`, symbolArray, `sequence: ${sequence}, contextId: ${contextId}`);
+
     if (window.javaBridge?.lookupSymbolsAsync) {
         window.javaBridge.lookupSymbolsAsync(
             JSON.stringify(symbolArray),
             sequence,
             contextId
         );
+        console.warn(`[SYMBOL-DEBUG] Java bridge call completed for symbols:`, symbolArray);
+    } else {
+        console.warn(`[SYMBOL-DEBUG] No Java bridge available! window.javaBridge:`, window.javaBridge);
     }
 
     // Mark all symbols as pending in cache
@@ -263,9 +291,11 @@ function processBatchForContext(contextId: string, immediate: boolean = false): 
  */
 export function requestSymbolResolution(symbol: string, contextId: string = 'main-context'): Promise<void> {
     const cacheKey = `${contextId}:${symbol}`;
+    console.warn(`[SYMBOL-DEBUG] Symbol resolution requested for: "${symbol}", contextId: ${contextId}, cacheKey: ${cacheKey}`);
 
     // Check if request already in flight
     if (inflightRequests.has(cacheKey)) {
+        console.warn(`[SYMBOL-DEBUG] Request already in flight for: ${cacheKey}`);
         return inflightRequests.get(cacheKey)!;
     }
 
@@ -278,6 +308,7 @@ export function requestSymbolResolution(symbol: string, contextId: string = 'mai
     // Clean up when done
     requestPromise.finally(() => {
         inflightRequests.delete(cacheKey);
+        console.warn(`[SYMBOL-DEBUG] Cleaned up in-flight request: ${cacheKey}`);
     });
 
     return requestPromise;
@@ -356,11 +387,19 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
 
 /**
  * Handle symbol resolution response from Java bridge
- * @param results - Map of symbol names to their FQNs (or undefined for not found)
+ * @param results - Map of symbol names to their SymbolLookupResults (contains FQN, highlight ranges, and partial match info)
  * @param seqOrContextId - Either sequence number (legacy) or contextId (reactive)
  * @param contextId - Context ID (when sequence is provided)
  */
-export function onSymbolResolutionResponse(results: Record<string, string>, seqOrContextId: number | string = 'main-context', contextId?: string): void {
+export function onSymbolResolutionResponse(results: Record<string, SymbolLookupResult>, seqOrContextId: number | string = 'main-context', contextId?: string): void {
+    console.warn(`[SYMBOL-DEBUG] Response received:`, {
+        resultsKeys: Object.keys(results),
+        resultsCount: Object.keys(results).length,
+        seqOrContextId,
+        contextId,
+        results: results
+    });
+
     // Handle both signatures: (results, contextId) and (results, seq, contextId)
     let actualContextId: string;
     let sequence: number | null = null;
@@ -368,20 +407,26 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
     if (typeof seqOrContextId === 'string') {
         // Legacy signature: (results, contextId)
         actualContextId = seqOrContextId;
+        console.warn(`[SYMBOL-DEBUG] Using legacy signature, contextId: ${actualContextId}`);
     } else {
         // New signature: (results, seq, contextId)
         sequence = seqOrContextId;
         actualContextId = contextId || 'main-context';
+        console.warn(`[SYMBOL-DEBUG] Using new signature, sequence: ${sequence}, contextId: ${actualContextId}`);
 
         // Validate sequence if provided
         if (!isValidSequence(actualContextId, sequence)) {
+            console.warn(`[SYMBOL-DEBUG] Sequence validation failed, discarding response for sequence ${sequence}, contextId ${actualContextId}`);
             return; // Discard stale response - already logged in isValidSequence
         }
+        console.warn(`[SYMBOL-DEBUG] Sequence validation passed for sequence ${sequence}, contextId ${actualContextId}`);
     }
 
     if (Object.keys(results).length === 0) {
         return;
     }
+
+    console.warn(`[SYMBOL-DEBUG] About to update cache with ${Object.keys(results).length} results for contextId ${actualContextId}`);
 
     symbolCacheStore.update(cache => {
         const newCache = new Map(cache);
@@ -404,18 +449,12 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
 
         // Update cache with resolved symbols
         const keysToNotify: string[] = [];
-        for (const [symbol, fqn] of Object.entries(results)) {
+        for (const [symbol, symbolResult] of Object.entries(results)) {
             const cacheKey = `${actualContextId}:${symbol}`;
 
-            // Update the mock result with the real FQN from backend
-            const existingEntry = newCache.get(cacheKey);
-            const mockResult = existingEntry?.result;
-
-            // If we don't have a mock result, try to extract one now for proper highlighting
-            const finalMockResult = mockResult || mockExtractSymbol(symbol);
-
+            // Use the backend SymbolLookupResult directly
             const resolvedEntry: SymbolCacheEntry = {
-                result: finalMockResult ? { ...finalMockResult, fqn: fqn } : { fqn: fqn, highlightRanges: [[0, symbol.length]], isPartialMatch: false, originalText: symbol },
+                result: symbolResult,
                 status: 'resolved',
                 contextId: actualContextId,
                 timestamp: Date.now(),
@@ -477,6 +516,7 @@ export function onSymbolResolutionResponse(results: Record<string, string>, seqO
             }
         }, 0);
 
+        console.warn(`[SYMBOL-DEBUG] Cache updated successfully: ${updatedCount} resolved, ${notFoundCount} not found, ${keysToNotify.length} keys to notify`);
         return newCache;
     });
 }

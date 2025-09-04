@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import java.util.*;
 import java.util.Optional;
 import org.treesitter.TSLanguage;
@@ -20,7 +19,6 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
     public Optional<String> extractClassName(String reference) {
         return ClassNameExtractor.extractForJava(reference);
     }
-
 
     @Override
     protected TSLanguage createTSLanguage() {

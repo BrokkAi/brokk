@@ -4,19 +4,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 /**
- * Utility for extracting and normalizing class/module names from textual references such as
- * "MyClass.myMethod" or "ns::Type::method".
+ * Utility for extracting and normalizing class/module names from textual references such as "MyClass.myMethod" or
+ * "ns::Type::method".
  *
- * <p>This utility centralizes the simple, heuristic patterns used across analyzers. It is intentionally
- * conservative: it prefers returning {@link Optional#empty()} when the input does not look like a plausible
- * method/member reference.
+ * <p>This utility centralizes the simple, heuristic patterns used across analyzers. It is intentionally conservative:
+ * it prefers returning {@link Optional#empty()} when the input does not look like a plausible method/member reference.
  *
- * <p>Normalization helpers are provided to produce several lookup-friendly variants (strip templates,
- * replace "::" with ".", etc.) that are useful when trying to resolve the extracted token against
- * an index.
+ * <p>Normalization helpers are provided to produce several lookup-friendly variants (strip templates, replace "::" with
+ * ".", etc.) that are useful when trying to resolve the extracted token against an index.
  */
 public final class ClassNameExtractor {
 
@@ -94,17 +91,14 @@ public final class ClassNameExtractor {
     /* Normalization helpers ----------------------------------------------- */
 
     /**
-     * Produce a list of candidate normalized variants for a previously-extracted class name.
-     * The list preserves order and deduplicates while keeping insertion order.
+     * Produce a list of candidate normalized variants for a previously-extracted class name. The list preserves order
+     * and deduplicates while keeping insertion order.
      *
-     * Examples:
-     *  - "std::vector" -> ["std::vector", "std.vector"]
-     *  - "com.example.MyClass" -> ["com.example.MyClass", "com::example::MyClass"]
-     *  - "crate::mod::Type<T>" -> ["crate::mod::Type<T>", "crate::mod::Type", "crate.mod.Type"]
+     * <p>Examples: - "std::vector" -> ["std::vector", "std.vector"] - "com.example.MyClass" -> ["com.example.MyClass",
+     * "com::example::MyClass"] - "crate::mod::Type<T>" -> ["crate::mod::Type<T>", "crate::mod::Type", "crate.mod.Type"]
      *
-     * Note: This helper performs lightweight normalization only (template parameter stripping,
-     * simple separator swaps). More advanced canonicalization should be performed by callers
-     * if required.
+     * <p>Note: This helper performs lightweight normalization only (template parameter stripping, simple separator
+     * swaps). More advanced canonicalization should be performed by callers if required.
      */
     public static List<String> normalizeVariants(String extracted) {
         var variants = new LinkedHashSet<String>();

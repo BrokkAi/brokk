@@ -4,7 +4,6 @@ import static io.github.jbellis.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 import static java.util.Optional.*;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import io.github.jbellis.brokk.analyzer.cpp.NamespaceProcessor;
 import io.github.jbellis.brokk.analyzer.cpp.SkeletonGenerator;
 import java.io.IOException;

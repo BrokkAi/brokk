@@ -56,7 +56,7 @@ export function createMockJavaBridge(): MockJavaBridge {
         // Unified symbol lookup implementation for new store-based architecture
         lookupSymbolsAsync: function(symbolNamesJson: string, seq: number, contextId: string) {
             console.log(`[Mock JavaBridge] Lookup request received: symbols=${symbolNamesJson}, seq=${seq}, contextId=${contextId}`);
-            const results: Record<string, string> = {};
+            const results: Record<string, any> = {};
 
             // Parse symbols from JSON
             const symbols = JSON.parse(symbolNamesJson);
@@ -66,7 +66,12 @@ export function createMockJavaBridge(): MockJavaBridge {
                 // First check for exact matches in our mock symbol set
                 const exactExists = mockSymbolsSet.has(symbol);
                 if (exactExists) {
-                    results[symbol] = `com.example.mock.${symbol}`;
+                    results[symbol] = {
+                        fqn: `com.example.mock.${symbol}`,
+                        highlightRanges: [[0, symbol.length]],
+                        isPartialMatch: false,
+                        originalText: symbol
+                    };
                     continue;
                 }
 
@@ -79,7 +84,12 @@ export function createMockJavaBridge(): MockJavaBridge {
 
                     // Check if the extracted class exists in our mock set
                     if (mockSymbolsSet.has(className)) {
-                        results[symbol] = `com.example.mock.${className}`;  // Return FQN for the class
+                        results[symbol] = {
+                            fqn: `com.example.mock.${className}`,
+                            highlightRanges: [[0, className.length]], // Highlight only the class part
+                            isPartialMatch: true,
+                            originalText: symbol
+                        };
                         console.log(`[Mock JavaBridge] Partial match: ${symbol} -> ${className}`);
                         continue;
                     }

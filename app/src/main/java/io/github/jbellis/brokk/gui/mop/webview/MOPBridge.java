@@ -277,9 +277,13 @@ public final class MOPBridge {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
 
+        logger.debug("[SYMBOL-DEBUG] === BACKEND ENTRY POINT ===");
         logger.debug(
-                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
-        logger.debug("ContextManager available: {}", contextManager != null);
+                "[SYMBOL-DEBUG] lookupSymbolsAsync called with JSON: {}, seq: {}, contextId: {}",
+                symbolNamesJson,
+                seq,
+                contextId);
+        logger.debug("[SYMBOL-DEBUG] ContextManager available: {}", contextManager != null);
 
         // Parse symbol names (keep existing parsing logic)
         Set<String> symbolNames;
@@ -316,16 +320,25 @@ public final class MOPBridge {
                         symbolNames,
                         contextManager,
                         // Result callback - called for each individual symbol result
-                        (symbolName, fqn) -> {
+                        (symbolName, symbolResult) -> {
+                            logger.debug(
+                                    "[SYMBOL-DEBUG] Backend received symbol result: {} -> {}",
+                                    symbolName,
+                                    symbolResult);
+
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
+                                    var singleResult = java.util.Map.of(symbolName, symbolResult);
                                     var resultsJson = toJson(singleResult);
+                                    logger.debug("[SYMBOL-DEBUG] Sending to frontend: {}", resultsJson);
+
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
                                             + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
                                             + toJson(contextId) + "); }";
+                                    logger.debug("[SYMBOL-DEBUG] Executing JS: {}", js);
                                     engine.executeScript(js);
+                                    logger.debug("[SYMBOL-DEBUG] JS execution completed for symbol: {}", symbolName);
                                 } catch (Exception e) {
                                     logger.warn(
                                             "Failed to send streaming symbol lookup result for '{}'", symbolName, e);

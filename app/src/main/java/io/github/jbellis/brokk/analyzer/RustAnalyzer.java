@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer;
 import static io.github.jbellis.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.analyzer.ClassNameExtractor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
