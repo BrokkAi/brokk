@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Data model for line-based editing operations.
@@ -24,14 +25,26 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
     record DeleteFile(ProjectFile file) implements LineEdit { }
 
     /**
+     * Anchor for validating addresses. addrToken is the original token ("0", "1", ..., "$");
+     * content is the exact current line text expected at that address.
+     */
+    record Anchor(String addrToken, String content) { }
+
+    /**
      * Replace a range of lines in the specified file with the provided content.
      * Lines are 1-based and the range is inclusive.
      *
-     * <p>This is the internal representation; insertion is modeled by `endLine < beginLine` (e.g.,
-     * `beginLine=1, endLine=0` inserts at the start). The external representation seen by the LLM uses
-     * a `type` attribute instead.
+     * <p>Insertion is modeled by {@code endLine < beginLine} (e.g., {@code beginLine=1, endLine=0} inserts at the start).
+     * Anchors validate current file content at the addressed positions before applying. For deletions and insertions,
+     * only the begin anchor is validated; for changes, both begin and end anchors are validated (for single-line changes,
+     * the end anchor should equal the begin anchor).
      */
-    record EditFile(ProjectFile file, int beginLine, int endLine, String content) implements LineEdit {
+    record EditFile(ProjectFile file,
+                    int beginLine,
+                    int endLine,
+                    String content,
+                    Anchor beginAnchor,
+                    Anchor endAnchor) implements LineEdit {
         public EditFile {
             assert beginLine >= 1 : "beginLine must be >= 1";
             assert endLine >= 0 : "endLine must be >= 0";

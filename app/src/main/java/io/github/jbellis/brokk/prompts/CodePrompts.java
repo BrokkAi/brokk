@@ -866,23 +866,24 @@ public abstract class CodePrompts {
         int total = failures.size();
         boolean single = total == 1;
         sb.append("""
-            <instructions>
-            # %d edit command failure%s in %d file%s!
+    <instructions>
+    # %d edit command failure%s in %d file%s!
 
-            Review the CURRENT state of these files below in <current_content>.
-            Provide corrected **BRK_EDIT_EX / BRK_EDIT_RM** blocks for the failed edits only.
+    Review the CURRENT state of these files below in <current_content>.
+    Provide corrected **BRK_EDIT_EX / BRK_EDIT_RM** blocks for the failed edits only.
 
-            Tips:
-            - Addresses are absolute numeric (1-based). Ranges n,m are inclusive.
-            - INSERT BEFORE: `n i`; APPEND AFTER: `n a` (use `0 a` to insert at the start).
-            - CHANGE: `n[,m] c` with body ending in a single `.` (the final body in a block may omit the dot).
-            - DELETE: `n[,m] d` (no body).
-            - `w`, `q` and other non-edit commands are ignored. Shell `!` is not supported.
-            - regex addresses or s/// are not supported
-            - Emit commands in **descending line order (last edits first)** within each file to avoid line shifts.
-            - Overlapping edits are an error.
-            </instructions>
-            """.stripIndent().formatted(total, single ? "" : "s", byFile.size(), byFile.size() == 1 ? "" : "s"));
+    Tips:
+    - Addresses are absolute numeric (1-based). Ranges n,m are inclusive; use `0` and `$` as documented.
+    - **Anchors are mandatory**:
+      - After `a n` provide exactly one line: `n: <current line at n>`
+      - After `c n[,m]` provide `n:` (and `m:` when `m` is present)
+      - After `d n[,m]` provide exactly one line: `n: <current line at n>`
+      - `0:` refers to the first line; `$:` refers to the last line; leave blank if the file is empty.
+    - Body is required only for **a** and **c**; end it with a single `.` on its own line.
+    - Emit commands in **descending line order (last edits first)** within each file to avoid line shifts.
+    - Overlapping edits are an error.
+    </instructions>
+    """.stripIndent().formatted(total, single ? "" : "s", byFile.size(), byFile.size() == 1 ? "" : "s"));
 
         for (var entry : byFile.entrySet()) {
             var file = entry.getKey();

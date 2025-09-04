@@ -8,8 +8,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Apply line-based edits described by LineEdit objects to the workspace.
@@ -39,6 +42,7 @@ public final class LineEditor {
     public enum FailureReason {
         FILE_NOT_FOUND,
         INVALID_LINE_RANGE,
+        ANCHOR_MISMATCH,
         IO_ERROR
     }
 
@@ -176,6 +180,8 @@ public final class LineEditor {
         var body = ef.content();
 
         final boolean isInsertion = end < begin;
+        final boolean isDelete = !isInsertion && body.isEmpty();
+        final boolean isChange = !isInsertion && !isDelete;
 
         final String original = pf.exists() ? pf.read() : "";
         var lines = splitIntoLines(original);
@@ -188,12 +194,20 @@ public final class LineEditor {
             // '$' sentinel for insert maps to n+1; otherwise use provided begin
             int requestedBegin = (begin == Integer.MAX_VALUE) ? (n + 1) : begin;
 
+            // Validate position first (so tests expecting INVALID_LINE_RANGE still pass)
             if (requestedBegin < 1 || requestedBegin > n + 1) {
                 failures.add(new FailedEdit(
                         ef,
                         FailureReason.INVALID_LINE_RANGE,
                         "Invalid insertion index: begin=%d for file with %d lines (valid 1..%d)"
                                 .formatted(begin, n, n + 1)));
+                return;
+            }
+
+            // Validate anchors (insertion validates only the begin anchor)
+            String anchorError = validateAnchors(ef, lines);
+            if (anchorError != null) {
+                failures.add(new FailedEdit(ef, FailureReason.ANCHOR_MISMATCH, anchorError));
                 return;
             }
 
@@ -222,11 +236,19 @@ public final class LineEditor {
         int normalizedBegin = (begin == 0) ? 1 : (begin == Integer.MAX_VALUE ? n : begin);
         int normalizedEnd   = (end   == Integer.MAX_VALUE) ? n : end;
 
+        // Validate range before anchors so tests expecting INVALID_LINE_RANGE still pass
         if (normalizedBegin < 1 || normalizedEnd < normalizedBegin || normalizedEnd > n) {
             failures.add(new FailedEdit(
                     ef,
                     FailureReason.INVALID_LINE_RANGE,
                     "Invalid replacement range: begin=%d end=%d for file with %d lines".formatted(begin, end, n)));
+            return;
+        }
+
+        // Validate anchors: delete checks begin only; change checks begin+end
+        String anchorError = validateAnchors(ef, lines);
+        if (anchorError != null) {
+            failures.add(new FailedEdit(ef, FailureReason.ANCHOR_MISMATCH, anchorError));
             return;
         }
 
@@ -242,6 +264,67 @@ public final class LineEditor {
         logger.info("Replacing lines {}..{} (incl) in {} with {} new line(s)",
                     normalizedBegin, normalizedEnd, pf, bodyLines.size());
         writeBack(pf, newLines);
+    }
+
+    private static String validateAnchors(LineEdit.EditFile ef, List<String> lines) {
+        final boolean isInsertion = ef.endLine() < ef.beginLine();
+        final boolean isDelete = !isInsertion && ef.content().isEmpty();
+        final boolean isChange = !isInsertion && !isDelete;
+
+        var sb = new StringBuilder();
+        boolean mismatch = false;
+
+        // Always validate begin anchor
+        var msg = checkOneAnchor("begin", ef.beginAnchor(), lines);
+        if (msg != null) {
+            mismatch = true;
+            sb.append(msg).append('\n');
+        }
+
+        if (isChange) {
+            var msg2 = checkOneAnchor("end", ef.endAnchor(), lines);
+            if (msg2 != null) {
+                mismatch = true;
+                sb.append(msg2).append('\n');
+            }
+        }
+
+        return mismatch ? sb.toString().trim() : null;
+    }
+
+    private static String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
+        var expected = anchor.content();
+        var actualOpt = contentForToken(lines, anchor.addrToken());
+        var actual = actualOpt.orElse("");
+        // Empty file + blank expected is OK
+        if (!actualOpt.isPresent() && expected.isEmpty()) {
+            return null;
+        }
+        if (!actual.equals(expected)) {
+            return "Anchor mismatch (" + which + "): token '" + anchor.addrToken()
+                    + "' expected [" + expected + "] but was [" + (actualOpt.isPresent() ? actual : "<no line>") + "]";
+        }
+        return null;
+    }
+
+    /** Returns the exact line content for a token ("0", "1".., "$"), or empty if no such line exists. */
+    private static Optional<String> contentForToken(List<String> lines, String token) {
+        int n = lines.size();
+        if ("$".equals(token)) {
+            return (n == 0) ? java.util.Optional.empty() : java.util.Optional.of(lines.get(n - 1));
+        }
+        if ("0".equals(token)) {
+            return (n == 0) ? java.util.Optional.empty() : java.util.Optional.of(lines.get(0));
+        }
+        try {
+            int idx = Integer.parseInt(token);
+            if (idx >= 1 && idx <= n) {
+                return java.util.Optional.of(lines.get(idx - 1));
+            }
+        } catch (NumberFormatException ignore) {
+            // not possible given parser constraints
+        }
+        return java.util.Optional.empty();
     }
 
     private static List<String> splitIntoLines(String text) {
