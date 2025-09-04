@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import java.io.File;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -101,9 +102,9 @@ public interface IContextManager {
         var trimmed = relName.trim();
         var project = getProject();
 
-        // If an absolute-like path is provided (leading '/'), attempt to interpret it as a
+        // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
         // project-relative path by stripping the leading slash. If that file exists, return it.
-        if (trimmed.startsWith("/")) {
+        if (trimmed.startsWith(File.separator)) {
             var candidateRel = trimmed.substring(1).trim();
             var candidate = new ProjectFile(project.getRoot(), candidateRel);
             if (candidate.exists()) {

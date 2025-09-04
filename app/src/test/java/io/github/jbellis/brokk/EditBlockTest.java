@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -700,18 +701,22 @@ class EditBlockTest {
         Files.createDirectories(subdir);
         Path filePath = subdir.resolve("foo.txt");
         Files.writeString(filePath, "content\n");
+        var sep = File.separator;
 
-        TestContextManager ctx = new TestContextManager(tempDir, Set.of("src/foo.txt"));
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
 
-        ProjectFile pf = EditBlock.resolveProjectFile(ctx, "/src/foo.txt");
+        ProjectFile pf = EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep));
         assertEquals("foo.txt", pf.getFileName());
         assertEquals(filePath, pf.absPath());
     }
 
     @Test
     void testResolveAbsoluteNonExistentFilename(@TempDir Path tempDir) {
+        var sep = File.separator;
         TestContextManager ctx = new TestContextManager(tempDir, Set.of());
-        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, "/src/foo.txt"));
+        assertThrows(
+                EditBlock.SymbolInvalidException.class,
+                () -> EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep)));
     }
 
     // ----------------------------------------------------
