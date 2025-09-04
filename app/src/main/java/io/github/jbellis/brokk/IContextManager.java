@@ -110,7 +110,10 @@ public interface IContextManager {
             if (candidate.exists()) {
                 return candidate;
             }
-            // Fall through to original behavior, which will likely throw if still absolute.
+            // The path looked absolute (or root-anchored) but does not exist relative to the project.
+            // Treat this as invalid to avoid resolving to a location outside the project root.
+            throw new IllegalArgumentException(
+                    "Filename '%s' is absolute-like and does not exist relative to the project root".formatted(relName));
         }
 
         return new ProjectFile(project.getRoot(), trimmed);
