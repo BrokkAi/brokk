@@ -527,24 +527,26 @@ public final class LineEditorParser {
         return """
 There are two editing commands: BRK_EDIT_EX, and BRK_EDIT_RM.
 
-# BRK_EDIT_EX (ED mode with MANDATORY ANCHORS, except 0/$)
-The BRK_EDIT_EX format is a line-oriented editing format with a small subset of classic `ex`:
-**a**, **c**, **d** using absolute addresses. Addresses are 1-based integers. Additionally:
+# BRK_EDIT_EX
+BRK_EDIT_EX is a line-oriented editing format that supports multiple edits per file.
+Each edit has the form:
+ [address] [command]
+ [anchors, if necessary]
+ [body, if necessary]
+
+Edits are parsed until the mandatory BRK_EDIT_EX_END fence is encountered.
+
+Supported edits are
+a: append after given address
+c: change given address
+d: delete given address
+
+An address may be a single line number, or a range denoted with commas. Additionally, two special addresses are supported:
 - `0`  -> the very start of the file (before the first line)
 - `$`  -> the end of the file (after the last line)
 
-**Anchors are mandatory for every numeric address** you provide, **except** that you may omit anchors for `0` and `$`.
-When anchors are present, the system will validate them; when omitted for `0`/`$`, validation is skipped for that address.
-
-Anchor syntax:
-- One line: `<addr>: <exact current line text>` (no escaping; copy the line verbatim)
-- For `c n[,m]`: provide anchor for `n`, and if `m` is present then provide anchor for `m`.
-- For `a n`: provide anchor for `n`.
-- For `d n[,m]`: provide exactly one anchor for `n`.
-
-Special anchors:
-- `0:` refers to the first line’s current content. If the file is empty (or being created), you may omit the anchor line, or include it blank as `0:`.
-- `$:` refers to the last line’s current content. If the file is empty, you may omit the anchor line, or include it blank as `$:`.
+An anchor is the exact current content of an address line, used to validate that the edit is being applied to the expected version of the file.
+For range addresses, two anchors are expected. Anchors are mandatory for all addresses except 0 and $.
 
 Body rules:
 - Only **a** and **c** have bodies. The body ends with a single dot `.` on its own line.
@@ -552,22 +554,25 @@ Body rules:
 
 Emit edits using ONLY these fences (ALL CAPS, each on its own line; no Markdown fences):
 
-BRK_EDIT_EX <full/path>
-n a
-n: <current content at n (or blank/omitted for 0/$ on empty file)>
+So, BRK_EDIT_EX commands will have some combination of these edits:
+
+BRK_EDIT_EX <full_path>
+<n> a
+<n>: <current content at n (or blank/omitted for 0/$ on empty file)>
 ...body...
 .
-n[,m] c
-n: <current content at n (omit allowed for 0)>
-m: <current content at m (omit allowed for $)>    # required only when m is present
+<n>[,<m>] c
+<n>: <current content at n (omit allowed for 0)>
+<m>: <current content at m (omit allowed for $)>    # required only when m is present
 ...body...
 .
-n[,m] d
-n: <current content at n (omit allowed for 0/$)>
+<n>[,<m>] d
+<n>: <current content at n (omit allowed for 0/$)>
+<m>: <current content at m (omit allowed for $)>    # required only when m is present
 BRK_EDIT_EX_END
 
 Path rules:
-- `<full/path>` is the remainder of the fence line after the first space, trimmed; it may include spaces.
+- <full_path> is the remainder of the fence line after the first space, trimmed; it may include spaces.
 
 Conventions and constraints:
 - All addresses are absolute and inclusive for ranges; **n,m** are 1-based integers (with `0` and `$` as described).
@@ -648,10 +653,11 @@ BRK_EDIT_EX_END
                       BRK_EDIT_EX mathweb/flask/app.py
                       21 c
                       21:     return str(get_factorial(n))
-                      return str(math.factorial(n))
+                          return str(math.factorial(n))
                       .
                       9,14 d
                       9: def get_factorial(n):
+                      14: return n * get_factorial(n - 1)
                       0 a
                       0: from flask import Flask, request
                       import math
@@ -701,6 +707,7 @@ BRK_EDIT_EX_END
                       .
                       9,11 d
                       9: def hello():
+                      11:     print("hello")
                       0 a
                       0: import sys
                       from hello import hello
