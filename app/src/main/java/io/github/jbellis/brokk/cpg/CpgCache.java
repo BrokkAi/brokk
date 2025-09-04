@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.AbstractProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -40,8 +41,7 @@ public final class CpgCache {
         }
 
         try {
-            Path cacheDir =
-                    project.getMasterRootPathForConfig().resolve(".brokk").resolve("cache");
+            Path cacheDir = project.getMasterRootPathForConfig().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.CACHE_DIR);
             Files.createDirectories(cacheDir);
 
             String key = computeHash(project, language);

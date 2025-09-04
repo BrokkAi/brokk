@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.SerialByKeyExecutor;
 import java.io.IOException;
@@ -359,7 +360,7 @@ public class SessionManager implements AutoCloseable {
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
-        var wsPropsPath = worktreeRoot.resolve(".brokk").resolve("workspace.properties");
+        var wsPropsPath = worktreeRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.WORKSPACE_PROPERTIES_FILE);
         if (!Files.exists(wsPropsPath)) {
             return Optional.empty();
         }
@@ -392,7 +393,7 @@ public class SessionManager implements AutoCloseable {
         } else {
             masterRootPath = worktreeRoot;
         }
-        Path sessionZip = masterRootPath.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip");
+        Path sessionZip = masterRootPath.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.SESSIONS_DIR).resolve(sessionId + ".zip");
         if (!Files.exists(sessionZip)) {
             logger.trace("Session zip not found at {} for session ID {}", sessionZip, sessionId);
             return Optional.empty();

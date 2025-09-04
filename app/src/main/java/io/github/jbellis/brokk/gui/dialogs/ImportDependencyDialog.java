@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.util.Decompiler;
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.awt.*;
 import java.io.File;
@@ -94,7 +95,7 @@ public class ImportDependencyDialog {
         DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
             this.chrome = chrome;
             this.dependenciesRoot =
-                    chrome.getProject().getRoot().resolve(".brokk").resolve("dependencies");
+                    chrome.getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             this.listener = listener;
         }
 
@@ -498,7 +499,7 @@ public class ImportDependencyDialog {
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
                 Path stagingDir = null;
                 try {
-                    Path brokkRoot = chrome.getProject().getRoot().resolve(".brokk");
+                    Path brokkRoot = chrome.getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
                     Files.createDirectories(brokkRoot);
                     stagingDir = Files.createTempDirectory(brokkRoot, "git-staging-");
                     Git.cloneRepository()
