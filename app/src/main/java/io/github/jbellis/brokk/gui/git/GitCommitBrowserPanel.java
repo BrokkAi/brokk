@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import static java.util.Objects.requireNonNull;
 
@@ -9,7 +9,11 @@ import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import java.awt.*;
 import java.awt.event.ActionListener;
@@ -328,7 +332,7 @@ public class GitCommitBrowserPanel extends JPanel {
             public Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                boolean isDark = chrome.themeManager.isDarkTheme();
+                boolean isDark = chrome.getTheme().isDarkTheme();
                 boolean unpushed = (boolean) table.getModel().getValueAt(row, COL_UNPUSHED);
 
                 if (!isSelected) {
@@ -1592,6 +1596,6 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void registerMenu(JPopupMenu menu) {
-        chrome.themeManager.registerPopupMenu(menu);
+        chrome.getTheme().registerPopupMenu(menu);
     }
 }

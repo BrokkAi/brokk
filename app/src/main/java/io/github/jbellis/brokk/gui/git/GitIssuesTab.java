@@ -1,13 +1,15 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.Environment;
@@ -487,7 +489,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Initialize context menu and items
         issueContextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(issueContextMenu);
+        chrome.getTheme().registerPopupMenu(issueContextMenu);
 
         issueContextMenu.add(new JMenuItem(copyDescriptionAction));
         issueContextMenu.add(new JMenuItem(openInBrowserAction));
@@ -933,8 +935,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
                             ? ""
-                            : io.github.jbellis.brokk.gui.GitUiUtil.formatRelativeDate(
-                                    header.updated().toInstant(), today);
+                            : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
                     issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
                 }
             }

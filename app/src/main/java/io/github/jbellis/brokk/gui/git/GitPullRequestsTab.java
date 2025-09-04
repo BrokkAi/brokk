@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import static java.util.Objects.requireNonNull;
 
@@ -7,8 +7,13 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.FilterBox;
+import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
@@ -582,7 +587,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getTheme().registerPopupMenu(contextMenu);
 
         capturePrDiffMenuItemContextMenu = new JMenuItem("Capture for Review");
         capturePrDiffMenuItemContextMenu.addActionListener(e -> captureSelectedPrDiff());
@@ -639,7 +644,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrCommitsTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getTheme().registerPopupMenu(contextMenu);
 
         capturePrCommitDiffMenuItem = new JMenuItem("Capture Diff");
         capturePrCommitDiffMenuItem.addActionListener(e -> {

@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
@@ -6,6 +6,8 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import java.awt.*;
 import java.awt.event.WindowEvent;
 import java.io.IOException;

@@ -1,8 +1,10 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.VerticalLabel;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;

@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
@@ -9,6 +9,10 @@ import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.CommitDialog;
+import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.util.ArrayList;
@@ -513,7 +517,7 @@ public class GitCommitTab extends JPanel {
 
         contextManager.submitUserTask("show-uncomitted-files", () -> {
             try {
-                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
+                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
 
                 for (var file : orderedFiles) {
                     var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
@@ -692,12 +696,12 @@ public class GitCommitTab extends JPanel {
         });
     }
 
-    void disableButtons() {
+    public void disableButtons() {
         stashButton.setEnabled(false);
         commitButton.setEnabled(false);
     }
 
-    void enableButtons() {
+    public void enableButtons() {
         stashButton.setEnabled(true);
         commitButton.setEnabled(true);
     }

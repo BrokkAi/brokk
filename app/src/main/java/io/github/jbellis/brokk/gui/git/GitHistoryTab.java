@@ -1,8 +1,11 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.TableUtils;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -61,7 +64,7 @@ public class GitHistoryTab extends JPanel {
         }
 
         var menu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(menu);
+        chrome.getTheme().registerPopupMenu(menu);
 
         var captureDiffItem = new JMenuItem("Capture Diff");
         var compareWithLocalItem = new JMenuItem("Compare with Local");
