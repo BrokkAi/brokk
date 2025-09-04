@@ -60,21 +60,16 @@
 
     // Allow symbols with dots (method references) even if they contain method names
     if (trimmed.includes('.')) {
-      console.warn(`[SYMBOL-DEBUG] Allowing dotted symbol: "${trimmed}" (method reference)`);
       log.debug(`Symbol "${trimmed}" allowed as method reference`);
       return trimmed;
     }
 
     const hasKeyword = COMMON_KEYWORDS.has(lowerTrimmed);
-    console.warn(`[SYMBOL-DEBUG] Checking "${trimmed}" (lower: "${lowerTrimmed}") against keywords, found: ${hasKeyword}`);
-    log.debug(`Checking "${trimmed}" (lower: "${lowerTrimmed}") against keywords, found: ${hasKeyword}`);
     if (hasKeyword) {
-      console.warn(`[SYMBOL-DEBUG] Symbol "${trimmed}" filtered out: common keyword`);
       log.debug(`Symbol "${trimmed}" filtered out: common keyword`);
       return '';
     }
 
-    console.warn(`[SYMBOL-DEBUG] Symbol "${trimmed}" passed cleaning`);
     log.debug(`Symbol "${trimmed}" passed cleaning`);
     return trimmed;
   }
@@ -130,16 +125,9 @@
   }
 
   onMount(() => {
-    console.warn(`[SYMBOL-EXTRACTION] Starting text extraction for component ${componentId}`);
-    console.warn(`[SYMBOL-EXTRACTION] Initial state - symbolText: "${symbolText}", extractedText: "${extractedText}"`);
-
     // Try to extract from props first
     const propsText = extractTextFromChildren();
-    console.warn(`[SYMBOL-EXTRACTION] Props extraction result: "${propsText}"`);
-    console.warn(`[SYMBOL-EXTRACTION] Props text includes newline: ${propsText ? propsText.includes('\n') : 'N/A'}`);
-
     if (propsText && !propsText.includes('\n')) {
-      console.warn(`[SYMBOL-EXTRACTION] SUCCESS: Using props text: "${propsText}"`);
       log.debug(`Symbol extracted from props: "${propsText}"`);
       extractedText = propsText;
       symbolText = propsText;
@@ -147,64 +135,47 @@
       return;
     }
 
-    console.warn(`[SYMBOL-EXTRACTION] Props failed, falling back to DOM extraction`);
-
     // Fallback to DOM extraction after mount
     setTimeout(() => {
-      console.warn(`[SYMBOL-EXTRACTION] DOM extraction timeout fired`);
       const thisElement = document.querySelector(`code[data-symbol-id="${componentId}"]`);
-      console.warn(`[SYMBOL-EXTRACTION] Found element: ${thisElement ? 'YES' : 'NO'}`);
-
       if (thisElement) {
         const textContent = thisElement.textContent?.trim() || '';
-        console.warn(`[SYMBOL-EXTRACTION] DOM textContent: "${textContent}"`);
-        console.warn(`[SYMBOL-EXTRACTION] DOM text includes newline: ${textContent.includes('\n')}`);
 
         // Skip code blocks (multi-line content) early
         if (textContent.includes('\n')) {
-          console.warn(`[SYMBOL-EXTRACTION] SKIP: Code block contains newlines: "${textContent.substring(0, 50)}..."`);
           log.debug(`Skipping code block (contains newlines): "${textContent.substring(0, 50)}..."`);
           return;
         }
 
-        console.warn(`[SYMBOL-EXTRACTION] SUCCESS: Using DOM text: "${textContent}"`);
         log.debug(`Symbol extracted from DOM: "${textContent}"`);
         extractedText = textContent; // Store for fallback rendering
         symbolText = textContent;
         validateAndRequestSymbol();
       } else {
-        console.warn(`[SYMBOL-EXTRACTION] FAIL: Could not find element with symbol ID: ${componentId}`);
         log.debug('Could not find element with symbol ID:', componentId);
       }
     }, 0);
   });
 
   function validateAndRequestSymbol() {
-    console.warn(`[SYMBOL-DEBUG] validateAndRequestSymbol called with symbolText: "${symbolText}"`);
-
     // Verify we're in browser environment (not server-side rendering)
     if (typeof window === 'undefined') {
-      console.warn(`[SYMBOL-DEBUG] Skipping - no browser environment`);
       log.debug('Skipping symbol validation - no browser environment');
       return;
     }
 
     const cleaned = cleanSymbolName(symbolText);
-    console.warn(`[SYMBOL-DEBUG] Cleaned symbol: "${symbolText}" -> "${cleaned}"`);
 
     if (cleaned && shouldAttemptLookup(cleaned)) {
       isValidSymbol = true;
       symbolText = cleaned;
-      console.warn(`[SYMBOL-DEBUG] Symbol marked as valid, requesting resolution for: "${symbolText}"`);
 
       // Request symbol resolution
       requestSymbolResolution(symbolText, contextId).catch(error => {
-        console.warn(`[SYMBOL-DEBUG] Symbol resolution failed for ${symbolText}:`, error);
         log.warn(`Symbol resolution failed for ${symbolText}:`, error);
       });
 
     } else {
-      console.warn(`[SYMBOL-DEBUG] Invalid symbol: "${symbolText}" (cleaned: "${cleaned}")`);
       log.debug(`Invalid symbol text: '${symbolText}' (cleaned: '${cleaned}')`);
     }
   }
@@ -229,22 +200,6 @@
     }
   });
 
-  // Debug logging for state changes (separate effect to avoid infinite loops)
-  $effect(() => {
-    if (cacheEntry) {
-      console.warn(`[CACHE-UPDATE] Cache entry updated for "${symbolText}":`, cacheEntry);
-      console.warn(`[CACHE-UPDATE] symbolExists=${symbolExists}, isPartialMatch=${isPartialMatch}, highlightRanges=${highlightRanges.length}`);
-    }
-  });
-
-  // Debug logging for segmentation (separate effect)
-  $effect(() => {
-    if (textSegments.length > 0 && symbolExists) {
-      const displayText = symbolText || extractedText;
-      console.warn(`[SEGMENTATION] Final segments for "${displayText}":`, textSegments);
-      console.warn(`[SEGMENTATION] highlightRanges:`, highlightRanges);
-    }
-  });
 
   // Determine if symbol exists and get FQN using derived state
   let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry?.result?.fqn);
