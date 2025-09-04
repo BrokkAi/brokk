@@ -25,7 +25,6 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
-import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -84,6 +83,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_ASK = "Ask";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
+    public static final String ACTION_SCAN_PROJECT = "Scan Project";
 
     private static final String PLACEHOLDER_TEXT =
             """
@@ -95,11 +95,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
-    private final JButton architectButton; // Changed from SplitButton
-    private final JButton codeButton;
-    private final SplitButton searchButton;
+    private final JToggleButton agentToggle;
+    private final JToggleButton askToggle;
+    private final JCheckBox codeCheckBox;
+    private final JCheckBox scanProjectCheckBox;
+    private final JButton goButton;
     private final JButton stopButton;
     private final ModelSelector modelSelector;
+    private String storedAction;
     private final ContextManager contextManager;
     private JTable referenceFileTable;
     private JLabel failureReasonLabel;
@@ -155,23 +158,71 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 },
                 msg -> chrome.toolError(msg, "Error"));
 
-        // Initialize Buttons first
-        architectButton = new JButton("Agent"); // Now a regular JButton
-        architectButton.setMnemonic(KeyEvent.VK_G); // Mnemonic for Agent
-        architectButton.setToolTipText("Run the multi-step Agent (options include worktree setup)");
-        architectButton.addActionListener(e -> runArchitectCommand()); // Main button action
-        // architectButton.setMenuSupplier(this::createArchitectMenu); // Removed menu supplier
+        // Initialize Action Selection UI
+        agentToggle = new JToggleButton("Agent");
+        agentToggle.setToolTipText("Select Agent mode (Architect)");
+        askToggle = new JToggleButton("Ask");
+        askToggle.setToolTipText("Select Ask mode (Search)");
 
-        codeButton = new JButton("Code");
-        codeButton.setMnemonic(KeyEvent.VK_C);
-        codeButton.setToolTipText("Tell the LLM to write code using the current context and selected model");
-        codeButton.addActionListener(e -> runCodeCommand()); // Main button action
+        var toggleGroup = new ButtonGroup();
+        toggleGroup.add(agentToggle);
+        toggleGroup.add(askToggle);
+        agentToggle.setSelected(true);
 
-        searchButton = new SplitButton("Ask");
-        searchButton.setMnemonic(KeyEvent.VK_A); // optional
-        searchButton.setToolTipText("Ask the model a question using the selected model and current context");
-        searchButton.addActionListener(e -> runSearchCommand()); // Main action unchanged
-        searchButton.setMenuSupplier(this::createSearchMenu);
+        codeCheckBox = new JCheckBox("Code");
+        codeCheckBox.setToolTipText("Tell the LLM to write code in Agent mode");
+
+        scanProjectCheckBox = new JCheckBox("Scan Project");
+        scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Ask mode");
+
+        // default stored action: Architect
+        storedAction = ACTION_ARCHITECT;
+
+        // Toggle listeners update visibility and storedAction
+        agentToggle.addActionListener(e -> {
+            if (agentToggle.isSelected()) {
+                codeCheckBox.setVisible(true);
+                scanProjectCheckBox.setVisible(false);
+                storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
+            }
+        });
+
+        askToggle.addActionListener(e -> {
+            if (askToggle.isSelected()) {
+                scanProjectCheckBox.setVisible(true);
+                codeCheckBox.setVisible(false);
+                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+            }
+        });
+
+        codeCheckBox.addActionListener(e -> {
+            if (agentToggle.isSelected()) {
+                storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
+            }
+        });
+
+        scanProjectCheckBox.addActionListener(e -> {
+            if (askToggle.isSelected()) {
+                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+            }
+        });
+
+        // Initial checkbox visibility
+        codeCheckBox.setVisible(true);
+        scanProjectCheckBox.setVisible(false);
+
+        // Go and Stop buttons
+        goButton = new JButton("Go");
+        goButton.setToolTipText("Run the selected action");
+        goButton.addActionListener(e -> {
+            switch (storedAction) {
+                case ACTION_ARCHITECT -> runArchitectCommand();
+                case ACTION_CODE -> runCodeCommand();
+                case ACTION_SEARCH -> runSearchCommand();
+                case ACTION_SCAN_PROJECT -> runScanProjectCommand();
+                default -> runArchitectCommand();
+            }
+        });
 
         stopButton = new JButton("Stop");
         stopButton.setToolTipText("Cancel the current operation");
@@ -260,7 +311,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         SwingUtilities.invokeLater(() -> {
             if (chrome.getFrame().getRootPane() != null) {
-                chrome.getFrame().getRootPane().setDefaultButton(codeButton);
+                chrome.getFrame().getRootPane().setDefaultButton(goButton);
             }
         });
 
@@ -527,18 +578,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-        // Add action buttons directly to the bottom panel
-        bottomPanel.add(architectButton);
+        // Action selector: Agent/Ask toggle
+        bottomPanel.add(agentToggle);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        bottomPanel.add(codeButton);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        bottomPanel.add(searchButton); // SplitButton with dropdown
+        bottomPanel.add(askToggle);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
-        // Flexible space between action buttons and stop button
+        // Dynamic options depending on toggle selection
+        bottomPanel.add(codeCheckBox);
+        bottomPanel.add(scanProjectCheckBox);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Stop button on the right
+        // Go and Stop buttons on the right
+        goButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(goButton);
+        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
         stopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
         bottomPanel.add(stopButton);
 
@@ -1525,9 +1582,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Methods to disable and enable buttons.
     void disableButtons() {
-        architectButton.setEnabled(false);
-        codeButton.setEnabled(false);
-        searchButton.setEnabled(false);
+        agentToggle.setEnabled(false);
+        askToggle.setEnabled(false);
+        codeCheckBox.setEnabled(false);
+        scanProjectCheckBox.setEnabled(false);
+        goButton.setEnabled(false);
         stopButton.setEnabled(true);
     }
 
@@ -1538,23 +1597,37 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void updateButtonStates() {
         boolean gitAvailable = chrome.getProject().hasGit();
 
-        // Architect
-        architectButton.setEnabled(true);
-        architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
+        // Toggles
+        agentToggle.setEnabled(true);
+        askToggle.setEnabled(true);
 
-        // Code
-        if (!gitAvailable) {
-            codeButton.setEnabled(false);
-            codeButton.setToolTipText("Code feature requires Git integration for this project.");
+        // Checkbox visibility and enablement
+        if (agentToggle.isSelected()) {
+            codeCheckBox.setVisible(true);
+            scanProjectCheckBox.setVisible(false);
+            codeCheckBox.setEnabled(gitAvailable);
+            codeCheckBox.setToolTipText(gitAvailable
+                    ? "Tell the LLM to write code in Agent mode"
+                    : "Code feature requires Git integration for this project.");
         } else {
-            codeButton.setEnabled(true);
+            codeCheckBox.setVisible(false);
+            scanProjectCheckBox.setVisible(true);
+            scanProjectCheckBox.setEnabled(true);
+            scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Ask mode");
         }
 
-        // Search (SplitButton)
-        searchButton.setEnabled(true);
+        // Go is available when not running
+        goButton.setEnabled(true);
 
         // Stop is only enabled when an action is running
         stopButton.setEnabled(false);
+
+        // Ensure storedAction is consistent with current UI
+        if (agentToggle.isSelected()) {
+            storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
+        } else {
+            storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+        }
 
         chrome.enableHistoryPanel();
     }
@@ -1605,17 +1678,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         instructionsArea.requestFocusInWindow(); // Give it focus
     }
 
-    private JPopupMenu createSearchMenu() {
-        var popupMenu = new JPopupMenu();
-
-        var scanItem = new JMenuItem("Scan Project");
-        scanItem.setToolTipText("Scan the repository to add relevant files/summaries to the Workspace");
-        scanItem.addActionListener(e -> runScanProjectCommand());
-        popupMenu.add(scanItem);
-
-        chrome.themeManager.registerPopupMenu(popupMenu);
-        return popupMenu;
-    }
 
     public void runScanProjectCommand() {
         var goal = getInstructions();
