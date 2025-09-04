@@ -21,6 +21,8 @@ public final class Icons {
     public static final Icon DIFFERENCE = SwingUtil.uiIcon("Brokk.difference");
     public static final Icon CONTENT_COPY = SwingUtil.uiIcon("Brokk.content_copy");
     public static final Icon OPEN_IN_BROWSER = SwingUtil.uiIcon("Brokk.open_in_browser");
+    public static final Icon VISIBILITY = SwingUtil.uiIcon("Brokk.visibility");
+    public static final Icon VISIBILITY_OFF = SwingUtil.uiIcon("Brokk.visibility_off");
     public static final Icon MIC = SwingUtil.uiIcon("Brokk.mic");
     public static final Icon MIC_OFF = SwingUtil.uiIcon("Brokk.mic_off");
 }

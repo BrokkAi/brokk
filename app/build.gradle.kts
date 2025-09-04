@@ -81,6 +81,7 @@ dependencies {
     implementation(libs.picocli)
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
+    implementation(libs.mcp.sdk)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)

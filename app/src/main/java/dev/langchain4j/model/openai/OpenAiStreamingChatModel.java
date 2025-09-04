@@ -126,7 +126,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .execute();
     }
 
-    private static void handle(ChatCompletionResponse partialResponse, StreamingChatResponseHandler handler) {
+    public static void handle(ChatCompletionResponse partialResponse, StreamingChatResponseHandler handler) {
         if (partialResponse == null) {
             return;
         }

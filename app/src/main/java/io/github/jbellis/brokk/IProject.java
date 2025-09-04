@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.mcp.McpConfig;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -264,6 +265,15 @@ public interface IProject extends AutoCloseable {
     }
 
     default void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+        throw new UnsupportedOperationException();
+    }
+
+    // MCP server configuration for this project
+    default McpConfig getMcpConfig() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setMcpConfig(McpConfig config) {
         throw new UnsupportedOperationException();
     }
 
