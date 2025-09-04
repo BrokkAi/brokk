@@ -357,7 +357,7 @@ public interface ContextFragment {
             var content = text();
             var lines = content.lines().toList();
             var numbered = java.util.stream.IntStream.range(0, lines.size())
-                    .mapToObj(i -> Integer.toHexString(i + 1) + ":" + lines.get(i))
+                    .mapToObj(i -> (i + 1) + ":" + lines.get(i))
                     .collect(Collectors.joining("\n"));
             return """
                    <file path="%s" fragmentid="%s">

@@ -21,14 +21,14 @@ class LineEditorParserTest {
     @Test
     void parse_singleEdit() {
         var input = """
-        Intro text
-        BRK_EDIT_EX src/Main.java
-        A,C c
-        System.out.println("Replaced!");
-        .
-        BRK_EDIT_EX_END
-        Outro
-        """.stripIndent();
+    Intro text
+    BRK_EDIT_EX src/Main.java
+    10,12 c
+    System.out.println("Replaced!");
+    .
+    BRK_EDIT_EX_END
+    Outro
+    """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "Expected no parse errors");
@@ -42,7 +42,6 @@ class LineEditorParserTest {
         assertEquals("src/Main.java", ed.path());
         assertFalse(ed.commands().isEmpty());
     }
-
 
     @Test
     void parse_deleteSelfClosing() {

@@ -313,16 +313,16 @@ public final class LineEditorParser {
         return new ExtendedParseResult(parts, error);
     }
 
-    // Patterns for ED commands (numeric only; no regex, no navigation)
-    private static final Pattern RANGE_CMD = Pattern.compile("(?i)^([0-9a-f]+|\\$)\\s*(?:,\\s*([0-9a-f]+|\\$))?\\s*([cd])$");
-    private static final Pattern IA_CMD    = Pattern.compile("(?i)^([0-9a-f]+|\\$)\\s*(a)$");
+    // Patterns for EX commands
+    private static final Pattern RANGE_CMD = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(?:,\\s*([0-9]+|\\$))?\\s*([cd])$");
+    private static final Pattern IA_CMD    = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(a)$");
 
     private static int parseAddr(String token) {
-        return "$".equals(token) ? Integer.MAX_VALUE : Integer.parseInt(token, 16);
+        return "$".equals(token) ? Integer.MAX_VALUE : Integer.parseInt(token);
     }
 
     private static String addrToString(int n) {
-        return (n == Integer.MAX_VALUE) ? "$" : Integer.toHexString(n).toUpperCase(Locale.ROOT);
+        return (n == Integer.MAX_VALUE) ? "$" : Integer.toString(n);
     }
 
     // Minimal unescape for body lines: "\." => ".", "\\" => "\"
@@ -403,7 +403,7 @@ There are two editing commands: BRK_EDIT_EX, and BRK_EDIT_RM.
 
 # BRK_EDIT_EX
 The BRK_EDIT_EX format is a line-oriented text-editing format that supports only a small subset of classic `ex`:
-**a**, **c**, **d** with absolute addresses. Addresses are 1-based hex integers. Additionally,
+**a**, **c**, **d** with absolute addresses. Addresses are 1-based integers. Additionally,
 you may also use the special pseudo-addresses:
 - `0`  -> the very start of the file (before the first line)
 - `$`  -> the end of the file (after the last line)
@@ -474,99 +474,98 @@ BRK_EDIT_EX_END
         return List.of(
                 // Example 1 — WORKSPACE goes in the user message
                 new UserMessage("""
-                                Change get_factorial() to use math.factorial
-                                
-                                <workspace>
-                                <file path="mathweb/flask/app.py">
-                                1: from flask import Flask, request
-                                2: app = Flask(__name__)
-                                3:
-                                4: def index():
-                                5:     return "ok"
-                                6:
-                                7: # helpers
-                                8:
-                                9: def get_factorial(n):
-                                a:     if n < 0:
-                                b:         raise ValueError("negative")
-                                c:     if n == 0:
-                                d:         return 1
-                                e:     return n * get_factorial(n - 1)
-                                f:
-                                10: @app.route("/fact")
-                                11: def fact():
-                                12:     n = int(request.args.get("n", "0"))
-                                13:     if n < 0:
-                                14:         return "bad", 400
-                                15:     return str(get_factorial(n))
-                                16:
-                                17: if __name__ == "__main__":
-                                18:     app.run()
-                                </file>
-                                </workspace>
-                                """.stripIndent()),
+                            Change get_factorial() to use math.factorial
+                            
+                            <workspace>
+                            <file path="mathweb/flask/app.py">
+                            1: from flask import Flask, request
+                            2: app = Flask(__name__)
+                            3:
+                            4: def index():
+                            5:     return "ok"
+                            6:
+                            7: # helpers
+                            8:
+                            9: def get_factorial(n):
+                            10:     if n < 0:
+                            11:         raise ValueError("negative")
+                            12:     if n == 0:
+                            13:         return 1
+                            14:     return n * get_factorial(n - 1)
+                            15:
+                            16: @app.route("/fact")
+                            17: def fact():
+                            18:     n = int(request.args.get("n", "0"))
+                            19:     if n < 0:
+                            20:         return "bad", 400
+                            21:     return str(get_factorial(n))
+                            22:
+                            23: if __name__ == "__main__":
+                            24:     app.run()
+                            </file>
+                            </workspace>
+                            """.stripIndent()),
                 new AiMessage("""
-                              We will:
-                              1) Add the math import at the top of app.py
-                              2) Remove the recursive implementation
-                              3) Update the call site
-                              
-                              BRK_EDIT_EX mathweb/flask/app.py
-                              15 c
-                              return str(math.factorial(n))
-                              .
-                              9,E d
-                              0 a
-                              import math
-                              .
-                              BRK_EDIT_EX_END
-                              """.stripIndent()),
+                          We will:
+                          1) Add the math import at the top of app.py
+                          2) Remove the recursive implementation
+                          3) Update the call site
+                          
+                          BRK_EDIT_EX mathweb/flask/app.py
+                          21 c
+                          return str(math.factorial(n))
+                          .
+                          9,14 d
+                          0 a
+                          import math
+                          .
+                          BRK_EDIT_EX_END
+                          """.stripIndent()),
 
                 // Example 2 — WORKSPACE goes in the user message; no filler or anachronistic comments
                 new UserMessage("""
-                                Refactor hello() into its own file.
-                                
-                                <workspace>
-                                <file path="main.py">
-                                1: import sys
-                                2:
-                                3: def main():
-                                4:     hello()
-                                5:
-                                6: if __name__ == "__main__":
-                                7:     main()
-                                8:
-                                9: def hello():
-                                a:     \"\"\"print a greeting\"\"\"
-                                b:     print("hello")
-                                c:
-                                </file>
-                                </workspace>
-                                """.stripIndent()),
+                            Refactor hello() into its own file.
+                            
+                            <workspace>
+                            <file path="main.py">
+                            1: import sys
+                            2:
+                            3: def main():
+                            4:     hello()
+                            5:
+                            6: if __name__ == "__main__":
+                            7:     main()
+                            8:
+                            9: def hello():
+                            10:     \"\"\"print a greeting\"\"\"
+                            11:     print("hello")
+                            </file>
+                            </workspace>
+                            """.stripIndent()),
                 new AiMessage("""
-                              We will:
-                              1) Create a new hello.py with hello()
-                              2) Import it in main.py and remove the old function
-                              3) Add a usage comment at the end of main.py
-                              
-                              BRK_EDIT_EX hello.py
-                              0 a
-                              def hello():
-                                  \"\"\"print a greeting\"\"\"
-                                  print("hello")
-                              .
-                              BRK_EDIT_EX_END
-                              
-                              BRK_EDIT_EX main.py
-                              $ a
-                              # Usage: hello()
-                              .
-                              9,C d
-                              0 a
-                              from hello import hello
-                              .
-                              BRK_EDIT_EX_END
-                              """.stripIndent())
+                          We will:
+                          1) Create a new hello.py with hello()
+                          2) Import it in main.py and remove the old function
+                          3) Add a usage comment at the end of main.py
+                          
+                          BRK_EDIT_EX hello.py
+                          0 a
+                          def hello():
+                              \"\"\"print a greeting\"\"\"
+                              print("hello")
+                          .
+                          BRK_EDIT_EX_END
+                          
+                          BRK_EDIT_EX main.py
+                          $ a
+                          # Usage: hello()
+                          .
+                          9,11 d
+                          0 a
+                          from hello import hello
+                          .
+                          BRK_EDIT_EX_END
+                          """.stripIndent())
         );
     }
 
