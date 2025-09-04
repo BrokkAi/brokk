@@ -25,13 +25,13 @@ import java.util.regex.Pattern;
 /**
  * ED-mode parser for Brokk line-edit fences.
  *
- * This class parses mixed content containing BRK_EDIT_ED/BRK_EDIT_END blocks (with ED commands),
+ * This class parses mixed content containing BRK_EDIT_EX/BRK_EDIT_EX_END blocks (with ED commands),
  * BRK_EDIT_RM lines (file deletes), and passthrough plain text. It is read-only and does not
  * access the filesystem; translation to LineEdit operations happens in {@link #materializeEdits}.
  *
  * Input grammar (high level):
  * - Fences are ALL CAPS and appear alone on their own lines:
- *   - "BRK_EDIT_ED &lt;path&gt;" ... commands ... "BRK_EDIT_END"
+ *   - "BRK_EDIT_EX &lt;path&gt;" ... commands ... "BRK_EDIT_EX_END"
  *   - "BRK_EDIT_RM &lt;path&gt;"
  * - &lt;path&gt; is the remainder of the fence line after the first space and may contain spaces.
  * - Supported commands (numeric addresses only; 1-based):
@@ -72,7 +72,7 @@ public final class LineEditorParser {
         record Text(String text) implements OutputPart {}
 
         /**
-         * One BRK_EDIT_ED block for a single file. It may contain multiple ED commands.
+         * One BRK_EDIT_EX block for a single file. It may contain multiple ED commands.
          * Commands must be expressed with absolute numeric addresses (no regex, no navigation).
          */
         record EdBlock(String path, List<EdCommand> commands) implements OutputPart {}
@@ -81,7 +81,7 @@ public final class LineEditorParser {
         record Delete(String path) implements OutputPart {}
     }
 
-    /** ED commands supported in the BRK_EDIT_ED block. */
+    /** ED commands supported in the BRK_EDIT_EX block. */
     public sealed interface EdCommand
             permits EdCommand.InsertBefore, EdCommand.AppendAfter, EdCommand.ChangeRange, EdCommand.DeleteRange {
 
@@ -110,9 +110,9 @@ public final class LineEditorParser {
     }
 
     /**
-     * Parse mixed content containing BRK_EDIT_ED / BRK_EDIT_RM blocks and plain text.
+     * Parse mixed content containing BRK_EDIT_EX / BRK_EDIT_RM blocks and plain text.
      * ED semantics:
-     * - Fences are exact uppercase keywords on their own line: "BRK_EDIT_ED <path>", "BRK_EDIT_END", "BRK_EDIT_RM <path>"
+     * - Fences are exact uppercase keywords on their own line: "BRK_EDIT_EX <path>", "BRK_EDIT_EX_END", "BRK_EDIT_RM <path>"
      * - <path> is "rest of the line after the first space", trimmed; may include spaces.
      * - Supported commands inside ED blocks:
      *     n i     (insert before n)      body until a single '.' line; last body in a block may omit '.'
@@ -139,7 +139,7 @@ public final class LineEditorParser {
             var onlyText = new ArrayList<OutputPart>();
             onlyText.add(new OutputPart.Text(content));
             return new ExtendedParseResult(onlyText,
-                                           "Typed <brk_edit_file> blocks are not supported by ED parser; use BRK_EDIT_ED / BRK_EDIT_END.");
+                                           "Typed <brk_edit_file> blocks are not supported by ED parser; use BRK_EDIT_EX / BRK_EDIT_EX_END.");
         }
 
         var parts = new ArrayList<OutputPart>();
@@ -181,14 +181,14 @@ public final class LineEditorParser {
                 continue;
             }
 
-            // BRK_EDIT_ED <path>
-            if (line.startsWith("BRK_EDIT_ED")) {
+            // BRK_EDIT_EX <path>
+            if (line.startsWith("BRK_EDIT_EX")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
                     // malformed; keep as text
                     textBuf.append(line);
                     if (i < lines.length - 1) textBuf.append('\n');
-                    errors.add("BRK_EDIT_ED missing filename.");
+                    errors.add("BRK_EDIT_EX missing filename.");
                     i++;
                     continue;
                 }
@@ -196,7 +196,7 @@ public final class LineEditorParser {
 
                 flushText.run();
 
-                // Parse until BRK_EDIT_END (required)
+                // Parse until BRK_EDIT_EX_END (required)
                 int blockStartIndex = i; // index of ED header line
                 i++; // advance to first command/body line
                 var commands = new ArrayList<EdCommand>();
@@ -207,7 +207,7 @@ public final class LineEditorParser {
                     var cmdTrim = cmdLine.trim();
 
                     // end of block
-                    if (cmdLine.equals("BRK_EDIT_END")) {
+                    if (cmdLine.equals("BRK_EDIT_EX_END")) {
                         sawEndFence = true;
                         i++; // consume END
                         break;
@@ -223,7 +223,7 @@ public final class LineEditorParser {
 
                     // shell not supported; ignore but note
                     if (cmdTrim.startsWith("!")) {
-                        errors.add("Shell command ignored inside BRK_EDIT_ED: " + cmdTrim);
+                        errors.add("Shell command ignored inside BRK_EDIT_EX: " + cmdTrim);
                         i++;
                         continue;
                     }
@@ -241,14 +241,14 @@ public final class LineEditorParser {
                             commands.add(new EdCommand.DeleteRange(n1, n2));
                             i++; // move to next command
                         } else { // 'c'
-                            // read body until '.' or BRK_EDIT_END ('.' optional for final body)
+                            // read body until '.' or BRK_EDIT_EX_END ('.' optional for final body)
                             i++;
                             var body = new ArrayList<String>();
                             boolean implicitClose = false;
                             while (i < lines.length) {
                                 var bodyLine = lines[i];
                                 var bodyTrim = bodyLine.trim();
-                                if (bodyTrim.equals("BRK_EDIT_END")) {
+                                if (bodyTrim.equals("BRK_EDIT_EX_END")) {
                                     // treat as implicit '.' for the final command
                                     implicitClose = true;
                                     sawEndFence = true;
@@ -282,7 +282,7 @@ public final class LineEditorParser {
                         while (i < lines.length) {
                             var bodyLine = lines[i];
                             var bodyTrim = bodyLine.trim();
-                            if (bodyTrim.equals("BRK_EDIT_END")) {
+                            if (bodyTrim.equals("BRK_EDIT_EX_END")) {
                                 implicitClose = true;
                                 sawEndFence = true;
                                 break;
@@ -312,13 +312,13 @@ public final class LineEditorParser {
                 if (!sawEndFence) {
                     // Missing END: treat the whole block as text and report a parse error
                     var sb = new StringBuilder();
-                    sb.append("BRK_EDIT_ED ").append(path).append('\n');
+                    sb.append("BRK_EDIT_EX ").append(path).append('\n');
                     for (int k = blockStartIndex + 1; k < lines.length; k++) {
                         sb.append(lines[k]);
                         if (k < lines.length - 1) sb.append('\n');
                     }
                     parts.add(new OutputPart.Text(sb.toString()));
-                    errors.add("Missing BRK_EDIT_END for " + path);
+                    errors.add("Missing BRK_EDIT_EX_END for " + path);
                     break; // nothing more to parse
                 }
 
@@ -426,66 +426,83 @@ public final class LineEditorParser {
      */
     public String lineEditFormatInstructions() {
         return """
-    There are two editing commands: BRK_EDIT_ED, and BRK_EDIT_RM.
-    
-    # BRK_EDIT_ED
-    The ED format is a line-oriented text-editing format implementing a subset of `ed` commands.
-    Pay close attention to the exact syntax and semantics. (TLDR: only i,a,c,d commands with
-    absolute numeric addresses are supported.)
+There are two editing commands: BRK_EDIT_EX, and BRK_EDIT_RM.
 
-    As you can see, editable files are shown with their line number prefixed, followed by a colon.
-    THESE ARE NOT PART OF THE FILE CONTENTS. USE THEM ONLY TO IDENTIFY LINE NUMBERS. DO NOT
-    COUNT LINES YOURSELF: RELY ON THE PROVIDED NUMBERING!
-    
-    Provide file edits using only these blocks (no Markdown fences, no diffs, no JSON/YAML):
+# BRK_EDIT_EX
+The BRK_EDIT_EX format is a line-oriented text-editing format that supports only a small subset of classic `ex`:
+**i**, **a**, **c**, **d** with absolute addresses. Addresses are 1-based integers. For **i** and **a** only,
+you may also use the special pseudo-addresses:
+- `0`  -> the very start of the file (before the first line)
+- `$`  -> the end of the file (after the last line)
 
-    BRK_EDIT_ED <full/path>
-    n i
-    ...body...
-    .
-    n a
-    ...body...
-    .
-    n[,m] c
-    ...body...
-    .
-    n[,m] d
-    BRK_EDIT_END
+You will be shown file contents with each line prefixed by `N:` in the workspace listing.
+These numbers are NOT part of the file text; use them only to reference line numbers.
+Do not re-count; rely on the provided numbering.
 
-    # BRK_EDIT_RM
-    BRK_EDIT_RM <full/path>
+Emit edits using ONLY the following fences (ALL CAPS, each on its own line, no Markdown code fences):
 
-    # Conventions
-    - Fences must be ALL CAPS and alone on their own lines: BRK_EDIT_ED / BRK_EDIT_END / BRK_EDIT_RM.
-    - <full/path> is the full workspace path, the rest of the line after the first space, trimmed; it may include spaces.
-    - Addresses are absolute numeric (1-based). Ranges n,m are inclusive. No regex, no navigation (no '.', '$', '/re/').
-    - Insert/append:
-      - n i inserts before line n.
-      - n a appends after line n (use 0 a to insert at the very start).
-    - Change/delete:
-      - n[,m] c replaces the inclusive range with the body.
-      - n[,m] d deletes the inclusive range (no body).
-    - Body for i/a/c ends with a single dot '.' on a line by itself.
-      For the final body in a block, that terminating dot may be omitted.
-    - To include a literal '.' line, write '\\.'.
-      To include a literal '\\' line, write '\\\\'.
-    - 'w', 'q', and other non-edit commands are ignored. Shell '!' is not supported.
-    - Do not modify lines you don't explicitly touch.
-    - Special line numbers `0` and `$` are supported, use these to reference before-start
-      or after-end of the file.
+BRK_EDIT_EX <full/path>
+n i            # insert before line n     (body required; `0 i` inserts at start; `$ i` inserts at end)
+...body...
+.
+n a            # append after line n      (body required; `0 a` inserts at start; `$ a` appends at end)
+...body...
+.
+n[,m] c        # replace inclusive range  (body required; ranges are numeric only; `$` not allowed here)
+...body...
+.
+n[,m] d        # delete inclusive range   (no body)
+BRK_EDIT_EX_END
 
-    Quality & ordering:
-    - Prefer small, precise edits (avoid overlapping edits; overlapping is an error).
-    - Emit commands in descending line order (last edits first) within each file to avoid line-number shifts.
-      We will still sort after parsing, but ordering correctly reduces mistakes.
+Path rules:
+- `<full/path>` is the remainder of the fence line after the first space, trimmed; it may include spaces.
 
-    Creating or removing files:
-    - To create a new file, use: BRK_EDIT_ED <path> then 0 a or 1 i with the entire file body.
-    - To remove a file, use: BRK_EDIT_RM <path>.
+Body rules:
+- For **i/a/c**, the body ends with a single dot `.` on a line by itself.
+  For the *final* body in a block, that terminating dot may be omitted.
+- To include a literal `.` line, write `\\.`.
+  To include a literal `\\` line, write `\\\\`.
 
-    DO NOT wrap edits in Markdown code fences (```), diffs, JSON, or any other wrapper.
-    Use ASCII only; no smart quotes.
-    """.stripIndent();
+Noise handling:
+- `w`, `q`, `wq`, `qw` are ignored.
+- Shell commands starting with `!` are not supported; they will be ignored and reported as a warning.
+
+Conventions and constraints:
+- Ranges `n,m` are inclusive; both `n` and `m` must be integers with `1 <= n <= m`.
+- `$` and `0` are allowed **only** with `i` and `a`, not with `c` or `d`.
+- Keep edits minimal and non-overlapping. Emit commands **last-edits-first** within each file to avoid
+  line-number shifts. The system will still sort, but correct ordering reduces mistakes.
+- Do not modify lines you do not explicitly touch. Do not include file listings or unrelated text.
+
+Creating or removing files:
+- To create a new file, use `BRK_EDIT_EX <path>` with  `0 a` or `1 i` containing the entire file body.
+  (Do NOT use a replace range on a non-existent file.)
+- To remove a file, use: `BRK_EDIT_RM <path>` on a single line (no END fence).
+
+## Examples (do not wrap these in Markdown fences)
+
+# Append one line at end-of-file
+BRK_EDIT_EX src/main.py
+$ a
+print("done")
+.
+BRK_EDIT_EX_END
+
+# Insert two lines at the start of the file
+BRK_EDIT_EX README.md
+0 i
+# Project Title
+A short description.
+.
+BRK_EDIT_EX_END
+
+# Replace lines 10..12 with a single line
+BRK_EDIT_EX src/Main.java
+10,12 c
+System.out.println("Replaced!");
+.
+BRK_EDIT_EX_END
+""".stripIndent();
     }
 
     public List<ChatMessage> exampleMessages() {
@@ -529,7 +546,7 @@ public final class LineEditorParser {
                                       2) Remove the recursive implementation
                                       3) Update the call site
                                       
-                                      BRK_EDIT_ED mathweb/flask/app.py
+                                      BRK_EDIT_EX mathweb/flask/app.py
                                       21 c
                                       return str(math.factorial(n))
                                       .
@@ -537,7 +554,7 @@ public final class LineEditorParser {
                                       1 i
                                       import math
                                       .
-                                      BRK_EDIT_END
+                                      BRK_EDIT_EX_END
                                       """.stripIndent()),
 
                 // Example 2 — WORKSPACE goes in the user message; no filler or anachronistic comments
@@ -567,15 +584,15 @@ public final class LineEditorParser {
                                       2) Import it in main.py and remove the old function
                                       3) Add a usage comment at the end of main.py
                                       
-                                      BRK_EDIT_ED hello.py
+                                      BRK_EDIT_EX hello.py
                                       0 a
                                       def hello():
                                           \"\"\"print a greeting\"\"\"
                                           print("hello")
                                       .
-                                      BRK_EDIT_END
+                                      BRK_EDIT_EX_END
                                       
-                                      BRK_EDIT_ED main.py
+                                      BRK_EDIT_EX main.py
                                       $ a
                                       # Usage: hello()
                                       .
@@ -583,7 +600,7 @@ public final class LineEditorParser {
                                       1 i
                                       from hello import hello
                                       .
-                                      BRK_EDIT_END
+                                      BRK_EDIT_EX_END
                                       """.stripIndent())
         );
     }
@@ -595,22 +612,27 @@ public final class LineEditorParser {
     public String instructions(String input, @Nullable ProjectFile file, String reminder) {
         var targetAttr = (file == null) ? "" : " target=\"%s\"".formatted(file);
         return """
-    <rules>
-    %s
+<rules>
+%s
 
-    Guidance:
-    - Think first; then provide a brief explanation of the changes.
-    - Then output only BRK_EDIT_ED / BRK_EDIT_RM blocks for the actual edits (no other formats).
-    - Keep edits small and **emit last-edits-first** within each file. Avoid overlapping edits.
-    - If multiple, separate edits are required, emit multiple commands inside the same ED block per file.
+Guidance:
+- Think first; then provide a brief, high-signal explanation of the changes (1-3 short bullets).
+- After the explanation, output ONLY BRK_EDIT_EX / BRK_EDIT_RM blocks for the actual edits (no other formats).
+- Always include the closing fence BRK_EDIT_EX_END for every BRK_EDIT_EX block.
+- Prefer multiple commands inside a single BRK_EDIT_EX block per file instead of opening many blocks.
+- Keep edits small and **emit last-edits-first** within each file. Avoid overlapping ranges entirely.
+- Use `1 i` / `0 a` to insert at the start of a file, and `$ i` to insert at the end.
+- Do NOT use `$` with `c` or `d`. Ranges for `c` and `d` must be numeric (1-based) and inclusive.
+- To create a new file, use `0 a` or `1 i` with the whole file body; do not attempt a replace on a missing file.
+- ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
 
-    %s
-    </rules>
+%s
+</rules>
 
-    <goal%s>
-    %s
-    </goal>
-    """.stripIndent().formatted(lineEditFormatInstructions(), reminder, targetAttr, input);
+<goal%s>
+%s
+</goal>
+""".stripIndent().formatted(lineEditFormatInstructions(), reminder, targetAttr, input);
     }
 
     public static String repr(OutputPart part) {
@@ -619,7 +641,7 @@ public final class LineEditorParser {
         }
         if (part instanceof OutputPart.EdBlock ed) {
             var sb = new StringBuilder();
-            sb.append("BRK_EDIT_ED ").append(ed.path()).append('\n');
+            sb.append("BRK_EDIT_EX ").append(ed.path()).append('\n');
             for (var c : ed.commands()) {
                 if (c instanceof EdCommand.InsertBefore ib) {
                     sb.append(ib.line()).append(" i\n");
@@ -634,7 +656,7 @@ public final class LineEditorParser {
                     sb.append(dr.begin()).append(',').append(dr.end()).append(" d\n");
                 }
             }
-            sb.append("BRK_EDIT_END");
+            sb.append("BRK_EDIT_EX_END");
             return sb.toString();
         }
         if (part instanceof OutputPart.Text txt) {
@@ -649,7 +671,7 @@ public final class LineEditorParser {
         }
         if (edit instanceof LineEdit.EditFile ef) {
             var sb = new StringBuilder();
-            sb.append("BRK_EDIT_ED ").append(canonicalPath(ef.file())).append('\n');
+            sb.append("BRK_EDIT_EX ").append(canonicalPath(ef.file())).append('\n');
             int beginLine = ef.beginLine();
             int endLine = ef.endLine();
             String content = ef.content();
@@ -662,7 +684,7 @@ public final class LineEditorParser {
                 sb.append(beginLine).append(',').append(endLine).append(" c\n");
                 renderBody(sb, content.lines().toList());
             }
-            sb.append("BRK_EDIT_END");
+            sb.append("BRK_EDIT_EX_END");
             return sb.toString();
         }
         return edit.toString();

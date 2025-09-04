@@ -22,11 +22,11 @@ class LineEditorParserTest {
     void parse_singleEdit() {
         var input = """
             Intro text
-            BRK_EDIT_ED src/Main.java
+            BRK_EDIT_EX src/Main.java
             10,12 c
             System.out.println("Replaced!");
             .
-            BRK_EDIT_END
+            BRK_EDIT_EX_END
             Outro
             """.stripIndent();
 
@@ -59,11 +59,11 @@ class LineEditorParserTest {
     void parse_mixedAndBodyPreserved() {
         var input = """
             Before
-            BRK_EDIT_ED x.txt
+            BRK_EDIT_EX x.txt
             1 i
             // Content can include angle brackets: <not a tag>
             .
-            BRK_EDIT_END
+            BRK_EDIT_EX_END
             BRK_EDIT_RM y.txt
             After
             """.stripIndent();
@@ -90,15 +90,15 @@ class LineEditorParserTest {
     @Test
     void parse_reportsMissingEndFence() {
         var input = """
-            BRK_EDIT_ED a.txt
+            BRK_EDIT_EX a.txt
             1 c
             body
             .
             BRK_EDIT_STOP
             """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
-        assertNotNull(r.parseError(), "Expected a parse error for missing BRK_EDIT_END");
-        assertTrue(r.parseError().contains("Missing BRK_EDIT_END"), "Should mention missing END");
+        assertNotNull(r.parseError(), "Expected a parse error for missing BRK_EDIT_EX_END");
+        assertTrue(r.parseError().contains("Missing BRK_EDIT_EX_END"), "Should mention missing END");
 
         // The malformed block should be preserved as text
         assertTrue(r.parts().get(0) instanceof LineEditorParser.OutputPart.Text,
@@ -125,11 +125,11 @@ class LineEditorParserTest {
         var ctx = new TestContextManager(tempDir, new NoOpConsoleIO());
         var input = """
             BRK_EDIT_RM gone.txt
-            BRK_EDIT_ED foo/bar.txt
+            BRK_EDIT_EX foo/bar.txt
             2,3 c
             NEW
             .
-            BRK_EDIT_END
+            BRK_EDIT_EX_END
             """.stripIndent();
         var parsed = LineEditorParser.instance.parse(input);
         var edits = LineEditorParser.instance.materializeEdits(parsed, ctx);
@@ -154,11 +154,11 @@ class LineEditorParserTest {
     @Test
     void parse_implicitDotAndEscapes() {
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         1 i
         \\.
         \\\\
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
@@ -174,7 +174,7 @@ class LineEditorParserTest {
     @Test
     void parse_shellCommandWarning_andIgnoredCommands() {
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         !echo hi
         w
         1 a
@@ -183,12 +183,12 @@ class LineEditorParserTest {
         q
         wq
         qw
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNotNull(r.parseError(), "Shell command should produce a parse warning");
-        assertTrue(r.parseError().contains("Shell command ignored inside BRK_EDIT_ED"),
+        assertTrue(r.parseError().contains("Shell command ignored inside BRK_EDIT_EX"),
                    "Warning should mention ignored shell command");
 
         var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().stream()
@@ -227,13 +227,13 @@ class LineEditorParserTest {
     @Test
     void parse_edMissingFilename_reportsErrorAndKeepsText() {
         var input = """
-        BRK_EDIT_ED
-        BRK_EDIT_END
+        BRK_EDIT_EX
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
-        assertNotNull(r.parseError(), "Expected error for missing filename in BRK_EDIT_ED");
-        assertTrue(r.parseError().contains("BRK_EDIT_ED missing filename."));
+        assertNotNull(r.parseError(), "Expected error for missing filename in BRK_EDIT_EX");
+        assertTrue(r.parseError().contains("BRK_EDIT_EX missing filename."));
         assertTrue(r.parts().stream().allMatch(p -> p instanceof LineEditorParser.OutputPart.Text),
                    "Malformed block should be preserved as text only");
     }
@@ -242,11 +242,11 @@ class LineEditorParserTest {
     @Test
     void parse_changeSingleLineWithoutComma() {
         var input = """
-        BRK_EDIT_ED file.txt
+        BRK_EDIT_EX file.txt
         5 c
         X
         .
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
@@ -264,12 +264,12 @@ class LineEditorParserTest {
     void materialize_appendZeroAndApply_createsFile(@TempDir Path dir) throws Exception {
         var ctx = new TestContextManager(dir, new NoOpConsoleIO());
         var input = """
-        BRK_EDIT_ED new.txt
+        BRK_EDIT_EX new.txt
         0 a
         A
         B
         .
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);
@@ -289,9 +289,9 @@ class LineEditorParserTest {
         Files.writeString(dir.resolve("a.txt"), "1\n2\n3\n4\n");
 
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         2,3 d
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);
@@ -307,11 +307,11 @@ class LineEditorParserTest {
     @Test
     void parse_dollarAppend_parsesAndUsesSentinel() {
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         $ a
         X
         .
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
@@ -328,11 +328,11 @@ class LineEditorParserTest {
         var ctx = new TestContextManager(dir, new NoOpConsoleIO());
         Files.writeString(dir.resolve("a.txt"), "A\nB\n");
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         $ a
         X
         .
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);
@@ -348,11 +348,11 @@ class LineEditorParserTest {
         var ctx = new TestContextManager(dir, new NoOpConsoleIO());
         Files.writeString(dir.resolve("a.txt"), "B\n");
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         0 i
         A
         .
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);
@@ -368,11 +368,11 @@ class LineEditorParserTest {
         var ctx = new TestContextManager(dir, new NoOpConsoleIO());
         Files.writeString(dir.resolve("a.txt"), "A\nB\n");
         var input = """
-        BRK_EDIT_ED a.txt
+        BRK_EDIT_EX a.txt
         $ i
         Z
         .
-        BRK_EDIT_END
+        BRK_EDIT_EX_END
         """.stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);

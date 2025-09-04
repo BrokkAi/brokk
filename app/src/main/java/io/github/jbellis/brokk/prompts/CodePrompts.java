@@ -115,7 +115,7 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Redacts BRK_EDIT_ED blocks from an AiMessage (mixed content allowed).
+     * Redacts BRK_EDIT_EX blocks from an AiMessage (mixed content allowed).
      * - ED blocks become a placeholder that cannot be confused with valid blocks.
      * - BRK_EDIT_RM lines are preserved.
      * - If there are no edits, returns the original message (unless blank).
@@ -870,7 +870,7 @@ public abstract class CodePrompts {
             # %d edit command failure%s in %d file%s!
 
             Review the CURRENT state of these files below in <current_content>.
-            Provide corrected **BRK_EDIT_ED / BRK_EDIT_RM** blocks for the failed edits only.
+            Provide corrected **BRK_EDIT_EX / BRK_EDIT_RM** blocks for the failed edits only.
 
             Tips:
             - Addresses are absolute numeric (1-based). Ranges n,m are inclusive.

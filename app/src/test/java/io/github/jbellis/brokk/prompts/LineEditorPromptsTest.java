@@ -27,7 +27,7 @@ class LineEditorPromptsTest {
             assertNull(parsed.parseError(), "Example should parse cleanly without errors");
             assertTrue(
                     parsed.parts().stream().anyMatch(p -> p instanceof LineEditorParser.OutputPart.EdBlock),
-                    "Example should contain at least one BRK_EDIT_ED block");
+                    "Example should contain at least one BRK_EDIT_EX block");
         }
     }
 }
