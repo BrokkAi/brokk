@@ -181,14 +181,13 @@ public final class LineEditor {
         var lines = splitIntoLines(original);
         int n = lines.size();
 
-        // Save original before any modifications (even if insertion creates the file)
+        // Capture original once, even if we end up creating the file via insertion
         originals.computeIfAbsent(pf, f -> original);
 
         if (isInsertion) {
-            // Map '$' sentinel to end-of-file (n + 1); otherwise use provided begin
+            // '$' sentinel for insert maps to n+1; otherwise use provided begin
             int requestedBegin = (begin == Integer.MAX_VALUE) ? (n + 1) : begin;
 
-            // Strict validation for insertions
             if (requestedBegin < 1 || requestedBegin > n + 1) {
                 failures.add(new FailedEdit(
                         ef,
@@ -199,7 +198,7 @@ public final class LineEditor {
             }
 
             var bodyLines = splitIntoLines(body);
-            var newLines = new ArrayList<String>(n + bodyLines.size()); // capacity hint
+            var newLines = new ArrayList<String>(n + bodyLines.size());
             int insertAt = requestedBegin - 1; // 0-based
             newLines.addAll(lines.subList(0, insertAt));
             newLines.addAll(bodyLines);
@@ -210,17 +209,20 @@ public final class LineEditor {
             return;
         }
 
-        // Replacement (strict Option A): file must exist
+        // Replacements/deletes require an existing file
         if (!pf.exists()) {
             failures.add(new FailedEdit(
                     ef,
                     FailureReason.FILE_NOT_FOUND,
-                    "Replacement on non-existent file is not allowed. Use type=\"insert\" with beginline=1 and omit endline to create a new file."));
+                    "Replacement on non-existent file is not allowed. Use BRK_EDIT_EX <path> with `0 a` to create a new file."));
             return;
         }
 
-        // Range validation
-        if (begin < 1 || end < begin || end > n) {
+        // Postel normalization for ranges: 0->1, $->n
+        int normalizedBegin = (begin == 0) ? 1 : (begin == Integer.MAX_VALUE ? n : begin);
+        int normalizedEnd   = (end   == Integer.MAX_VALUE) ? n : end;
+
+        if (normalizedBegin < 1 || normalizedEnd < normalizedBegin || normalizedEnd > n) {
             failures.add(new FailedEdit(
                     ef,
                     FailureReason.INVALID_LINE_RANGE,
@@ -228,17 +230,17 @@ public final class LineEditor {
             return;
         }
 
-        int startIdx = begin - 1; // inclusive
-        int endIdxExcl = end; // exclusive
+        int startIdx = normalizedBegin - 1; // inclusive
+        int endIdxExcl = normalizedEnd;     // exclusive
 
         var bodyLines = splitIntoLines(body);
-        var newLines =
-                new ArrayList<String>(n - (endIdxExcl - startIdx) + bodyLines.size()); // capacity hint per goal
+        var newLines = new ArrayList<String>(n - (endIdxExcl - startIdx) + bodyLines.size());
         newLines.addAll(lines.subList(0, startIdx));
         newLines.addAll(bodyLines);
         newLines.addAll(lines.subList(endIdxExcl, n));
 
-        logger.info("Replacing lines {}..{} (incl) in {} with {} new line(s)", begin, end, pf, bodyLines.size());
+        logger.info("Replacing lines {}..{} (incl) in {} with {} new line(s)",
+                    normalizedBegin, normalizedEnd, pf, bodyLines.size());
         writeBack(pf, newLines);
     }
 

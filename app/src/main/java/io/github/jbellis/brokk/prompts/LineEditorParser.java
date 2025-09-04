@@ -35,7 +35,6 @@ import java.util.regex.Pattern;
  *   - "BRK_EDIT_RM &lt;path&gt;"
  * - &lt;path&gt; is the remainder of the fence line after the first space and may contain spaces.
  * - Supported commands (numeric addresses only; 1-based):
- *   - "n i"           insert before line n; body required
  *   - "n a"           append after line n (0 a allowed); body required
  *   - "n[,m] c"       replace inclusive range with body
  *   - "n[,m] d"       delete inclusive range (no body)
@@ -83,10 +82,7 @@ public final class LineEditorParser {
 
     /** ED commands supported in the BRK_EDIT_EX block. */
     public sealed interface EdCommand
-            permits EdCommand.InsertBefore, EdCommand.AppendAfter, EdCommand.ChangeRange, EdCommand.DeleteRange {
-
-        /** n i  — insert before line n; body required. */
-        record InsertBefore(int line, List<String> body) implements EdCommand {}
+            permits EdCommand.AppendAfter, EdCommand.ChangeRange, EdCommand.DeleteRange {
 
         /** n a  — append after line n; body required (0a allowed). */
         record AppendAfter(int line, List<String> body) implements EdCommand {}
@@ -124,9 +120,6 @@ public final class LineEditorParser {
      */
     public ExtendedParseResult parse(String content) {
         // Minimal guard for legacy typed-tag inputs (e.g., <brk_edit_file ...> ... </brk_edit_file>)
-        // Our parser is ED-fence based. If we detect an open <brk_edit_file> without the correct
-        // </brk_edit_file> close (including the alias-mismatch case like </brk_update_file>),
-        // we treat the whole input as plain text and surface a clear parse error.
         var lower = content.toLowerCase(Locale.ROOT);
         if (lower.contains("<brk_edit_file")) {
             if (!lower.contains("</brk_edit_file>")) {
@@ -134,8 +127,6 @@ public final class LineEditorParser {
                 onlyText.add(new OutputPart.Text(content));
                 return new ExtendedParseResult(onlyText, "Missing closing </brk_edit_file> tag");
             }
-            // If both open and close typed tags are present, we still do not support typed parsing here.
-            // Treat it as plain text with a helpful error so callers know why nothing was parsed.
             var onlyText = new ArrayList<OutputPart>();
             onlyText.add(new OutputPart.Text(content));
             return new ExtendedParseResult(onlyText,
@@ -145,7 +136,6 @@ public final class LineEditorParser {
         var parts = new ArrayList<OutputPart>();
         var errors = new ArrayList<String>();
 
-        // Split preserving trailing empty segment if text ends with '\n'
         var lines = content.split("\n", -1);
         int i = 0;
 
@@ -155,7 +145,6 @@ public final class LineEditorParser {
             var line = lines[i];
             var trimmed = line.trim();
 
-            // helpers to flush accumulated text
             Runnable flushText = () -> {
                 if (textBuf.length() > 0) {
                     parts.add(new OutputPart.Text(textBuf.toString()));
@@ -167,7 +156,6 @@ public final class LineEditorParser {
             if (line.startsWith("BRK_EDIT_RM")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
-                    // malformed; keep as text to avoid accidental edits, and record an error
                     textBuf.append(line);
                     if (i < lines.length - 1) textBuf.append('\n');
                     errors.add("BRK_EDIT_RM missing filename.");
@@ -177,7 +165,7 @@ public final class LineEditorParser {
                 String path = trimmed.substring(sp + 1).trim();
                 flushText.run();
                 parts.add(new OutputPart.Delete(path));
-                i++; // consume this line
+                i++;
                 continue;
             }
 
@@ -185,7 +173,6 @@ public final class LineEditorParser {
             if (line.startsWith("BRK_EDIT_EX")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
-                    // malformed; keep as text
                     textBuf.append(line);
                     if (i < lines.length - 1) textBuf.append('\n');
                     errors.add("BRK_EDIT_EX missing filename.");
@@ -196,9 +183,8 @@ public final class LineEditorParser {
 
                 flushText.run();
 
-                // Parse until BRK_EDIT_EX_END (required)
-                int blockStartIndex = i; // index of ED header line
-                i++; // advance to first command/body line
+                int blockStartIndex = i;
+                i++;
                 var commands = new ArrayList<EdCommand>();
                 boolean sawEndFence = false;
 
@@ -206,14 +192,12 @@ public final class LineEditorParser {
                     var cmdLine = lines[i];
                     var cmdTrim = cmdLine.trim();
 
-                    // end of block
                     if (cmdLine.equals("BRK_EDIT_EX_END")) {
                         sawEndFence = true;
-                        i++; // consume END
+                        i++;
                         break;
                     }
 
-                    // ignore blank lines and non-edit noise ('w', 'q', etc.)
                     if (cmdTrim.isEmpty()
                             || cmdTrim.equals("w") || cmdTrim.equals("q")
                             || cmdTrim.equals("wq") || cmdTrim.equals("qw")) {
@@ -221,27 +205,23 @@ public final class LineEditorParser {
                         continue;
                     }
 
-                    // shell not supported; ignore but note
                     if (cmdTrim.startsWith("!")) {
                         errors.add("Shell command ignored inside BRK_EDIT_EX: " + cmdTrim);
                         i++;
                         continue;
                     }
 
-                    // Match range command:  n[,m] [c|d]
                     var range = RANGE_CMD.matcher(cmdTrim);
-                    // Match insert/append:  n [i|a]
                     var ia = IA_CMD.matcher(cmdTrim);
 
                     if (range.matches()) {
-                        int n1 = Integer.parseInt(range.group(1));
-                        int n2 = (range.group(2) == null) ? n1 : Integer.parseInt(range.group(2));
+                        int n1 = parseAddr(range.group(1));
+                        int n2 = (range.group(2) == null) ? n1 : parseAddr(range.group(2));
                         char op = Character.toLowerCase(range.group(3).charAt(0));
                         if (op == 'd') {
                             commands.add(new EdCommand.DeleteRange(n1, n2));
-                            i++; // move to next command
+                            i++;
                         } else { // 'c'
-                            // read body until '.' or BRK_EDIT_EX_END ('.' optional for final body)
                             i++;
                             var body = new ArrayList<String>();
                             boolean implicitClose = false;
@@ -249,13 +229,12 @@ public final class LineEditorParser {
                                 var bodyLine = lines[i];
                                 var bodyTrim = bodyLine.trim();
                                 if (bodyTrim.equals("BRK_EDIT_EX_END")) {
-                                    // treat as implicit '.' for the final command
                                     implicitClose = true;
                                     sawEndFence = true;
                                     break;
                                 }
                                 if (bodyTrim.equals(".")) {
-                                    i++; // consume terminator
+                                    i++;
                                     break;
                                 }
                                 body.add(unescapeBodyLine(bodyLine));
@@ -263,20 +242,17 @@ public final class LineEditorParser {
                             }
                             commands.add(new EdCommand.ChangeRange(n1, n2, body));
                             if (implicitClose) {
-                                // outer while will see END on next iteration
+                                // outer loop will see END next
                             }
                         }
                         continue;
                     }
 
                     if (ia.matches()) {
-                        ia.reset(); ia.matches(); // safe; we already matched
                         var addr = ia.group(1);
-                        // Sentinel for '$' (end-of-file). We'll resolve during materialization/apply.
-                        int n = "$".equals(addr) ? Integer.MAX_VALUE : Integer.parseInt(addr);
-                        char op = Character.toLowerCase(ia.group(2).charAt(0));
+                        int n = parseAddr(addr);
 
-                        i++; // advance to body
+                        i++;
                         var body = new ArrayList<String>();
                         boolean implicitClose = false;
                         while (i < lines.length) {
@@ -288,29 +264,24 @@ public final class LineEditorParser {
                                 break;
                             }
                             if (bodyTrim.equals(".")) {
-                                i++; // consume terminator
+                                i++;
                                 break;
                             }
                             body.add(unescapeBodyLine(bodyLine));
                             i++;
                         }
-                        if (op == 'i') {
-                            commands.add(new EdCommand.InsertBefore(n, body));
-                        } else {
-                            commands.add(new EdCommand.AppendAfter(n, body));
-                        }
+                        commands.add(new EdCommand.AppendAfter(n, body));
                         if (implicitClose) {
-                            // outer while will see END on next iteration
+                            // outer loop will see END next
                         }
                         continue;
                     }
 
-                    // Unrecognized line inside ED block: ignore silently to minimize parse churn
+                    // Unrecognized line inside ED block: ignore silently
                     i++;
                 }
 
                 if (!sawEndFence) {
-                    // Missing END: treat the whole block as text and report a parse error
                     var sb = new StringBuilder();
                     sb.append("BRK_EDIT_EX ").append(path).append('\n');
                     for (int k = blockStartIndex + 1; k < lines.length; k++) {
@@ -319,21 +290,18 @@ public final class LineEditorParser {
                     }
                     parts.add(new OutputPart.Text(sb.toString()));
                     errors.add("Missing BRK_EDIT_EX_END for " + path);
-                    break; // nothing more to parse
+                    break;
                 }
 
-                // Emit ED block
                 parts.add(new OutputPart.EdBlock(path, List.copyOf(commands)));
                 continue;
             }
 
-            // Not a fence; accumulate as text (preserving newlines)
             textBuf.append(line);
             if (i < lines.length - 1) textBuf.append('\n');
             i++;
         }
 
-        // >>> NEW: flush remaining accumulated text
         if (textBuf.length() > 0) {
             parts.add(new OutputPart.Text(textBuf.toString()));
         }
@@ -346,9 +314,16 @@ public final class LineEditorParser {
     }
 
     // Patterns for ED commands (numeric only; no regex, no navigation)
-    // Patterns for ED commands (numeric only; no regex, no navigation)
-    private static final Pattern RANGE_CMD = Pattern.compile("(?i)^(\\d+)\\s*(?:,\\s*(\\d+))?\\s*([cd])$");
-    private static final Pattern IA_CMD    = Pattern.compile("(?i)^(\\d+|\\$)\\s*([ia])$");
+    private static final Pattern RANGE_CMD = Pattern.compile("(?i)^([0-9a-f]+|\\$)\\s*(?:,\\s*([0-9a-f]+|\\$))?\\s*([cd])$");
+    private static final Pattern IA_CMD    = Pattern.compile("(?i)^([0-9a-f]+|\\$)\\s*(a)$");
+
+    private static int parseAddr(String token) {
+        return "$".equals(token) ? Integer.MAX_VALUE : Integer.parseInt(token, 16);
+    }
+
+    private static String addrToString(int n) {
+        return (n == Integer.MAX_VALUE) ? "$" : Integer.toHexString(n).toUpperCase(Locale.ROOT);
+    }
 
     // Minimal unescape for body lines: "\." => ".", "\\" => "\"
     private static String unescapeBodyLine(String line) {
@@ -379,28 +354,26 @@ public final class LineEditorParser {
             } else if (part instanceof OutputPart.EdBlock ed) {
                 var pf = cm.toFile(ed.path());
                 for (var cmd : ed.commands()) {
-                    if (cmd instanceof EdCommand.InsertBefore ib) {
-                        // Clamp 0 -> 1 to satisfy EditFile constructor precondition (>= 1).
-                        int addr = ib.line();
-                        int begin = (addr <= 1) ? 1 : addr; // preserve Integer.MAX_VALUE sentinel
-                        String body = String.join("\n", ib.body());
-                        editFiles.add(new LineEdit.EditFile(pf, begin, begin - 1, body));
-                    } else if (cmd instanceof EdCommand.AppendAfter aa) {
-                        // NOTE: if aa.line() == Integer.MAX_VALUE (parsed from '$'), avoid overflow on +1
-                        int begin = (aa.line() == Integer.MAX_VALUE) ? Integer.MAX_VALUE : aa.line() + 1; // 0a => begin=1; $a => end
+                    if (cmd instanceof EdCommand.AppendAfter aa) {
+                        int begin = (aa.line() == Integer.MAX_VALUE) ? Integer.MAX_VALUE : aa.line() + 1;
                         String body = String.join("\n", aa.body());
                         editFiles.add(new LineEdit.EditFile(pf, begin, begin - 1, body));
                     } else if (cmd instanceof EdCommand.ChangeRange cr) {
+                        // Postel: clamp begin<1 to 1 so the EditFile constructor precondition holds
+                        int begin = (cr.begin() < 1) ? 1 : cr.begin();
+                        int end = cr.end(); // '$' comes through as Integer.MAX_VALUE; applyEdit will normalize
                         String body = String.join("\n", cr.body());
-                        editFiles.add(new LineEdit.EditFile(pf, cr.begin(), cr.end(), body));
+                        editFiles.add(new LineEdit.EditFile(pf, begin, end, body));
                     } else if (cmd instanceof EdCommand.DeleteRange dr) {
-                        editFiles.add(new LineEdit.EditFile(pf, dr.begin(), dr.end(), ""));
+                        // Postel: clamp begin<1 to 1 for deletes as well
+                        int begin = (dr.begin() < 1) ? 1 : dr.begin();
+                        int end = dr.end();
+                        editFiles.add(new LineEdit.EditFile(pf, begin, end, ""));
                     }
                 }
             }
         }
 
-        // Sort by file then descending begin/end (last-edits-first) for cross-file determinism
         editFiles.sort((x, y) -> {
             var a = (LineEdit.EditFile) x;
             var b = (LineEdit.EditFile) y;
@@ -430,52 +403,44 @@ There are two editing commands: BRK_EDIT_EX, and BRK_EDIT_RM.
 
 # BRK_EDIT_EX
 The BRK_EDIT_EX format is a line-oriented text-editing format that supports only a small subset of classic `ex`:
-**i**, **a**, **c**, **d** with absolute addresses. Addresses are 1-based integers. For **i** and **a** only,
+**a**, **c**, **d** with absolute addresses. Addresses are 1-based hex integers. Additionally,
 you may also use the special pseudo-addresses:
 - `0`  -> the very start of the file (before the first line)
 - `$`  -> the end of the file (after the last line)
 
+All addresses (line numbers) MUST BE ABSOLUTE.
+DO NOT adjust to account for your own edits and DO NOT make them relative to other edits.
 You will be shown file contents with each line prefixed by `N:` in the workspace listing.
 These numbers are NOT part of the file text; use them only to reference line numbers.
-Do not re-count; rely on the provided numbering.
 
 Emit edits using ONLY the following fences (ALL CAPS, each on its own line, no Markdown code fences):
 
 BRK_EDIT_EX <full/path>
-n i            # insert before line n     (body required; `0 i` inserts at start; `$ i` inserts at end)
+n a            # append after line n until . (`0 a` inserts at start, `$ a` appends at end)
 ...body...
 .
-n a            # append after line n      (body required; `0 a` inserts at start; `$ a` appends at end)
+n[,m] c        # replace inclusive range until .
 ...body...
 .
-n[,m] c        # replace inclusive range  (body required; ranges are numeric only; `$` not allowed here)
-...body...
-.
-n[,m] d        # delete inclusive range   (no body)
+n[,m] d        # delete inclusive range (no body, no .)
 BRK_EDIT_EX_END
 
 Path rules:
 - `<full/path>` is the remainder of the fence line after the first space, trimmed; it may include spaces.
 
 Body rules:
-- For **i/a/c**, the body ends with a single dot `.` on a line by itself.
-  For the *final* body in a block, that terminating dot may be omitted.
+- For **a/c**, the body ends with a single dot `.` on a line by itself.
 - To include a literal `.` line, write `\\.`.
   To include a literal `\\` line, write `\\\\`.
 
-Noise handling:
-- `w`, `q`, `wq`, `qw` are ignored.
-- Shell commands starting with `!` are not supported; they will be ignored and reported as a warning.
-
 Conventions and constraints:
 - Ranges `n,m` are inclusive; both `n` and `m` must be integers with `1 <= n <= m`.
-- `$` and `0` are allowed **only** with `i` and `a`, not with `c` or `d`.
 - Keep edits minimal and non-overlapping. Emit commands **last-edits-first** within each file to avoid
-  line-number shifts. The system will still sort, but correct ordering reduces mistakes.
+  line-number confusion. (The system will still sort, but correct ordering reduces mistakes.)
 - Do not modify lines you do not explicitly touch. Do not include file listings or unrelated text.
 
 Creating or removing files:
-- To create a new file, use `BRK_EDIT_EX <path>` with  `0 a` or `1 i` containing the entire file body.
+- To create a new file, use `BRK_EDIT_EX <path>` with  `0 a` containing the entire file body.
   (Do NOT use a replace range on a non-existent file.)
 - To remove a file, use: `BRK_EDIT_RM <path>` on a single line (no END fence).
 
@@ -490,7 +455,7 @@ BRK_EDIT_EX_END
 
 # Insert two lines at the start of the file
 BRK_EDIT_EX README.md
-0 i
+0 a
 # Project Title
 A short description.
 .
@@ -509,99 +474,99 @@ BRK_EDIT_EX_END
         return List.of(
                 // Example 1 — WORKSPACE goes in the user message
                 new UserMessage("""
-                                        Change get_factorial() to use math.factorial
-                                        
-                                        <workspace>
-                                        <file path="mathweb/flask/app.py">
-                                        1: from flask import Flask, request
-                                        2: app = Flask(__name__)
-                                        3:
-                                        4: def index():
-                                        5:     return "ok"
-                                        6:
-                                        7: # helpers
-                                        8:
-                                        9: def get_factorial(n):
-                                        10:     if n < 0:
-                                        11:         raise ValueError("negative")
-                                        12:     if n == 0:
-                                        13:         return 1
-                                        14:     return n * get_factorial(n - 1)
-                                        15:
-                                        16: @app.route("/fact")
-                                        17: def fact():
-                                        18:     n = int(request.args.get("n", "0"))
-                                        19:     if n < 0:
-                                        20:         return "bad", 400
-                                        21:     return str(get_factorial(n))
-                                        22:
-                                        23: if __name__ == "__main__":
-                                        24:     app.run()
-                                        </file>
-                                        </workspace>
-                                        """.stripIndent()),
+                                Change get_factorial() to use math.factorial
+                                
+                                <workspace>
+                                <file path="mathweb/flask/app.py">
+                                1: from flask import Flask, request
+                                2: app = Flask(__name__)
+                                3:
+                                4: def index():
+                                5:     return "ok"
+                                6:
+                                7: # helpers
+                                8:
+                                9: def get_factorial(n):
+                                a:     if n < 0:
+                                b:         raise ValueError("negative")
+                                c:     if n == 0:
+                                d:         return 1
+                                e:     return n * get_factorial(n - 1)
+                                f:
+                                10: @app.route("/fact")
+                                11: def fact():
+                                12:     n = int(request.args.get("n", "0"))
+                                13:     if n < 0:
+                                14:         return "bad", 400
+                                15:     return str(get_factorial(n))
+                                16:
+                                17: if __name__ == "__main__":
+                                18:     app.run()
+                                </file>
+                                </workspace>
+                                """.stripIndent()),
                 new AiMessage("""
-                                      We will:
-                                      1) Add the math import at the top of app.py
-                                      2) Remove the recursive implementation
-                                      3) Update the call site
-                                      
-                                      BRK_EDIT_EX mathweb/flask/app.py
-                                      21 c
-                                      return str(math.factorial(n))
-                                      .
-                                      9,14 d
-                                      1 i
-                                      import math
-                                      .
-                                      BRK_EDIT_EX_END
-                                      """.stripIndent()),
+                              We will:
+                              1) Add the math import at the top of app.py
+                              2) Remove the recursive implementation
+                              3) Update the call site
+                              
+                              BRK_EDIT_EX mathweb/flask/app.py
+                              15 c
+                              return str(math.factorial(n))
+                              .
+                              9,E d
+                              0 a
+                              import math
+                              .
+                              BRK_EDIT_EX_END
+                              """.stripIndent()),
 
                 // Example 2 — WORKSPACE goes in the user message; no filler or anachronistic comments
                 new UserMessage("""
-                                        Refactor hello() into its own file.
-                                        
-                                        <workspace>
-                                        <file path="main.py">
-                                        1: import sys
-                                        2:
-                                        3: def main():
-                                        4:     hello()
-                                        5:
-                                        6: if __name__ == "__main__":
-                                        7:     main()
-                                        8:
-                                        9: def hello():
-                                        10:     \"\"\"print a greeting\"\"\"
-                                        11:     print("hello")
-                                        12:
-                                        </file>
-                                        </workspace>
-                                        """.stripIndent()),
+                                Refactor hello() into its own file.
+                                
+                                <workspace>
+                                <file path="main.py">
+                                1: import sys
+                                2:
+                                3: def main():
+                                4:     hello()
+                                5:
+                                6: if __name__ == "__main__":
+                                7:     main()
+                                8:
+                                9: def hello():
+                                a:     \"\"\"print a greeting\"\"\"
+                                b:     print("hello")
+                                c:
+                                </file>
+                                </workspace>
+                                """.stripIndent()),
                 new AiMessage("""
-                                      We will:
-                                      1) Create a new hello.py with hello()
-                                      2) Import it in main.py and remove the old function
-                                      3) Add a usage comment at the end of main.py
-                                      
-                                      BRK_EDIT_EX hello.py
-                                      0 a
-                                      def hello():
-                                          \"\"\"print a greeting\"\"\"
-                                          print("hello")
-                                      .
-                                      BRK_EDIT_EX_END
-                                      
-                                      BRK_EDIT_EX main.py
-                                      $ a
-                                      # Usage: hello()
-                                      .
-                                      9,12 d
-                                      1 i
-                                      from hello import hello
-                                      .
-                                      BRK_EDIT_EX_END
-                                      """.stripIndent())
+                              We will:
+                              1) Create a new hello.py with hello()
+                              2) Import it in main.py and remove the old function
+                              3) Add a usage comment at the end of main.py
+                              
+                              BRK_EDIT_EX hello.py
+                              0 a
+                              def hello():
+                                  \"\"\"print a greeting\"\"\"
+                                  print("hello")
+                              .
+                              BRK_EDIT_EX_END
+                              
+                              BRK_EDIT_EX main.py
+                              $ a
+                              # Usage: hello()
+                              .
+                              9,C d
+                              0 a
+                              from hello import hello
+                              .
+                              BRK_EDIT_EX_END
+                              """.stripIndent())
         );
     }
 
@@ -621,9 +586,9 @@ Guidance:
 - Always include the closing fence BRK_EDIT_EX_END for every BRK_EDIT_EX block.
 - Prefer multiple commands inside a single BRK_EDIT_EX block per file instead of opening many blocks.
 - Keep edits small and **emit last-edits-first** within each file. Avoid overlapping ranges entirely.
-- Use `1 i` / `0 a` to insert at the start of a file, and `$ i` to insert at the end.
-- Do NOT use `$` with `c` or `d`. Ranges for `c` and `d` must be numeric (1-based) and inclusive.
-- To create a new file, use `0 a` or `1 i` with the whole file body; do not attempt a replace on a missing file.
+- Use `0 a` to insert at the start of a file, and `$ a` to append at the end.
+- To create a new file, use `0 a` with the whole file body; do not attempt a replace on a missing file.
+- `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
 
 %s
@@ -643,17 +608,14 @@ Guidance:
             var sb = new StringBuilder();
             sb.append("BRK_EDIT_EX ").append(ed.path()).append('\n');
             for (var c : ed.commands()) {
-                if (c instanceof EdCommand.InsertBefore ib) {
-                    sb.append(ib.line()).append(" i\n");
-                    renderBody(sb, ib.body());
-                } else if (c instanceof EdCommand.AppendAfter aa) {
-                    sb.append(aa.line()).append(" a\n");
+                if (c instanceof EdCommand.AppendAfter aa) {
+                    sb.append(addrToString(aa.line())).append(" a\n");
                     renderBody(sb, aa.body());
                 } else if (c instanceof EdCommand.ChangeRange cr) {
-                    sb.append(cr.begin()).append(',').append(cr.end()).append(" c\n");
+                    sb.append(addrToString(cr.begin())).append(',').append(addrToString(cr.end())).append(" c\n");
                     renderBody(sb, cr.body());
                 } else if (c instanceof EdCommand.DeleteRange dr) {
-                    sb.append(dr.begin()).append(',').append(dr.end()).append(" d\n");
+                    sb.append(addrToString(dr.begin())).append(',').append(addrToString(dr.end())).append(" d\n");
                 }
             }
             sb.append("BRK_EDIT_EX_END");
@@ -676,12 +638,14 @@ Guidance:
             int endLine = ef.endLine();
             String content = ef.content();
             if (endLine < beginLine) {
-                sb.append(beginLine).append(" i\n");
+                // insertion: represent with "n a", where n = begin-1, or "$" when begin == MAX_VALUE
+                String addr = (beginLine == Integer.MAX_VALUE) ? "$" : addrToString(beginLine - 1);
+                sb.append(addr).append(" a\n");
                 renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
             } else if (content.isEmpty()) {
-                sb.append(beginLine).append(',').append(endLine).append(" d\n");
+                sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" d\n");
             } else {
-                sb.append(beginLine).append(',').append(endLine).append(" c\n");
+                sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" c\n");
                 renderBody(sb, content.lines().toList());
             }
             sb.append("BRK_EDIT_EX_END");
