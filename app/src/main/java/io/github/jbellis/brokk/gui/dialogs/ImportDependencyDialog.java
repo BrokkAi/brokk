@@ -496,18 +496,20 @@ public class ImportDependencyDialog {
             dialog.dispose();
 
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
-                Path tempDir = null;
+                Path stagingDir = null;
                 try {
-                    tempDir = Files.createTempDirectory("brokk-git-clone-");
+                    Path brokkRoot = chrome.getProject().getRoot().resolve(".brokk");
+                    Files.createDirectories(brokkRoot);
+                    stagingDir = Files.createTempDirectory(brokkRoot, "git-staging-");
                     Git.cloneRepository()
                             .setURI(repoUrl)
                             .setBranch(selectedRef)
-                            .setDirectory(tempDir.toFile())
+                            .setDirectory(stagingDir.toFile())
                             .setDepth(1)
                             .setCloneSubmodules(false)
                             .call();
 
-                    Path gitInternalDir = tempDir.resolve(".git");
+                    Path gitInternalDir = stagingDir.resolve(".git");
                     if (Files.exists(gitInternalDir)) {
                         boolean removed = FileUtil.deleteRecursively(gitInternalDir);
                         if (!removed && Files.exists(gitInternalDir)) {
@@ -522,7 +524,7 @@ public class ImportDependencyDialog {
                             throw new IOException("Failed to delete existing destination: " + targetPath);
                         }
                     }
-                    Files.move(tempDir, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(stagingDir, targetPath, StandardCopyOption.REPLACE_EXISTING);
 
                     SwingUtilities.invokeLater(() -> {
                         chrome.systemOutput("Repository " + repoName
@@ -542,11 +544,16 @@ public class ImportDependencyDialog {
                                 JOptionPane.ERROR_MESSAGE);
                         importButton.setEnabled(true);
                     });
-                    if (tempDir != null && Files.exists(tempDir)) {
-                        boolean deleted = FileUtil.deleteRecursively(tempDir);
-                        if (!deleted && Files.exists(tempDir)) {
-                            logger.warn("Failed to cleanup temporary directory {}", tempDir);
+                } finally {
+                    try {
+                        if (stagingDir != null && Files.exists(stagingDir)) {
+                            boolean deleted = FileUtil.deleteRecursively(stagingDir);
+                            if (!deleted && Files.exists(stagingDir)) {
+                                logger.warn("Failed to cleanup staging directory {}", stagingDir);
+                            }
                         }
+                    } catch (Exception cleanupEx) {
+                        logger.warn("Error cleaning up staging directory {}", stagingDir, cleanupEx);
                     }
                 }
                 return null;
