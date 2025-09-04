@@ -255,17 +255,16 @@ Outro
         Files.writeString(dir.resolve("a.txt"), "1\n2\n3\n4\n");
 
         var input = """
-    BRK_EDIT_EX a.txt
-    2,3 d
-    2: 2
-    3: 3
-    BRK_EDIT_EX_END
-    """.stripIndent();
+BRK_EDIT_EX a.txt
+2,3 d
+2: 2
+BRK_EDIT_EX_END
+""".stripIndent();
 
         var parsed = LineEditorParser.instance.parse(input);
         assertNull(parsed.parseError());
 
-        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var edits = LineEditorParser.instance.materializeEdits(parsed, ctx);
         var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
 
         assertTrue(res.failures().isEmpty());

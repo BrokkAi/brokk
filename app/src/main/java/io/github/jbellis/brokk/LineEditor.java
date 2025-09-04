@@ -180,8 +180,6 @@ public final class LineEditor {
         var body = ef.content();
 
         final boolean isInsertion = end < begin;
-        final boolean isDelete = !isInsertion && body.isEmpty();
-        final boolean isChange = !isInsertion && !isDelete;
 
         final String original = pf.exists() ? pf.read() : "";
         var lines = splitIntoLines(original);
@@ -266,7 +264,7 @@ public final class LineEditor {
         writeBack(pf, newLines);
     }
 
-    private static String validateAnchors(LineEdit.EditFile ef, List<String> lines) {
+    private static @Nullable String validateAnchors(LineEdit.EditFile ef, List<String> lines) {
         final boolean isInsertion = ef.endLine() < ef.beginLine();
         final boolean isDelete = !isInsertion && ef.content().isEmpty();
         final boolean isChange = !isInsertion && !isDelete;
@@ -275,24 +273,36 @@ public final class LineEditor {
         boolean mismatch = false;
 
         // Always validate begin anchor
-        var msg = checkOneAnchor("begin", ef.beginAnchor(), lines);
-        if (msg != null) {
+        var beginAnchor = ef.beginAnchor();
+        if (beginAnchor == null) {
             mismatch = true;
-            sb.append(msg).append('\n');
+            sb.append("Anchor mismatch (begin): required anchor is missing\n");
+        } else {
+            var msg = checkOneAnchor("begin", beginAnchor, lines);
+            if (msg != null) {
+                mismatch = true;
+                sb.append(msg).append('\n');
+            }
         }
 
         if (isChange) {
-            var msg2 = checkOneAnchor("end", ef.endAnchor(), lines);
-            if (msg2 != null) {
+            var endAnchor = ef.endAnchor();
+            if (endAnchor == null) {
                 mismatch = true;
-                sb.append(msg2).append('\n');
+                sb.append("Anchor mismatch (end): required anchor is missing\n");
+            } else {
+                var msg2 = checkOneAnchor("end", endAnchor, lines);
+                if (msg2 != null) {
+                    mismatch = true;
+                    sb.append(msg2).append('\n');
+                }
             }
         }
 
         return mismatch ? sb.toString().trim() : null;
     }
 
-    private static String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
+    private static @Nullable String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
         var expected = anchor.content();
         var token = anchor.addrToken();
 

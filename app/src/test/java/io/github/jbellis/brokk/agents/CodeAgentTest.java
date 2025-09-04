@@ -194,7 +194,8 @@ class CodeAgentTest {
         var readOnlyFile = contextManager.toFile("readonly.txt");
         contextManager.addReadonlyFile(readOnlyFile);
 
-        var edit = new LineEdit.EditFile(readOnlyFile, 1, 1, "replace");
+        var edit = new LineEdit.EditFile(readOnlyFile, 1, 1, "replace",
+                new LineEdit.Anchor("1", ""), new LineEdit.Anchor("1", ""));
         var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(edit), 0);
 
         var result = codeAgent.applyPhase(loopContext, null);
@@ -214,7 +215,8 @@ class CodeAgentTest {
         contextManager.addEditableFile(file);
 
         // This should fail because the file only has one line
-        var nonMatchingEdit = new LineEdit.EditFile(file, 10, 10, "replacement");
+        var nonMatchingEdit = new LineEdit.EditFile(file, 10, 10, "replacement",
+                new LineEdit.Anchor("10", ""), new LineEdit.Anchor("10", ""));
         var loopContext =
                 createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingEdit), 0);
 
@@ -242,9 +244,11 @@ class CodeAgentTest {
         contextManager.addEditableFile(file2);
 
         // This should succeed, replacing line 1
-        var successEdit = new LineEdit.EditFile(file1, 1, 1, "goodbye world");
+        var successEdit = new LineEdit.EditFile(file1, 1, 1, "goodbye world",
+                new LineEdit.Anchor("1", "hello world"), new LineEdit.Anchor("1", "hello world"));
         // This should fail, as file2 only has one line
-        var failureEdit = new LineEdit.EditFile(file2, 10, 10, "text");
+        var failureEdit = new LineEdit.EditFile(file2, 10, 10, "text",
+                new LineEdit.Anchor("10", ""), new LineEdit.Anchor("10", ""));
 
         var loopContext =
                 createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(successEdit, failureEdit), 0);
@@ -440,7 +444,8 @@ class CodeAgentTest {
         file.write("old");
         contextManager.addEditableFile(file);
 
-        var edit = new LineEdit.EditFile(file, 1, 1, "new");
+        var edit = new LineEdit.EditFile(file, 1, 1, "new",
+                new LineEdit.Anchor("1", "old"), new LineEdit.Anchor("1", "old"));
         var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(edit), 0);
 
         var result = codeAgent.applyPhase(loopContext, null);
