@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;

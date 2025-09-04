@@ -52,7 +52,7 @@ public class ModelSelector {
                 for (var listener : selectionListeners) {
                     listener.accept(fm.config());
                 }
-            } else if (sel instanceof String s && "Custom...".equals(s)) {
+            } else if (sel instanceof String s && "Manage...".equals(s)) {
                 openCustomDialog();
             }
         });
@@ -121,7 +121,7 @@ public class ModelSelector {
                 } else {
                     favorites.forEach(combo::addItem);
                 }
-                combo.addItem("Custom...");
+                combo.addItem("Manage...");
                 if (lastSelected != null) {
                     // Try to re-select the last favorite if present
                     for (int i = 0; i < combo.getItemCount(); i++) {

@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import static java.util.Objects.requireNonNull;
 
@@ -7,8 +7,13 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.FilterBox;
+import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
@@ -52,7 +57,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel;
+    private final GitLogTab gitLogTab;
 
     private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
 
@@ -206,11 +211,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private List<String> labelChoices = new ArrayList<>();
     private List<String> assigneeChoices = new ArrayList<>();
 
-    public GitPullRequestsTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
+    public GitPullRequestsTab(Chrome chrome, ContextManager contextManager, GitLogTab gitLogTab) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.gitPanel = gitPanel;
+        this.gitLogTab = gitLogTab;
 
         // (Old horizontal split-pane removed – details panel now goes below the table)
 
@@ -582,7 +587,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getTheme().registerPopupMenu(contextMenu);
 
         capturePrDiffMenuItemContextMenu = new JMenuItem("Capture for Review");
         capturePrDiffMenuItemContextMenu.addActionListener(e -> captureSelectedPrDiff());
@@ -639,7 +644,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
     private void setupPrCommitsTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(contextMenu);
+        chrome.getTheme().registerPopupMenu(contextMenu);
 
         capturePrCommitDiffMenuItem = new JMenuItem("Capture Diff");
         capturePrCommitDiffMenuItem.addActionListener(e -> {
@@ -1828,8 +1833,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 repo.pull(); // Pull changes from its tracked upstream
 
                 SwingUtilities.invokeLater(() -> {
-                    gitPanel.updateLogTab();
-                    gitPanel.selectCurrentBranchInLogTab();
+                    gitLogTab.update();
+                    gitLogTab.selectCurrentBranch();
                 });
                 chrome.systemOutput("Updated local branch " + localBranchName + " for PR #" + prNumber);
                 logger.info("Successfully updated local branch {} for PR #{}", localBranchName, prNumber);
@@ -1910,7 +1915,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 getRepo().checkoutRemoteBranch(remoteBranchRef, localBranchName);
 
                 SwingUtilities.invokeLater(() -> {
-                    gitPanel.updateLogTab(); // Updates branches in Log tab
+                    gitLogTab.update(); // Updates branches in Log tab
                     // Switch to the Log tab
                     JTabbedPane mainGitPanelTabs = (JTabbedPane) GitPullRequestsTab.this.getParent();
                     for (int i = 0; i < mainGitPanelTabs.getTabCount(); i++) {
@@ -1919,7 +1924,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             break;
                         }
                     }
-                    gitPanel.selectCurrentBranchInLogTab(); // Highlights the newly checked out branch
+                    gitLogTab.selectCurrentBranch(); // Highlights the newly checked out branch
                 });
 
                 chrome.systemOutput("Checked out PR #" + prNumber + " as local branch " + localBranchName);

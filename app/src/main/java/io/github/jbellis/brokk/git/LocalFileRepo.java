@@ -5,10 +5,13 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
+/** Implements portions of the IGitRepo for a project directory that is not git-enabled. */
 public class LocalFileRepo implements IGitRepo {
     private static final Logger logger = LogManager.getLogger(LocalFileRepo.class);
     private final Path root;
@@ -18,6 +21,21 @@ public class LocalFileRepo implements IGitRepo {
             throw new IllegalArgumentException("Root path must be an existing directory");
         }
         this.root = root.toAbsolutePath().normalize();
+    }
+
+    @Override
+    public void add(List<ProjectFile> files) throws GitAPIException {
+        // no-op
+    }
+
+    @Override
+    public void add(Path path) throws GitAPIException {
+        // no-op
+    }
+
+    @Override
+    public void remove(ProjectFile file) throws GitAPIException {
+        // no-op
     }
 
     @Override
