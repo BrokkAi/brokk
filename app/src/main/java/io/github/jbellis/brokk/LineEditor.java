@@ -303,23 +303,28 @@ public final class LineEditor {
     }
 
     private static @Nullable String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
-        var expected = anchor.content();
+        var expectedRaw = anchor.content();
         var token = anchor.addrToken();
 
-        // New: if the anchor is for 0 or $ and the expected is blank, skip validation (anchor omission allowed)
+        // Trim surrounding whitespace for comparison
+        var expected = expectedRaw.strip();
+
+        // If the anchor is for 0 or $ and the expected is blank (after trimming), skip validation (anchor omission allowed)
         if (("0".equals(token) || "$".equals(token)) && expected.isEmpty()) {
             return null;
         }
 
         var actualOpt = contentForToken(lines, token);
-        var actual = actualOpt.orElse("");
-        // Empty file + blank expected is OK
+        var actualRaw = actualOpt.orElse("");
+        var actual = actualRaw.strip();
+
+        // Empty file + blank expected (after trimming) is OK
         if (!actualOpt.isPresent() && expected.isEmpty()) {
             return null;
         }
         if (!actual.equals(expected)) {
             return "Anchor mismatch (" + which + "): token '" + token
-                    + "' expected [" + expected + "] but was [" + (actualOpt.isPresent() ? actual : "<no line>") + "]";
+                    + "' expected [" + expectedRaw + "] but was [" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "]";
         }
         return null;
     }

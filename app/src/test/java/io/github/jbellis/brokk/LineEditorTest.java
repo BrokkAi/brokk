@@ -195,4 +195,57 @@ class LineEditorTest {
         assertEquals(1, res.failures().size());
         assertEquals(LineEditor.FailureReason.FILE_NOT_FOUND, res.failures().getFirst().reason());
     }
+
+    @Test
+    void anchorsIgnoreLeadingTrailingWhitespace_onChange(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "a.txt");
+        java.nio.file.Files.writeString(pf.absPath(), "A\nB\nC\n");
+
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 2, 2, "B2",
+                        new LineEdit.Anchor("2", "  B  "),
+                        new LineEdit.Anchor("2", "B  ")));
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
+        assertTrue(res.failures().isEmpty(), "Anchors with surrounding whitespace should validate");
+        assertEquals("A\nB2\nC\n", java.nio.file.Files.readString(pf.absPath()));
+    }
+
+    @Test
+    void anchorsIgnoreLeadingTrailingWhitespace_onInsertion(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "b.txt");
+        java.nio.file.Files.writeString(pf.absPath(), "A\nB\n");
+
+        var edits = java.util.List.of(
+                // Insert before line 2 (after line 1), validate anchor on line 1 with extra spaces
+                new LineEdit.EditFile(
+                        pf, 2, 1, "X",
+                        new LineEdit.Anchor("1", "  A  "), null));
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
+        assertTrue(res.failures().isEmpty(), "Insertion should succeed with trimmed anchor comparison");
+        assertEquals("A\nX\nB\n", java.nio.file.Files.readString(pf.absPath()));
+    }
+
+    @Test
+    void anchorsStillCheckInternalWhitespace_mismatch(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "c.txt");
+        java.nio.file.Files.writeString(pf.absPath(), "hello world\n");
+
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        pf, 1, 1, "X",
+                        new LineEdit.Anchor("1", "hello  world"), // double space inside should not be ignored
+                        new LineEdit.Anchor("1", "hello  world")));
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
+        assertEquals(1, res.failures().size(), "Internal whitespace differences should still fail anchor validation");
+        assertEquals(LineEditor.FailureReason.ANCHOR_MISMATCH, res.failures().getFirst().reason());
+        assertEquals("hello world\n", java.nio.file.Files.readString(pf.absPath()),
+                     "File should remain unchanged on anchor mismatch");
+    }
 }
