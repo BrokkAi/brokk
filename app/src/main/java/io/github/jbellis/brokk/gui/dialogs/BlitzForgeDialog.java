@@ -692,7 +692,7 @@ public class BlitzForgeDialog extends JDialog {
         actGbc.gridy = 0;
 
         var noneInfoIcon = new JLabel(smallInfoIcon);
-        noneInfoIcon.setToolTipText("Optionally select Architect or Ask to run after parallel processing");
+        noneInfoIcon.setToolTipText("Optionally select Agent or Ask to run after parallel processing");
 
         GridBagConstraints iconGbc = new GridBagConstraints();
         iconGbc.insets = new Insets(5, 5, 5, 5);
@@ -704,7 +704,7 @@ public class BlitzForgeDialog extends JDialog {
         actionPanel.add(noneInfoIcon, iconGbc);
 
         // Combo box and Model label row
-        runPostProcessCombo = new JComboBox<>(new String[] {"None", "Architect", "Ask"});
+        runPostProcessCombo = new JComboBox<>(new String[] {"None", "Agent", "Ask"});
         postProcessingModelLabel = new JLabel(" ");
 
         // Determine the maximum width needed for the model label
@@ -844,7 +844,7 @@ public class BlitzForgeDialog extends JDialog {
         ActionListener postProcessListener = ev -> {
             String selectedOption = (String) runPostProcessCombo.getSelectedItem();
             boolean ask = "Ask".equals(selectedOption);
-            boolean architect = "Architect".equals(selectedOption);
+            boolean agent = "Agent".equals(selectedOption);
             boolean none = "None".equals(selectedOption);
 
             postProcessingInstructionsArea.setEnabled(!none);
@@ -868,7 +868,7 @@ public class BlitzForgeDialog extends JDialog {
                             buildFirstInfoIcon.setVisible(false);
 
                             switch (option) {
-                                case "Architect" -> {
+                                case "Agent" -> {
                                     buildFirstCheckbox.setEnabled(true);
                                     buildFirstCheckbox.setSelected(true);
                                 }
@@ -887,7 +887,7 @@ public class BlitzForgeDialog extends JDialog {
             // Parallel-output combo defaults
             if (ask) {
                 parallelOutputCombo.setSelectedItem("Include all");
-            } else if (architect) {
+            } else if (agent) {
                 parallelOutputCombo.setSelectedItem("Include changed files");
                 if (postProcessingInstructionsArea.getText().trim().isEmpty()) {
                     postProcessingInstructionsArea.setText("Fix any build errors");
@@ -897,7 +897,7 @@ public class BlitzForgeDialog extends JDialog {
             }
 
             // Model label
-            if (architect) {
+            if (agent) {
                 String modelName = cm.getService().nameOf(cm.getArchitectModel());
                 postProcessingModelLabel.setText("Model: " + modelName);
             } else if (ask) {
@@ -1426,7 +1426,7 @@ public class BlitzForgeDialog extends JDialog {
 
         PostProcessingOption runOption =
                 switch ((String) runPostProcessCombo.getSelectedItem()) {
-                    case "Architect" -> PostProcessingOption.ARCHITECT;
+                    case "Agent" -> PostProcessingOption.ARCHITECT;
                     case "Ask" -> PostProcessingOption.ASK;
                     default -> PostProcessingOption.NONE;
                 };

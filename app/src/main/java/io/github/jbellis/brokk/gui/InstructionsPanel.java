@@ -156,9 +156,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 msg -> chrome.toolError(msg, "Error"));
 
         // Initialize Buttons first
-        architectButton = new JButton("Architect"); // Now a regular JButton
+        architectButton = new JButton("Agent"); // Now a regular JButton
         architectButton.setMnemonic(KeyEvent.VK_G); // Mnemonic for Agent
-        architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
+        architectButton.setToolTipText("Run the multi-step Agent (options include worktree setup)");
         architectButton.addActionListener(e -> runArchitectCommand()); // Main button action
         // architectButton.setMenuSupplier(this::createArchitectMenu); // Removed menu supplier
 
@@ -1114,7 +1114,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var agent = new ArchitectAgent(contextManager, planningModel, codeModel, goal, options);
             var result = agent.execute();
-            chrome.systemOutput("Architect complete!");
+            chrome.systemOutput("Agent complete!");
             contextManager.addToHistory(result, false);
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
@@ -1200,7 +1200,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runArchitectCommand() {
         var goal = getInstructions();
         if (goal.isBlank()) {
-            chrome.toolError("Please provide an initial goal or instruction for the Architect");
+            chrome.toolError("Please provide an initial goal or instruction for the Agent");
             return;
         }
 
@@ -1211,7 +1211,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If the user cancelled the dialog, choices will be null.
         if (choices == null) {
-            logger.debug("Architect command cancelled during option selection.");
+            logger.debug("Agent command cancelled during option selection.");
             enableButtons(); // Re-enable buttons since the action was cancelled before submission
             return;
         }
@@ -1302,9 +1302,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .open()
                         .thenAccept(success -> {
                             if (Boolean.TRUE.equals(success)) {
-                                chrome.systemOutput("New worktree opened for Architect");
+                                chrome.systemOutput("New worktree opened for Agent");
                             } else {
-                                chrome.toolError("Failed to open the new worktree project for Architect.");
+                                chrome.toolError("Failed to open the new worktree project for Agent.");
                                 populateInstructionsArea(originalInstructions);
                             }
                         })
