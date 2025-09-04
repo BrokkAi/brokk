@@ -10,7 +10,7 @@ export interface DebugConfig {
 
 // Debug configuration - set to true to enable debug features
 export const DEBUG_CONFIG: DebugConfig = {
-  showCacheStats: true, // Show cache statistics box
+  showCacheStats: false, // Show cache statistics box
   showTooltips: true,   // Show symbol info tooltips on hover
   logSymbolLookups: true // Log symbol lookup details to console
 };

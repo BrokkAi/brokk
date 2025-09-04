@@ -130,9 +130,16 @@
   }
 
   onMount(() => {
+    console.warn(`[SYMBOL-EXTRACTION] Starting text extraction for component ${componentId}`);
+    console.warn(`[SYMBOL-EXTRACTION] Initial state - symbolText: "${symbolText}", extractedText: "${extractedText}"`);
+
     // Try to extract from props first
     const propsText = extractTextFromChildren();
+    console.warn(`[SYMBOL-EXTRACTION] Props extraction result: "${propsText}"`);
+    console.warn(`[SYMBOL-EXTRACTION] Props text includes newline: ${propsText ? propsText.includes('\n') : 'N/A'}`);
+
     if (propsText && !propsText.includes('\n')) {
+      console.warn(`[SYMBOL-EXTRACTION] SUCCESS: Using props text: "${propsText}"`);
       log.debug(`Symbol extracted from props: "${propsText}"`);
       extractedText = propsText;
       symbolText = propsText;
@@ -140,23 +147,33 @@
       return;
     }
 
+    console.warn(`[SYMBOL-EXTRACTION] Props failed, falling back to DOM extraction`);
+
     // Fallback to DOM extraction after mount
     setTimeout(() => {
+      console.warn(`[SYMBOL-EXTRACTION] DOM extraction timeout fired`);
       const thisElement = document.querySelector(`code[data-symbol-id="${componentId}"]`);
+      console.warn(`[SYMBOL-EXTRACTION] Found element: ${thisElement ? 'YES' : 'NO'}`);
+
       if (thisElement) {
         const textContent = thisElement.textContent?.trim() || '';
+        console.warn(`[SYMBOL-EXTRACTION] DOM textContent: "${textContent}"`);
+        console.warn(`[SYMBOL-EXTRACTION] DOM text includes newline: ${textContent.includes('\n')}`);
 
         // Skip code blocks (multi-line content) early
         if (textContent.includes('\n')) {
+          console.warn(`[SYMBOL-EXTRACTION] SKIP: Code block contains newlines: "${textContent.substring(0, 50)}..."`);
           log.debug(`Skipping code block (contains newlines): "${textContent.substring(0, 50)}..."`);
           return;
         }
 
+        console.warn(`[SYMBOL-EXTRACTION] SUCCESS: Using DOM text: "${textContent}"`);
         log.debug(`Symbol extracted from DOM: "${textContent}"`);
         extractedText = textContent; // Store for fallback rendering
         symbolText = textContent;
         validateAndRequestSymbol();
       } else {
+        console.warn(`[SYMBOL-EXTRACTION] FAIL: Could not find element with symbol ID: ${componentId}`);
         log.debug('Could not find element with symbol ID:', componentId);
       }
     }, 0);
@@ -212,6 +229,23 @@
     }
   });
 
+  // Debug logging for state changes (separate effect to avoid infinite loops)
+  $effect(() => {
+    if (cacheEntry) {
+      console.warn(`[CACHE-UPDATE] Cache entry updated for "${symbolText}":`, cacheEntry);
+      console.warn(`[CACHE-UPDATE] symbolExists=${symbolExists}, isPartialMatch=${isPartialMatch}, highlightRanges=${highlightRanges.length}`);
+    }
+  });
+
+  // Debug logging for segmentation (separate effect)
+  $effect(() => {
+    if (textSegments.length > 0 && symbolExists) {
+      const displayText = symbolText || extractedText;
+      console.warn(`[SEGMENTATION] Final segments for "${displayText}":`, textSegments);
+      console.warn(`[SEGMENTATION] highlightRanges:`, highlightRanges);
+    }
+  });
+
   // Determine if symbol exists and get FQN using derived state
   let symbolExists = $derived(cacheEntry?.status === 'resolved' && !!cacheEntry?.result?.fqn);
   let symbolFqn = $derived(cacheEntry?.result?.fqn);
@@ -251,6 +285,7 @@
   // Add text segmentation for multi-range highlighting
   let textSegments = $derived.by(() => {
     const displayText = symbolText || extractedText;
+
     if (!symbolExists || highlightRanges.length === 0 || !displayText) {
       return [{ text: displayText || '', highlighted: false }];
     }
@@ -263,16 +298,19 @@
 
     for (const range of sortedRanges) {
       const {start, end} = range;
+
       // Add unhighlighted text before this range
       if (start > lastIndex) {
+        const beforeText = displayText.substring(lastIndex, start);
         segments.push({
-          text: displayText.substring(lastIndex, start),
+          text: beforeText,
           highlighted: false
         });
       }
       // Add highlighted range
+      const highlightText = displayText.substring(start, end);
       segments.push({
-        text: displayText.substring(start, end),
+        text: highlightText,
         highlighted: true
       });
       lastIndex = end;
@@ -280,8 +318,9 @@
 
     // Add remaining unhighlighted text
     if (lastIndex < displayText.length) {
+      const afterText = displayText.substring(lastIndex);
       segments.push({
-        text: displayText.substring(lastIndex),
+        text: afterText,
         highlighted: false
       });
     }
@@ -353,10 +392,9 @@
 >
   {#if symbolExists}
     {@const displayText = symbolText || extractedText}
-    {console.log(`RENDER: symbolExists=true, displayText="${displayText}", ranges=${highlightRanges.length}, segments=`, textSegments)}
     {#if displayText && highlightRanges.length > 0}
       <!-- Multi-range highlighting for partial matches -->
-      {#each textSegments as segment}
+      {#each textSegments as segment, index}
         {#if segment.highlighted}
           <span class="symbol-highlight">{segment.text}</span>
         {:else}
@@ -368,7 +406,6 @@
       <span class="symbol-highlight">{displayText}</span>
     {:else}
       <!-- Fallback to children if no text available -->
-      {console.log(`RENDER: No displayText available, symbolText="${symbolText}", extractedText="${extractedText}"`)}
       {@render children?.()}
     {/if}
   {:else}

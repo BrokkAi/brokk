@@ -1111,7 +1111,7 @@ This tests the visual difference between real and fake symbols!`;
     }
 
     function listMockSymbols() {
-        const symbols = Array.from(window.javaBridge._mockSymbolsSet).sort();
+        const symbols = Array.from(window.javaBridge?._mockSymbolsSet || []).sort();
         const symbolList = symbols.map(s => `- \`${s}\``).join('\n');
         const content = `# Mock Symbol Database (${symbols.length} symbols)
 
@@ -1133,7 +1133,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 
     // Update symbol count display
     function updateSymbolCount() {
-        const count = window.javaBridge._mockSymbolsSet.size;
+        const count = window.javaBridge?._mockSymbolsSet?.size || 0;
         const symbolCountEl = document.getElementById('symbol-count');
         if (symbolCountEl) {
             symbolCountEl.textContent = count;

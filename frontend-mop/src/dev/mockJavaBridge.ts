@@ -68,7 +68,7 @@ export function createMockJavaBridge(): MockJavaBridge {
                 if (exactExists) {
                     results[symbol] = {
                         fqn: `com.example.mock.${symbol}`,
-                        highlightRanges: [[0, symbol.length]],
+                        highlightRanges: [{start: 0, end: symbol.length}],
                         isPartialMatch: false,
                         originalText: symbol
                     };
@@ -86,7 +86,7 @@ export function createMockJavaBridge(): MockJavaBridge {
                     if (mockSymbolsSet.has(className)) {
                         results[symbol] = {
                             fqn: `com.example.mock.${className}`,
-                            highlightRanges: [[0, className.length]], // Highlight only the class part
+                            highlightRanges: [{start: 0, end: className.length}], // Highlight only the class part
                             isPartialMatch: true,
                             originalText: symbol
                         };
