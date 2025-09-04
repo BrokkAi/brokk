@@ -1065,6 +1065,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Handles capturing text, e.g. from a code block in the MOP.
+     * Submits a task to summarize the text and adds a PasteTextFragment to the context.
+     *
+     * @param text The text to capture.
+     */
+    public void addPastedTextFragment(String text) {
+        Future<String> descriptionFuture = submitSummarizePastedText(text);
+        var fragment = new ContextFragment.PasteTextFragment(this, text, descriptionFuture);
+        addVirtualFragment(fragment);
+    }
+
+    /**
      * Adds a specific PathFragment (like GitHistoryFragment) to the read-only part of the live context.
      *
      * @param fragment The PathFragment to add.

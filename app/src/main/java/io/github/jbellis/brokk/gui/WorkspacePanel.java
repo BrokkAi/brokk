@@ -1978,13 +1978,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Add as string fragment (possibly converted from HTML)
-            Future<String> summaryFuture = contextManager.submitSummarizePastedText(content);
-            String finalContent = content;
-            contextManager.pushContext(ctx -> {
-                var fragment = new ContextFragment.PasteTextFragment(
-                        contextManager, finalContent, summaryFuture); // Pass contextManager
-                return ctx.addVirtualFragment(fragment);
-            });
+            contextManager.addPastedTextFragment(content);
 
             // Inform the user about what happened
             if (stacktrace == null) {

@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
@@ -37,7 +37,7 @@ public final class MOPBridge {
     private final AtomicInteger epoch = new AtomicInteger();
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
-    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
 
@@ -261,7 +261,7 @@ public final class MOPBridge {
         }
     }
 
-    public void setContextManager(@Nullable IContextManager contextManager) {
+    public void setContextManager(@Nullable ContextManager contextManager) {
         this.contextManager = contextManager;
     }
 
@@ -380,6 +380,13 @@ public final class MOPBridge {
                 }
             }
         });
+    }
+
+    public void captureText(String text) {
+        var cm = contextManager;
+        if (cm != null) {
+            cm.addPastedTextFragment(text);
+        }
     }
 
     public String getContextCacheId() {
