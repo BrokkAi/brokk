@@ -98,7 +98,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton architectButton; // Changed from SplitButton
     private final JButton codeButton;
     private final SplitButton searchButton;
-    private final JButton runButton;
     private final JButton stopButton;
     private final ModelSelector modelSelector;
     private final ContextManager contextManager;
@@ -173,11 +172,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         searchButton.setToolTipText("Explore the codebase beyond the current context using the selected model");
         searchButton.addActionListener(e -> runSearchCommand()); // Main action unchanged
         searchButton.setMenuSupplier(this::createSearchMenu);
-
-        runButton = new JButton("Run in Shell");
-        runButton.setMnemonic(KeyEvent.VK_N);
-        runButton.setToolTipText("Execute the current instructions in a shell");
-        runButton.addActionListener(e -> runRunCommand());
 
         stopButton = new JButton("Stop");
         stopButton.setToolTipText("Cancel the current operation");
@@ -540,19 +534,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
         bottomPanel.add(searchButton); // SplitButton with dropdown
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        bottomPanel.add(runButton);
 
-        // Match button sizes to Run button so Architect/Code/Search match Run's preferred size
-        SwingUtilities.invokeLater(() -> {
-            Dimension buttonSize = runButton.getPreferredSize();
-            if (buttonSize != null && buttonSize.width > 0 && buttonSize.height > 0) {
-                architectButton.setPreferredSize(buttonSize);
-                codeButton.setPreferredSize(buttonSize);
-                searchButton.setPreferredSize(buttonSize);
-                bottomPanel.revalidate();
-                bottomPanel.repaint();
-            }
-        });
 
         // Flexible space between action buttons and stop button
         bottomPanel.add(Box.createHorizontalGlue());
@@ -1547,7 +1529,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         architectButton.setEnabled(false);
         codeButton.setEnabled(false);
         searchButton.setEnabled(false);
-        runButton.setEnabled(false);
         stopButton.setEnabled(true);
     }
 
@@ -1572,9 +1553,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Search (SplitButton)
         searchButton.setEnabled(true);
-
-        // Run in Shell
-        runButton.setEnabled(true);
 
         // Stop is only enabled when an action is running
         stopButton.setEnabled(false);
