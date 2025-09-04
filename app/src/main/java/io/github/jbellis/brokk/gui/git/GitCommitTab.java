@@ -269,7 +269,13 @@ public class GitCommitTab extends JPanel {
         contentPanel.add(fileStatusPane);
         contentPanel.add(Box.createVerticalStrut(Constants.V_GAP));
         contentPanel.add(buttonPanel);
-        add(contentPanel, BorderLayout.NORTH);
+
+        JPanel titledPanel = new JPanel(new BorderLayout());
+        titledPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
+        titledPanel.add(contentPanel, BorderLayout.NORTH);
+
+        add(titledPanel, BorderLayout.CENTER);
+
         // Ensure initial sizing is only as large as the table contents
         shrinkTableToContents();
     }

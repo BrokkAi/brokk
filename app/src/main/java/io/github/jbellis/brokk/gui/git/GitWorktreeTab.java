@@ -45,9 +45,7 @@ public class GitWorktreeTab extends JPanel {
 
     private final boolean isWorktreeWindow;
 
-    public GitWorktreeTab(
-            Chrome chrome,
-            ContextManager contextManager) {
+    public GitWorktreeTab(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -66,10 +64,18 @@ public class GitWorktreeTab extends JPanel {
 
     private void buildUnsupportedUI() {
         removeAll(); // Clear any existing components
-        setLayout(new GridBagLayout()); // Center the message
+
+        JPanel contentPanel = new JPanel(new GridBagLayout()); // Center the message within the titled panel
         JLabel unsupportedLabel = new JLabel("Git executable not found, worktrees are unavailable");
         unsupportedLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        add(unsupportedLabel, new GridBagConstraints());
+        contentPanel.add(unsupportedLabel, new GridBagConstraints());
+
+        JPanel titledPanel = new JPanel(new BorderLayout());
+        titledPanel.setBorder(BorderFactory.createTitledBorder("Worktrees"));
+        titledPanel.add(contentPanel, BorderLayout.CENTER);
+
+        add(titledPanel, BorderLayout.CENTER);
+
         // Ensure buttons (if they were somehow initialized) are disabled
         addButton.setEnabled(false);
         removeButton.setEnabled(false);
@@ -197,7 +203,7 @@ public class GitWorktreeTab extends JPanel {
 
         tablePanel.add(new JScrollPane(worktreeTable), BorderLayout.CENTER);
 
-        add(tablePanel, BorderLayout.CENTER);
+        // added to titled panel below
 
         // Button panel for actions
         JPanel buttonPanel = new JPanel();
@@ -254,7 +260,12 @@ public class GitWorktreeTab extends JPanel {
         }
         buttonPanel.add(refreshButton); // Refresh button always last
 
-        add(buttonPanel, BorderLayout.SOUTH);
+        JPanel titledPanel = new JPanel(new BorderLayout());
+        titledPanel.setBorder(BorderFactory.createTitledBorder("Worktrees"));
+        titledPanel.add(tablePanel, BorderLayout.CENTER);
+        titledPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        add(titledPanel, BorderLayout.CENTER);
 
         worktreeTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {

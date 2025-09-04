@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.gui.git;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -886,9 +884,8 @@ public class GitCommitBrowserPanel extends JPanel {
         viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction(
                 (cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
 
-        viewHistoryItem.addActionListener(e ->
-            getSelectedFilePathsFromTree().forEach(fp -> chrome.addFileHistoryTab(contextManager.toFile(fp)))
-        );
+        viewHistoryItem.addActionListener(
+                e -> getSelectedFilePathsFromTree().forEach(fp -> chrome.addFileHistoryTab(contextManager.toFile(fp))));
         editFileItem.addActionListener(
                 e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
         rollbackFilesItem.addActionListener(e -> {

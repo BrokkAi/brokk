@@ -146,8 +146,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Git
     @Nullable
     private final GitCommitTab gitCommitTab;
+
     @Nullable
     private final GitLogTab gitLogTab;
+
     @Nullable
     private final GitWorktreeTab gitWorktreeTab;
 
@@ -1528,7 +1530,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
     }
 
-
     @Override
     public void updateWorkspace() {
         workspacePanel.updateContextTable();
@@ -2074,9 +2075,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Fetch the modified count off-EDT to avoid blocking UI
         contextManager.submitBackgroundTask("Updating git badge", () -> {
             try {
-                int modifiedCount = (gitCommitTab == null)
-                        ? 0
-                        : gitCommitTab.getThreadSafeCachedModifiedFileCount();
+                int modifiedCount = (gitCommitTab == null) ? 0 : gitCommitTab.getThreadSafeCachedModifiedFileCount();
                 SwingUtilities.invokeLater(() -> updateGitTabBadge(modifiedCount));
             } catch (Exception e) {
                 logger.warn("Error getting modified file count for badge: {}", e.getMessage());
