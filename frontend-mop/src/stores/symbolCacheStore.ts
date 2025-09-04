@@ -629,6 +629,53 @@ export function getInflightRequestsCount(): number {
 }
 
 /**
+ * Get serializable snapshot of cache contents for debugging
+ */
+export function getCacheContents(): {
+    entries: Array<{
+        cacheKey: string;
+        symbol: string;
+        contextId: string;
+        status: string;
+        fqn: string | null;
+        isPartialMatch: boolean;
+        originalText: string | null;
+        highlightRanges: Array<{start: number, end: number}>;
+        timestamp: number;
+        accessCount: number;
+    }>;
+    stats: typeof cacheStats;
+    inflightRequests: string[];
+    timestamp: string;
+} {
+    const cache = get(symbolCacheStore);
+    const entries = Array.from(cache.entries()).map(([cacheKey, entry]) => {
+        // Extract symbol name from cache key (format: "contextId:symbolName")
+        const symbol = cacheKey.split(':').slice(1).join(':');
+
+        return {
+            cacheKey,
+            symbol,
+            contextId: entry.contextId,
+            status: entry.status,
+            fqn: entry.result?.fqn || null,
+            isPartialMatch: entry.result?.isPartialMatch || false,
+            originalText: entry.result?.originalText || null,
+            highlightRanges: entry.result?.highlightRanges || [],
+            timestamp: entry.timestamp,
+            accessCount: entry.accessCount
+        };
+    });
+
+    return {
+        entries: entries.sort((a, b) => b.timestamp - a.timestamp), // Sort by most recent first
+        stats: { ...cacheStats },
+        inflightRequests: Array.from(inflightRequests.keys()),
+        timestamp: new Date().toISOString()
+    };
+}
+
+/**
  * Debug function to inspect cache contents
  */
 export function debugCache(): void {
