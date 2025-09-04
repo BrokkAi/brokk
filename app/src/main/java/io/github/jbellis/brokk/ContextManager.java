@@ -541,11 +541,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public ProjectFile toFile(String relName) {
-        return new ProjectFile(project.getRoot(), relName);
-    }
-
-    @Override
     public AnalyzerWrapper getAnalyzerWrapper() {
         return analyzerWrapper;
     }

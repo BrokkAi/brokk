@@ -89,8 +89,30 @@ public interface IContextManager {
 
     default void removeAnalyzerCallback(AnalyzerCallback callback) {}
 
+    /**
+     * Given a relative path, uses the current project root to construct a valid {@link ProjectFile}. If the path is
+     * suffixed by a leading '/', this is stripped and attempted to be interpreted as a relative path.
+     *
+     * @param relName a relative path.
+     * @return a {@link ProjectFile} instance, if valid.
+     * @throws IllegalArgumentException if the path is not relative or normalized.
+     */
     default ProjectFile toFile(String relName) {
-        throw new UnsupportedOperationException();
+        var trimmed = relName.trim();
+        var project = getProject();
+
+        // If an absolute-like path is provided (leading '/'), attempt to interpret it as a
+        // project-relative path by stripping the leading slash. If that file exists, return it.
+        if (trimmed.startsWith("/")) {
+            var candidateRel = trimmed.substring(1).trim();
+            var candidate = new ProjectFile(project.getRoot(), candidateRel);
+            if (candidate.exists()) {
+                return candidate;
+            }
+            // Fall through to original behavior, which will likely throw if still absolute.
+        }
+
+        return new ProjectFile(project.getRoot(), trimmed);
     }
 
     default Set<ProjectFile> getEditableFiles() {
@@ -139,7 +161,7 @@ public interface IContextManager {
     default void editFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
-        return new IProject() {};
+        throw new UnsupportedOperationException();
     }
 
     default IConsoleIO getIo() {
