@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.IProject;
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -18,8 +19,13 @@ public record ExecutorConfig(String executable, List<String> args) {
             return null;
         }
 
-        List<String> args =
-                (argsStr == null || argsStr.isBlank()) ? List.of("-c") : Arrays.asList(argsStr.split("\\s+"));
+        List<String> args;
+        if (argsStr == null || argsStr.isBlank()) {
+            // Use platform-aware default arguments
+            args = getDefaultArgsForExecutor(executor);
+        } else {
+            args = Arrays.asList(argsStr.split("\\s+"));
+        }
 
         return new ExecutorConfig(executor, args);
     }
@@ -39,10 +45,106 @@ public record ExecutorConfig(String executable, List<String> args) {
     public boolean isValid() {
         try {
             Path execPath = Path.of(executable);
-            return Files.exists(execPath) && Files.isExecutable(execPath);
+
+            // If it's an absolute path, check directly
+            if (execPath.isAbsolute()) {
+                return Files.exists(execPath) && Files.isExecutable(execPath);
+            }
+
+            // For relative paths or bare executables, check if it exists as-is first
+            if (Files.exists(execPath) && Files.isExecutable(execPath)) {
+                return true;
+            }
+
+            // If not found locally, search in PATH
+            return isExecutableOnPath(executable);
+
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** Check if an executable can be found on the system PATH */
+    private static boolean isExecutableOnPath(String executable) {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null || pathEnv.isEmpty()) {
+            return false;
+        }
+
+        // Use manual path separation to avoid errorprone warnings
+        java.util.List<String> pathDirsList = new java.util.ArrayList<>();
+        int start = 0;
+        int pos;
+        while ((pos = pathEnv.indexOf(File.pathSeparator, start)) != -1) {
+            if (pos > start) {
+                pathDirsList.add(pathEnv.substring(start, pos));
+            }
+            start = pos + File.pathSeparator.length();
+        }
+        if (start < pathEnv.length()) {
+            pathDirsList.add(pathEnv.substring(start));
+        }
+        String[] pathDirs = pathDirsList.toArray(new String[0]);
+        String osName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
+        boolean isWindows = osName.contains("windows");
+
+        for (String pathDir : pathDirs) {
+            try {
+                Path dirPath = Path.of(pathDir);
+                if (!Files.isDirectory(dirPath)) {
+                    continue;
+                }
+
+                // On Windows, try with and without .exe extension
+                if (isWindows) {
+                    Path exePath = dirPath.resolve(executable);
+                    if (Files.exists(exePath) && Files.isExecutable(exePath)) {
+                        return true;
+                    }
+                    if (!executable.toLowerCase(java.util.Locale.ROOT).endsWith(".exe")) {
+                        Path exePathWithExt = dirPath.resolve(executable + ".exe");
+                        if (Files.exists(exePathWithExt) && Files.isExecutable(exePathWithExt)) {
+                            return true;
+                        }
+                    }
+                } else {
+                    // Unix-like systems
+                    Path execPath = dirPath.resolve(executable);
+                    if (Files.exists(execPath) && Files.isExecutable(execPath)) {
+                        return true;
+                    }
+                }
+            } catch (Exception e) {
+                // Skip this directory and continue
+            }
+        }
+
+        return false;
+    }
+
+    /** Get platform-appropriate default arguments for a given executor */
+    private static List<String> getDefaultArgsForExecutor(String executable) {
+        String displayName = getDisplayNameFromExecutable(executable).toLowerCase(java.util.Locale.ROOT);
+
+        // PowerShell needs -Command, not -c
+        if (displayName.equals("powershell.exe") || displayName.equals("powershell")) {
+            return List.of("-Command");
+        } else if (displayName.equals("pwsh.exe") || displayName.equals("pwsh")) {
+            // PowerShell Core
+            return List.of("-Command");
+        } else if (displayName.equals("cmd.exe") || displayName.equals("cmd")) {
+            return List.of("/c");
+        } else {
+            // Unix shells and others default to -c
+            return List.of("-c");
+        }
+    }
+
+    /** Helper to extract display name from executable path */
+    private static String getDisplayNameFromExecutable(String executable) {
+        String name = executable;
+        int lastSlash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        return lastSlash >= 0 ? name.substring(lastSlash + 1) : name;
     }
 
     /** Get display name for UI */

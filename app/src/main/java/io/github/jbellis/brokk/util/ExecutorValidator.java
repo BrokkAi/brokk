@@ -31,8 +31,8 @@ public class ExecutorValidator {
             return new ValidationResult(false, "Executable not found or not executable: " + config.executable());
         }
 
-        // Test with a simple command that should work on all platforms
-        String testCommand = "echo test";
+        // Test with a platform-appropriate simple command
+        String testCommand = getTestCommandForExecutor(config);
 
         try {
             String[] command = config.buildCommand(testCommand);
@@ -87,7 +87,14 @@ public class ExecutorValidator {
                     "File '%s' exists but is not executable. Check file permissions.", config.executable());
         }
 
-        return "Executor appears valid but test failed. Check if the executor supports the '-c' flag or adjust executor arguments.";
+        String displayName = config.getDisplayName().toLowerCase(Locale.ROOT);
+        if (displayName.contains("powershell") || displayName.contains("pwsh")) {
+            return "PowerShell executor test failed. Ensure it supports '-Command' parameter or adjust executor arguments.";
+        } else if (displayName.contains("cmd")) {
+            return "CMD executor test failed. Ensure it supports '/c' parameter or adjust executor arguments.";
+        } else {
+            return "Executor appears valid but test failed. Check if the executor supports the '-c' flag or adjust executor arguments.";
+        }
     }
 
     /** Suggests common executor paths based on the system */
@@ -110,6 +117,23 @@ public class ExecutorValidator {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
     }
 
+    /** Get an appropriate test command for the given executor */
+    private static String getTestCommandForExecutor(ExecutorConfig config) {
+        String displayName = config.getDisplayName().toLowerCase(Locale.ROOT);
+
+        // PowerShell needs special handling - echo is a cmdlet, not a command
+        if (displayName.equals("powershell.exe")
+                || displayName.equals("powershell")
+                || displayName.equals("pwsh.exe")
+                || displayName.equals("pwsh")) {
+            // Use Write-Output instead of echo for PowerShell
+            return "Write-Output 'test'";
+        } else {
+            // CMD and Unix shells both use echo
+            return "echo test";
+        }
+    }
+
     /**
      * Determines if an executor is approved for use in macOS sandbox mode. Only allows common, trusted shell
      * executables in standard system locations.
@@ -130,7 +154,13 @@ public class ExecutorValidator {
      */
     public static String[] getApprovedSandboxExecutors() {
         if (isWindows()) {
-            return new String[] {"cmd.exe", "C:\\Windows\\System32\\cmd.exe"};
+            return new String[] {
+                "cmd.exe",
+                "C:\\Windows\\System32\\cmd.exe",
+                "powershell.exe",
+                "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "pwsh.exe" // PowerShell Core
+            };
         } else {
             return new String[] {
                 "/bin/sh", // POSIX standard shell (always safe)
