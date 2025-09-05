@@ -53,6 +53,55 @@ public record ExecutorConfig(String executable, List<String> args) {
         return lastSlash >= 0 ? name.substring(lastSlash + 1) : name;
     }
 
+    /** Get shell language name for markdown code blocks */
+    public String getShellLanguage() {
+        String displayName = getDisplayName().toLowerCase(java.util.Locale.ROOT);
+
+        // Map common executables to appropriate markdown language identifiers
+        if (displayName.equals("cmd.exe") || displayName.equals("cmd")) {
+            return "cmd";
+        } else if (displayName.equals("powershell.exe") || displayName.equals("powershell")) {
+            return "powershell";
+        } else if (displayName.equals("fish")) {
+            return "fish";
+        } else if (displayName.equals("zsh")) {
+            return "zsh";
+        } else if (displayName.equals("bash")) {
+            return "bash";
+        } else if (displayName.equals("sh") || displayName.equals("dash")) {
+            return "sh";
+        } else if (displayName.equals("ksh")) {
+            return "ksh";
+        } else {
+            // Use "unknown" for unrecognized executors to be more accurate
+            return "unknown";
+        }
+    }
+
+    /** Get shell language name for markdown code blocks from project configuration */
+    public static String getShellLanguageFromProject(@Nullable IProject project) {
+        if (project == null) {
+            return getSystemDefaultShellLanguage();
+        }
+
+        ExecutorConfig config = ExecutorConfig.fromProject(project);
+        if (config != null && config.isValid()) {
+            return config.getShellLanguage();
+        }
+
+        return getSystemDefaultShellLanguage();
+    }
+
+    /** Get system default shell language based on OS */
+    private static String getSystemDefaultShellLanguage() {
+        String osName = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT);
+        if (osName.contains("windows")) {
+            return "cmd";
+        } else {
+            return "sh"; // Unix systems default to sh (POSIX shell)
+        }
+    }
+
     @Override
     public String toString() {
         return executable + " " + String.join(" ", args);
