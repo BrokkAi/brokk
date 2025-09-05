@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.analyzer;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
-import org.jetbrains.annotations.NotNull;
 
 public interface IAnalyzer {
     /** Record representing a code unit relevance result with a code unit and its score. */
@@ -63,13 +62,21 @@ public interface IAnalyzer {
     }
 
     /**
+     * Gets the source code for the entire given class. Implementations may return Optional.empty() when the analyzer
+     * cannot provide source text for the requested FQCN.
+     */
+    default Optional<String> getClassSource(String fqcn) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
      * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided pattern as
      * follows: val preparedPattern = if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"val
      * ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
      */
     default List<CodeUnit> searchDefinitions(String pattern) {
         // Validate pattern
-        if (pattern == null || pattern.isEmpty()) {
+        if (pattern.isEmpty()) {
             return List.of();
         }
 
@@ -154,7 +161,6 @@ public interface IAnalyzer {
      *
      * @see #getSymbols(Set) for how this method is used in symbol collection
      */
-    @NotNull
     default List<CodeUnit> directChildren(CodeUnit cu) {
         return List.of();
     }

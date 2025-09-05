@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
@@ -87,8 +88,7 @@ public class GitHubAuth {
 
             var remoteUrl = repo.getRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
-            var parsedOwnerRepoDetails = io.github.jbellis.brokk.gui.GitUiUtil.parseOwnerRepoFromUrl(
-                    Objects.requireNonNullElse(remoteUrl, ""));
+            var parsedOwnerRepoDetails = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
 
             if (parsedOwnerRepoDetails != null) {
                 effectiveOwner = parsedOwnerRepoDetails.owner();

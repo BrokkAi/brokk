@@ -9,7 +9,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.gui.GitUiUtil;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;

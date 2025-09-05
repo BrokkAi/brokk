@@ -670,7 +670,8 @@ public interface LspAnalyzer
     }
 
     default CodeUnit codeUnitForWorkspaceSymbol(WorkspaceSymbol symbol) {
-        final var uri = Path.of(URI.create(symbol.getLocation().getLeft().getUri()));
+        final var uriString = LspAnalyzerHelper.getUriStringFromLocation(symbol.getLocation());
+        final var uri = Path.of(URI.create(uriString));
         final var projectFile =
                 new ProjectFile(this.getProjectRoot(), this.getProjectRoot().relativize(uri));
         final var codeUnitKind = LspAnalyzerHelper.codeUnitForSymbolKind(symbol.getKind());

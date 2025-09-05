@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.gui.VoiceInputButton;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
 import java.awt.event.ActionEvent;
@@ -457,23 +458,23 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                                 }
 
                                                 if (codeUnit.isFunction() || codeUnit.isClass()) {
-                                                    var sourceCodeAvailable = capabilities.hasSource();
+                                                    var sourceCodeAvailable =
+                                                            SourceCaptureUtil.isSourceCaptureAvailable(
+                                                                    codeUnit, capabilities.hasSource());
                                                     var sourceItem = new JMenuItem("<html>Capture source of <code>"
                                                             + identifier + "</code></html>");
                                                     dynamicMenuItems.add(sourceItem);
 
                                                     sourceItem.setEnabled(sourceCodeAvailable);
                                                     if (sourceCodeAvailable) {
-                                                        // Use a local variable for the action listener lambda
+                                                        // Use shared utility for consistent behavior
                                                         sourceItem.addActionListener(action -> {
-                                                            contextManager.submitBackgroundTask(
-                                                                    "Capture Source Code",
-                                                                    () -> contextManager.sourceCodeForCodeUnit(
-                                                                            codeUnit));
+                                                            SourceCaptureUtil.captureSourceForCodeUnit(
+                                                                    codeUnit, contextManager);
                                                         });
                                                     } else {
                                                         sourceItem.setToolTipText(
-                                                                "Code intelligence does not support source code capturing for this language.");
+                                                                SourceCaptureUtil.getSourceCaptureUnavailableTooltip());
                                                     }
                                                 }
                                             });
