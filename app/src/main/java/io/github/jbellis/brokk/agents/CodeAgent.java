@@ -30,7 +30,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -372,7 +371,18 @@ public class CodeAgent {
             } else {
                 updatedConsecutiveParseFailures = 0;
                 updatedPartialWithEditsRetries = updatedPartialWithEditsRetries + 1;
-                messageForRetry = new UserMessage(getContinueFromLastEditPrompt(newlyParsedEdits.getLast()));
+                var repr = LineEditorParser.repr(newlyParsedEdits.getLast());
+                messageForRetry = new UserMessage("""
+                                                          Parse error after %d Line Edits: %s
+                                                          
+                                                          The last Line Edit I successfully parsed was:
+                                                          ```
+                                                          %s
+                                                          ```
+                                                          
+                                                          Please continue from there (WITHOUT repeating that one).
+                                                          """
+                                                          .formatted(newlyParsedEdits.size(), lepResult.parseError(), repr));
                 consoleLogForRetry = "Malformed or incomplete response after %d Line Edits parsed; asking LLM to continue/fix"
                         .formatted(newlyParsedEdits.size());
                 consoleLogForRetry += "Parse error was: " + lepResult.parseError();
@@ -422,7 +432,16 @@ public class CodeAgent {
                     reportComplete("Partial response limit reached; ending task.");
                     return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
                 }
-                messageForRetry = new UserMessage(getContinueFromLastEditPrompt(newlyParsedEdits.getLast()));
+                var repr = LineEditorParser.repr(newlyParsedEdits.getLast());
+                messageForRetry = new UserMessage("""
+                                                          It looks like we got cut off. The last Line Edit tag I successfully parsed was:
+                                                          
+                                                          %s
+                                                          
+                                                          Please continue from there (WITHOUT repeating that one).
+                                                          """
+                                                          .stripIndent()
+                                                          .formatted(repr));
                 consoleLogForRetry = "LLM indicated response was partial after %d clean Line Edits tags; asking to continue"
                         .formatted(newlyParsedEdits.size());
             }
@@ -614,26 +633,6 @@ public class CodeAgent {
                 """
                 .stripIndent()
                 .formatted(latestBuildError);
-    }
-
-    /**
-     * Generates a user message to ask the LLM to continue when a response appears to be cut off.
-     *
-     * @param lastEdit The last successfully parsed block from the incomplete response.
-     * @return A formatted string to be used as a UserMessage.
-     */
-    private static String getContinueFromLastEditPrompt(LineEdit lastEdit) {
-        var repr = LineEditorParser.repr(lastEdit);
-
-        return """
-                It looks like we got cut off. The last Line Edit tag I successfully parsed was:
-
-                %s
-
-                Please continue from there (WITHOUT repeating that one).
-                """
-                .stripIndent()
-                .formatted(repr);
     }
 
     Step requestPhase(
