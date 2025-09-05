@@ -9,6 +9,7 @@ import com.google.common.collect.Iterables;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IConsoleIO;
@@ -1019,8 +1020,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                                 fileNameForDiff, fileNameForDiff, originalLines, patch, 3);
                         // Create the SessionResult representing the net change
                         var actionDescription = "Edited " + fileNameForDiff;
-                        // Include quick edit messages accumulated since last save + the current diff
-                        var messagesForHistory = new ArrayList<>(quickEditMessages);
+                        // Include filtered quick edit messages (without XML context) + the current diff
+                        var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
                         messagesForHistory.add(
                                 Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                         var saveResult = new TaskResult(
@@ -1051,5 +1052,48 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 return false; // Save failed
             }
         });
+    }
+
+    /**
+     * Filters quick edit messages for history display, removing verbose XML context while preserving the essential user
+     * request and AI response.
+     */
+    private static List<ChatMessage> filterQuickEditMessagesForHistory(List<ChatMessage> quickEditMessages) {
+        var filteredMessages = new ArrayList<ChatMessage>();
+
+        for (ChatMessage message : quickEditMessages) {
+            if (message instanceof UserMessage userMessage) {
+                // Extract clean user request from QuickEditPrompts format
+                var cleanRequest = extractCleanUserRequest(Messages.getText(userMessage));
+                filteredMessages.add(new UserMessage(cleanRequest));
+            } else if (message instanceof AiMessage aiMessage) {
+                // Keep AI responses as-is (they contain the actual code changes)
+                filteredMessages.add(aiMessage);
+            }
+            // Skip system messages and other XML context
+        }
+
+        return filteredMessages;
+    }
+
+    /**
+     * Extracts a clean, readable user request from QuickEditPrompts.formatInstructions() output, removing XML markup
+     * and keeping only the essential goal and target information.
+     */
+    private static String extractCleanUserRequest(String formattedInstructions) {
+        // Parse the formatted instructions to extract goal and target
+        var goalPattern = Pattern.compile("<goal>\\s*(.*?)\\s*</goal>", Pattern.DOTALL);
+        var targetPattern = Pattern.compile("<target>\\s*```\\s*(.*?)\\s*```\\s*</target>", Pattern.DOTALL);
+
+        var goalMatcher = goalPattern.matcher(formattedInstructions);
+        var targetMatcher = targetPattern.matcher(formattedInstructions);
+
+        var goal = goalMatcher.find() ? goalMatcher.group(1).trim() : "[Goal not found]";
+        var target = targetMatcher.find() ? targetMatcher.group(1).trim() : "[Target code not found]";
+
+        // Create a clean, readable format
+        return "**Quick Edit Request:**\n\n" + "**Goal:** "
+                + goal + "\n\n" + "**Target code:**\n```\n"
+                + target + "\n```";
     }
 }
