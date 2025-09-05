@@ -141,12 +141,18 @@ li > p {
   font-weight: normal; /* Match exact match base font weight */
 }
 
-/* Ensure non-highlighted text content has no hover effects */
-:not(pre) > code.symbol-exists.partial-match:hover *:not(.symbol-highlight) {
-  color: var(--chat-text) !important;
-  font-weight: normal !important;
-  background-color: transparent !important;
-  text-shadow: none !important;
+/* Ensure non-highlighted spans have no interactive hover effects but inherit base styling */
+.symbol-non-highlight {
+  cursor: default;
+}
+
+.symbol-non-highlight:hover {
+  cursor: default;
+  /* Prevent any hover effects by maintaining current state */
+  color: inherit;
+  font-weight: inherit;
+  background-color: inherit;
+  text-shadow: inherit;
 }
 
 /* Hover effect only on highlighted spans within partial matches */
