@@ -281,8 +281,16 @@ public final class LineEditorParser {
                         if (op == 'd') {
                             commands.add(new EdCommand.DeleteRange(
                                     n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                            // If EOF immediately after anchors, accept as implicit close of the block.
+                            // After a valid delete (anchors read), allow implicit close:
+                            // - at EOF, or
+                            // - if the next non-blank line begins a new BRK_EDIT_EX block.
+                            while (i < lines.length && lines[i].trim().isEmpty()) i++;
                             if (i >= lines.length) {
+                                sawEndFence = true;
+                                break;
+                            }
+                            var la = lines[i].trim();
+                            if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
                                 sawEndFence = true;
                                 break;
                             }
@@ -304,13 +312,21 @@ public final class LineEditorParser {
                             // Skip any blank-only lines that may follow the body (e.g., trailing newline at EOF).
                             while (i < lines.length && lines[i].trim().isEmpty()) i++;
 
-                            // Add the command regardless; if the body ended with '.' and we are now at EOF
-                            // (or only blank lines remained), accept the block as implicitly closed.
+                            // Add the command regardless; if the body ended with '.', we may implicitly close:
+                            // - at EOF, or
+                            // - if the next non-blank line begins a new BRK_EDIT_EX block.
                             commands.add(new EdCommand.ChangeRange(
                                     n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                            if (i >= lines.length && bodyRes.explicitTerminator()) {
-                                sawEndFence = true;
-                                break;
+                            if (bodyRes.explicitTerminator()) {
+                                if (i >= lines.length) {
+                                    sawEndFence = true;
+                                    break;
+                                }
+                                var la = lines[i].trim();
+                                if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
+                                    sawEndFence = true;
+                                    break;
+                                }
                             }
                             continue;
                         }
@@ -348,10 +364,17 @@ public final class LineEditorParser {
                         while (i < lines.length && lines[i].trim().isEmpty()) i++;
 
                         commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
-                        // If EOF (or only blanks) immediately after explicit '.' terminator, accept block as implicitly closed.
-                        if (i >= lines.length && bodyRes.explicitTerminator()) {
-                            sawEndFence = true;
-                            break;
+                        // If explicit '.', we may implicitly close at EOF or before the next BRK_EDIT_EX block.
+                        if (bodyRes.explicitTerminator()) {
+                            if (i >= lines.length) {
+                                sawEndFence = true;
+                                break;
+                            }
+                            var la = lines[i].trim();
+                            if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
+                                sawEndFence = true;
+                                break;
+                            }
                         }
                         continue;
                     }

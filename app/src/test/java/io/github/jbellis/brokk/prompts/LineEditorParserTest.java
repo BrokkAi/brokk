@@ -504,4 +504,53 @@ BRK_EDIT_EX_END
         assertEquals(4, cmd.end());
         assertEquals(List.of("X"), cmd.body(), "Body should be parsed normally");
     }
+
+    @Test
+    void parse_implicitClose_whenNextBeginFenceAfterChange() {
+        var input = """
+BRK_EDIT_EX a.txt
+1 c
+@1| OLD
+NEW
+.
+BRK_EDIT_EX b.txt
+0 a
+@0| 
+HELLO
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError(), "Should allow implicit close before next BRK_EDIT_EX after a valid change");
+
+        // Expect two EdBlocks for a.txt and b.txt
+        var blocks = r.parts().stream().filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock).toList();
+        assertEquals(2, blocks.size(), "Expected two EdBlock parts");
+        assertEquals("a.txt", ((LineEditorParser.OutputPart.EdBlock) blocks.get(0)).path());
+        assertEquals("b.txt", ((LineEditorParser.OutputPart.EdBlock) blocks.get(1)).path());
+    }
+
+    @Test
+    void parse_implicitClose_whenNextBeginFenceAfterDelete() {
+        var input = """
+BRK_EDIT_EX a.txt
+2 d
+@2| two
+BRK_EDIT_EX b.txt
+0 a
+@0| 
+X
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError(), "Should allow implicit close before next BRK_EDIT_EX after a valid delete");
+
+        var blocks = r.parts().stream().filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock).toList();
+        assertEquals(2, blocks.size(), "Expected two EdBlock parts");
+        assertEquals("a.txt", ((LineEditorParser.OutputPart.EdBlock) blocks.get(0)).path());
+        assertEquals("b.txt", ((LineEditorParser.OutputPart.EdBlock) blocks.get(1)).path());
+    }
 }
