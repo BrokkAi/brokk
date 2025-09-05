@@ -1,8 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import static java.util.Objects.requireNonNull;
-
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.dependencies.IExternalDependency;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.util.Decompiler;
@@ -39,10 +38,14 @@ public class ManageDependenciesDialog extends JDialog {
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
+    private final Map<String, IExternalDependency> dependencyCandidateMap = new HashMap<>();
     private final JLabel totalFilesLabel;
     private final JLabel totalLocLabel;
     private final Set<ProjectFile> initialFiles;
     private boolean isUpdatingTotals = false;
+
+    // Track candidates that are currently being imported to prevent duplicate actions
+    private final Set<String> dependenciesBeingImported = new HashSet<>();
 
     private static class NumberRenderer extends DefaultTableCellRenderer {
         public NumberRenderer() {
@@ -66,18 +69,22 @@ public class ManageDependenciesDialog extends JDialog {
 
         var contentPanel = new JPanel(new BorderLayout());
 
-        Object[] columnNames = {"Enabled", "Name", "Files", "LoC"};
+        Object[] columnNames = {"Enabled", "Name", "Source", "Files", "LoC"};
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 if (columnIndex == 0) return Boolean.class;
-                if (columnIndex >= 2) return Long.class;
+                if (columnIndex == 3 || columnIndex == 4) return Long.class;
                 return String.class;
             }
 
             @Override
             public boolean isCellEditable(int row, int column) {
-                return column == 0;
+                if (column != 0) return false;
+                Object nameObj = getValueAt(row, 1);
+                String name = (nameObj instanceof String s) ? s : null;
+                // Disable editing while this dependency is being imported
+                return name == null || !dependenciesBeingImported.contains(name);
             }
         };
 
@@ -95,8 +102,9 @@ public class ManageDependenciesDialog extends JDialog {
         columnModel.getColumn(0).setPreferredWidth(60);
         columnModel.getColumn(0).setMaxWidth(80);
         columnModel.getColumn(1).setPreferredWidth(300);
-        columnModel.getColumn(2).setPreferredWidth(80);
-        columnModel.getColumn(3).setPreferredWidth(100);
+        columnModel.getColumn(2).setPreferredWidth(160); // Source
+        columnModel.getColumn(3).setPreferredWidth(80); // Files
+        columnModel.getColumn(4).setPreferredWidth(100); // LoC
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getTableHeader().setReorderingAllowed(false);
 
@@ -192,10 +200,38 @@ public class ManageDependenciesDialog extends JDialog {
         // Re-compute totals whenever data changes or check-boxes toggle
         tableModel.addTableModelListener(e -> {
             if (e.getType() == -1) return; // ignore table structure changes, only care about cell updates
+
+            // Trigger import when a candidate is enabled
+            if (e.getColumn() == 0 && e.getFirstRow() >= 0) {
+                int row = e.getFirstRow();
+                Object val = tableModel.getValueAt(row, 0);
+                if (Boolean.TRUE.equals(val)) {
+                    String name = (String) tableModel.getValueAt(row, 1);
+                    IExternalDependency candidate = dependencyCandidateMap.get(name);
+                    if (candidate != null && dependenciesBeingImported.add(name)) {
+                        // Disable checkbox while importing
+                        tableModel.fireTableRowsUpdated(row, row);
+
+                        if (candidate.importStrategy() == IExternalDependency.ImportStrategy.DECOMPILE) {
+                            Decompiler.decompileJar(
+                                    chrome,
+                                    candidate.sourcePath(),
+                                    chrome.getContextManager()::submitBackgroundTask,
+                                    () -> SwingUtilities.invokeLater(this::loadDependencies));
+                        } else {
+                            // Other strategies (e.g., COPY_DIRECTORY) can be implemented later
+                        }
+                    }
+                }
+            }
+
             updateTotals();
         });
 
         loadDependencies();
+
+        // Discover external dependency candidates asynchronously
+        new CandidateDiscoveryWorker().execute();
 
         pack();
         setLocationRelativeTo(chrome.getFrame());
@@ -203,11 +239,14 @@ public class ManageDependenciesDialog extends JDialog {
 
     private void addPendingDependencyRow(String name) {
         if (isUpdatingTotals) return; // a bit of a hack to avoid flicker
-        tableModel.addRow(new Object[] {true, name, 0L, 0L});
+        tableModel.addRow(new Object[] {true, name, "Imported", 0L, 0L});
         updateTotals();
     }
 
     private void loadDependencies() {
+        // Reset importing state when reloading dependencies
+        dependenciesBeingImported.clear();
+
         tableModel.setRowCount(0);
         dependencyProjectFileMap.clear();
 
@@ -215,12 +254,27 @@ public class ManageDependenciesDialog extends JDialog {
         var allDeps = project.getAllOnDiskDependencies();
         Set<ProjectFile> liveDeps = new HashSet<>(project.getLiveDependencies());
 
+        // Track imported dependency top-level directory names for filtering candidates
+        var importedNames = new HashSet<String>();
         for (var dep : allDeps) {
             String name = dep.getRelPath().getFileName().toString();
+            importedNames.add(name);
             dependencyProjectFileMap.put(name, dep);
             boolean isLive = liveDeps.contains(dep);
-            tableModel.addRow(new Object[] {isLive, name, 0L, 0L});
+            tableModel.addRow(new Object[] {isLive, name, "Imported", 0L, 0L});
         }
+
+        // Re-add any auto-discovered candidates that are not yet imported
+        for (var entry : dependencyCandidateMap.entrySet()) {
+            String displayName = entry.getKey();
+            IExternalDependency candidate = entry.getValue();
+            // Skip candidates whose sanitized import name is already present on disk
+            if (importedNames.contains(candidate.sanitizedImportName())) {
+                continue;
+            }
+            tableModel.addRow(new Object[] {false, displayName, candidate.sourceSystem(), 0L, 0L});
+        }
+
         updateTotals(); // Initial totals calculation
 
         // count lines in background
@@ -274,8 +328,8 @@ public class ManageDependenciesDialog extends JDialog {
             for (int i = 0; i < tableModel.getRowCount(); i++) {
                 if (!Boolean.TRUE.equals(tableModel.getValueAt(i, 0))) continue;
 
-                totalFiles += (Long) tableModel.getValueAt(i, 2);
-                totalLoc += (Long) tableModel.getValueAt(i, 3);
+                totalFiles += (Long) tableModel.getValueAt(i, 3);
+                totalLoc += (Long) tableModel.getValueAt(i, 4);
             }
 
             totalFilesLabel.setText(String.format("Files in Code Intelligence: %,d", totalFiles));
@@ -292,7 +346,10 @@ public class ManageDependenciesDialog extends JDialog {
             for (int i = 0; i < rowCount; i++) {
                 String name = (String) tableModel.getValueAt(i, 1);
                 var pf = dependencyProjectFileMap.get(name);
-                requireNonNull(pf);
+                if (pf == null) {
+                    // Candidate (not imported): skip line counting
+                    continue;
+                }
 
                 try (var pathStream = Files.walk(pf.absPath())) {
                     // Collect all regular files first
@@ -325,10 +382,40 @@ public class ManageDependenciesDialog extends JDialog {
                 int row = (int) chunk[0];
                 long files = (long) chunk[1];
                 long loc = (long) chunk[2];
-                tableModel.setValueAt(files, row, 2);
-                tableModel.setValueAt(loc, row, 3);
+                tableModel.setValueAt(files, row, 3);
+                tableModel.setValueAt(loc, row, 4);
             }
             // Totals will be updated by the TableModelListener
+        }
+    }
+
+    private class CandidateDiscoveryWorker extends SwingWorker<List<IExternalDependency>, Void> {
+        @Override
+        protected List<IExternalDependency> doInBackground() {
+            try {
+                return chrome.getProject().getExternalDependencyCandidates();
+            } catch (Exception e) {
+                return java.util.List.of();
+            }
+        }
+
+        @Override
+        protected void done() {
+            try {
+                List<IExternalDependency> candidates = get();
+                for (IExternalDependency dep : candidates) {
+                    String displayName = dep.displayName();
+                    // Avoid duplicate entries by name
+                    if (dependencyProjectFileMap.containsKey(displayName)
+                            || dependencyCandidateMap.containsKey(displayName)) {
+                        continue;
+                    }
+                    dependencyCandidateMap.put(displayName, dep);
+                    tableModel.addRow(new Object[] {false, displayName, dep.sourceSystem(), 0L, 0L});
+                }
+            } catch (Exception ignored) {
+                // ignore
+            }
         }
     }
 
@@ -340,6 +427,14 @@ public class ManageDependenciesDialog extends JDialog {
         int selectedRowInModel = table.convertRowIndexToModel(selectedRowInView);
 
         String depName = (String) tableModel.getValueAt(selectedRowInModel, 1);
+        if (dependencyCandidateMap.containsKey(depName)) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Auto-discovered candidates cannot be deleted.\nYou can ignore them or import them.",
+                    "Not Deletable",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         int choice = JOptionPane.showConfirmDialog(
                 this,
                 "Are you sure you want to delete the dependency '" + depName + "'?\nThis action cannot be undone.",

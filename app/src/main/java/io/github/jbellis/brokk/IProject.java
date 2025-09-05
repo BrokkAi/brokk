@@ -293,6 +293,11 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    // Auto-discovery of external dependency candidates (language-agnostic DTOs).
+    default java.util.List<io.github.jbellis.brokk.dependencies.IExternalDependency> getExternalDependencyCandidates() {
+        return java.util.List.of();
+    }
+
     enum CpgRefresh {
         AUTO,
         ON_RESTART,

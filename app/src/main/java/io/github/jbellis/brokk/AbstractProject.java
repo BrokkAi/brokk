@@ -5,6 +5,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.dependencies.IExternalDependency;
+import io.github.jbellis.brokk.dependencies.JavaDependency;
+import io.github.jbellis.brokk.dependencies.scanners.GradleCacheScanner;
+import io.github.jbellis.brokk.dependencies.scanners.MavenCacheScanner;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
@@ -521,5 +525,56 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
+    }
+
+    @Override
+    public List<IExternalDependency> getExternalDependencyCandidates() {
+        try {
+            var enabled = getAnalyzerLanguages();
+            if (enabled.isEmpty() || !enabled.contains(Language.JAVA)) {
+                return List.of();
+            }
+
+            var scanners = List.of(new MavenCacheScanner(), new GradleCacheScanner());
+
+            // Collect candidates
+            List<JavaDependency> candidates = new ArrayList<>();
+            for (var scanner : scanners) {
+                try {
+                    candidates.addAll(scanner.scan(this));
+                } catch (Exception e) {
+                    logger.warn("Dependency scanner {} failed: {}", scanner.sourceSystem(), e.getMessage());
+                }
+            }
+
+            if (candidates.isEmpty()) {
+                return List.of();
+            }
+
+            // Build a set of already imported dependency directory names
+            Set<String> importedNames = new HashSet<>();
+            for (var dep : getAllOnDiskDependencies()) {
+                var name = dep.getRelPath().getFileName().toString();
+                importedNames.add(name);
+            }
+
+            // Deduplicate by displayName and filter already imported
+            Map<String, IExternalDependency> unique = new HashMap<>();
+            for (var dep : candidates) {
+                String key = dep.displayName();
+                String sanitized = dep.sanitizedImportName();
+                if (importedNames.contains(sanitized)) {
+                    continue; // already imported
+                }
+                unique.putIfAbsent(key, dep);
+            }
+
+            return unique.values().stream()
+                    .sorted(Comparator.comparing(IExternalDependency::displayName, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        } catch (Exception e) {
+            logger.warn("Failed to compute external dependency candidates: {}", e.getMessage());
+            return List.of();
+        }
     }
 }

@@ -6,12 +6,14 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.dependencies.IExternalDependency;
 import io.github.jbellis.brokk.git.IGitRepo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -99,5 +101,10 @@ public class TestProject implements IProject {
             }
             return Collections.emptySet();
         }
+    }
+
+    @Override
+    public List<IExternalDependency> getExternalDependencyCandidates() {
+        return List.of();
     }
 }
