@@ -174,13 +174,13 @@ tasks.register<com.github.gradle.node.npm.task.NpmTask>("frontendBuild") {
     inputs.file("${project.rootDir}/frontend-mop/index.html")
     inputs.file("${project.rootDir}/frontend-mop/dev.html")
 
-    outputs.dir("${project.projectDir}/src/main/resources/mop-web")
+    outputs.dir("${project.rootDir}/src/main/resources/mop-web")
 }
 
 tasks.register<Delete>("frontendClean") {
     description = "Clean frontend build artifacts"
     group = "frontend"
-    delete("${project.projectDir}/src/main/resources/mop-web")
+    delete("${project.rootDir}/src/main/resources/mop-web")
     delete("${project.rootDir}/frontend-mop/node_modules")
     delete("${project.rootDir}/frontend-mop/.gradle")
 }
