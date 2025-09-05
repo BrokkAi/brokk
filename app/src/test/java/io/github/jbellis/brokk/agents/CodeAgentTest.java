@@ -502,4 +502,95 @@ class CodeAgentTest {
                 continueStep.loopContext().editState().changedFiles().contains(file),
                 "changedFiles should include the edited file");
     }
+
+    // S-1: verifyPhase sanitizes Unix Java-style compiler output
+    @Test
+    void testVerifyPhase_sanitizesUnixJavaPaths() {
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
+        var absPath = rootFwd + "/src/Main.java";
+        var errorOutput = absPath + ":12: error: cannot find symbol\n    Foo bar;\n    ^\n1 error\n";
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", errorOutput);
+        };
+
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+        var sanitized = retry.loopContext().editState().lastBuildError();
+
+        assertFalse(sanitized.contains(rootFwd), "Sanitized output should not contain absolute root");
+        assertTrue(sanitized.contains("src/Main.java:12"), "Sanitized output should contain relativized path");
+        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
+                .contains("src/Main.java:12"));
+    }
+
+    // S-2: verifyPhase sanitizes Windows Java-style compiler output
+    @Test
+    void testVerifyPhase_sanitizesWindowsJavaPaths() {
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var rootAbs = projectRoot.toAbsolutePath().toString();
+        var rootBwd = rootAbs.replace('/', '\\');
+        var absWinPath = rootBwd + "\\src\\Main.java";
+        var errorOutput = absWinPath + ":12: error: cannot find symbol\r\n    Foo bar;\r\n    ^\r\n1 error\r\n";
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", errorOutput);
+        };
+
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+        var sanitized = retry.loopContext().editState().lastBuildError();
+
+        assertFalse(sanitized.contains(rootBwd), "Sanitized output should not contain absolute Windows root");
+        assertTrue(sanitized.contains("src\\Main.java:12"), "Sanitized output should contain relativized Windows path");
+        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
+                .contains("src\\Main.java:12"));
+    }
+
+    // S-3: verifyPhase sanitizes Python-style traceback paths
+    @Test
+    void testVerifyPhase_sanitizesPythonTracebackPaths() {
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
+        var absPyPath = rootFwd + "/pkg/mod.py";
+        var traceback = ""
+                + "Traceback (most recent call last):\n"
+                + "  File \"" + absPyPath + "\", line 13, in <module>\n"
+                + "    main()\n"
+                + "  File \"" + absPyPath + "\", line 8, in main\n"
+                + "    raise ValueError(\"bad\")\n"
+                + "ValueError: bad\n";
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", traceback);
+        };
+
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+        var sanitized = retry.loopContext().editState().lastBuildError();
+
+        assertFalse(sanitized.contains(rootFwd), "Sanitized traceback should not contain absolute root");
+        assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
+        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
+                .contains("pkg/mod.py"));
+    }
 }
