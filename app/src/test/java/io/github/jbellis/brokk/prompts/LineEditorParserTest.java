@@ -466,6 +466,83 @@ BRK_EDIT_EX_END
     }
 
     @Test
+    void allow_singleAnchor_for_singletonRange_change() {
+        var input = """
+BRK_EDIT_EX file.txt
+2,2 c
+@2| OLD
+NEW
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.error(), "Single-line range with one anchor should be accepted");
+
+        var ed = (LineEdit.EditFile) r.edits().getFirst();
+        assertEquals(2, ed.beginLine());
+        assertEquals(2, ed.endLine());
+        assertEquals(List.of("NEW"), ed.content().lines().toList());
+    }
+
+    @Test
+    void allow_twoMatchingAnchors_for_singletonRange_change() {
+        var input = """
+BRK_EDIT_EX file.txt
+2,2 c
+@2| OLD
+@2| OLD
+NEW
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.error(), "Two matching anchors should be accepted for single-line range");
+
+        var ed = (LineEdit.EditFile) r.edits().getFirst();
+        assertEquals(2, ed.beginLine());
+        assertEquals(2, ed.endLine());
+        assertEquals("NEW", ed.content());
+    }
+
+    @Test
+    void mismatch_twoAnchors_for_singletonRange_reportsFailure() {
+        var input = """
+BRK_EDIT_EX file.txt
+2,2 c
+@2| OLD
+@2| WRONG
+NEW
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertTrue(r.failures().stream().anyMatch(f -> f.reason() == LineEditorParser.ParseFailureReason.ANCHOR_SYNTAX),
+                   "Mismatched second anchor must produce a syntax failure");
+        assertTrue(r.edits().isEmpty(), "No edits should be produced after anchor mismatch");
+    }
+
+    @Test
+    void allow_singleAnchor_for_singletonRange_delete() {
+        var input = """
+BRK_EDIT_EX file.txt
+3,3 d
+@3| OLD
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.error(), "Single-line range delete with one anchor should be accepted");
+
+        var ed = (LineEdit.EditFile) r.edits().getFirst();
+        assertEquals(3, ed.beginLine());
+        assertEquals(3, ed.endLine());
+        assertEquals("", ed.content(), "Delete should have empty body content");
+    }
+
+    @Test
     void parse_implicitClose_whenNextBeginFenceAfterDelete() {
         var input = """
 BRK_EDIT_EX a.txt

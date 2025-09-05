@@ -510,6 +510,7 @@ public abstract class CodePrompts {
                 .stripIndent();
     }
 
+
     /**
      * NEW: Combined parse+apply failure prompt builder for the single editPhase.
      */
@@ -521,7 +522,6 @@ public abstract class CodePrompts {
             int succeededCount) {
 
         var hasParse = (fatalParseError != null) || !parseFailures.isEmpty();
-        var hasApply = !applyFailures.isEmpty();
 
         var sb = new StringBuilder();
         sb.append("""
@@ -539,17 +539,60 @@ Reminders:
 
 """);
 
-        // Group apply failures by file
-        if (hasApply) {
-            var byFile = applyFailures.stream().collect(Collectors.groupingBy(f -> f.edit().file()));
+        // Group by file: parse and apply
+        var parsesByFile = parseFailures.stream()
+                .flatMap(pf -> {
+                    var path = LineEditorParser.extractPathFromSnippet(pf.snippet());
+                    if (path == null || path.isBlank()) {
+                        return java.util.stream.Stream.<java.util.Map.Entry<String, ParseFailure>>empty();
+                    }
+                    return java.util.stream.Stream.of(new java.util.AbstractMap.SimpleEntry<>(path, pf));
+                })
+                .collect(Collectors.groupingBy(
+                        java.util.Map.Entry::getKey,
+                        Collectors.mapping(java.util.Map.Entry::getValue, Collectors.toList())
+                ));
+
+        var appliesByFile = applyFailures.stream()
+                .collect(Collectors.groupingBy(f -> f.edit().file()));
+
+        // Union of attributed file names (exclude null/blank)
+        var fileOrder = new java.util.LinkedHashSet<String>();
+        parsesByFile.keySet().forEach(fileOrder::add);
+        appliesByFile.keySet().forEach(fileOrder::add);
+
+        if (!fileOrder.isEmpty()) {
             sb.append("<files>\n");
-            for (var entry : byFile.entrySet()) {
-                var file = entry.getKey();
-                var fileFailures = entry.getValue();
+            for (var file : fileOrder) {
                 sb.append("<file name=\"").append(file).append("\">\n");
-                sb.append("<apply_failures>\n");
-                for (var f : fileFailures) {
-                    sb.append("""
+
+                // Parse failures first (if any)
+                var pfList = parsesByFile.getOrDefault(file, List.of());
+                if (!pfList.isEmpty()) {
+                    sb.append("<parse_failures>\n");
+                    for (var pf : pfList) {
+                        sb.append("""
+  <failure reason="%s">
+  <problem_source>
+  %s
+  </problem_source>
+  <commentary>
+  %s
+  </commentary>
+  </failure>
+""".formatted(pf.reason(),
+                                pf.snippet().isBlank() ? "<unavailable>" : pf.snippet().trim(),
+                                pf.commentary().trim()));
+                    }
+                    sb.append("</parse_failures>\n");
+                }
+
+                // Apply failures next (if any)
+                var afList = appliesByFile.getOrDefault(file, List.of());
+                if (!afList.isEmpty()) {
+                    sb.append("<apply_failures>\n");
+                    for (var f : afList) {
+                        sb.append("""
   <failed_edit reason="%s">
   <edit>
   %s
@@ -559,17 +602,27 @@ Reminders:
   </commentary>
   </failed_edit>
 """.formatted(f.reason(), f.edit().repr(), f.commentary()));
+                    }
+                    sb.append("</apply_failures>\n");
                 }
-                sb.append("</apply_failures>\n</file>\n\n");
+
+                sb.append("</file>\n\n");
             }
             sb.append("</files>\n\n");
         }
 
-        // Unattributed parse failures
+        // Any remaining parse failures without a detectable file go to 'unattributed'
         if (hasParse) {
-            sb.append("<unattributed_parse_failures>\n");
-            for (var pf : parseFailures) {
-                sb.append("""
+            var unattributed = parseFailures.stream()
+                    .filter(pf -> {
+                        var p = LineEditorParser.extractPathFromSnippet(pf.snippet());
+                        return p == null || p.isBlank();
+                    })
+                    .toList();
+            if (!unattributed.isEmpty()) {
+                sb.append("<unattributed_parse_failures>\n");
+                for (var pf : unattributed) {
+                    sb.append("""
   <failure reason="%s">
   <problem_source>
   %s
@@ -578,9 +631,12 @@ Reminders:
   %s
   </commentary>
   </failure>
-""".formatted(pf.reason(), pf.snippet().isBlank() ? "<unavailable>" : pf.snippet().trim(), pf.commentary().trim()));
+""".formatted(pf.reason(),
+                            pf.snippet().isBlank() ? "<unavailable>" : pf.snippet().trim(),
+                            pf.commentary().trim()));
+                }
+                sb.append("</unattributed_parse_failures>\n\n");
             }
-            sb.append("</unattributed_parse_failures>\n\n");
         }
 
         if (fatalParseError != null) {

@@ -83,18 +83,25 @@ public final class LineEditorParser {
                                                    int index,
                                                    String expectedAddr,
                                                    String contextPrefix) throws Abort {
+        // Suggest the next source line as the expected anchor content when missing.
+        String nextLine = (index < lines.length) ? lines[index] : "<EOF>";
+        String expectedExample = (index < lines.length)
+                ? ("@" + expectedAddr + "| " + nextLine)
+                : ("@" + expectedAddr + "| ");
+
         if (index >= lines.length) {
             var msg = """
               %s
-              Missing anchor line!
-
-              Expected: @%s| <exact current line text at %s>
+              Missing anchor line.
+              Expected (example): %s
               Got: <EOF>
 
-              Action: Emit the missing anchor line (no blank lines in between) and, if needed, close the block with BRK_EDIT_EX_END.
-              """.stripIndent().formatted(contextPrefix, expectedAddr, expectedAddr);
+              Action: Insert the anchor line immediately after the command (no blank lines)."""
+                    .stripIndent()
+                    .formatted(contextPrefix, expectedExample);
             throw new Abort(ParseFailureReason.MISSING_ANCHOR, msg);
         }
+
         var line = lines[index];
         var m = ANCHOR_LINE.matcher(line);
         if (m.matches()) {
@@ -104,54 +111,48 @@ public final class LineEditorParser {
             if (!ok) {
                 var msg = """
                   %s
-                  Anchor address mismatch!
-
+                  Anchor address mismatch.
                   Command address: %s
                   Anchor address:  %s
 
-                  Expected the anchor address to match the command's address.
+                  Expected (address): @%s| <exact current line text at %s>
 
-                  Expected: @%s| <exact current line text at %s>
-                  Got:      %s
-
-                  Action: Fix the '@%s|' anchor to match the command address.
-                  """.stripIndent().formatted(contextPrefix, expectedAddr, foundAddr,
-                                              expectedAddr, expectedAddr, line, expectedAddr);
+                  Action: Fix the '@%s|' anchor to match the command address."""
+                        .stripIndent()
+                        .formatted(contextPrefix, expectedAddr, foundAddr, expectedAddr, expectedAddr, expectedAddr);
                 throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, msg);
             }
             return new AnchorReadResult(foundAddr, m.group(2), index + 1);
         }
-        // Classify as MISSING_ANCHOR if the next line doesn't even start with '@'
-        // Reserve ANCHOR_SYNTAX for lines that start with '@' but are malformed.
+
+        // If the next line looks like an anchor but malformed, classify as syntax error.
         var trimmed = line.trim();
         if (trimmed.startsWith("@")) {
             var msg = """
               %s
-              Malformed anchor line!
+              Malformed anchor line.
 
               Valid forms:
               - @N| <exact current line text at N>
               - @0| <blank at start-of-file>
               - @$| <blank at end-of-file>
 
-              Make sure there is exactly one '|' and the address is '0', '$', or a positive integer.
-
               Got: %s
 
-              Action: Rewrite the anchor to the expected form. If you emitted two anchors,
-              ensure your command uses the two-address form (n,m) and that both anchors match those endpoints.
-              """.stripIndent().formatted(contextPrefix, line);
+              Action: Rewrite the anchor to a valid form."""
+                    .stripIndent()
+                    .formatted(contextPrefix, line);
             throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, msg);
         } else {
             var msg = """
               %s
-              Missing anchor line!
-
-              Expected: @%s| <exact current line text at %s>
+              Missing anchor line.
+              Expected (example): %s
               Got: %s
 
-              Action: Insert the missing anchor line right after the command (no blank lines), then continue.
-              """.stripIndent().formatted(contextPrefix, expectedAddr, expectedAddr, line);
+              Action: Insert the anchor line immediately after the command (no blank lines)."""
+                    .stripIndent()
+                    .formatted(contextPrefix, expectedExample, line);
             throw new Abort(ParseFailureReason.MISSING_ANCHOR, msg);
         }
     }
@@ -318,25 +319,46 @@ public final class LineEditorParser {
                             String endAnchorContent = "";
 
                             if (addr2 != null) {
-                                // Second anchor (required for range change/delete)
-                                var secondAnchorHint =
-                                        """
-                                        Missing or malformed second anchor after %s command.
-                                        You must include exactly one anchor per address.
-                                        Expected: @%s| <exact current line text at %s>
-                                        Offending line: """
-                                                .stripIndent()
-                                                .formatted((op == 'd') ? "delete" : "change", addr2, addr2);
-                                var a2 = readAnchorLine(lines, i, addr2, secondAnchorHint);
-                                i = a2.nextIndex();
-                                endAnchorLine = a2.addr();
-                                endAnchorContent = a2.content();
+                                // For single-line ranges (n1 == n2), accept either 1 or 2 anchors.
+                                if (n1 == n2) {
+                                    // Optional second anchor: if present, it must match the first (address and content).
+                                    if (i < lines.length && ANCHOR_LINE.matcher(lines[i]).matches()) {
+                                        var a2 = readAnchorLine(lines, i,
+                                                                addr2,
+                                                                "Second anchor for single-line range must match the first.");
+                                        if (!a2.addr().equals(beginAnchorLine) || !a2.content().equals(beginAnchorContent)) {
+                                            var msg = """
+                                              Second anchor must exactly match the first for single-line ranges.
+                                              First:  @%s| %s
+                                              Second: @%s| %s
+                                              """.stripIndent()
+                                                    .formatted(beginAnchorLine, beginAnchorContent, a2.addr(), a2.content());
+                                            throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, msg);
+                                        }
+                                        i = a2.nextIndex();
+                                        endAnchorLine = a2.addr();
+                                        endAnchorContent = a2.content();
+                                    } else {
+                                        // No second anchor provided; treat as valid with a single anchor.
+                                        endAnchorLine = beginAnchorLine;
+                                        endAnchorContent = beginAnchorContent;
+                                    }
+                                } else {
+                                    // Multi-line ranges require two anchors, one for each endpoint.
+                                    var secondAnchorHint =
+                                            "Missing anchor for range end @" + addr2 + "|";
+                                    var a2 = readAnchorLine(lines, i, addr2, secondAnchorHint);
+                                    i = a2.nextIndex();
+                                    endAnchorLine = a2.addr();
+                                    endAnchorContent = a2.content();
+                                }
                             } else if (op == 'c') {
                                 // Single-line change: end anchor equals begin anchor
                                 endAnchorLine = beginAnchorLine;
                                 endAnchorContent = beginAnchorContent;
                             }
 
+                            // After consuming required/optional anchors, ensure no additional anchors follow for this op.
                             checkForExtraAnchorsForSameOp(lines, i);
 
                             // Include only the command and anchor lines in the snippet (no body)
@@ -688,6 +710,22 @@ Conventions and constraints:
               BRK_EDIT_EX_END
               """.stripIndent())
         );
+    }
+
+    // Shared utility: extract the path from a BRK_EDIT_EX snippet (used by prompts).
+    public static @Nullable String extractPathFromSnippet(String snippet) {
+        if (snippet.isBlank()) return null;
+        var lines = snippet.split("\n", -1);
+        for (var line : lines) {
+            var t = line.trim();
+            if (t.startsWith("BRK_EDIT_EX")) {
+                int sp = t.indexOf(' ');
+                if (sp >= 0 && sp + 1 < t.length()) {
+                    return t.substring(sp + 1).trim();
+                }
+            }
+        }
+        return null;
     }
 
     public String instructions(String input, @Nullable ProjectFile file, String reminder) {
