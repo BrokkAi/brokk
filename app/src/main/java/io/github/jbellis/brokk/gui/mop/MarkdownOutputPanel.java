@@ -187,20 +187,16 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     /**
-     * Workaround for GPT5 reasoning formatting:
-     * Some reasoning models (e.g., GPT-5) sometimes emit new bold sections like "**Analyzing ...**"
-     * without a preceding newline during streaming. To preserve readability, insert two newlines
-     * before an opening bold marker when we are mid-message inside a reasoning block.
+     * Workaround for GPT5 reasoning formatting: Some reasoning models (e.g., GPT-5) sometimes emit new bold sections
+     * like "**Analyzing ...**" without a preceding newline during streaming. To preserve readability, insert two
+     * newlines before an opening bold marker when we are mid-message inside a reasoning block.
      *
-     * Heuristic:
-     * - Only for reasoning chunks.
-     * - Not applied to the very first chunk of a reasoning message (!isNew).
-     * - Only before an opening "**": not preceded by a newline or a word char, followed by a word char,
-     *   and not the first two of a "***" sequence.
+     * <p>Heuristic: - Only for reasoning chunks. - Not applied to the very first chunk of a reasoning message (!isNew).
+     * - Only before an opening "**": not preceded by a newline or a word char, followed by a word char, and not the
+     * first two of a "***" sequence.
      *
-     * This mirrors the frontend formatting expectation and ensures the persisted messages contain
-     * the same content as rendered. It is intentionally simple and acceptable even if "**" happens
-     * to be split across streaming chunks.
+     * <p>This mirrors the frontend formatting expectation and ensures the persisted messages contain the same content
+     * as rendered. It is intentionally simple and acceptable even if "**" happens to be split across streaming chunks.
      */
     private static String addReasoningNewlines(String text, boolean isNew, boolean reasoning) {
         if (reasoning && !isNew && !text.isEmpty()) {

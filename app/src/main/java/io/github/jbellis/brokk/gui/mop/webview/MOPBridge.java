@@ -41,7 +41,6 @@ public final class MOPBridge {
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
 
-
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -114,7 +113,6 @@ public final class MOPBridge {
         eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
         scheduleSend();
     }
-
 
     public void setTheme(boolean isDark, boolean isDevMode) {
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
@@ -387,7 +385,6 @@ public final class MOPBridge {
     public String getContextCacheId() {
         return "main-context";
     }
-
 
     private static String toJson(Object obj) {
         try {
