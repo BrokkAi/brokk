@@ -131,7 +131,7 @@ public final class LineEditorParser {
      *  - If it is an extra anchor for this op, we throw via fail(...).
      */
     private static void checkForExtraAnchorsForRange(
-            String[] lines, int startIndex, int n, @Nullable Integer mOrNull,
+            String[] lines, int startIndex,
             String opName, String path, List<String> errors) throws ParseAbort {
 
         if (startIndex >= lines.length) return;
@@ -139,24 +139,10 @@ public final class LineEditorParser {
         String addrStr = matchAnchorAddr(lines[startIndex]);
         if (addrStr == null) return;
 
-        int addr = parseAddr(addrStr);
-
-        boolean isError;
-        if (mOrNull == null) {
-            // single-address op: any additional @n| ... is an error
-            isError = (addr == n);
-        } else {
-            int lo = Math.min(n, mOrNull);
-            int hi = Math.max(n, mOrNull);
-            // duplicates of endpoints OR any interior anchor are errors
-            isError = (addr >= lo && addr <= hi);
-        }
-
-        if (isError) {
-            var msg = "Too many anchors after " + opName + " command for " + path + ": " + lines[startIndex];
-            errors.add(msg);
-            throw new ParseAbort(msg);
-        }
+        // Any additional anchor-like line after the required anchor(s) is an error, regardless of address.
+        var msg = "Too many anchors after " + opName + " command for " + path + ": " + lines[startIndex] + ". Only specify one anchor per address.";
+        errors.add(msg);
+        throw new ParseAbort(msg);
     }
 
     /**
@@ -260,12 +246,12 @@ public final class LineEditorParser {
                             i++; // move past the command line
 
                             var opName = (op == 'd') ? "delete" : "change";
-                            var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
+                            var anchors = readRangeAnchors(lines, i, opName, addr2, path, errors);
                             i = anchors.nextIndex();
 
                             // flag any extra @N| ... anchors before body / next command
                             checkForExtraAnchorsForRange(
-                                    lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
+                                    lines, i, opName, path, errors);
 
                             if (op == 'd') {
                                 commands.add(new EdCommand.DeleteRange(
@@ -319,8 +305,7 @@ public final class LineEditorParser {
 
                             i++; // move to (optional) anchor line
                             var anchor = readAnchorLine(
-                                    lines, i, addr,
-                                    "Append anchor",
+                                    lines, i,
                                     "Malformed or missing anchor line after append command: ",
                                     "Missing anchor line after append command for " + path,
                                     errors);
@@ -328,7 +313,7 @@ public final class LineEditorParser {
 
                             // flag duplicate @n| anchors before body
                             checkForExtraAnchorsForRange(
-                                    lines, i, n, null, "append", path, errors);
+                                    lines, i, "append", path, errors);
 
                             var bodyRes = readBody(lines, i);
                             i = bodyRes.nextIndex();
@@ -435,8 +420,8 @@ public final class LineEditorParser {
      * and consume one line to avoid infinite loops, mirroring the previous behavior.
      */
     private static AnchorReadResult readAnchorLine(
-            String[] lines, int index, String expectedAddr,
-            String mismatchLabel, String malformedPrefix, String eofMessage, List<String> errors) throws ParseAbort {
+            String[] lines, int index,
+            String malformedPrefix, String eofMessage, List<String> errors) throws ParseAbort {
 
         if (index >= lines.length) {
             errors.add(eofMessage);
@@ -449,20 +434,7 @@ public final class LineEditorParser {
             var parsedAddr = m.group(1);
             var parsedContent = m.group(2);
 
-            // Special case: if expected is "$" but a numeric anchor was provided, allow it (no parse error).
-            if (!parsedAddr.equals(expectedAddr)) {
-                boolean acceptNumericForDollar =
-                        "$".equals(expectedAddr) && !"0".equals(parsedAddr);
-                boolean acceptFirstForZero =
-                        "0".equals(expectedAddr) && "1".equals(parsedAddr);
-                if (acceptNumericForDollar || acceptFirstForZero) {
-                    // Accept Postel alternatives: numeric for '$', line 1 for '0'
-                    return new AnchorReadResult(parsedAddr, parsedContent, index + 1);
-                } else {
-                    errors.add(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
-                    throw new ParseAbort(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
-                }
-            }
+            // Accept any well-formed anchor line; defer address mismatches to apply-time validation.
             return new AnchorReadResult(parsedAddr, parsedContent, index + 1); // consume anchor line
         }
 
@@ -480,15 +452,14 @@ public final class LineEditorParser {
      * Behavior matches the previous inlined logic, including error wording and consumption rules.
      */
     private static RangeAnchors readRangeAnchors(
-            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors) throws ParseAbort {
+            String[] lines, int startIndex, String opName, @Nullable String addr2, String path, List<String> errors) throws ParseAbort {
 
         int i = startIndex;
 
         // Begin anchor: always required (presence mandatory). For '0'/'$' addresses, we still allow
         // lenient address substitutions (e.g., '1' for '0' and numeric for '$').
         var a1 = readAnchorLine(
-                lines, i, addr1,
-                capitalize(opName) + " begin anchor",
+                lines, i,
                 "Malformed or missing first anchor after " + opName + " command: ",
                 "Missing anchor line(s) after " + opName + " command for " + path,
                 errors);
@@ -507,21 +478,13 @@ public final class LineEditorParser {
 
         // Range form: parse second anchor, required unless 0/$
         var a2 = readAnchorLine(
-                lines, i, addr2,
-                capitalize(opName) + " end anchor",
+                lines, i,
                 "Malformed or missing second anchor after " + opName + " command: ",
                 "Missing second anchor line for range " + opName + " command for " + path,
                 errors);
         i = a2.nextIndex();
 
         return new RangeAnchors(a1.addr(), a2.addr(), a1.content(), a2.content(), i);
-    }
-
-    private static String capitalize(String s) {
-        if (s.isEmpty()) return s;
-        char c0 = s.charAt(0);
-        if (Character.isUpperCase(c0)) return s;
-        return Character.toUpperCase(c0) + s.substring(1);
     }
 
     private static int parseAddr(String address) {
