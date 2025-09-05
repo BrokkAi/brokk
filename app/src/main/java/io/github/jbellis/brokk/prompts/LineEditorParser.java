@@ -11,7 +11,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import java.util.regex.Pattern;
 
 /**
@@ -44,7 +43,7 @@ public final class LineEditorParser {
         TOO_MANY_ANCHORS
     }
 
-    public record ParseFailure(ParseFailureReason reason, String message, String snippet) {}
+    public record ParseFailure(ParseFailureReason reason, String snippet, String commentary) {}
 
     public record ParseResult(List<LineEdit> edits, List<ParseFailure> failures, @Nullable ParseError error) {
         public boolean hasEdits() {
@@ -179,8 +178,8 @@ public final class LineEditorParser {
             if (trimmed.startsWith("BRK_EDIT_RM")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
-                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, "BRK_EDIT_RM missing filename.",
-                            blockSnippet == null ? "" : blockSnippet.toString()));
+                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, blockSnippet == null ? "" : blockSnippet.toString(), "BRK_EDIT_RM missing filename."
+                    ));
                     i++;
                     continue;
                 }
@@ -194,8 +193,8 @@ public final class LineEditorParser {
             if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
-                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, "BRK_EDIT_EX missing filename.",
-                            blockSnippet == null ? "" : blockSnippet.toString()));
+                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, blockSnippet == null ? "" : blockSnippet.toString(), "BRK_EDIT_EX missing filename."
+                    ));
                     i++;
                     continue;
                 }
@@ -307,8 +306,7 @@ public final class LineEditorParser {
                                 continue;
                             }
                         } catch (Abort e) {
-                            failures.add(new ParseFailure(e.reason, Objects.toString(e.getMessage(), e.toString()),
-                                    blockSnippet == null ? "" : blockSnippet.toString()));
+                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), e.getMessage()));
                             boolean foundEnd = false;
                             while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
                             if (i < lines.length) {
@@ -363,8 +361,7 @@ public final class LineEditorParser {
                             }
                             continue;
                         } catch (Abort e) {
-                            failures.add(new ParseFailure(e.reason, Objects.toString(e.getMessage(), e.toString()),
-                                    blockSnippet == null ? "" : blockSnippet.toString()));
+                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), e.getMessage()));
                             boolean foundEnd = false;
                             while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
                             if (i < lines.length) {
@@ -381,9 +378,10 @@ public final class LineEditorParser {
                 }
 
                 if (!sawEndFence) {
-                    if (fatalError == null) fatalError = ParseError.EOF_IN_BLOCK;
+                    fatalError = ParseError.EOF_IN_BLOCK;
                     failures.add(new ParseFailure(ParseFailureReason.MISSING_END_FENCE,
-                            "Missing BRK_EDIT_EX_END for " + path, blockSnippet == null ? "" : blockSnippet.toString()));
+                                                  blockSnippet.toString(), "Missing BRK_EDIT_EX_END for " + path
+                    ));
                 }
 
                 edits.addAll(pendingBlockEdits);

@@ -368,7 +368,7 @@ public class CodeAgent {
                 problemSummary = "Parse error: " + lepResult.error().name();
             } else {
                 problemSummary = lepResult.failures().stream()
-                        .map(f -> "[" + f.reason() + "] " + f.message())
+                        .map(f -> "[" + f.reason() + "] " + f.commentary())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
             }
 
