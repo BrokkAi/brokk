@@ -100,6 +100,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
+    private final JButton planOptionsButton;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Answer");
@@ -187,6 +188,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         scanProjectCheckBox = new JCheckBox("Search First");
         scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
 
+        planOptionsButton = new JButton("Plan Options");
+        planOptionsButton.setToolTipText("Configure options for the Architect agent (Plan First)");
+        planOptionsButton.addActionListener(e -> ArchitectOptionsDialog.showDialogAndWait(chrome));
+        planOptionsButton.setMargin(new Insets(2, 5, 2, 5));
+
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
         if (proj instanceof MainProject mp) {
@@ -208,6 +214,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 scanProjectCheckBox.setVisible(true);
                 scanProjectCheckBox.setEnabled(true);
                 codeCheckBox.setVisible(false);
+                planOptionsButton.setVisible(false);
                 // Checked => Search, Unchecked => Answer
                 storedAction = scanProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
@@ -215,6 +222,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
                 scanProjectCheckBox.setVisible(false);
+                planOptionsButton.setVisible(true);
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
@@ -243,6 +251,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initial checkbox visibility
         codeCheckBox.setVisible(true);
+        planOptionsButton.setVisible(true);
         scanProjectCheckBox.setVisible(false);
 
         // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
@@ -740,6 +749,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Dynamic options depending on toggle selection
         bottomPanel.add(codeCheckBox);
+        bottomPanel.add(planOptionsButton);
         bottomPanel.add(scanProjectCheckBox);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
@@ -1436,24 +1446,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         chrome.getProject().addToInstructionsHistory(goal, 20);
-
-        // Show the options dialog synchronously on the EDT. This blocks until the user clicks OK/Cancel.
-        ArchitectChoices choices = ArchitectOptionsDialog.showDialogAndWait(chrome);
-
-        // If the user cancelled the dialog, choices will be null.
-        if (choices == null) {
-            logger.debug("Architect command cancelled during option selection.");
-            enableButtons(); // Re-enable buttons since the action was cancelled before submission
-            return;
-        }
-
         clearCommandInput();
 
-        if (choices.runInWorktree()) {
-            runArchitectInNewWorktree(goal, choices.options());
+        var project = chrome.getProject();
+        var options = project.getArchitectOptions();
+        var runInWorktree = project.getArchitectRunInWorktree();
+
+        if (runInWorktree) {
+            runArchitectInNewWorktree(goal, options);
         } else {
             // User confirmed options, now submit the actual agent execution to the background.
-            runArchitectCommand(goal, choices.options());
+            runArchitectCommand(goal, options);
         }
     }
 
@@ -1793,11 +1796,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Checkbox visibility and enablement
         if (!modeSwitch.isSelected()) {
             codeCheckBox.setVisible(true);
+            planOptionsButton.setVisible(true);
             scanProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
             codeCheckBox.setToolTipText("Plan First (prefer planning via Architect before coding)");
         } else {
             codeCheckBox.setVisible(false);
+            planOptionsButton.setVisible(false);
             scanProjectCheckBox.setVisible(true);
             scanProjectCheckBox.setEnabled(true);
             scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
