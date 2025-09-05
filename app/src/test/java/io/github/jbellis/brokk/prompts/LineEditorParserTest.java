@@ -93,21 +93,20 @@ Outro
     @Test
     void parse_reportsMissingEndFence_withTrailingContent() {
         var input = """
-            BRK_EDIT_EX a.txt
-            1 c
-            body
-            .
-            BRK_EDIT_STOP
-            """.stripIndent();
+        BRK_EDIT_EX a.txt
+        1 c
+        body
+        .
+        BRK_EDIT_STOP
+        """.stripIndent();
         var r = LineEditorParser.instance.parse(input);
-        assertNotNull(r.parseError(), "Expected a parse error for missing BRK_EDIT_EX_END");
-        assertTrue(r.parseError().contains("Missing BRK_EDIT_EX_END"), "Should mention missing END");
 
-        // The malformed block should be preserved as text
-        assertTrue(r.parts().get(0) instanceof LineEditorParser.OutputPart.Text,
-                   "Malformed block should be preserved as text");
-        var text = ((LineEditorParser.OutputPart.Text) r.parts().get(0)).text();
-        assertTrue(text.contains("BRK_EDIT_STOP"));
+        // Fail-fast on the first structural error: the missing anchor after "1 c"
+        assertNotNull(r.parseError(), "Expected a parse error");
+        assertTrue(r.parseError().contains("Malformed or missing first anchor after change command"),
+                   "Should report the first structural error (missing anchor), not attempt to continue");
+        // No parts should be produced because nothing well-formed preceded the error
+        assertTrue(r.parts().isEmpty(), "No parts should be included after a structural parse error");
     }
 
     @Test
@@ -200,34 +199,36 @@ NEW
     @Test
     void parse_rmMissingFilename_reportsErrorAndKeepsText() {
         var input = """
-        Before
-        BRK_EDIT_RM
-        After
-        """.stripIndent();
+    Before
+    BRK_EDIT_RM
+    After
+    """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNotNull(r.parseError(), "Expected error for missing filename in BRK_EDIT_RM");
         assertTrue(r.parseError().contains("BRK_EDIT_RM missing filename."));
+
+        // Fail-fast: do not emit a Delete part; keep only well-formed text seen BEFORE the error
         assertTrue(r.parts().stream().noneMatch(p -> p instanceof LineEditorParser.OutputPart.Delete),
                    "No Delete part should be produced");
-        assertTrue(r.parts().stream().anyMatch(p ->
-                                                       p instanceof LineEditorParser.OutputPart.Text
-                                                               && ((LineEditorParser.OutputPart.Text) p).text().contains("BRK_EDIT_RM")),
-                   "Malformed delete line should be preserved as text");
+
+        assertEquals(1, r.parts().size(), "Only the prior text should be preserved");
+        assertInstanceOf(LineEditorParser.OutputPart.Text.class, r.parts().getFirst());
+        var text = ((LineEditorParser.OutputPart.Text) r.parts().getFirst()).text();
+        assertEquals("Before\n", text, "Only text prior to the error should be preserved");
     }
 
     @Test
     void parse_edMissingFilename_reportsErrorAndKeepsText() {
         var input = """
-        BRK_EDIT_EX
-        BRK_EDIT_EX_END
-        """.stripIndent();
+    BRK_EDIT_EX
+    BRK_EDIT_EX_END
+    """.stripIndent();
 
         var r = LineEditorParser.instance.parse(input);
         assertNotNull(r.parseError(), "Expected error for missing filename in BRK_EDIT_EX");
         assertTrue(r.parseError().contains("BRK_EDIT_EX missing filename."));
-        assertTrue(r.parts().stream().allMatch(p -> p instanceof LineEditorParser.OutputPart.Text),
-                   "Malformed block should be preserved as text only");
+        assertTrue(r.parts().isEmpty(), "No parts should be produced when the error occurs at the start");
     }
 
     @Test
@@ -489,21 +490,10 @@ BRK_EDIT_EX_END
         var r = LineEditorParser.instance.parse(input);
 
         assertNotNull(r.parseError(), "Expected parse error for extra anchors");
-        assertTrue(r.parseError().contains("Too many anchors"),
-                   "Should report too many anchors as a parse error");
+        assertTrue(r.parseError().contains("Too many anchors"), "Should report too many anchors as a parse error");
 
-        // A valid EdBlock and ChangeRange command should still be produced
-        assertTrue(r.parts().getFirst() instanceof LineEditorParser.OutputPart.EdBlock,
-                   "Expected an EdBlock part");
-        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
-        assertEquals("a.txt", ed.path());
-
-        assertEquals(1, ed.commands().size(), "Expected a single command in the block");
-        assertInstanceOf(LineEditorParser.EdCommand.ChangeRange.class, ed.commands().getFirst());
-        var cmd = (LineEditorParser.EdCommand.ChangeRange) ed.commands().getFirst();
-        assertEquals(2, cmd.begin());
-        assertEquals(4, cmd.end());
-        assertEquals(List.of("X"), cmd.body(), "Body should be parsed normally");
+        // Fail-fast: do not include any malformed EdBlock
+        assertTrue(r.parts().isEmpty(), "No EdBlock should be produced after a structural error");
     }
 
     @Test

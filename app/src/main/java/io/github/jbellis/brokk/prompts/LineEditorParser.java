@@ -120,34 +120,46 @@ public final class LineEditorParser {
         return m.matches() ? m.group(1) : null;
     }
 
-    private static int consumeExtraAnchorsForRange(
+    /**
+     * After reading the required anchor(s) for a command, check if the very next line is an
+     * unexpected extra anchor for this operation. We fail fast on the first extra anchor.
+     *
+     * We intentionally do not consume any lines here:
+     *  - If the next line is not an anchor, we return startIndex unchanged.
+     *  - If it is an anchor but not an "extra" for this op (likely belongs to the next stmt/body),
+     *    we also return startIndex unchanged.
+     *  - If it is an extra anchor for this op, we throw via fail(...).
+     */
+    private static int checkForExtraAnchorsForRange(
             String[] lines, int startIndex, int n, @Nullable Integer mOrNull,
             String opName, String path, List<String> errors) {
 
-        int i = startIndex;
-        while (i < lines.length) {
-            String addrStr = matchAnchorAddr(lines[i]);
-            if (addrStr == null) break;
+        if (startIndex >= lines.length) return startIndex;
 
-            int addr = parseAddr(addrStr);
+        String addrStr = matchAnchorAddr(lines[startIndex]);
+        if (addrStr == null) return startIndex; // next line isn't an anchor; nothing to consume
 
-            boolean isError;
-            if (mOrNull == null) {
-                // single-address op: any additional @n| ... is an error
-                isError = (addr == n);
-            } else {
-                int lo = Math.min(n, mOrNull);
-                int hi = Math.max(n, mOrNull);
-                // duplicates of endpoints OR any interior anchor are errors
-                isError = (addr >= lo && addr <= hi);
-            }
+        int addr = parseAddr(addrStr);
 
-            if (!isError) break; // likely start of body or next command; do not consume
-
-            errors.add("Too many anchors after " + opName + " command for " + path + ": " + lines[i]);
-            i++; // consume the offending anchor line
+        boolean isError;
+        if (mOrNull == null) {
+            // single-address op: any additional @n| ... is an error
+            isError = (addr == n);
+        } else {
+            int lo = Math.min(n, mOrNull);
+            int hi = Math.max(n, mOrNull);
+            // duplicates of endpoints OR any interior anchor are errors
+            isError = (addr >= lo && addr <= hi);
         }
-        return i;
+
+        if (isError) {
+            var msg = "Too many anchors after " + opName + " command for " + path + ": " + lines[startIndex];
+            errors.add(msg);
+            throw new ParseAbort(msg);
+        }
+
+        // Not an error: do not consume; caller should treat it as start of body or next command.
+        return startIndex;
     }
 
     /**
@@ -192,128 +204,156 @@ public final class LineEditorParser {
             }
         };
 
-        while (i < lines.length) {
-            var line = lines[i];
-            var trimmed = line.trim();
+        try {
+            while (i < lines.length) {
+                var line = lines[i];
+                var trimmed = line.trim();
 
-            // BRK_EDIT_RM <path>
-            if (trimmed.startsWith("BRK_EDIT_RM")) {
-                int sp = trimmed.indexOf(' ');
-                if (sp < 0) {
-                    textBuf.append(line);
-                    if (i < lines.length - 1) textBuf.append('\n');
-                    errors.add("BRK_EDIT_RM missing filename.");
+                // BRK_EDIT_RM <path>
+                if (trimmed.startsWith("BRK_EDIT_RM")) {
+                    int sp = trimmed.indexOf(' ');
+                    if (sp < 0) {
+                        // structural error: stop immediately, do not add the malformed line to text
+                        errors.add("BRK_EDIT_RM missing filename.");
+                        throw new ParseAbort("BRK_EDIT_RM missing filename.");
+                    }
+                    var path = trimmed.substring(sp + 1).trim();
+                    flushText.run();
+                    parts.add(new OutputPart.Delete(path));
                     i++;
                     continue;
                 }
-                var path = trimmed.substring(sp + 1).trim();
-                flushText.run();
-                parts.add(new OutputPart.Delete(path));
-                i++;
-                continue;
-            }
 
-            // BRK_EDIT_EX <path>
-            if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
-                int sp = trimmed.indexOf(' ');
-                if (sp < 0) {
-                    textBuf.append(line);
-                    if (i < lines.length - 1) textBuf.append('\n');
-                    errors.add("BRK_EDIT_EX missing filename.");
-                    i++;
-                    continue;
-                }
-                var path = trimmed.substring(sp + 1).trim();
-
-                flushText.run();
-
-                int blockStartIndex = i;
-                i++;
-                var commands = new ArrayList<EdCommand>();
-                boolean sawEndFence = false;
-
-                while (i < lines.length) {
-                    var cmdLine = lines[i];
-                    var cmdTrim = cmdLine.trim();
-
-                    if (cmdTrim.equals(END_FENCE)) {
-                        sawEndFence = true;
-                        i++;
-                        break;
+                // BRK_EDIT_EX <path>
+                if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
+                    int sp = trimmed.indexOf(' ');
+                    if (sp < 0) {
+                        // structural error: stop immediately, do not add the malformed line to text
+                        errors.add("BRK_EDIT_EX missing filename.");
+                        throw new ParseAbort("BRK_EDIT_EX missing filename.");
                     }
+                    var path = trimmed.substring(sp + 1).trim();
 
-                    if (cmdTrim.isEmpty()
-                            || cmdTrim.equals("w") || cmdTrim.equals("q")
-                            || cmdTrim.equals("wq") || cmdTrim.equals("qw")) {
-                        i++;
-                        continue;
-                    }
+                    flushText.run();
 
-                    if (cmdTrim.startsWith("!")) {
-                        errors.add("Shell command ignored inside BRK_EDIT_EX: " + cmdTrim);
-                        i++;
-                        continue;
-                    }
+                    i++; // consume the BRK_EDIT_EX line
+                    var commands = new ArrayList<EdCommand>();
+                    boolean sawEndFence = false;
 
-                    var range = RANGE_CMD.matcher(cmdTrim);
-                    var ia = IA_CMD.matcher(cmdTrim);
+                    while (i < lines.length) {
+                        var cmdLine = lines[i];
+                        var cmdTrim = cmdLine.trim();
 
-                    if (range.matches()) {
-                        var addr1 = range.group(1);
-                        var addr2 = range.group(2);
-                        int n1 = parseAddr(addr1);
-                        int n2 = (addr2 == null) ? n1 : parseAddr(addr2);
-                        char op = Character.toLowerCase(range.group(3).charAt(0));
+                        if (cmdTrim.equals(END_FENCE)) {
+                            sawEndFence = true;
+                            i++;
+                            break;
+                        }
 
-                        i++; // move past the command line
-
-                        var opName = (op == 'd') ? "delete" : "change";
-                        var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
-                        i = anchors.nextIndex();
-
-                        // NEW: flag & consume any extra @N| ... anchors before body / next command
-                        i = consumeExtraAnchorsForRange(
-                                lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
-
-                        if (op == 'd') {
-                            commands.add(new EdCommand.DeleteRange(
-                                    n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                            // After a valid delete (anchors read), allow implicit close:
-                            // - at EOF, or
-                            // - if the next non-blank line begins a new BRK_EDIT_EX block.
-                            while (i < lines.length && lines[i].trim().isEmpty()) i++;
-                            if (i >= lines.length) {
-                                sawEndFence = true;
-                                break;
-                            }
-                            var la = lines[i].trim();
-                            if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
-                                sawEndFence = true;
-                                break;
-                            }
+                        // ignore no-op lines
+                        if (cmdTrim.isEmpty()
+                                || cmdTrim.equals("w") || cmdTrim.equals("q")
+                                || cmdTrim.equals("wq") || cmdTrim.equals("qw")) {
+                            i++;
                             continue;
-                        } else { // 'c'
+                        }
+
+                        var range = RANGE_CMD.matcher(cmdTrim);
+                        var ia = IA_CMD.matcher(cmdTrim);
+
+                        if (range.matches()) {
+                            var addr1 = range.group(1);
+                            var addr2 = range.group(2);
+                            int n1 = parseAddr(addr1);
+                            int n2 = (addr2 == null) ? n1 : parseAddr(addr2);
+                            char op = Character.toLowerCase(range.group(3).charAt(0));
+
+                            i++; // move past the command line
+
+                            var opName = (op == 'd') ? "delete" : "change";
+                            var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
+                            i = anchors.nextIndex();
+
+                            // flag any extra @N| ... anchors before body / next command
+                            i = checkForExtraAnchorsForRange(
+                                    lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
+
+                            if (op == 'd') {
+                                commands.add(new EdCommand.DeleteRange(
+                                        n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                                // allow implicit close: at EOF or before next BRK_EDIT_EX
+                                while (i < lines.length && lines[i].trim().isEmpty()) i++;
+                                if (i >= lines.length) {
+                                    sawEndFence = true;
+                                    break;
+                                }
+                                var la = lines[i].trim();
+                                if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
+                                    sawEndFence = true;
+                                    break;
+                                }
+                                continue;
+                            } else { // 'c'
+                                var bodyRes = readBody(lines, i);
+                                i = bodyRes.nextIndex();
+
+                                if (bodyRes.implicitClose()) {
+                                    if (i < lines.length) i++; // consume the END fence line that terminated the body
+                                    sawEndFence = true;
+                                    commands.add(new EdCommand.ChangeRange(
+                                            n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                                    break;
+                                }
+
+                                while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
+                                commands.add(new EdCommand.ChangeRange(
+                                        n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                                if (bodyRes.explicitTerminator()) {
+                                    if (i >= lines.length) {
+                                        sawEndFence = true;
+                                        break;
+                                    }
+                                    var la = lines[i].trim();
+                                    if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
+                                        sawEndFence = true;
+                                        break;
+                                    }
+                                }
+                                continue;
+                            }
+                        }
+
+                        if (ia.matches()) {
+                            var addr = ia.group(1);
+                            int n = parseAddr(addr);
+
+                            i++; // move to (optional) anchor line
+                            var anchor = readAnchorLine(
+                                    lines, i, addr,
+                                    "Append anchor",
+                                    "Malformed or missing anchor line after append command: ",
+                                    "Missing anchor line after append command for " + path,
+                                    errors);
+                            i = anchor.nextIndex();
+
+                            // flag duplicate @n| anchors before body
+                            i = checkForExtraAnchorsForRange(
+                                    lines, i, n, null, "append", path, errors);
+
                             var bodyRes = readBody(lines, i);
                             i = bodyRes.nextIndex();
 
-                            // If body encountered an explicit END_FENCE marker, readBody sets implicitClose=true
                             if (bodyRes.implicitClose()) {
-                                // consume the END fence line that terminated the body
-                                if (i < lines.length) i++;
+                                if (i < lines.length) i++; // consume END fence
                                 sawEndFence = true;
-                                commands.add(new EdCommand.ChangeRange(
-                                        n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                                commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
                                 break;
                             }
 
-                            // Skip any blank-only lines that may follow the body (e.g., trailing newline at EOF).
                             while (i < lines.length && lines[i].trim().isEmpty()) i++;
 
-                            // Add the command regardless; if the body ended with '.', we may implicitly close:
-                            // - at EOF, or
-                            // - if the next non-blank line begins a new BRK_EDIT_EX block.
-                            commands.add(new EdCommand.ChangeRange(
-                                    n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                            commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
                             if (bodyRes.explicitTerminator()) {
                                 if (i >= lines.length) {
                                     sawEndFence = true;
@@ -327,78 +367,28 @@ public final class LineEditorParser {
                             }
                             continue;
                         }
+
+                        // Unrecognized line inside ED block: ignore silently
+                        i++;
                     }
 
-                    if (ia.matches()) {
-                        var addr = ia.group(1);
-                        int n = parseAddr(addr);
-
-                        i++; // move to (optional) anchor line
-                        var anchor = readAnchorLine(
-                                lines, i, addr, false,
-                                "Append anchor",
-                                "Malformed or missing anchor line after append command: ",
-                                "Missing anchor line after append command for " + path,
-                                errors);
-                        i = anchor.nextIndex();
-
-                        // NEW: flag & consume duplicate @n| ... anchors before the body
-                        i = consumeExtraAnchorsForRange(
-                                lines, i, n, null, "append", path, errors);
-
-                        var bodyRes = readBody(lines, i);
-                        i = bodyRes.nextIndex();
-
-                        if (bodyRes.implicitClose()) {
-                            // consume the END fence line that terminated the body
-                            if (i < lines.length) i++;
-                            sawEndFence = true;
-                            commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
-                            break;
-                        }
-
-                        // Skip any blank-only lines that may follow the body (e.g., trailing newline at EOF).
-                        while (i < lines.length && lines[i].trim().isEmpty()) i++;
-
-                        commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
-                        // If explicit '.', we may implicitly close at EOF or before the next BRK_EDIT_EX block.
-                        if (bodyRes.explicitTerminator()) {
-                            if (i >= lines.length) {
-                                sawEndFence = true;
-                                break;
-                            }
-                            var la = lines[i].trim();
-                            if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
-                                sawEndFence = true;
-                                break;
-                            }
-                        }
-                        continue;
+                    if (!sawEndFence) {
+                        // structural error: missing END fence (no implicit close condition met)
+                        errors.add("Missing BRK_EDIT_EX_END for " + path);
+                        throw new ParseAbort("Missing BRK_EDIT_EX_END for " + path);
                     }
 
-                    // Unrecognized line inside ED block: ignore silently
-                    i++;
+                    parts.add(new OutputPart.EdBlock(path, List.copyOf(commands)));
+                    continue;
                 }
 
-                if (!sawEndFence) {
-                    var sb = new StringBuilder();
-                    sb.append("BRK_EDIT_EX ").append(path).append('\n');
-                    for (int k = blockStartIndex + 1; k < lines.length; k++) {
-                        sb.append(lines[k]);
-                        if (k < lines.length - 1) sb.append('\n');
-                    }
-                    parts.add(new OutputPart.Text(sb.toString()));
-                    errors.add("Missing BRK_EDIT_EX_END for " + path);
-                    break;
-                }
-
-                parts.add(new OutputPart.EdBlock(path, List.copyOf(commands)));
-                continue;
+                // passthrough text
+                textBuf.append(line);
+                if (i < lines.length - 1) textBuf.append('\n');
+                i++;
             }
-
-            textBuf.append(line);
-            if (i < lines.length - 1) textBuf.append('\n');
-            i++;
+        } catch (ParseAbort abort) {
+            // fall-through: we stop parsing here; flush any accumulated plain text seen before the error
         }
 
         if (!textBuf.isEmpty()) {
@@ -407,7 +397,7 @@ public final class LineEditorParser {
 
         var error = errors.isEmpty() ? null : String.join("\n", errors);
         if (error != null && logger.isDebugEnabled()) {
-            logger.debug("LineEditorParser (ED mode) parse warnings:\n{}", error);
+            logger.debug("LineEditorParser (ED mode) parse warnings/errors:\n{}", error);
         }
         return new ExtendedParseResult(parts, error);
     }
@@ -456,19 +446,15 @@ public final class LineEditorParser {
      * and consume one line to avoid infinite loops, mirroring the previous behavior.
      */
     private static AnchorReadResult readAnchorLine(
-            String[] lines, int index, String expectedAddr, boolean allowOmit,
+            String[] lines, int index, String expectedAddr,
             String mismatchLabel, String malformedPrefix, String eofMessage, List<String> errors) {
 
-        int i = index;
-
-        if (i >= lines.length) {
-            if (!allowOmit) {
-                errors.add(eofMessage);
-            }
-            return new AnchorReadResult(expectedAddr, "", i);
+        if (index >= lines.length) {
+            errors.add(eofMessage);
+            throw new ParseAbort(eofMessage);
         }
 
-        var line = lines[i];
+        var line = lines[index];
         var m = ANCHOR_LINE.matcher(line);
         if (m.matches()) {
             var parsedAddr = m.group(1);
@@ -477,26 +463,27 @@ public final class LineEditorParser {
             // Special case: if expected is "$" but a numeric anchor was provided, allow it (no parse error).
             if (!parsedAddr.equals(expectedAddr)) {
                 boolean acceptNumericForDollar =
-                        "$".equals(expectedAddr) && !"0".equals(parsedAddr) && !"$".equals(parsedAddr);
+                        "$".equals(expectedAddr) && !"0".equals(parsedAddr);
                 boolean acceptFirstForZero =
                         "0".equals(expectedAddr) && "1".equals(parsedAddr);
                 if (acceptNumericForDollar || acceptFirstForZero) {
                     // Accept Postel alternatives: numeric for '$', line 1 for '0'
-                    return new AnchorReadResult(parsedAddr, parsedContent, i + 1);
+                    return new AnchorReadResult(parsedAddr, parsedContent, index + 1);
                 } else {
                     errors.add(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
+                    throw new ParseAbort(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
                 }
             }
-            return new AnchorReadResult(parsedAddr, parsedContent, i + 1); // consume anchor line
+            return new AnchorReadResult(parsedAddr, parsedContent, index + 1); // consume anchor line
         }
 
-        if (!allowOmit) {
-            errors.add(malformedPrefix + line);
-            return new AnchorReadResult(expectedAddr, "", i + 1); // consume questionable line to avoid infinite loop
-        }
+        errors.add(malformedPrefix + line);
+        throw new ParseAbort(malformedPrefix + line);
+    }
 
-        // Optional and not present; do not consume; keep expected address
-        return new AnchorReadResult(expectedAddr, "", i);
+    /** Unchecked control flow for hard parse failures. */
+    private static final class ParseAbort extends RuntimeException {
+        ParseAbort(String message) { super(message); }
     }
 
     /**
@@ -511,7 +498,7 @@ public final class LineEditorParser {
         // Begin anchor: always required (presence mandatory). For '0'/'$' addresses, we still allow
         // lenient address substitutions (e.g., '1' for '0' and numeric for '$').
         var a1 = readAnchorLine(
-                lines, i, addr1, false,
+                lines, i, addr1,
                 capitalize(opName) + " begin anchor",
                 "Malformed or missing first anchor after " + opName + " command: ",
                 "Missing anchor line(s) after " + opName + " command for " + path,
@@ -531,7 +518,7 @@ public final class LineEditorParser {
 
         // Range form: parse second anchor, required unless 0/$
         var a2 = readAnchorLine(
-                lines, i, addr2, false,
+                lines, i, addr2,
                 capitalize(opName) + " end anchor",
                 "Malformed or missing second anchor after " + opName + " command: ",
                 "Missing second anchor line for range " + opName + " command for " + path,
@@ -748,7 +735,7 @@ Conventions and constraints:
               @9| def get_factorial(n):
               @14|     return n * get_factorial(n - 1)
               0 a
-              @0| 
+              @0|
               import math
               .
               BRK_EDIT_EX_END
@@ -769,7 +756,7 @@ Conventions and constraints:
                 7:     main()
                 8:
                 9: def hello():
-                10:     \\\"\\\"\\\"print a greeting\\\"\\\"\\\"
+                10:     \\"\\"\\"print a greeting\\"\\"\\"
                 11:     print("hello")
                 </file>
                 </workspace>
@@ -782,16 +769,16 @@ Conventions and constraints:
               
               BRK_EDIT_EX hello.py
               0 a
-              @0| 
+              @0|
               def hello():
-                  \\\"\\\"\\\"print a greeting\\\"\\\"\\\"
+                  \\"\\"\\"print a greeting\\"\\"\\"
                   print("hello")
               .
               BRK_EDIT_EX_END
               
               BRK_EDIT_EX main.py
               $ a
-              @$| 
+              @$|
               # Usage: hello()
               .
               9,11 d
@@ -871,69 +858,77 @@ Guidance:
     }
 
     public static String repr(OutputPart part) {
-        if (part instanceof OutputPart.Delete del) {
-            return "BRK_EDIT_RM " + del.path();
+        if (part instanceof OutputPart.Delete(String path)) {
+            return "BRK_EDIT_RM " + path;
         }
-        if (part instanceof OutputPart.EdBlock ed) {
+        if (part instanceof OutputPart.EdBlock(String path, List<EdCommand> commands)) {
             var sb = new StringBuilder();
-            sb.append("BRK_EDIT_EX ").append(ed.path()).append('\n');
-            for (var c : ed.commands()) {
-                if (c instanceof EdCommand.AppendAfter aa) {
-                    sb.append(addrToString(aa.line())).append(" a\n");
-                    sb.append("@").append(aa.anchorLine()).append("| ").append(aa.anchorContent()).append('\n');
-                    renderBody(sb, aa.body());
-                } else if (c instanceof EdCommand.ChangeRange cr) {
-                    sb.append(addrToString(cr.begin())).append(',').append(addrToString(cr.end())).append(" c\n");
-                    sb.append("@").append(cr.beginAnchorLine()).append("| ").append(cr.beginAnchorContent()).append('\n');
-                    if (!cr.endAnchorLine().isBlank()) {
-                        sb.append("@").append(cr.endAnchorLine()).append("| ").append(requireNonNull(cr.endAnchorContent())).append('\n');
+            sb.append("BRK_EDIT_EX ").append(path).append('\n');
+            for (var c : commands) {
+                if (c instanceof EdCommand.AppendAfter(
+                        int line, List<String> body, String anchorLine, String anchorContent
+                )) {
+                    sb.append(addrToString(line)).append(" a\n");
+                    sb.append("@").append(anchorLine).append("| ").append(anchorContent).append('\n');
+                    renderBody(sb, body);
+                } else if (c instanceof EdCommand.ChangeRange(
+                        int begin, int end, List<String> body, String beginAnchorLine, String beginAnchorContent,
+                        String endAnchorLine, String endAnchorContent
+                )) {
+                    sb.append(addrToString(begin)).append(',').append(addrToString(end)).append(" c\n");
+                    sb.append("@").append(beginAnchorLine).append("| ").append(beginAnchorContent).append('\n');
+                    if (!endAnchorLine.isBlank()) {
+                        sb.append("@").append(endAnchorLine).append("| ").append(requireNonNull(endAnchorContent)).append('\n');
                     }
-                    renderBody(sb, cr.body());
-                } else if (c instanceof EdCommand.DeleteRange dr) {
-                    sb.append(addrToString(dr.begin())).append(',').append(addrToString(dr.end())).append(" d\n");
-                    sb.append("@").append(dr.beginAnchorLine()).append("| ").append(dr.beginAnchorContent()).append('\n');
-                    if (!dr.endAnchorLine().isBlank()) {
-                        sb.append("@").append(dr.endAnchorLine()).append("| ").append(requireNonNull(dr.endAnchorContent())).append('\n');
+                    renderBody(sb, body);
+                } else if (c instanceof EdCommand.DeleteRange(
+                        int begin, int end, String beginAnchorLine, String beginAnchorContent, String endAnchorLine,
+                        String endAnchorContent
+                )) {
+                    sb.append(addrToString(begin)).append(',').append(addrToString(end)).append(" d\n");
+                    sb.append("@").append(beginAnchorLine).append("| ").append(beginAnchorContent).append('\n');
+                    if (!endAnchorLine.isBlank()) {
+                        sb.append("@").append(endAnchorLine).append("| ").append(requireNonNull(endAnchorContent)).append('\n');
                     }
                 }
             }
             sb.append("BRK_EDIT_EX_END");
             return sb.toString();
         }
-        if (part instanceof OutputPart.Text txt) {
-            return txt.text();
+        if (part instanceof OutputPart.Text(String text)) {
+            return text;
         }
         return part.toString();
     }
 
     public static String repr(LineEdit edit) {
-        if (edit instanceof LineEdit.DeleteFile df) {
-            return "BRK_EDIT_RM " + canonicalPath(df.file());
+        if (edit instanceof LineEdit.DeleteFile(ProjectFile file)) {
+            return "BRK_EDIT_RM " + canonicalPath(file);
         }
-        if (edit instanceof LineEdit.EditFile ef) {
+        if (edit instanceof LineEdit.EditFile(
+                ProjectFile file, int beginLine, int endLine, String content, LineEdit.Anchor beginAnchor,
+                @Nullable LineEdit.Anchor endAnchor
+        )) {
             var sb = new StringBuilder();
-            sb.append("BRK_EDIT_EX ").append(canonicalPath(ef.file())).append('\n');
-            int beginLine = ef.beginLine();
-            int endLine = ef.endLine();
-            String content = ef.content();
+            sb.append("BRK_EDIT_EX ").append(canonicalPath(file)).append('\n');
 
             if (endLine < beginLine) {
                 // insertion
                 String addr = (beginLine == Integer.MAX_VALUE) ? "$" : addrToString(beginLine - 1);
                 sb.append(addr).append(" a\n");
                 // beginAnchor is non-null in the model; always render it.
-                sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
                 renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
             } else if (content.isEmpty()) {
                 // delete
                 sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" d\n");
-                sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
             } else {
                 // change
                 sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" c\n");
-                sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
-                if (ef.endAnchor() != null) {
-                    sb.append("@").append(ef.endAnchor().address()).append("| ").append(ef.endAnchor().content()).append('\n');
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+                if (endAnchor != null) {
+                    sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
                 }
                 renderBody(sb, content.lines().toList());
             }

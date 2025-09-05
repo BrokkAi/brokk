@@ -226,7 +226,6 @@ class CodeAgentTest {
     void testParsePhase_parseErrorWithEdits_retriesCap() {
         var loopContext = createBasicLoopContext("test goal");
 
-        // Valid block + a shell line inside to trigger a parse warning/error while still yielding edits.
         String llmTextWithErrorAndBlock =
                 """
                 BRK_EDIT_EX file.java
@@ -234,8 +233,10 @@ class CodeAgentTest {
                 @1| old
                 new
                 .
-                !ignored
                 BRK_EDIT_EX_END
+
+                BRK_EDIT_EX file2.java
+                1 c
                 """;
 
         // First 4 parseError-with-edits responses should produce Retry
