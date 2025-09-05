@@ -39,7 +39,7 @@ public final class LineEditor {
         // utility
     }
 
-    public enum FailureReason {
+    public enum ApplyFailureReason {
         FILE_NOT_FOUND,
         INVALID_LINE_RANGE,
         ANCHOR_MISMATCH,
@@ -47,9 +47,9 @@ public final class LineEditor {
         IO_ERROR
     }
 
-    public record FailedEdit(LineEdit edit, FailureReason reason, String commentary) {}
+    public record ApplyFailure(LineEdit edit, ApplyFailureReason reason, String commentary) {}
 
-    public record ApplyResult(Map<ProjectFile, String> originalContents, List<FailedEdit> failures) {
+    public record ApplyResult(Map<ProjectFile, String> originalContents, List<ApplyFailure> failures) {
         public boolean hadSuccessfulEdits() {
             return !originalContents.isEmpty();
         }
@@ -64,7 +64,7 @@ public final class LineEditor {
      */
     public static ApplyResult applyEdits(IContextManager cm, IConsoleIO io, Collection<? extends LineEdit> edits) {
         var originals = new HashMap<ProjectFile, String>();
-        var failures = new ArrayList<FailedEdit>();
+        var failures = new ArrayList<ApplyFailure>();
 
         // Partition edits: group EditFile per file; collect DeleteFile preserving original order.
         var editsByFile = new HashMap<ProjectFile, List<LineEdit.EditFile>>();
@@ -76,8 +76,8 @@ public final class LineEditor {
             } else if (edit instanceof LineEdit.DeleteFile df) {
                 deletes.add(df);
             } else {
-                failures.add(new FailedEdit(
-                        edit, FailureReason.IO_ERROR, "Unknown edit type: " + edit.getClass().getSimpleName()));
+                failures.add(new ApplyFailure(
+                        edit, ApplyFailureReason.IO_ERROR, "Unknown edit type: " + edit.getClass().getSimpleName()));
             }
         }
 
@@ -91,8 +91,8 @@ public final class LineEditor {
             var overlapping = detectOverlapping(perFile);
             if (!overlapping.isEmpty()) {
                 for (var ef : overlapping) {
-                    failures.add(new FailedEdit(
-                            ef, FailureReason.OVERLAPPING_EDITS,
+                    failures.add(new ApplyFailure(
+                            ef, ApplyFailureReason.OVERLAPPING_EDITS,
                             "Overlapping edit detected within " + ef.file() + " at " + ef.beginLine() + ".." + ef.endLine()));
                 }
             }
@@ -119,7 +119,7 @@ public final class LineEditor {
                 } catch (IOException e) {
                     var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
                     logger.error("IO error applying {}: {}", describe(ef), msg);
-                    failures.add(new FailedEdit(ef, FailureReason.IO_ERROR, msg));
+                    failures.add(new ApplyFailure(ef, ApplyFailureReason.IO_ERROR, msg));
                 }
             }
 
@@ -130,7 +130,7 @@ public final class LineEditor {
                 } catch (IOException e) {
                     var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
                     logger.error("IO error applying {}: {}", describe(ef), msg);
-                    failures.add(new FailedEdit(ef, FailureReason.IO_ERROR, msg));
+                    failures.add(new ApplyFailure(ef, ApplyFailureReason.IO_ERROR, msg));
                 }
             }
         }
@@ -142,7 +142,7 @@ public final class LineEditor {
             } catch (IOException e) {
                 var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
                 logger.error("IO error applying {}: {}", describe(df), msg);
-                failures.add(new FailedEdit(df, FailureReason.IO_ERROR, msg));
+                failures.add(new ApplyFailure(df, ApplyFailureReason.IO_ERROR, msg));
             }
         }
 
@@ -154,11 +154,11 @@ public final class LineEditor {
             IConsoleIO io,
             LineEdit.DeleteFile df,
             Map<ProjectFile, String> originals,
-            List<FailedEdit> failures)
+            List<ApplyFailure> failures)
             throws IOException {
         var pf = df.file();
         if (!pf.exists()) {
-            failures.add(new FailedEdit(df, FailureReason.FILE_NOT_FOUND, "Delete: file does not exist"));
+            failures.add(new ApplyFailure(df, ApplyFailureReason.FILE_NOT_FOUND, "Delete: file does not exist"));
             return;
         }
 
@@ -184,7 +184,7 @@ public final class LineEditor {
     private static void applyEdit(
             LineEdit.EditFile ef,
             Map<ProjectFile, String> originals,
-            List<FailedEdit> failures)
+            List<ApplyFailure> failures)
             throws IOException {
         var pf = ef.file();
         int begin = ef.beginLine();
@@ -206,9 +206,9 @@ public final class LineEditor {
 
             // Validate position first (so tests expecting INVALID_LINE_RANGE still pass)
             if (requestedBegin < 1 || requestedBegin > n + 1) {
-                failures.add(new FailedEdit(
+                failures.add(new ApplyFailure(
                         ef,
-                        FailureReason.INVALID_LINE_RANGE,
+                        ApplyFailureReason.INVALID_LINE_RANGE,
                         "Invalid insertion index: begin=%d for file with %d lines (valid 1..%d)"
                                 .formatted(begin, n, n + 1)));
                 return;
@@ -217,7 +217,7 @@ public final class LineEditor {
             // Validate anchors (insertion validates only the begin anchor)
             String anchorError = validateAnchors(ef, lines);
             if (anchorError != null) {
-                failures.add(new FailedEdit(ef, FailureReason.ANCHOR_MISMATCH, anchorError));
+                failures.add(new ApplyFailure(ef, ApplyFailureReason.ANCHOR_MISMATCH, anchorError));
                 return;
             }
 
@@ -235,9 +235,9 @@ public final class LineEditor {
 
         // Replacements/deletes require an existing file
         if (!pf.exists()) {
-            failures.add(new FailedEdit(
+            failures.add(new ApplyFailure(
                     ef,
-                    FailureReason.FILE_NOT_FOUND,
+                    ApplyFailureReason.FILE_NOT_FOUND,
                     "Replacement on non-existent file is not allowed. Use BRK_EDIT_EX <path> with `0 a` to create a new file."));
             return;
         }
@@ -248,9 +248,9 @@ public final class LineEditor {
 
         // Validate range before anchors so tests expecting INVALID_LINE_RANGE still pass
         if (normalizedBegin < 1 || normalizedEnd < normalizedBegin || normalizedEnd > n) {
-            failures.add(new FailedEdit(
+            failures.add(new ApplyFailure(
                     ef,
-                    FailureReason.INVALID_LINE_RANGE,
+                    ApplyFailureReason.INVALID_LINE_RANGE,
                     "Invalid replacement range: begin=%d end=%d for file with %d lines".formatted(begin, end, n)));
             return;
         }
@@ -258,7 +258,7 @@ public final class LineEditor {
         // Validate anchors: delete checks begin only; change checks begin+end
         String anchorError = validateAnchors(ef, lines);
         if (anchorError != null) {
-            failures.add(new FailedEdit(ef, FailureReason.ANCHOR_MISMATCH, anchorError));
+            failures.add(new ApplyFailure(ef, ApplyFailureReason.ANCHOR_MISMATCH, anchorError));
             return;
         }
 

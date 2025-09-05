@@ -10,7 +10,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.LineEdit;
 import io.github.jbellis.brokk.LineEditor;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskEntry;
@@ -30,7 +29,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -133,7 +131,7 @@ public abstract class CodePrompts {
     }
 
     /** Helper used by redactAiMessage(AiMessage): turn parsed ED parts into redacted text. */
-    private static @NotNull String redactParsedEdBlocks(LineEditorParser.ExtendedParseResult parsed) {
+    private static @NotNull String redactParsedEdBlocks(LineEditorParser.ParseResult parsed) {
         var sb = new StringBuilder();
         for (LineEditorParser.OutputPart p : parsed.parts()) {
             if (p instanceof LineEditorParser.OutputPart.Text(String text)) {
@@ -833,7 +831,7 @@ public abstract class CodePrompts {
     }
 
     public static String getLineEditFailureMessage(
-            List<LineEditor.FailedEdit> failures,
+            List<LineEditor.ApplyFailure> failures,
             int succeededCount,
             IContextManager cm) {
 

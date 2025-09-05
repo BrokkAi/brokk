@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -103,7 +102,7 @@ public final class LineEditorParser {
                            String endAnchorLine, String endAnchorContent) implements EdCommand {}
     }
 
-    public record ExtendedParseResult(List<OutputPart> parts, @Nullable String parseError) {
+    public record ParseResult(List<OutputPart> parts, @Nullable String parseError) {
         public boolean hasEdits() {
             for (var p : parts) {
                 if (!(p instanceof OutputPart.Text)) {
@@ -198,21 +197,7 @@ public final class LineEditorParser {
      * - All addresses are absolute numeric (1-based; 0 allowed only as "before first line"; '$' as end-of-file sentinel).
      * - 'w', 'q' and other non-edit commands are ignored. Shell ('!') is ignored but noted as a parse warning.
      */
-    public ExtendedParseResult parse(String content) {
-        var lower = content.toLowerCase(Locale.ROOT);
-        if (lower.contains("<brk_edit_file")) {
-            if (!lower.contains("</brk_edit_file>")) {
-                var onlyText = new ArrayList<OutputPart>();
-                onlyText.add(new OutputPart.Text(content));
-                return new ExtendedParseResult(onlyText, "Missing closing </brk_edit_file> tag");
-            }
-            var onlyText = new ArrayList<OutputPart>();
-            onlyText.add(new OutputPart.Text(content));
-            return new ExtendedParseResult(
-                    onlyText,
-                    "Typed <brk_edit_file> blocks are not supported by ED parser; use BRK_EDIT_EX / BRK_EDIT_EX_END.");
-        }
-
+    public ParseResult parse(String content) {
         var parts = new ArrayList<OutputPart>();
         var errors = new ArrayList<String>();
 
@@ -414,7 +399,7 @@ public final class LineEditorParser {
         if (error != null && logger.isDebugEnabled()) {
             logger.debug("LineEditorParser (ED mode) parse warnings/errors:\n{}", error);
         }
-        return new ExtendedParseResult(parts, error);
+        return new ParseResult(parts, error);
     }
 
     // Patterns for EX commands
@@ -554,7 +539,7 @@ public final class LineEditorParser {
      * - We sort all EditFile operations per file in descending line order (last edits first)
      *   to avoid line shifts; DeleteFile operations retain original order.
      */
-    public static List<LineEdit> materializeEdits(ExtendedParseResult result, IContextManager cm) {
+    public static List<LineEdit> materializeEdits(ParseResult result, IContextManager cm) {
         var editFiles = new ArrayList<LineEdit>();
         var deletes = new ArrayList<LineEdit>();
 

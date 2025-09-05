@@ -445,7 +445,7 @@ BRK_EDIT_EX_END
         var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
 
         assertEquals(1, res.failures().size(), "Anchor too far from EOF should fail");
-        assertEquals(LineEditor.FailureReason.ANCHOR_MISMATCH, res.failures().getFirst().reason());
+        assertEquals(LineEditor.ApplyFailureReason.ANCHOR_MISMATCH, res.failures().getFirst().reason());
         assertEquals("L1\nL2\nL3\n", Files.readString(dir.resolve("a.txt")), "File should remain unchanged");
     }
 

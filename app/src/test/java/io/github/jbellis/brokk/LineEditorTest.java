@@ -100,7 +100,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertEquals(1, res.failures().size());
-        assertEquals(LineEditor.FailureReason.INVALID_LINE_RANGE, res.failures().getFirst().reason());
+        assertEquals(LineEditor.ApplyFailureReason.INVALID_LINE_RANGE, res.failures().getFirst().reason());
         assertEquals("Only\nOne\n", Files.readString(pf.absPath()));
     }
 
@@ -116,7 +116,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertEquals(1, res.failures().size());
-        assertEquals(LineEditor.FailureReason.FILE_NOT_FOUND, res.failures().getFirst().reason());
+        assertEquals(LineEditor.ApplyFailureReason.FILE_NOT_FOUND, res.failures().getFirst().reason());
     }
 
     @Test
@@ -146,7 +146,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
         assertEquals(1, res.failures().size());
-        assertEquals(LineEditor.FailureReason.INVALID_LINE_RANGE, res.failures().getFirst().reason());
+        assertEquals(LineEditor.ApplyFailureReason.INVALID_LINE_RANGE, res.failures().getFirst().reason());
         assertEquals("L1\nL2\n", Files.readString(pf.absPath()));
     }
 
@@ -193,7 +193,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(new LineEdit.DeleteFile(pf)));
 
         assertEquals(1, res.failures().size());
-        assertEquals(LineEditor.FailureReason.FILE_NOT_FOUND, res.failures().getFirst().reason());
+        assertEquals(LineEditor.ApplyFailureReason.FILE_NOT_FOUND, res.failures().getFirst().reason());
     }
 
     @Test
@@ -244,7 +244,7 @@ class LineEditorTest {
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
         assertEquals(1, res.failures().size(), "Internal whitespace differences should still fail anchor validation");
-        assertEquals(LineEditor.FailureReason.ANCHOR_MISMATCH, res.failures().getFirst().reason());
+        assertEquals(LineEditor.ApplyFailureReason.ANCHOR_MISMATCH, res.failures().getFirst().reason());
         assertEquals("hello world\n", java.nio.file.Files.readString(pf.absPath()),
                      "File should remain unchanged on anchor mismatch");
     }
@@ -265,7 +265,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(e1, e2));
 
         assertEquals(2, res.failures().size(), "Both overlapping edits should be rejected");
-        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.FailureReason.OVERLAPPING_EDITS));
+        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.ApplyFailureReason.OVERLAPPING_EDITS));
         assertEquals("A\nB\nC\nD\nE\n", Files.readString(pf.absPath()), "File should remain unchanged");
     }
 
@@ -286,7 +286,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(change, insert));
 
         assertEquals(2, res.failures().size(), "Insertion overlapping with a range should reject both edits");
-        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.FailureReason.OVERLAPPING_EDITS));
+        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.ApplyFailureReason.OVERLAPPING_EDITS));
         assertEquals("A\nB\nC\nD\n", Files.readString(pf.absPath()), "File should remain unchanged");
     }
 
@@ -309,7 +309,7 @@ class LineEditorTest {
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(overlap1, overlap2, nonOverlap));
 
         assertEquals(2, res.failures().size(), "Only the overlapping pair should fail");
-        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.FailureReason.OVERLAPPING_EDITS));
+        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.ApplyFailureReason.OVERLAPPING_EDITS));
         assertEquals("AA\nB\nC\nD\nE\n", Files.readString(pf.absPath()), "Non-overlapping change should apply");
     }
 }
