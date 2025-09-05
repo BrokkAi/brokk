@@ -355,6 +355,71 @@ BRK_EDIT_EX_END
     }
 
     @Test
+    void parse_dollarAppend_allowsNumericAnchor() {
+        var input = """
+BRK_EDIT_EX a.txt
+$ a
+@2| LAST
+X
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError(), "Parser should accept numeric anchors when using '$' address");
+
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
+        var cmd = (LineEditorParser.EdCommand.AppendAfter) ed.commands().getFirst();
+        assertEquals(Integer.MAX_VALUE, cmd.line(), "Address '$' should map to sentinel in command");
+        assertEquals("2", cmd.anchorLine(), "Numeric anchor line should be preserved");
+    }
+
+    @Test
+    void e2e_appendAtEnd_withDollarNumericAnchor_withinTolerance(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        Files.writeString(dir.resolve("a.txt"), "L1\nL2\nL3\n");
+
+        var input = """
+BRK_EDIT_EX a.txt
+$ a
+@2| L3
+X
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertTrue(res.failures().isEmpty(), "Numeric anchor within ±2 of EOF should be accepted");
+        assertEquals("L1\nL2\nL3\nX\n", Files.readString(dir.resolve("a.txt")));
+    }
+
+    @Test
+    void e2e_appendAtEnd_withDollarNumericAnchor_tooFarFails(@TempDir Path dir) throws Exception {
+        var ctx = new TestContextManager(dir, new NoOpConsoleIO());
+        Files.writeString(dir.resolve("a.txt"), "L1\nL2\nL3\n");
+
+        var input = """
+BRK_EDIT_EX a.txt
+$ a
+@10| L3
+X
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var parsed = LineEditorParser.instance.parse(input);
+        var edits = LineEditorParser.materializeEdits(parsed, ctx);
+        var res = LineEditor.applyEdits(ctx, new NoOpConsoleIO(), edits);
+
+        assertEquals(1, res.failures().size(), "Anchor too far from EOF should fail");
+        assertEquals(LineEditor.FailureReason.ANCHOR_MISMATCH, res.failures().getFirst().reason());
+        assertEquals("L1\nL2\nL3\n", Files.readString(dir.resolve("a.txt")), "File should remain unchanged");
+    }
+
+    @Test
     void materialize_changeZeroToDollarRange_andApply(@TempDir Path dir) throws Exception {
         var ctx = new TestContextManager(dir, new NoOpConsoleIO());
         Files.writeString(dir.resolve("a.txt"), "A\nB\nC\n");

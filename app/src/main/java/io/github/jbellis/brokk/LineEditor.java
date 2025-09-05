@@ -291,7 +291,7 @@ public final class LineEditor {
             mismatch = true;
             sb.append("Anchor mismatch (begin): required anchor is missing\n");
         } else {
-            var msg = checkOneAnchor("begin", beginAnchor, lines);
+            var msg = checkOneAnchor("begin", ef, beginAnchor, lines);
             if (msg != null) {
                 mismatch = true;
                 sb.append(msg).append('\n');
@@ -304,7 +304,7 @@ public final class LineEditor {
                 mismatch = true;
                 sb.append("Anchor mismatch (end): required anchor is missing\n");
             } else {
-                var msg2 = checkOneAnchor("end", endAnchor, lines);
+                var msg2 = checkOneAnchor("end", ef, endAnchor, lines);
                 if (msg2 != null) {
                     mismatch = true;
                     sb.append(msg2).append('\n');
@@ -315,11 +315,51 @@ public final class LineEditor {
         return mismatch ? sb.toString().trim() : null;
     }
 
-    private static @Nullable String checkOneAnchor(String which, LineEdit.Anchor anchor, List<String> lines) {
+    private static @Nullable String checkOneAnchor(String which, LineEdit.EditFile ef, LineEdit.Anchor anchor, List<String> lines) {
         var address = anchor.address();
 
-        // Always skip validation for 0 / $
-        if ("0".equals(address) || "$".equals(address)) {
+        // Always skip validation for 0
+        if ("0".equals(address)) {
+            return null;
+        }
+
+        final boolean editSideIsDollar =
+                ("begin".equals(which) && ef.beginLine() == Integer.MAX_VALUE)
+                        || ("end".equals(which) && ef.endLine() == Integer.MAX_VALUE);
+
+        // Special handling: if the edit uses '$' on this side, allow a numeric anchor address
+        // within ±2 lines of the actual file length. Compare content to the last line ('$').
+        if (editSideIsDollar && !"$".equals(address)) {
+            try {
+                int k = Integer.parseInt(address);
+                int n = lines.size();
+                if (Math.abs(k - n) <= 2) {
+                    var expectedRaw = anchor.content();
+                    var expected = expectedRaw.strip();
+
+                    var actualOpt = contentForAddress(lines, "$");
+                    var actualRaw = actualOpt.orElse("");
+                    var actual = actualRaw.strip();
+
+                    if (!actualOpt.isPresent() && expected.isEmpty()) {
+                        return null;
+                    }
+                    if (!actual.equals(expected)) {
+                        return "Anchor mismatch (" + which + "): line '$'"
+                                + " expected [" + expectedRaw + "] but was [" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "]";
+                    }
+                    return null; // success within tolerance and content matched
+                } else {
+                    return "Anchor mismatch (" + which + "): numeric anchor '" + address
+                            + "' is too far from end-of-file (n=" + n + "); allowed tolerance is ±2 lines.";
+                }
+            } catch (NumberFormatException ignore) {
+                // fall through to normal handling
+            }
+        }
+
+        // If the address is '$', skip (we don't require content match for '$' itself)
+        if ("$".equals(address)) {
             return null;
         }
 

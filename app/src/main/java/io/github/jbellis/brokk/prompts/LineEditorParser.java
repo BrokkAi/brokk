@@ -276,19 +276,19 @@ public final class LineEditorParser {
                                 lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
 
                         if (op == 'd') {
-                            commands.add(new EdCommand.DeleteRange(
-                                    n1, n2, addr1, anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                            continue;
-                        } else { // 'c'
-                            var bodyRes = readBody(lines, i);
-                            i = bodyRes.nextIndex();
-                            if (bodyRes.implicitClose()) {
-                                sawEndFence = true;
+                                commands.add(new EdCommand.DeleteRange(
+                                        n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                                continue;
+                            } else { // 'c'
+                                var bodyRes = readBody(lines, i);
+                                i = bodyRes.nextIndex();
+                                if (bodyRes.implicitClose()) {
+                                    sawEndFence = true;
+                                }
+                                commands.add(new EdCommand.ChangeRange(
+                                        n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                                continue;
                             }
-                            commands.add(new EdCommand.ChangeRange(
-                                    n1, n2, bodyRes.body(), addr1, anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                            continue;
-                        }
                     }
 
                     if (ia.matches()) {
@@ -314,7 +314,7 @@ public final class LineEditorParser {
                         if (bodyRes.implicitClose()) {
                             sawEndFence = true;
                         }
-                        commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), addr, anchor.content()));
+                        commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
                         continue;
                     }
 
@@ -362,8 +362,8 @@ public final class LineEditorParser {
 
     // Lightweight result records (Java 21)
     private record BodyReadResult(List<String> body, int nextIndex, boolean implicitClose) {}
-    private record AnchorReadResult(String content, int nextIndex) {}
-    private record RangeAnchors(String endAddr, String beginContent, String endContent, int nextIndex) { }
+    private record AnchorReadResult(String addr, String content, int nextIndex) {}
+    private record RangeAnchors(String beginAddr, String endAddr, String beginContent, String endContent, int nextIndex) { }
 
     private static boolean isZeroOrDollar(String addr) {
         return "0".equals(addr) || "$".equals(addr);
@@ -408,7 +408,7 @@ public final class LineEditorParser {
             if (!allowOmit) {
                 errors.add(eofMessage);
             }
-            return new AnchorReadResult("", i);
+            return new AnchorReadResult(expectedAddr, "", i);
         }
 
         var line = lines[i];
@@ -416,19 +416,26 @@ public final class LineEditorParser {
         if (m.matches()) {
             var parsedAddr = m.group(1);
             var parsedContent = m.group(2);
+
+            // Special case: if expected is "$" but a numeric anchor was provided, allow it (no parse error).
             if (!parsedAddr.equals(expectedAddr)) {
-                errors.add(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
+                if ("$".equals(expectedAddr) && !"0".equals(parsedAddr) && !"$".equals(parsedAddr)) {
+                    // accept numeric anchor for "$" without error
+                    return new AnchorReadResult(parsedAddr, parsedContent, i + 1);
+                } else {
+                    errors.add(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
+                }
             }
-            return new AnchorReadResult(parsedContent, i + 1); // consume anchor line
+            return new AnchorReadResult(parsedAddr, parsedContent, i + 1); // consume anchor line
         }
 
         if (!allowOmit) {
             errors.add(malformedPrefix + line);
-            return new AnchorReadResult("", i + 1); // consume questionable line to avoid infinite loop
+            return new AnchorReadResult(expectedAddr, "", i + 1); // consume questionable line to avoid infinite loop
         }
 
-        // Optional and not present; do not consume
-        return new AnchorReadResult("", i);
+        // Optional and not present; do not consume; keep expected address
+        return new AnchorReadResult(expectedAddr, "", i);
     }
 
     /**
@@ -453,10 +460,10 @@ public final class LineEditorParser {
         if (addr2 == null) {
             if ("change".equals(opName)) {
                 // Single-line change: end anchor equals begin
-                return new RangeAnchors(addr1, a1.content(), a1.content(), i);
+                return new RangeAnchors(a1.addr(), a1.addr(), a1.content(), a1.content(), i);
             } else { // delete
                 // Single-address delete: no end anchor
-                return new RangeAnchors("", a1.content(), "", i);
+                return new RangeAnchors(a1.addr(), "", a1.content(), "", i);
             }
         }
 
@@ -469,7 +476,7 @@ public final class LineEditorParser {
                 errors);
         i = a2.nextIndex();
 
-        return new RangeAnchors(addr2, a1.content(), a2.content(), i);
+        return new RangeAnchors(a1.addr(), a2.addr(), a1.content(), a2.content(), i);
     }
 
     private static String capitalize(String s) {
@@ -626,51 +633,6 @@ Conventions and constraints:
 - `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
 - Non-command, non-anchor, non-body lines inside a BRK_EDIT_EX block will be ignored by the parser; do not include commentary inside the block.
-
-## Examples
-
-# Append one line at end-of-file (anchor omitted for '$')
-BRK_EDIT_EX src/main.py
-$ a
-print("done")
-.
-BRK_EDIT_EX_END
-
-# Insert two lines at the start of the file (anchor omitted for '0')
-BRK_EDIT_EX README.md
-0 a
-# Project Title
-A short description.
-.
-BRK_EDIT_EX_END
-
-# Replace a single line (line 21; anchor required)
-BRK_EDIT_EX src/Main.java
-21 c
-@21| return str(get_factorial(n))
-return str(math.factorial(n))
-.
-BRK_EDIT_EX_END
-
-# Change a range with two anchors (omit allowed only for 0/$)
-BRK_EDIT_EX utils/math.py
-9,14 c
-@9| def get_factorial(n):
-@14|     return n * get_factorial(n - 1)
-def get_factorial(n):
-    if n < 0:
-        raise ValueError("negative")
-    import math
-    return math.factorial(n)
-.
-BRK_EDIT_EX_END
-
-# Delete a range with two anchors (omit allowed only for 0/$)
-BRK_EDIT_EX app.py
-9,14 d
-@9| def get_factorial(n):
-@14|     return n * get_factorial(n - 1)
-BRK_EDIT_EX_END
 """.stripIndent();
     }
 
