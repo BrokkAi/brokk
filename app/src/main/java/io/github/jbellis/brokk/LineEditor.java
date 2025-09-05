@@ -411,18 +411,24 @@ public final class LineEditor {
             String actualGiven = "@" + address + "| " + (actualOpt.isPresent() ? actualRaw : "");
 
             if (suggestion1 != null) {
-                return ("Anchor mismatch (" + which + "). You gave\n"
-                        + "@" + address + "| " + expectedRaw + "\n"
-                        + "which is not a valid line/content pairing. You may have meant\n"
-                        + suggestion1 + "\n"
-                        + "or perhaps\n"
-                        + actualGiven).trim();
+                return ("""
+                        Anchor mismatch (%s)!
+                        You gave
+                        @%s| %s
+                        which is not a valid line/content pairing. You may have meant
+                        %s
+                        or perhaps
+                        %s
+                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, suggestion1, actualGiven)).trim();
             } else {
-                return ("Anchor mismatch (" + which + "). You gave\n"
-                        + "@" + address + "| " + expectedRaw + "\n"
-                        + "which is not a valid line/content pairing. I could not find that content near the cited line.\n"
-                        + "For reference, the cited line is\n"
-                        + actualGiven).trim();
+                return ("""
+                        Anchor mismatch (%s)!
+                        You gave
+                        @%s| %s
+                        which is not a valid line/content pairing. I could not find that content near the cited line.
+                        For reference, the cited line is
+                        %s
+                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, actualGiven)).trim();
             }
         }
         return null;
