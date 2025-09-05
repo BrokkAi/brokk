@@ -187,6 +187,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         scanProjectCheckBox = new JCheckBox("Search First");
         scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
 
+        // Load persisted checkbox states (default to checked)
+        var proj = chrome.getProject();
+        if (proj instanceof MainProject mp) {
+            codeCheckBox.setSelected(mp.getPlanFirst());
+            scanProjectCheckBox.setSelected(mp.getSearchFirst());
+        } else {
+            // Fallback: both checked
+            codeCheckBox.setSelected(true);
+            scanProjectCheckBox.setSelected(true);
+        }
+
         // default stored action: Architect
         storedAction = ACTION_ARCHITECT;
 
@@ -216,11 +227,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
+            if (chrome.getProject() instanceof MainProject mp) {
+                mp.setPlanFirst(codeCheckBox.isSelected());
+            }
         });
 
         scanProjectCheckBox.addActionListener(e -> {
             if (modeSwitch.isSelected()) {
                 storedAction = scanProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
+            }
+            if (chrome.getProject() instanceof MainProject mp) {
+                mp.setSearchFirst(scanProjectCheckBox.isSelected());
             }
         });
 
