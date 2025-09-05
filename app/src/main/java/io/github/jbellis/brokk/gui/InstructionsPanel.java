@@ -100,7 +100,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
-    private final JButton planOptionsButton;
+    private final JLabel planOptionsLink;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Answer");
@@ -188,10 +188,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         scanProjectCheckBox = new JCheckBox("Search First");
         scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
 
-        planOptionsButton = new JButton("Plan Options");
-        planOptionsButton.setToolTipText("Configure options for the Architect agent (Plan First)");
-        planOptionsButton.addActionListener(e -> ArchitectOptionsDialog.showDialogAndWait(chrome));
-        planOptionsButton.setMargin(new Insets(2, 5, 2, 5));
+        planOptionsLink = new JLabel("<html><span style='text-decoration: underline;'>Plan Options</span></html>");
+        planOptionsLink.setToolTipText("Configure options for the Architect agent (Plan First)");
+        // Try to use a link-like color from UI, fall back to label foreground or blue
+        java.awt.Color linkColor = UIManager.getColor("Label.linkForeground");
+        if (linkColor == null) linkColor = UIManager.getColor("Label.foreground");
+        if (linkColor == null) linkColor = java.awt.Color.BLUE;
+        planOptionsLink.setForeground(linkColor);
+        planOptionsLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        planOptionsLink.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                ArchitectOptionsDialog.showDialogAndWait(chrome);
+            }
+        });
 
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
@@ -214,7 +224,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 scanProjectCheckBox.setVisible(true);
                 scanProjectCheckBox.setEnabled(true);
                 codeCheckBox.setVisible(false);
-                planOptionsButton.setVisible(false);
+                planOptionsLink.setVisible(false);
                 // Checked => Search, Unchecked => Answer
                 storedAction = scanProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
@@ -222,7 +232,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
                 scanProjectCheckBox.setVisible(false);
-                planOptionsButton.setVisible(true);
+                planOptionsLink.setVisible(codeCheckBox.isSelected());
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
@@ -235,6 +245,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Inverted semantics: checked = Architect (Plan First)
                 storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
+            // Show Plan Options only when Plan First is selected
+            planOptionsLink.setVisible(codeCheckBox.isSelected());
             if (chrome.getProject() instanceof MainProject mp) {
                 mp.setPlanFirst(codeCheckBox.isSelected());
             }
@@ -251,7 +263,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initial checkbox visibility
         codeCheckBox.setVisible(true);
-        planOptionsButton.setVisible(true);
+        planOptionsLink.setVisible(codeCheckBox.isSelected());
         scanProjectCheckBox.setVisible(false);
 
         // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
@@ -749,7 +761,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Dynamic options depending on toggle selection
         bottomPanel.add(codeCheckBox);
-        bottomPanel.add(planOptionsButton);
+        bottomPanel.add(Box.createHorizontalStrut(10));
+        bottomPanel.add(planOptionsLink);
         bottomPanel.add(scanProjectCheckBox);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
@@ -1808,13 +1821,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Checkbox visibility and enablement
         if (!modeSwitch.isSelected()) {
             codeCheckBox.setVisible(true);
-            planOptionsButton.setVisible(true);
+            planOptionsLink.setVisible(codeCheckBox.isSelected());
             scanProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
             codeCheckBox.setToolTipText("Plan First (prefer planning via Architect before coding)");
         } else {
             codeCheckBox.setVisible(false);
-            planOptionsButton.setVisible(false);
+            planOptionsLink.setVisible(false);
             scanProjectCheckBox.setVisible(true);
             scanProjectCheckBox.setEnabled(true);
             scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
