@@ -2087,7 +2087,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private void switchToSession(UUID sessionId) {
         var sessionManager = project.getSessionManager();
-        updateActiveSession(sessionId); // Mark as active
 
         String sessionName = sessionManager.listSessions().stream()
                 .filter(s -> s.id().equals(sessionId))
@@ -2096,13 +2095,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .orElse("(Unknown Name)");
         logger.debug("Switched to session: {} ({})", sessionName, sessionId);
 
-        ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
+        ContextHistory loadedCh = sessionManager.loadHistory(sessionId, this);
 
         if (loadedCh == null) {
             io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
-            createOrReuseSession(DEFAULT_SESSION_NAME);
-            return;
         } else {
+            updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
         }
         notifyContextListeners(topContext());
