@@ -199,8 +199,7 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     // Gate formatting to GPT-5 only, and only after the first reasoning chunk
                     boolean isGpt5 = contextManager.getService().nameOf(model).equals(Service.GPT_5);
-                    String out = isGpt5 ? addReasoningNewlinesForGpt5(reasoningContent)
-                                        : reasoningContent;
+                    String out = isGpt5 ? addReasoningNewlinesForGpt5(reasoningContent) : reasoningContent;
 
                     accumulatedReasoningBuilder.append(out);
                     if (echo) {
@@ -313,9 +312,9 @@ public class Llm {
     }
 
     /**
-     * GPT-5 reasoning formatting workaround:
-     * Insert two newlines before an opening "**" when we are mid-message (not the first chunk).
-     * Regex matches "**" not preceded by a newline or word char, followed by a word char, and not part of "***".
+     * GPT-5 reasoning formatting workaround: Insert two newlines before an opening "**" when we are mid-message (not
+     * the first chunk). Regex matches "**" not preceded by a newline or word char, followed by a word char, and not
+     * part of "***".
      */
     private static String addReasoningNewlinesForGpt5(String text) {
         if (!text.isEmpty()) {

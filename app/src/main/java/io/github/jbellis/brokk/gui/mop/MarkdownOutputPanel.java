@@ -183,7 +183,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return false;
     }
 
-
     public void addTextChangeListener(Runnable listener) {
         textChangeListeners.add(listener);
     }
