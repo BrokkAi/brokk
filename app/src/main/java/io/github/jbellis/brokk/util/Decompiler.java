@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.util;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.io.IOException;
@@ -65,7 +66,7 @@ public class Decompiler {
             Chrome io, Path jarPath, ContextManager.TaskRunner runner, @Nullable Runnable onComplete) {
         String jarName = jarPath.getFileName().toString();
         Path originalProjectRoot = io.getContextManager().getRoot();
-        Path brokkDir = originalProjectRoot.resolve(".brokk");
+        Path brokkDir = originalProjectRoot.resolve(AbstractProject.BROKK_DIR);
         Path depsDir = brokkDir.resolve("dependencies");
         Path outputDir = depsDir.resolve(jarName.replaceAll("\\.jar$", ""));
 
