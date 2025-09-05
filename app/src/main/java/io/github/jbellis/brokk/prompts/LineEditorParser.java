@@ -129,17 +129,51 @@ public final class LineEditorParser {
      *  - If it is an anchor but not an "extra" for this op (likely belongs to the next stmt/body),
      *    we also return startIndex unchanged.
      *  - If it is an extra anchor for this op, we throw via fail(...).
+     *
+     * Special-case: if this is a single-address change/delete and there is exactly one extra
+     * anchor (i.e., two anchors total were provided), produce a different message suggesting
+     * they may have intended to use a two-address range.
      */
     private static void checkForExtraAnchorsForRange(
             String[] lines, int startIndex,
-            String opName, String path, List<String> errors) throws ParseAbort {
+            String opName, String path, boolean isSingleAddress, List<String> errors) throws ParseAbort {
 
         if (startIndex >= lines.length) return;
 
-        String addrStr = matchAnchorAddr(lines[startIndex]);
-        if (addrStr == null) return;
+        boolean nextIsAnchor = matchAnchorAddr(lines[startIndex]) != null;
+        if (!nextIsAnchor) {
+            // we have the correct number of anchors
+            return;
+        }
 
-        // Any additional anchor-like line after the required anchor(s) is an error, regardless of address.
+        // If single-address change/delete and exactly one extra anchor present,
+        // provide a hint about using a two-address range.
+        if (isSingleAddress && ("change".equals(opName) || "delete".equals(opName))) {
+            boolean additionalExtraAnchors =
+                    (startIndex + 1 < lines.length) && matchAnchorAddr(lines[startIndex + 1]) != null;
+            if (!additionalExtraAnchors) {
+                var opChar = "change".equals(opName) ? "c" : "d";
+                var msg = """
+                        Too many anchors after %s command for %s. You provided two anchors for a single-address edit.
+                        
+                        If you intended to edit a range, use a two-address form like:
+                        ```
+                        n,m %s
+                        @n| ...
+                        @m| ...
+                        ```
+                        
+                        The first unexpected extra anchor was
+                        ```
+                        %s
+                        ```
+                        """.formatted(opName, path, opChar, lines[startIndex]);
+                errors.add(msg);
+                throw new ParseAbort(msg);
+            }
+        }
+
+        // Generic message (current behavior)
         var msg = """
                 Too many anchors after %s command for %s. Only specify one anchor per address.
                 
@@ -258,7 +292,7 @@ public final class LineEditorParser {
 
                             // flag any extra @N| ... anchors before body / next command
                             checkForExtraAnchorsForRange(
-                                    lines, i, opName, path, errors);
+                                    lines, i, opName, path, addr2 == null, errors);
 
                             if (op == 'd') {
                                 commands.add(new EdCommand.DeleteRange(
@@ -320,7 +354,7 @@ public final class LineEditorParser {
 
                             // flag duplicate @n| anchors before body
                             checkForExtraAnchorsForRange(
-                                    lines, i, "append", path, errors);
+                                    lines, i, "append", path, false, errors);
 
                             var bodyRes = readBody(lines, i);
                             i = bodyRes.nextIndex();
@@ -620,11 +654,32 @@ Anchors (MANDATORY):
 - Provide exactly one anchor per address parameter:
   • Single-address commands (n a / n c / n d): exactly 1 anchor.
   • Range commands (n,m c / n,m d): exactly 2 anchors, for n and m.
+- Anchors never define ranges. The addresses on the command line do.
+  If you emit two `@N|` anchors, you MUST also emit a two-address form `n,m X`.
 - For `0` and `$`, include a blank anchor after the pipe (e.g., `@0| `, `@$| `).
 - Do NOT include anchors for interior lines of a range.
 - Any additional anchor lines (`@N| ...`) beyond the required ones are a **parse error**.
 
-Right vs Wrong (range change example):
+Common mistakes & self-checks:
+- If you wrote two `@N|` lines, your command must be `n,m c` or `n,m d` with those same N values.
+- Count addresses on the command line; emit exactly that many anchors (no more, no fewer).
+- Anchors are for verification of endpoints only; never anchor all lines in the middle of a range.
+
+Wrong vs Right (missing ",m" on a range change):
+WRONG:
+1175 c
+@1175| ...
+@1184| ...
+body...
+.
+RIGHT:
+1175,1184 c
+@1175| ...
+@1184| ...
+body...
+.
+
+Right vs Wrong (range change, interior anchors):
 WRONG:
 323,326 c
 @323| line A
@@ -819,7 +874,8 @@ Guidance:
 - To create a new file, use `0 a` with the whole file body; do not attempt a replace on a missing file.
 - `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
 - **Anchor checklist (must pass before you emit):**
-  • Count the addresses in the command; emit exactly that many anchors.
+  • Count the addresses on the command line; emit exactly that many anchors.
+  • Anchors NEVER define ranges—the command line does. If you emit two `@N|` anchors, your command MUST be `n,m X` with the same endpoints.
   • For ranges, anchor ONLY the first and last line, never interior lines.
   • Extra anchor lines are a parse error and will be rejected.
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
