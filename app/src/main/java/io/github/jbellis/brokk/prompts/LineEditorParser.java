@@ -114,6 +114,42 @@ public final class LineEditorParser {
         }
     }
 
+    // NEW: helper to detect/parse @N| ... anchors; returns the addr or null
+    private static @Nullable String matchAnchorAddr(String line) {
+        var m = ANCHOR_LINE.matcher(line);
+        return m.matches() ? m.group(1) : null;
+    }
+
+    private static int consumeExtraAnchorsForRange(
+            String[] lines, int startIndex, int n, @Nullable Integer mOrNull,
+            String opName, String path, List<String> errors) {
+
+        int i = startIndex;
+        while (i < lines.length) {
+            String addrStr = matchAnchorAddr(lines[i]);
+            if (addrStr == null) break;
+
+            int addr = parseAddr(addrStr);
+
+            boolean isError;
+            if (mOrNull == null) {
+                // single-address op: any additional @n| ... is an error
+                isError = (addr == n);
+            } else {
+                int lo = Math.min(n, mOrNull);
+                int hi = Math.max(n, mOrNull);
+                // duplicates of endpoints OR any interior anchor are errors
+                isError = (addr >= lo && addr <= hi);
+            }
+
+            if (!isError) break; // likely start of body or next command; do not consume
+
+            errors.add("Too many anchors after " + opName + " command for " + path + ": " + lines[i]);
+            i++; // consume the offending anchor line
+        }
+        return i;
+    }
+
     /**
      * Parse mixed content containing BRK_EDIT_EX / BRK_EDIT_RM blocks and plain text.
      * ED semantics:
@@ -127,7 +163,6 @@ public final class LineEditorParser {
      * - 'w', 'q' and other non-edit commands are ignored. Shell ('!') is ignored but noted as a parse warning.
      */
     public ExtendedParseResult parse(String content) {
-        // Minimal guard for legacy typed-tag inputs (e.g., <brk_edit_file ...> ... </brk_edit_file>)
         var lower = content.toLowerCase(Locale.ROOT);
         if (lower.contains("<brk_edit_file")) {
             if (!lower.contains("</brk_edit_file>")) {
@@ -150,7 +185,6 @@ public final class LineEditorParser {
 
         var textBuf = new StringBuilder();
 
-        // Helpers
         Runnable flushText = () -> {
             if (!textBuf.isEmpty()) {
                 parts.add(new OutputPart.Text(textBuf.toString()));
@@ -163,7 +197,7 @@ public final class LineEditorParser {
             var trimmed = line.trim();
 
             // BRK_EDIT_RM <path>
-            if (line.startsWith("BRK_EDIT_RM")) {
+            if (trimmed.startsWith("BRK_EDIT_RM")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
                     textBuf.append(line);
@@ -180,7 +214,7 @@ public final class LineEditorParser {
             }
 
             // BRK_EDIT_EX <path>
-            if (line.startsWith("BRK_EDIT_EX")) {
+            if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
                     textBuf.append(line);
@@ -202,7 +236,7 @@ public final class LineEditorParser {
                     var cmdLine = lines[i];
                     var cmdTrim = cmdLine.trim();
 
-                    if (cmdLine.equals(END_FENCE)) {
+                    if (cmdTrim.equals(END_FENCE)) {
                         sawEndFence = true;
                         i++;
                         break;
@@ -233,10 +267,13 @@ public final class LineEditorParser {
 
                         i++; // move past the command line
 
-                        // Parse anchors for range commands (change/delete)
                         var opName = (op == 'd') ? "delete" : "change";
                         var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
                         i = anchors.nextIndex();
+
+                        // NEW: flag & consume any extra @N| ... anchors before body / next command
+                        i = consumeExtraAnchorsForRange(
+                                lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
 
                         if (op == 'd') {
                             commands.add(new EdCommand.DeleteRange(
@@ -246,7 +283,7 @@ public final class LineEditorParser {
                             var bodyRes = readBody(lines, i);
                             i = bodyRes.nextIndex();
                             if (bodyRes.implicitClose()) {
-                                sawEndFence = true; // outer loop will see END next
+                                sawEndFence = true;
                             }
                             commands.add(new EdCommand.ChangeRange(
                                     n1, n2, bodyRes.body(), addr1, anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
@@ -268,10 +305,14 @@ public final class LineEditorParser {
                                 errors);
                         i = anchor.nextIndex();
 
+                        // NEW: flag & consume duplicate @n| ... anchors before the body
+                        i = consumeExtraAnchorsForRange(
+                                lines, i, n, null, "append", path, errors);
+
                         var bodyRes = readBody(lines, i);
                         i = bodyRes.nextIndex();
                         if (bodyRes.implicitClose()) {
-                            sawEndFence = true; // outer loop will see END next
+                            sawEndFence = true;
                         }
                         commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), addr, anchor.content()));
                         continue;
@@ -316,7 +357,7 @@ public final class LineEditorParser {
     // Patterns for EX commands
     private static final Pattern RANGE_CMD = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(?:,\\s*([0-9]+|\\$))?\\s*([cd])$");
     private static final Pattern IA_CMD    = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(a)$");
-    private static final Pattern ANCHOR_LINE = Pattern.compile("^@([0-9]+|\\$)\\s*\\|\\s*(.*)$");
+    private static final Pattern ANCHOR_LINE = Pattern.compile("^\\s*@([0-9]+|\\$)\\s*\\|\\s*(.*)$");
     private static final String END_FENCE = "BRK_EDIT_EX_END";
 
     // Lightweight result records (Java 21)
@@ -777,20 +818,20 @@ Guidance:
             for (var c : ed.commands()) {
                 if (c instanceof EdCommand.AppendAfter aa) {
                     sb.append(addrToString(aa.line())).append(" a\n");
-                    sb.append(aa.anchorLine()).append(": ").append(aa.anchorContent()).append('\n');
+                    sb.append("@").append(aa.anchorLine()).append("| ").append(aa.anchorContent()).append('\n');
                     renderBody(sb, aa.body());
                 } else if (c instanceof EdCommand.ChangeRange cr) {
                     sb.append(addrToString(cr.begin())).append(',').append(addrToString(cr.end())).append(" c\n");
-                    sb.append(cr.beginAnchorLine()).append(": ").append(cr.beginAnchorContent()).append('\n');
+                    sb.append("@").append(cr.beginAnchorLine()).append("| ").append(cr.beginAnchorContent()).append('\n');
                     if (!cr.endAnchorLine().isBlank()) {
-                        sb.append(cr.endAnchorLine()).append(": ").append(requireNonNull(cr.endAnchorContent())).append('\n');
+                        sb.append("@").append(cr.endAnchorLine()).append("| ").append(requireNonNull(cr.endAnchorContent())).append('\n');
                     }
                     renderBody(sb, cr.body());
                 } else if (c instanceof EdCommand.DeleteRange dr) {
                     sb.append(addrToString(dr.begin())).append(',').append(addrToString(dr.end())).append(" d\n");
-                    sb.append(dr.beginAnchorLine()).append(": ").append(dr.beginAnchorContent()).append('\n');
+                    sb.append("@").append(dr.beginAnchorLine()).append("| ").append(dr.beginAnchorContent()).append('\n');
                     if (!dr.endAnchorLine().isBlank()) {
-                        sb.append(dr.endAnchorLine()).append(": ").append(requireNonNull(dr.endAnchorContent())).append('\n');
+                        sb.append("@").append(dr.endAnchorLine()).append("| ").append(requireNonNull(dr.endAnchorContent())).append('\n');
                     }
                 }
             }
@@ -819,23 +860,23 @@ Guidance:
                 String addr = (beginLine == Integer.MAX_VALUE) ? "$" : addrToString(beginLine - 1);
                 sb.append(addr).append(" a\n");
                 if (ef.beginAnchor() != null) {
-                    sb.append(ef.beginAnchor().address()).append(": ").append(ef.beginAnchor().content()).append('\n');
+                    sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
                 }
                 renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
             } else if (content.isEmpty()) {
                 // delete
                 sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" d\n");
                 if (ef.beginAnchor() != null) {
-                    sb.append(ef.beginAnchor().address()).append(": ").append(ef.beginAnchor().content()).append('\n');
+                    sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
                 }
             } else {
                 // change
                 sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" c\n");
                 if (ef.beginAnchor() != null) {
-                    sb.append(ef.beginAnchor().address()).append(": ").append(ef.beginAnchor().content()).append('\n');
+                    sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
                 }
                 if (ef.endAnchor() != null) {
-                    sb.append(ef.endAnchor().address()).append(": ").append(ef.endAnchor().content()).append('\n');
+                    sb.append("@").append(ef.endAnchor().address()).append("| ").append(ef.endAnchor().content()).append('\n');
                 }
                 renderBody(sb, content.lines().toList());
             }

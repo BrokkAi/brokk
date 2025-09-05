@@ -24,8 +24,8 @@ class LineEditorParserTest {
 Intro text
 BRK_EDIT_EX src/Main.java
 10,12 c
-10: old10
-12: old12
+@10| old10
+@12| old12
 System.out.println("Replaced!");
 .
 BRK_EDIT_EX_END
@@ -129,9 +129,9 @@ Outro
         BRK_EDIT_RM gone.txt
         BRK_EDIT_EX foo/bar.txt
         2,3 c
-        2: old2
-        3: old3
-        NEW
+@2| old2
+@3| old3
+NEW
         .
         BRK_EDIT_EX_END
         """.stripIndent();
@@ -211,8 +211,8 @@ Outro
         var input = """
     BRK_EDIT_EX file.txt
     5 c
-    5: OLD
-    X
+@5| OLD
+X
     .
     BRK_EDIT_EX_END
     """.stripIndent();
@@ -258,8 +258,8 @@ Outro
         var input = """
 BRK_EDIT_EX a.txt
 2,3 d
-2: 2
-3: 3
+@2| 2
+@3| 3
 BRK_EDIT_EX_END
 """.stripIndent();
 
@@ -375,5 +375,38 @@ BRK_EDIT_EX_END
 
         assertTrue(res.failures().isEmpty());
         assertEquals("X\n", Files.readString(dir.resolve("a.txt")));
+    }
+
+    @Test
+    void parse_extraAnchorsAreParseError_changeRange() {
+        var input = """
+BRK_EDIT_EX a.txt
+2,4 c
+@2| two
+@4| four
+@3| three
+X
+.
+BRK_EDIT_EX_END
+""".stripIndent();
+
+        var r = LineEditorParser.instance.parse(input);
+
+        assertNotNull(r.parseError(), "Expected parse error for extra anchors");
+        assertTrue(r.parseError().contains("Too many anchors"),
+                   "Should report too many anchors as a parse error");
+
+        // A valid EdBlock and ChangeRange command should still be produced
+        assertTrue(r.parts().getFirst() instanceof LineEditorParser.OutputPart.EdBlock,
+                   "Expected an EdBlock part");
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
+        assertEquals("a.txt", ed.path());
+
+        assertEquals(1, ed.commands().size(), "Expected a single command in the block");
+        assertInstanceOf(LineEditorParser.EdCommand.ChangeRange.class, ed.commands().getFirst());
+        var cmd = (LineEditorParser.EdCommand.ChangeRange) ed.commands().getFirst();
+        assertEquals(2, cmd.begin());
+        assertEquals(4, cmd.end());
+        assertEquals(List.of("X"), cmd.body(), "Body should be parsed normally");
     }
 }
