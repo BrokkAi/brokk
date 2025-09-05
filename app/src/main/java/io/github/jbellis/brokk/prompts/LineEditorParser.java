@@ -529,16 +529,29 @@ public final class LineEditorParser {
         return """
 There are two editing commands: BRK_EDIT_EX, and BRK_EDIT_RM.
 
+# BRK_EDIT_RM
+Usage:
+BRK_EDIT_RM <full_path>
+
+That's it, no closing fence is required.
+
 # BRK_EDIT_EX
 BRK_EDIT_EX is a line-oriented editing format that supports multiple edits per file.
-Each edit has the form:
- [address] [command]
- [anchors, if necessary]
- [body, if necessary]
 
-Edits are parsed until the mandatory BRK_EDIT_EX_END fence is encountered.
+Informal EBNF grammar:
+ex_block ::= "BRK_EDIT_EX" SP path NL { stmt } "BRK_EDIT_EX_END" NL?
+stmt     ::= append | change | delete
+append   ::= n SP "a" NL [ anchor(n) ] body
+change   ::= n ["," m] SP "c" NL [ anchor(n) ] [ anchor(m) ] body
+delete   ::= n ["," m] SP "d" NL [ anchor(n) ] [ anchor(m) ]
+anchor(x)::= x ":" SP? text NL        (* required unless x ∈ {"0","$"} *)
+body     ::= { body_line } ( "." NL | /* implicit before END */ )
+body_line::= "\\." NL | "\\\\" NL | other NL
+n,m      ::= addr ; addr ::= "0" | "$" | INT
+INT     ::= "1".."9" { DIGIT } ; DIGIT ::= "0".."9"
+SP      ::= (" " | "\\t")+ ; NL ::= "\\n"
 
-Supported edits are
+To elaborate, supported edits are
 a: append after given address
 c: change given address or range
 d: delete given address or range
@@ -549,31 +562,16 @@ An address may be a single line number, or a range denoted with commas. Addition
 
 Anchors are the current content at an address line, used to validate that the edit is applied to the expected version.
 Provide one anchor per address parameter (except you may omit anchors for `0` and `$`).
+DO NOT provide anchors for the entire range; only for the start and end lines. If there is only one address,
+provide only one anchor.
+
+NEVER include more than two anchors per edit.
 
 Body rules:
 - Only **a** and **c** have bodies. The body ends with a single dot `.` on its own line.
 - To include a literal `.` or `\\` line in the body, use `\\.` and `\\\\` respectively (anchors are unescaped).
 
 Emit edits using ONLY these fences (ALL CAPS, each on its own line; no Markdown fences):
-
-So, BRK_EDIT_EX commands will have some combination of these edits:
-
-BRK_EDIT_EX <path>
-<n> a
-<n>: <line n>                     # omit anchor only for 0/$
-...body...
-.
-
-<n>[,<m>] c
-<n>: <line n>                     # omit anchor only for 0
-<m>: <line m>                     # when present; omit only for $
-...body...
-.
-
-<n>[,<m>] d
-<n>: <line n>                     # omit anchor only for 0/$
-<m>: <line m>                     # when present; omit only for $
-BRK_EDIT_EX_END
 
 Path rules:
 - <full_path> is the remainder of the fence line after the first space, trimmed; it may include spaces.
@@ -587,33 +585,7 @@ Conventions and constraints:
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
 - Non-command, non-anchor, non-body lines inside a BRK_EDIT_EX block will be ignored by the parser; do not include commentary inside the block.
 
-## Quick cheat-sheet
-
-BRK_EDIT_EX <path>
-<n> a
-<n>: <line n>                     # omit anchor only for 0/$
-...body...
-.
-
-<n>[,<m>] c
-<n>: <line n>                     # omit anchor only for 0
-<m>: <line m>                     # when present; omit only for $
-...body...
-.
-
-<n>[,<m>] d
-<n>: <line n>                     # omit anchor only for 0/$
-<m>: <line m>                     # when present; omit only for $
-BRK_EDIT_EX_END
-
-## EBNF (informal)
-address    := "0" | "$" | INT
-range      := address [ "," address ]
-cmd        := range ("a" | "c" | "d")
-anchor     := address ":" TEXT
-body       := (LINE | "\\." | "\\\\")* "."   # final body in a block may omit the terminating "."
-
-## Examples (no Markdown fences)
+## Examples
 
 # Append one line at end-of-file (anchor omitted for '$')
 BRK_EDIT_EX src/main.py
@@ -697,7 +669,6 @@ BRK_EDIT_EX_END
                   9: def get_factorial(n):
                   14: return n * get_factorial(n - 1)
                   0 a
-                  0: from flask import Flask, request
                   import math
                   .
                   BRK_EDIT_EX_END
@@ -739,14 +710,12 @@ BRK_EDIT_EX_END
                   
                   BRK_EDIT_EX main.py
                   $ a
-                  $:     print("hello")
                   # Usage: hello()
                   .
                   9,11 d
                   9: def hello():
                   11:     print("hello")
                   0 a
-                  0: import sys
                   from hello import hello
                   .
                   BRK_EDIT_EX_END
