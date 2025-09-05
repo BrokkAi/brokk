@@ -112,25 +112,22 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             return;
         }
 
-        // Apply GPT5 reasoning formatting workaround before persisting and forwarding
-        var outText = addReasoningNewlines(text, isNewMessage, reasoning);
-
         var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
         if (isNewMessage
                 || messages.isEmpty()
                 || reasoning != lastMessageIsReasoning
                 || (!reasoning && type != messages.getLast().type())) {
             // new message
-            messages.add(Messages.create(outText, type, reasoning));
+            messages.add(Messages.create(text, type, reasoning));
         } else {
             // merge with last message
             var lastIdx = messages.size() - 1;
             var last = messages.get(lastIdx);
-            var combined = Messages.getText(last) + outText;
+            var combined = Messages.getText(last) + text;
             messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
 
-        webHost.append(outText, isNewMessage, type, true, reasoning);
+        webHost.append(text, isNewMessage, type, true, reasoning);
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -186,24 +183,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return false;
     }
 
-    /**
-     * Workaround for GPT5 reasoning formatting: Some reasoning models (e.g., GPT-5) sometimes emit new bold sections
-     * like "**Analyzing ...**" without a preceding newline during streaming. To preserve readability, insert two
-     * newlines before an opening bold marker when we are mid-message inside a reasoning block.
-     *
-     * <p>Heuristic: - Only for reasoning chunks. - Not applied to the very first chunk of a reasoning message (!isNew).
-     * - Only before an opening "**": not preceded by a newline or a word char, followed by a word char, and not the
-     * first two of a "***" sequence.
-     *
-     * <p>This mirrors the frontend formatting expectation and ensures the persisted messages contain the same content
-     * as rendered. It is intentionally simple and acceptable even if "**" happens to be split across streaming chunks.
-     */
-    private static String addReasoningNewlines(String text, boolean isNew, boolean reasoning) {
-        if (reasoning && !isNew && !text.isEmpty()) {
-            return text.replaceAll("(?<!\\n)(?<!\\w)\\*\\*(?=\\w)(?!\\*)", "\n\n**");
-        }
-        return text;
-    }
 
     public void addTextChangeListener(Runnable listener) {
         textChangeListeners.add(listener);
