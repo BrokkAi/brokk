@@ -40,11 +40,12 @@ public class RoundedLineBorder extends AbstractBorder {
             g2.setColor(color);
             g2.setStroke(new BasicStroke(thickness));
 
-            int offset = Math.round(thickness / 2f);
-            int w = width - thickness;
-            int h = height - thickness;
+            float stroke = thickness;
+            float offset = stroke / 2f;
+            float w = width - stroke;
+            float h = height - stroke;
 
-            int arcwh = (arc > 0) ? arc : Math.min(w, h); // pill-like when arc >= height
+            int arcwh = (arc > 0) ? arc : Math.round(Math.min(w, h)); // pill-like when arc >= height
             RoundRectangle2D.Float rr = new RoundRectangle2D.Float(x + offset, y + offset, w, h, arcwh, arcwh);
             g2.draw(rr);
         } finally {
