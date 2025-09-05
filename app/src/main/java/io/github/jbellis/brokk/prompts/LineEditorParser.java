@@ -79,7 +79,10 @@ public final class LineEditorParser {
 
     private record AnchorReadResult(String addr, String content, int nextIndex) {}
 
-    private static AnchorReadResult readAnchorLine(String[] lines, int index, String expectedAddr, String contextPrefix) throws Abort {
+    private static AnchorReadResult readAnchorLine(String[] lines,
+                                                   int index,
+                                                   String expectedAddr,
+                                                   String contextPrefix) throws Abort {
         if (index >= lines.length) {
             var msg = """
               %s
@@ -96,7 +99,9 @@ public final class LineEditorParser {
         var m = ANCHOR_LINE.matcher(line);
         if (m.matches()) {
             var foundAddr = m.group(1);
-            if (!expectedAddr.equals(foundAddr)) {
+            boolean ok = expectedAddr.equals(foundAddr)
+                    || ("$".equals(expectedAddr) && foundAddr.matches("^[1-9][0-9]*$"));
+            if (!ok) {
                 var msg = """
                   %s
                   Anchor address mismatch!
@@ -334,6 +339,12 @@ public final class LineEditorParser {
 
                             checkForExtraAnchorsForSameOp(lines, i);
 
+                            // Include only the command and anchor lines in the snippet (no body)
+                            blockSnippet.append("@").append(beginAnchorLine).append("| ").append(beginAnchorContent).append('\n');
+                            if (!endAnchorLine.isBlank()) {
+                                blockSnippet.append("@").append(endAnchorLine).append("| ").append(endAnchorContent).append('\n');
+                            }
+
                             if (op == 'd') {
                                 int begin = max(n1, 1);
                                 var beginAnchor = new LineEdit.Anchor(beginAnchorLine, beginAnchorContent);
@@ -354,8 +365,7 @@ public final class LineEditorParser {
                                 var bodyRes = readBody(lines, i, MAX_BODY_LINES_IN_SNIPPET);
                                 i = bodyRes.nextIndex();
 
-                                for (var b : bodyRes.snippetLines()) blockSnippet.append(b).append('\n');
-                                if (bodyRes.truncated()) blockSnippet.append("... (body truncated)\n");
+                                // Intentionally do not include body lines in snippet
 
                                 int begin = max(n1, 1);
                                 var beginAnchor = new LineEdit.Anchor(beginAnchorLine, beginAnchorContent);
@@ -417,11 +427,13 @@ public final class LineEditorParser {
 
                             checkForExtraAnchorsForSameOp(lines, i);
 
+                            // Include only the command and anchor lines in the snippet (no body)
+                            blockSnippet.append("@").append(anchor.addr()).append("| ").append(anchor.content()).append('\n');
+
                             var bodyRes = readBody(lines, i, MAX_BODY_LINES_IN_SNIPPET);
                             i = bodyRes.nextIndex();
 
-                            for (var b : bodyRes.snippetLines()) blockSnippet.append(b).append('\n');
-                            if (bodyRes.truncated()) blockSnippet.append("... (body truncated)\n");
+                            // Intentionally do not include body lines in snippet
 
                             int begin = (n == Integer.MAX_VALUE) ? Integer.MAX_VALUE : n + 1;
                             var beginAnchor = new LineEdit.Anchor(anchor.addr(), anchor.content());
