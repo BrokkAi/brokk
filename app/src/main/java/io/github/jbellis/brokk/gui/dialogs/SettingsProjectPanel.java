@@ -18,10 +18,10 @@ import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.ExecutorValidator;
-import java.util.Arrays;
 import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -833,7 +833,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         executorTestPanel.add(testExecutorButton);
         var executorInfoLabel = new JLabel(
-                "<html>Phase 1: Custom executors work in non-sandboxed mode only. Default args: \"-c\"</html>");
+                "<html>Custom executors work in all modes. Approved executors work in sandbox mode. Default args: \"-c\"</html>");
         executorInfoLabel.setFont(executorInfoLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, executorInfoLabel.getFont().getSize() * 0.9f));
@@ -1620,10 +1620,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         String executorArgs = executorArgsField.getText().trim();
 
         if (executorPath.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                "Please specify an executor path first.",
-                "No Executor Specified",
-                JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please specify an executor path first.",
+                    "No Executor Specified",
+                    JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -1655,22 +1656,26 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 try {
                     var result = get();
                     if (result.success()) {
-                        JOptionPane.showMessageDialog(SettingsProjectPanel.this,
-                            result.message(),
-                            "Executor Test Successful",
-                            JOptionPane.INFORMATION_MESSAGE);
+                        String[] argsArray = finalExecutorArgs.split("\\s+");
+                        var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
+                        String sandboxInfo = ExecutorValidator.getSandboxLimitation(config);
+
+                        JOptionPane.showMessageDialog(
+                                SettingsProjectPanel.this,
+                                result.message() + "\n\n" + sandboxInfo,
+                                "Executor Test Successful",
+                                JOptionPane.INFORMATION_MESSAGE);
                     } else {
-                        JOptionPane.showMessageDialog(SettingsProjectPanel.this,
-                            result.message(),
-                            "Test Failed",
-                            JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(
+                                SettingsProjectPanel.this, result.message(), "Test Failed", JOptionPane.ERROR_MESSAGE);
                     }
                 } catch (Exception ex) {
                     logger.error("Error during executor test", ex);
-                    JOptionPane.showMessageDialog(SettingsProjectPanel.this,
-                        "Test failed with error: " + ex.getMessage(),
-                        "Executor Test Error",
-                        JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                            SettingsProjectPanel.this,
+                            "Test failed with error: " + ex.getMessage(),
+                            "Executor Test Error",
+                            JOptionPane.ERROR_MESSAGE);
                 }
             }
         };

@@ -7,9 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Configuration for a custom command executor (shell, interpreter, etc.)
- */
+/** Configuration for a custom command executor (shell, interpreter, etc.) */
 public record ExecutorConfig(String executable, List<String> args) {
 
     public static @Nullable ExecutorConfig fromProject(IProject project) {
@@ -20,16 +18,13 @@ public record ExecutorConfig(String executable, List<String> args) {
             return null;
         }
 
-        List<String> args = (argsStr == null || argsStr.isBlank())
-            ? List.of("-c")
-            : Arrays.asList(argsStr.split("\\s+"));
+        List<String> args =
+                (argsStr == null || argsStr.isBlank()) ? List.of("-c") : Arrays.asList(argsStr.split("\\s+"));
 
         return new ExecutorConfig(executor, args);
     }
 
-    /**
-     * Build complete command array for execution
-     */
+    /** Build complete command array for execution */
     public String[] buildCommand(String userCommand) {
         String[] result = new String[args.size() + 2];
         result[0] = executable;
@@ -40,9 +35,7 @@ public record ExecutorConfig(String executable, List<String> args) {
         return result;
     }
 
-    /**
-     * Check if the executable exists and is executable
-     */
+    /** Check if the executable exists and is executable */
     public boolean isValid() {
         try {
             Path execPath = Path.of(executable);
@@ -52,12 +45,12 @@ public record ExecutorConfig(String executable, List<String> args) {
         }
     }
 
-    /**
-     * Get display name for UI
-     */
+    /** Get display name for UI */
     public String getDisplayName() {
-        Path execPath = Path.of(executable);
-        return execPath.getFileName().toString();
+        // Use manual parsing to ensure cross-platform compatibility
+        String name = executable;
+        int lastSlash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        return lastSlash >= 0 ? name.substring(lastSlash + 1) : name;
     }
 
     @Override

@@ -27,6 +27,7 @@ import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.ExecutorConfig;
+import io.github.jbellis.brokk.util.ExecutorValidator;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.util.*;
@@ -351,12 +352,32 @@ public class ArchitectAgent {
         var executorConfig = ExecutorConfig.fromProject(project);
         if (executorConfig != null) {
             if (executorConfig.isValid()) {
-                io.llmOutput("Using custom executor: " + executorConfig.getDisplayName(), ChatMessageType.CUSTOM, true, false);
+                io.llmOutput(
+                        "Custom executor configured: " + executorConfig.getDisplayName(),
+                        ChatMessageType.CUSTOM,
+                        true,
+                        false);
                 if (Environment.isSandboxAvailable()) {
-                    io.llmOutput("Note: Sandbox execution ignores custom executor in Phase 1", ChatMessageType.CUSTOM, true, false);
+                    if (ExecutorValidator.isApprovedForSandbox(executorConfig)) {
+                        io.llmOutput(
+                                "Sandbox will use custom executor: " + executorConfig.getDisplayName(),
+                                ChatMessageType.CUSTOM,
+                                true,
+                                false);
+                    } else {
+                        io.llmOutput(
+                                "Sandbox will use /bin/sh (custom executor not approved for sandbox)",
+                                ChatMessageType.CUSTOM,
+                                true,
+                                false);
+                    }
                 }
             } else {
-                io.llmOutput("Custom executor configured but invalid: " + executorConfig, ChatMessageType.CUSTOM, true, false);
+                io.llmOutput(
+                        "Custom executor configured but invalid: " + executorConfig,
+                        ChatMessageType.CUSTOM,
+                        true,
+                        false);
             }
         }
 
@@ -364,7 +385,12 @@ public class ArchitectAgent {
         String output = null;
         try {
             output = Environment.instance.runShellCommand(
-                    command, java.nio.file.Path.of("."), true, io::systemOutput, Environment.UNLIMITED_TIMEOUT, project);
+                    command,
+                    java.nio.file.Path.of("."),
+                    true,
+                    io::systemOutput,
+                    Environment.UNLIMITED_TIMEOUT,
+                    project);
         } catch (Environment.SubprocessException e) {
             throw new RuntimeException(e);
         }

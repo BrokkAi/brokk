@@ -3,19 +3,18 @@ package io.github.jbellis.brokk.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.IProject;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import java.util.List;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.EnabledOnOs;
-import org.junit.jupiter.api.condition.OS;
-import org.junit.jupiter.api.io.TempDir;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 
 class ExecutorConfigTest {
 
@@ -31,11 +30,12 @@ class ExecutorConfigTest {
         validExecutable = tempDir.resolve("valid_executor");
         Files.createFile(validExecutable);
         if (!System.getProperty("os.name").toLowerCase().contains("windows")) {
-            Files.setPosixFilePermissions(validExecutable, Set.of(
-                PosixFilePermission.OWNER_READ,
-                PosixFilePermission.OWNER_WRITE,
-                PosixFilePermission.OWNER_EXECUTE
-            ));
+            Files.setPosixFilePermissions(
+                    validExecutable,
+                    Set.of(
+                            PosixFilePermission.OWNER_READ,
+                            PosixFilePermission.OWNER_WRITE,
+                            PosixFilePermission.OWNER_EXECUTE));
         }
 
         // Create a non-executable file
@@ -88,14 +88,14 @@ class ExecutorConfigTest {
     void testBuildCommand() {
         var config = new ExecutorConfig("/bin/bash", List.of("-c"));
         var command = config.buildCommand("echo test");
-        assertArrayEquals(new String[]{"/bin/bash", "-c", "echo test"}, command);
+        assertArrayEquals(new String[] {"/bin/bash", "-c", "echo test"}, command);
     }
 
     @Test
     void testBuildCommandWithMultipleArgs() {
         var config = new ExecutorConfig("/usr/bin/python3", List.of("-u", "-c"));
         var command = config.buildCommand("print('hello')");
-        assertArrayEquals(new String[]{"/usr/bin/python3", "-u", "-c", "print('hello')"}, command);
+        assertArrayEquals(new String[] {"/usr/bin/python3", "-u", "-c", "print('hello')"}, command);
     }
 
     @Test
@@ -174,9 +174,7 @@ class ExecutorConfigTest {
         assertFalse(config.isValid());
     }
 
-    /**
-     * Mock project implementation for testing
-     */
+    /** Mock project implementation for testing */
     private static class TestProject implements IProject {
         private final String executor;
         private final String args;

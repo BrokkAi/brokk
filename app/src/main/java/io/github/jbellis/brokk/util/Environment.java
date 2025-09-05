@@ -81,8 +81,8 @@ public class Environment {
      *
      * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
      */
-    public String runShellCommand(String command, Path root, Consumer<String> outputConsumer,
-                                 Duration timeout, @Nullable IProject project)
+    public String runShellCommand(
+            String command, Path root, Consumer<String> outputConsumer, Duration timeout, @Nullable IProject project)
             throws SubprocessException, InterruptedException {
         return runShellCommandInternal(command, root, false, timeout, outputConsumer, project);
     }
@@ -92,17 +92,25 @@ public class Environment {
      *
      * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
      */
-    public String runShellCommand(String command, Path root, boolean sandbox,
-                                 Consumer<String> outputConsumer, Duration timeout,
-                                 @Nullable IProject project)
+    public String runShellCommand(
+            String command,
+            Path root,
+            boolean sandbox,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable IProject project)
             throws SubprocessException, InterruptedException {
         return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
     private static String runShellCommandInternal(
-            String command, Path root, boolean sandbox, Duration timeout,
-            Consumer<String> outputConsumer, @Nullable IProject project)
+            String command,
+            Path root,
+            boolean sandbox,
+            Duration timeout,
+            Consumer<String> outputConsumer,
+            @Nullable IProject project)
             throws SubprocessException, InterruptedException {
         logger.debug("Running internal `{}` in `{}` (sandbox={})", command, root, sandbox);
 
@@ -141,14 +149,30 @@ public class Environment {
                 }
                 policyFile.toFile().deleteOnExit();
 
-                shellCommand =
-                        new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
+                // Phase 2: Support approved custom executors in sandbox mode
+                ExecutorConfig config = (project != null) ? ExecutorConfig.fromProject(project) : null;
 
-                // Phase 1: Log if custom executor is configured but ignored in sandbox mode
-                if (project != null) {
-                    ExecutorConfig config = ExecutorConfig.fromProject(project);
+                if (config != null && ExecutorValidator.isApprovedForSandbox(config)) {
+                    // Use custom executor with sandbox
+                    String[] executorCommand = config.buildCommand(command);
+                    String[] sandboxedCommand = new String[executorCommand.length + 4];
+                    sandboxedCommand[0] = "sandbox-exec";
+                    sandboxedCommand[1] = "-f";
+                    sandboxedCommand[2] = policyFile.toString();
+                    sandboxedCommand[3] = "--";
+                    System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
+                    shellCommand = sandboxedCommand;
+
+                    logger.info("using custom executor '{}' with sandbox", config.getDisplayName());
+                } else {
+                    // Fallback to system default with sandbox
+                    shellCommand =
+                            new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
+
                     if (config != null) {
-                        logger.info("custom executor '{}' configured but sandboxed execution using /bin/sh", config.getDisplayName());
+                        logger.info(
+                                "custom executor '{}' not approved for sandbox, using /bin/sh",
+                                config.getDisplayName());
                     }
                 }
             } else {
@@ -167,9 +191,8 @@ public class Environment {
                     logger.warn("invalid custom executor '{}', using system default", config);
                 }
                 // Fall back to system default
-                shellCommand = isWindows()
-                    ? new String[] {"cmd.exe", "/c", command}
-                    : new String[] {"/bin/sh", "-c", command};
+                shellCommand =
+                        isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
             }
         }
 
