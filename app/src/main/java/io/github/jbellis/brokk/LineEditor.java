@@ -340,13 +340,13 @@ public final class LineEditor {
                         return null;
                     }
                     if (!actual.equals(expected)) {
-                        return "Anchor mismatch (" + which + "): line '$'"
-                                + " expected [" + expectedRaw + "] but was [" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "]";
+                        return "Anchor mismatch (" + which + ") for `$`"
+                                + " expected `" + expectedRaw + "` but was `" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "`";
                     }
                     return null; // success within tolerance and content matched
                 } else {
-                    return "Anchor mismatch (" + which + "): numeric anchor '" + address
-                            + "' is too far from end-of-file (n=" + n + "); allowed tolerance is ±2 lines.";
+                    return "Anchor mismatch (" + which + "): specified address `$` but line " + address
+                            + " is too far from end-of-file (n=" + n + "). You can just use `$` as the anchor address directly.";
                 }
             } catch (NumberFormatException ignore) {
                 // fall through to normal handling

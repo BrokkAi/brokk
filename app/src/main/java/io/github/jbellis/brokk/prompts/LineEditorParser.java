@@ -140,7 +140,14 @@ public final class LineEditorParser {
         if (addrStr == null) return;
 
         // Any additional anchor-like line after the required anchor(s) is an error, regardless of address.
-        var msg = "Too many anchors after " + opName + " command for " + path + ": " + lines[startIndex] + ". Only specify one anchor per address.";
+        var msg = """
+                Too many anchors after %s command for %s. Only specify one anchor per address.
+                
+                The first extra anchor was
+                ```
+                %s
+                ```
+                """.formatted(opName, path, lines[startIndex]);
         errors.add(msg);
         throw new ParseAbort(msg);
     }
@@ -593,7 +600,7 @@ stmt     ::= append | change | delete
 append   ::= n SP "a" NL anchor(n) body
 change   ::= n ["," m] SP "c" NL anchor(n) [ anchor(m) ] body
 delete   ::= n ["," m] SP "d" NL anchor(n) [ anchor(m) ]
-anchor(x)::= "@" x "|" SP? text NL    (* required for all x; for x ∈ {"0","$"}, use a blank content after the pipe *)
+anchor(x)::= "@" x "|" SP? text NL
 body     ::= { body_line } ( "." NL | /* implicit before END */ )
 body_line::= "\\." NL | "\\\\" NL | other NL
 n,m      ::= addr ; addr ::= "0" | "$" | INT
@@ -605,35 +612,49 @@ a: append after given address
 c: change given address or range
 d: delete given address or range
 
-An address may be a single line number, or a range denoted with commas. Additionally, two special addresses are supported:
-- `0`  -> the very start of the file (before the first line)
-- `$`  -> the end of the file (after the last line)
+Addresses:
+- Single line (n) or inclusive range (n,m), 1-based integers.
+- Special addresses: `0` (before first line) and `$` (after last line).
 
-Anchors are the current content at an address line, used to validate that the edit is applied to the expected version.
-Provide one anchor per address parameter (anchors are mandatory for all addresses; for `0` and `$`, include a blank anchor like `@0| ` or `@$| `). Anchors use the form:
-    @N| <exact current content of line N>
-DO NOT provide anchors for the entire range; only for the start and end lines. If there is only one address,
-provide only one anchor.
+Anchors (MANDATORY):
+- Provide exactly one anchor per address parameter:
+  • Single-address commands (n a / n c / n d): exactly 1 anchor.
+  • Range commands (n,m c / n,m d): exactly 2 anchors, for n and m.
+- For `0` and `$`, include a blank anchor after the pipe (e.g., `@0| `, `@$| `).
+- Do NOT include anchors for interior lines of a range.
+- Any additional anchor lines (`@N| ...`) beyond the required ones are a **parse error**.
 
-NEVER include more than two anchors per edit.
+Right vs Wrong (range change example):
+WRONG:
+323,326 c
+@323| line A
+@324| line B
+@325| line C
+@326| line D
+new body...
+.
+RIGHT:
+323,326 c
+@323| line A
+@326| line D
+new body...
+.
 
 Body rules:
-- Only **a** and **c** have bodies. The body ends with a single dot `.` on its own line.
-- To include a literal `.` or `\\` line in the body, use `\\.` and `\\\\` respectively (anchors are unescaped).
+- Only **a** and **c** have bodies. A body ends with a single dot `.` on its own line.
+- To include a literal `.` or `\\` line in the body, use `\\.` and `\\\\` respectively.
 
-Emit edits using ONLY these fences (ALL CAPS, each on its own line; no Markdown fences):
-
-Path rules:
+Fences and paths:
+- Fences are ALL CAPS and appear alone on their own lines.
 - <full_path> is the remainder of the fence line after the first space, trimmed; it may include spaces.
 
 Conventions and constraints:
-- All addresses are absolute and inclusive for ranges; **n,m** are 1-based integers (with `0` and `$` as described).
-- Do not overlap edits. Emit commands **last-edits-first** within each file to avoid line shifts.
-- To create a new file, use `BRK_EDIT_EX <path>` with `0 a` and the entire file body; include a blank `@0| ` anchor.
+- All addresses are absolute; ranges are inclusive; **n,m** are 1-based (with `0`/`$` as described).
+- Do not overlap edits. Emit commands **last-edits-first** per file to avoid line shifts.
+- To create a new file, use `BRK_EDIT_EX <path>` with `0 a` and the entire file body; include `@0| `.
 - To remove a file, use `BRK_EDIT_RM <path>` on a single line (no END fence).
-- `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
-- ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
-- Non-command, non-anchor, non-body lines inside a BRK_EDIT_EX block will be ignored by the parser; do not include commentary inside the block.
+- `n,m c` ranges are INCLUSIVE; avoid off-by-one errors.
+- ASCII only; no Markdown fences, diffs, or JSON in edit blocks.
 """.stripIndent();
     }
 
@@ -793,11 +814,14 @@ Guidance:
 - After the explanation, output ONLY BRK_EDIT_EX / BRK_EDIT_RM blocks for the actual edits (no other formats).
 - Always include the closing fence BRK_EDIT_EX_END for every BRK_EDIT_EX block.
 - Prefer multiple commands inside a single BRK_EDIT_EX block per file instead of opening many blocks.
-- Keep edits small and emit last-edits-first within each file. Avoid overlapping ranges entirely;
-  combine into a single edit instead.
+- Keep edits small and emit last-edits-first within each file. Avoid overlapping ranges entirely; combine into a single edit instead.
 - Use `0 a` to insert at the start of a file, and `$ a` to append at the end.
 - To create a new file, use `0 a` with the whole file body; do not attempt a replace on a missing file.
 - `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
+- **Anchor checklist (must pass before you emit):**
+  • Count the addresses in the command; emit exactly that many anchors.
+  • For ranges, anchor ONLY the first and last line, never interior lines.
+  • Extra anchor lines are a parse error and will be rejected.
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
 
 %s
