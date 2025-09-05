@@ -786,7 +786,7 @@ public abstract class CodePrompts {
 
         // Create the main UserMessage
         var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing the Workspace contents."));
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
     /**
