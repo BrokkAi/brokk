@@ -115,6 +115,7 @@ Outro
         var input = """
             BRK_EDIT_EX a.txt
             1 c
+            @1| OLD
             body
             .
             """.stripIndent();

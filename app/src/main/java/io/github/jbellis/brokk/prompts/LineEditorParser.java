@@ -268,10 +268,7 @@ public final class LineEditorParser {
                         i++; // move past the command line
 
                         var opName = (op == 'd') ? "delete" : "change";
-                        // If the next line is not an anchor line, allow the begin-anchor to be omitted
-                        // (this accommodates responses that end immediately after a valid edit body).
-                        boolean allowOmitBegin = (i < lines.length) && (matchAnchorAddr(lines[i]) == null);
-                        var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors, allowOmitBegin);
+                        var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
                         i = anchors.nextIndex();
 
                         // NEW: flag & consume any extra @N| ... anchors before body / next command
@@ -507,14 +504,14 @@ public final class LineEditorParser {
      * Behavior matches the previous inlined logic, including error wording and consumption rules.
      */
     private static RangeAnchors readRangeAnchors(
-            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors, boolean allowOmitBeginIfNoAnchor) {
+            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors) {
 
         int i = startIndex;
 
-        // Begin anchor: required unless 0/$. If allowOmitBeginIfNoAnchor is true and the next line
-        // is not an anchor, permit omission (do not report an error and do not consume).
+        // Begin anchor: always required (presence mandatory). For '0'/'$' addresses, we still allow
+        // lenient address substitutions (e.g., '1' for '0' and numeric for '$').
         var a1 = readAnchorLine(
-                lines, i, addr1, allowOmitBeginIfNoAnchor,
+                lines, i, addr1, false,
                 capitalize(opName) + " begin anchor",
                 "Malformed or missing first anchor after " + opName + " command: ",
                 "Missing anchor line(s) after " + opName + " command for " + path,
@@ -654,9 +651,9 @@ BRK_EDIT_EX is a line-oriented editing format that supports multiple edits per f
 Informal EBNF grammar:
 ex_block ::= "BRK_EDIT_EX" SP path NL { stmt } "BRK_EDIT_EX_END" NL?
 stmt     ::= append | change | delete
-append   ::= n SP "a" NL [ anchor(n) ] body
-change   ::= n ["," m] SP "c" NL [ anchor(n) ] [ anchor(m) ] body
-delete   ::= n ["," m] SP "d" NL [ anchor(n) ] [ anchor(m) ]
+append   ::= n SP "a" NL anchor(n) body
+change   ::= n ["," m] SP "c" NL anchor(n) [ anchor(m) ] body
+delete   ::= n ["," m] SP "d" NL anchor(n) [ anchor(m) ]
 anchor(x)::= "@" x "|" SP? text NL    (* required for all x; for x ∈ {"0","$"}, use a blank content after the pipe *)
 body     ::= { body_line } ( "." NL | /* implicit before END */ )
 body_line::= "\\." NL | "\\\\" NL | other NL
@@ -693,7 +690,7 @@ Path rules:
 Conventions and constraints:
 - All addresses are absolute and inclusive for ranges; **n,m** are 1-based integers (with `0` and `$` as described).
 - Do not overlap edits. Emit commands **last-edits-first** within each file to avoid line shifts.
-- To create a new file, use `BRK_EDIT_EX <path>` with `0 a` and the entire file body; you may omit the `0` anchor.
+- To create a new file, use `BRK_EDIT_EX <path>` with `0 a` and the entire file body; include a blank `@0| ` anchor.
 - To remove a file, use `BRK_EDIT_RM <path>` on a single line (no END fence).
 - `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.
 - ASCII only; no Markdown code fences, diffs, or JSON around the edit blocks.
