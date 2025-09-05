@@ -852,6 +852,76 @@ public abstract class CodePrompts {
         return messages;
     }
 
+    /**
+     * Generates a message for parse failures returned by the LineEditorParser.
+     * Aligns with apply failure reporting: shows problem source (snippet), reason, and commentary.
+     */
+    public static String getParseFailureMessage(
+            List<LineEditorParser.ParseFailure> failures,
+            @Nullable LineEditorParser.ParseError fatalError,
+            int parsedEditsCount,
+            @Nullable io.github.jbellis.brokk.LineEdit lastGoodEdit) {
+        if (failures.isEmpty() && fatalError == null) {
+            return """
+                   <instructions>
+                   We could not understand your Line Edit tags. Please resend well-formed BRK_EDIT_EX / BRK_EDIT_RM blocks.
+                   </instructions>
+                   """.stripIndent();
+        }
+
+        var sb = new StringBuilder();
+        sb.append("""
+<instructions>
+# Parse error%s in Line-Edit tags!
+
+Review the failures below. For each one, fix the problem and resend corrected **BRK_EDIT_EX / BRK_EDIT_RM** blocks.
+Remember:
+- Emit exactly one anchor per address (for ranges, anchor the first and last line only).
+- Use `0 a` to insert at start, `$ a` to append at end; use `@0| ` or `@$| ` as blank anchors when applicable.
+- Bodies end with a single `.` on its own line; escape literal lines of `.` as `\\.` and `\\` as `\\\\`.
+- Always close each block with `BRK_EDIT_EX_END`. Avoid overlapping edits, and keep addresses 1-based and inclusive.
+</instructions>
+
+<parse_failures>
+""".stripIndent().formatted(failures.size() == 1 ? "" : "s"));
+
+        for (var f : failures) {
+            sb.append("""
+  <failure reason="%s">
+  <problem_source>
+  %s
+  </problem_source>
+  <commentary>%s</commentary>
+  </failure>
+
+""".formatted(f.reason(), f.snippet().isBlank() ? "<unavailable>" : f.snippet().trim(), f.commentary().trim()));
+        }
+        sb.append("</parse_failures>\n\n");
+
+        if (fatalError != null) {
+            sb.append("""
+<note>
+Fatal parse condition detected: %s.
+If your block ended at EOF, make sure the edit body ended with a single '.' on its own line,
+and include BRK_EDIT_EX_END unless the response ends immediately after a complete edit.
+</note>
+
+""".stripIndent().formatted(fatalError));
+        }
+
+        if (parsedEditsCount > 0 && lastGoodEdit != null) {
+            sb.append("""
+<last_good_edit>
+%s
+</last_good_edit>
+
+Please continue from there WITHOUT repeating that edit.
+""".stripIndent().formatted(lastGoodEdit.repr()));
+        }
+
+        return sb.toString();
+    }
+
     public static String getLineEditFailureMessage(
             List<LineEditor.ApplyFailure> failures,
             int succeededCount,

@@ -363,41 +363,25 @@ public class CodeAgent {
             int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
             int updatedPartialWithEditsRetries = ws.consecutivePartialWithEditsRetries();
 
-            String problemSummary;
-            if (lepResult.error() != null) {
-                problemSummary = "Parse error: " + lepResult.error().name();
-            } else {
-                problemSummary = lepResult.failures().stream()
-                        .map(f -> "[" + f.reason() + "] " + f.commentary())
-                        .collect(java.util.stream.Collectors.joining("\n\n"));
-            }
-
+            // Build a structured parse-failure message aligned with apply failures
             UserMessage messageForRetry;
             String consoleLogForRetry;
             if (newlyParsedEdits.isEmpty()) {
                 updatedConsecutiveParseFailures++;
                 updatedPartialWithEditsRetries = 0; // reset when no edits parsed
-                messageForRetry = new UserMessage(problemSummary);
+                var msg = CodePrompts.getParseFailureMessage(
+                        lepResult.failures(), lepResult.error(), 0, null);
+                messageForRetry = new UserMessage(msg);
                 consoleLogForRetry = "Failed to parse LLM response; retrying";
             } else {
                 updatedConsecutiveParseFailures = 0;
                 updatedPartialWithEditsRetries = updatedPartialWithEditsRetries + 1;
-                var repr = newlyParsedEdits.getLast().repr();
-                messageForRetry = new UserMessage("""
-                                                          Parse error after %d Line Edits:
-                                                          %s
-                                                          
-                                                          The last Line Edit I successfully parsed was:
-                                                          ```
-                                                          %s
-                                                          ```
-                                                          
-                                                          Please continue from there (WITHOUT repeating that one).
-                                                          """
-                                                          .formatted(newlyParsedEdits.size(), problemSummary, repr));
+                var lastGood = newlyParsedEdits.getLast();
+                var msg = CodePrompts.getParseFailureMessage(
+                        lepResult.failures(), lepResult.error(), newlyParsedEdits.size(), lastGood);
+                messageForRetry = new UserMessage(msg);
                 consoleLogForRetry = "Malformed or incomplete response after %d Line Edits parsed; asking LLM to continue/fix"
                         .formatted(newlyParsedEdits.size());
-                consoleLogForRetry += " Problems: " + problemSummary;
             }
 
             if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {

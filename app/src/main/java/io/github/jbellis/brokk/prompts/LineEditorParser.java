@@ -13,6 +13,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import static java.lang.Math.max;
+import static java.util.Objects.requireNonNull;
+
 /**
  * ED-mode parser for Brokk line-edit fences.
  *
@@ -233,8 +236,16 @@ public final class LineEditorParser {
                         i++; // consume command line
 
                         try {
-                            var a1 = readAnchorLine(lines, i,
-                                    "Malformed or missing first anchor after " + ((op == 'd') ? "delete" : "change") + " command: ");
+                            // First anchor (required for both change and delete)
+                            var firstAnchorHint =
+                                    """
+                                    Missing or malformed first anchor after %s command.
+                                    You must include exactly one anchor per address.
+                                    Expected: @%s| <exact current line text at %s>
+                                    Offending line: """
+                                            .stripIndent()
+                                            .formatted((op == 'd') ? "delete" : "change", addr1, addr1);
+                            var a1 = readAnchorLine(lines, i, firstAnchorHint);
                             i = a1.nextIndex();
 
                             String beginAnchorLine = a1.addr();
@@ -244,12 +255,21 @@ public final class LineEditorParser {
                             String endAnchorContent = "";
 
                             if (addr2 != null) {
-                                var a2 = readAnchorLine(lines, i,
-                                        "Malformed or missing second anchor after " + ((op == 'd') ? "delete" : "change") + " command: ");
+                                // Second anchor (required for range change/delete)
+                                var secondAnchorHint =
+                                        """
+                                        Missing or malformed second anchor after %s command.
+                                        You must include exactly one anchor per address.
+                                        Expected: @%s| <exact current line text at %s>
+                                        Offending line: """
+                                                .stripIndent()
+                                                .formatted((op == 'd') ? "delete" : "change", addr2, addr2);
+                                var a2 = readAnchorLine(lines, i, secondAnchorHint);
                                 i = a2.nextIndex();
                                 endAnchorLine = a2.addr();
                                 endAnchorContent = a2.content();
                             } else if (op == 'c') {
+                                // Single-line change: end anchor equals begin anchor
                                 endAnchorLine = beginAnchorLine;
                                 endAnchorContent = beginAnchorContent;
                             }
@@ -257,14 +277,13 @@ public final class LineEditorParser {
                             checkForExtraAnchorsForSameOp(lines, i);
 
                             if (op == 'd') {
-                                int begin = (n1 < 1) ? 1 : n1;
-                                int end = n2;
+                                int begin = max(n1, 1);
                                 var beginAnchor = new LineEdit.Anchor(beginAnchorLine, beginAnchorContent);
                                 LineEdit.Anchor endAnchor = endAnchorLine.isBlank() ? null
                                         : new LineEdit.Anchor(endAnchorLine, endAnchorContent);
 
                                 pendingBlockEdits.add(new LineEdit.EditFile(
-                                        path, begin, end, "", beginAnchor, endAnchor));
+                                        path, begin, n2, "", beginAnchor, endAnchor));
 
                                 while (i < lines.length && lines[i].trim().isEmpty()) i++;
                                 if (i >= lines.length) { sawEndFence = true; break; }
@@ -280,14 +299,13 @@ public final class LineEditorParser {
                                 for (var b : bodyRes.snippetLines()) blockSnippet.append(b).append('\n');
                                 if (bodyRes.truncated()) blockSnippet.append("... (body truncated)\n");
 
-                                int begin = (n1 < 1) ? 1 : n1;
-                                int end = n2;
+                                int begin = max(n1, 1);
                                 var beginAnchor = new LineEdit.Anchor(beginAnchorLine, beginAnchorContent);
                                 LineEdit.Anchor endAnchor = endAnchorLine.isBlank() ? null
                                         : new LineEdit.Anchor(endAnchorLine, endAnchorContent);
 
                                 pendingBlockEdits.add(new LineEdit.EditFile(
-                                        path, begin, end, String.join("\n", bodyRes.body()), beginAnchor, endAnchor));
+                                        path, begin, n2, String.join("\n", bodyRes.body()), beginAnchor, endAnchor));
 
                                 if (bodyRes.implicitClose()) {
                                     if (i < lines.length) i++; // consume END
@@ -306,7 +324,7 @@ public final class LineEditorParser {
                                 continue;
                             }
                         } catch (Abort e) {
-                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), e.getMessage()));
+                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), requireNonNull(e.getMessage())));
                             boolean foundEnd = false;
                             while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
                             if (i < lines.length) {
@@ -327,8 +345,16 @@ public final class LineEditorParser {
                         i++; // to anchor
 
                         try {
-                            var anchor = readAnchorLine(lines, i,
-                                    "Malformed or missing anchor line after append command: ");
+                            var anchorHint =
+                                    """
+                                    Missing or malformed anchor after append command.
+                                    Provide the anchor for the address you are appending after.
+                                    Use @0| for start-of-file and @$| for end-of-file.
+                                    Expected: @%s| <exact current line text at %s>
+                                    Offending line: """
+                                            .stripIndent()
+                                            .formatted(addr, addr);
+                            var anchor = readAnchorLine(lines, i, anchorHint);
                             i = anchor.nextIndex();
 
                             checkForExtraAnchorsForSameOp(lines, i);
@@ -361,7 +387,7 @@ public final class LineEditorParser {
                             }
                             continue;
                         } catch (Abort e) {
-                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), e.getMessage()));
+                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), requireNonNull(e.getMessage())));
                             boolean foundEnd = false;
                             while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
                             if (i < lines.length) {
