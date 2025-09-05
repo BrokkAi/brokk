@@ -634,6 +634,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
         }
 
+
         String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
         btnSaveAll.setText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
         btnSaveAll.setEnabled(dirtyCount > 0);
@@ -1192,6 +1193,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
 
+        // Ensure creation context is set for debugging
+        if ("unknown".equals(panel.getCreationContext())) {
+            panel.markCreationContext("cachePanel");
+        }
+
         // Reset selectedDelta to first difference for consistent navigation behavior
         panel.resetToFirstDifference();
 
@@ -1201,14 +1207,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (cachedPanel == null) {
                 // This was a reserved slot, replace with actual panel
                 panelCache.putReserved(fileIndex, panel);
-                logger.debug("Navigation Step 4.5: Panel {} cached in sliding window (reserved slot)", fileIndex);
             } else {
                 // Direct cache (shouldn't happen in normal flow but handle gracefully)
                 panelCache.put(fileIndex, panel);
-                logger.warn("Navigation Step 4.5: Panel {} cached directly (unexpected path)", fileIndex);
             }
         } else {
-            logger.debug("Navigation Step 4.5: Panel {} outside window, not caching but will display", fileIndex);
             // Still display but don't cache
         }
     }
@@ -1254,11 +1257,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                     if (loadingResult.isSuccess()) {
                         var panel = new BufferDiffPanel(this, theme);
+                        panel.markCreationContext("preload");
                         panel.setDiffNode(loadingResult.getDiffNode());
+
+                        // Apply theme to ensure consistent state and avoid false dirty flags
+                        panel.applyTheme(theme);
+                        // Clear any transient dirty state caused by mirroring during preload
+                        resetDocumentDirtyStateAfterTheme(panel);
 
                         // Cache will automatically check window constraints
                         panelCache.put(fileIndex, panel);
-                        logger.debug("Preloaded and cached file {}", fileIndex);
                     } else {
                         logger.warn("Skipping preload of file {} - {}", fileIndex, loadingResult.getErrorMessage());
                     }

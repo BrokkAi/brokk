@@ -98,6 +98,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     private int selectedLine;
 
+    /** Creation context for debugging (e.g., 'preload', 'cachePanel', 'unknown'). */
+    private volatile String creationContext = "unknown";
+
     /** Dirty flag that tracks whether there are any unsaved changes. */
     private boolean dirtySinceOpen = false;
 
@@ -1869,5 +1872,40 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         }
 
         return null;
+    }
+
+    /** Mark creation context for debugging purposes. */
+    public void markCreationContext(String ctx) {
+        if (!ctx.isBlank()) {
+            this.creationContext = ctx;
+        }
+    }
+
+    /** Get creation context for debugging. */
+    public String getCreationContext() {
+        return creationContext;
+    }
+
+    /** Produce a compact summary of why this panel is considered unsaved/dirty. */
+    public String getUnsavedDebugSummary() {
+        var sb = new StringBuilder();
+        sb.append("{pendingDiffChanges=").append(pendingDiffChanges.size());
+        try {
+            // Enumerate per-side document dirty flags
+            var left = getFilePanel(PanelSide.LEFT);
+            var right = getFilePanel(PanelSide.RIGHT);
+            if (left != null && left.getBufferDocument() != null) {
+                sb.append(", left.changed=").append(left.getBufferDocument().isChanged());
+                sb.append(", left.readonly=").append(left.getBufferDocument().isReadonly());
+            }
+            if (right != null && right.getBufferDocument() != null) {
+                sb.append(", right.changed=").append(right.getBufferDocument().isChanged());
+                sb.append(", right.readonly=").append(right.getBufferDocument().isReadonly());
+            }
+        } catch (Exception ignore) {
+            // best-effort summary
+        }
+        sb.append("}");
+        return sb.toString();
     }
 }
