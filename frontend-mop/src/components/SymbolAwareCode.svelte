@@ -43,14 +43,12 @@
     'add', 'get', 'put', 'remove', 'contains', 'isEmpty', 'size', 'toString'
   ]);
 
-  log.debug('COMMON_KEYWORDS contains add:', COMMON_KEYWORDS.has('add'));
 
   // Clean and validate symbol names, filtering out language keywords
   function cleanSymbolName(raw: string): string {
     const trimmed = raw.trim();
 
     if (trimmed.length < 2 || trimmed.length > 200) {
-      log.debug(`Symbol "${trimmed}" filtered out: length check`);
       return '';
     }
 
@@ -60,17 +58,14 @@
 
     // Allow symbols with dots (method references) even if they contain method names
     if (trimmed.includes('.')) {
-      log.debug(`Symbol "${trimmed}" allowed as method reference`);
       return trimmed;
     }
 
     const hasKeyword = COMMON_KEYWORDS.has(lowerTrimmed);
     if (hasKeyword) {
-      log.debug(`Symbol "${trimmed}" filtered out: common keyword`);
       return '';
     }
 
-    log.debug(`Symbol "${trimmed}" passed cleaning`);
     return trimmed;
   }
 
@@ -120,7 +115,6 @@
 
     // Skip snippet processing entirely for inline code elements
     // The text content will be extracted from DOM after mount
-    log.debug('No text content found in props, will extract from DOM after mount');
     return '';
   }
 
@@ -128,7 +122,6 @@
     // Try to extract from props first
     const propsText = extractTextFromChildren();
     if (propsText && !propsText.includes('\n')) {
-      log.debug(`Symbol extracted from props: "${propsText}"`);
       extractedText = propsText;
       symbolText = propsText;
       validateAndRequestSymbol();
@@ -143,16 +136,12 @@
 
         // Skip code blocks (multi-line content) early
         if (textContent.includes('\n')) {
-          log.debug(`Skipping code block (contains newlines): "${textContent.substring(0, 50)}..."`);
           return;
         }
 
-        log.debug(`Symbol extracted from DOM: "${textContent}"`);
         extractedText = textContent; // Store for fallback rendering
         symbolText = textContent;
         validateAndRequestSymbol();
-      } else {
-        log.debug('Could not find element with symbol ID:', componentId);
       }
     }, 0);
   });
@@ -160,7 +149,6 @@
   function validateAndRequestSymbol() {
     // Verify we're in browser environment (not server-side rendering)
     if (typeof window === 'undefined') {
-      log.debug('Skipping symbol validation - no browser environment');
       return;
     }
 
@@ -175,8 +163,6 @@
         log.warn(`Symbol resolution failed for ${symbolText}:`, error);
       });
 
-    } else {
-      log.debug(`Invalid symbol text: '${symbolText}' (cleaned: '${cleaned}')`);
     }
   }
 
@@ -196,7 +182,6 @@
   $effect(() => {
     if (symbolStore) {
       cacheEntry = $symbolStore;
-      log.debug(`Cache entry updated: symbolExists=${symbolExists}, symbolText="${symbolText}", extractedText="${extractedText}"`);
     }
   });
 
@@ -295,39 +280,46 @@
     showTooltip = false;
   }
 
-  // Single event handler for both left and right clicks (like master branch)
+  // Single event handler for both left and right clicks
   function handleClick(event: MouseEvent) {
     if (!isValidSymbol || !symbolExists) return;
 
-    // Only process clicks on highlighted spans for partial matches, or any click for exact matches
     const target = event.target as HTMLElement;
     const isClickOnHighlight = target.classList.contains('symbol-highlight');
+    const isValidClick = !isPartialMatch || isClickOnHighlight;
 
-    // For partial matches, only allow clicks on highlighted spans
-    // For exact matches, allow clicks anywhere since the whole symbol is highlighted
-    if (isPartialMatch && !isClickOnHighlight) return;
+    if (!isValidClick) return;
 
-    // Extract the clicked text - for partial matches get from span, for exact matches use full symbol
     const clickedText = (isPartialMatch && isClickOnHighlight)
       ? (target.textContent || symbolText)
       : symbolText;
 
+    const displayText = isPartialMatch
+      ? `${clickedText} (from ${originalText})`
+      : symbolText;
+
     if (event.button === 0) { // Left click
-      const displayText = isPartialMatch ? `${clickedText} (from ${originalText})` : symbolText;
       log.info(`Left-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
 
       if (window.javaBridge?.onSymbolClick) {
-        window.javaBridge.onSymbolClick(clickedText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+        window.javaBridge.onSymbolClick(clickedText,
+                                        !!symbolExists,
+                                        symbolFqn,
+                                        event.clientX,
+                                        event.clientY);
       }
     } else if (event.button === 2) { // Right click
       event.preventDefault();
       event.stopPropagation();
 
-      const displayText = isPartialMatch ? `${clickedText} (from ${originalText})` : symbolText;
       log.info(`Right-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
 
       if (window.javaBridge?.onSymbolClick) {
-        window.javaBridge.onSymbolClick(clickedText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+        window.javaBridge.onSymbolClick(clickedText,
+                                        !!symbolExists,
+                                        symbolFqn,
+                                        event.clientX,
+                                        event.clientY);
       }
     }
   }

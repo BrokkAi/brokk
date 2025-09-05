@@ -251,7 +251,6 @@ function processBatchForContext(contextId: string, immediate: boolean = false): 
 
     // Make single batched request
     const sequence = getNextSequence(contextId);
-    console.warn(`[SYMBOL-DEBUG] Making backend call for ${symbolArray.length} symbols:`, symbolArray, `sequence: ${sequence}, contextId: ${contextId}`);
 
     if (window.javaBridge?.lookupSymbolsAsync) {
         window.javaBridge.lookupSymbolsAsync(
@@ -259,9 +258,6 @@ function processBatchForContext(contextId: string, immediate: boolean = false): 
             sequence,
             contextId
         );
-        console.warn(`[SYMBOL-DEBUG] Java bridge call completed for symbols:`, symbolArray);
-    } else {
-        console.warn(`[SYMBOL-DEBUG] No Java bridge available! window.javaBridge:`, window.javaBridge);
     }
 
     // Mark all symbols as pending in cache
@@ -291,11 +287,9 @@ function processBatchForContext(contextId: string, immediate: boolean = false): 
  */
 export function requestSymbolResolution(symbol: string, contextId: string = 'main-context'): Promise<void> {
     const cacheKey = `${contextId}:${symbol}`;
-    console.warn(`[SYMBOL-DEBUG] Symbol resolution requested for: "${symbol}", contextId: ${contextId}, cacheKey: ${cacheKey}`);
 
     // Check if request already in flight
     if (inflightRequests.has(cacheKey)) {
-        console.warn(`[SYMBOL-DEBUG] Request already in flight for: ${cacheKey}`);
         return inflightRequests.get(cacheKey)!;
     }
 
@@ -308,7 +302,6 @@ export function requestSymbolResolution(symbol: string, contextId: string = 'mai
     // Clean up when done
     requestPromise.finally(() => {
         inflightRequests.delete(cacheKey);
-        console.warn(`[SYMBOL-DEBUG] Cleaned up in-flight request: ${cacheKey}`);
     });
 
     return requestPromise;
@@ -386,139 +379,153 @@ async function performAtomicSymbolLookup(symbol: string, contextId: string, cach
 }
 
 /**
+ * Parse response parameters to handle both legacy and new signatures
+ */
+function parseResponseParams(seqOrContextId: number | string, contextId?: string): { contextId: string; sequence: number | null } {
+    if (typeof seqOrContextId === 'string') {
+        // Legacy signature: (results, contextId)
+        return { contextId: seqOrContextId, sequence: null };
+    } else {
+        // New signature: (results, seq, contextId)
+        const sequence = seqOrContextId;
+        const actualContextId = contextId || 'main-context';
+
+        // Validate sequence if provided
+        if (!isValidSequence(actualContextId, sequence)) {
+            throw new Error('Invalid sequence'); // Will be caught by caller
+        }
+
+        return { contextId: actualContextId, sequence };
+    }
+}
+
+/**
+ * Evict old cache entries if necessary to stay within limits
+ */
+function evictCacheEntriesIfNeeded(cache: Map<string, SymbolCacheEntry>, newEntriesCount: number): void {
+    const currentSize = cache.size;
+    if (currentSize + newEntriesCount <= CACHE_CONFIG.SYMBOL_CACHE_LIMIT) {
+        return;
+    }
+
+    const toEvict = (currentSize + newEntriesCount) - CACHE_CONFIG.SYMBOL_CACHE_LIMIT;
+    const keysToDelete = Array.from(cache.keys()).slice(0, toEvict);
+
+    keysToDelete.forEach(key => {
+        cache.delete(key);
+        cacheStats.evictions++;
+    });
+}
+
+/**
+ * Update cache with resolved symbols
+ */
+function updateResolvedSymbols(cache: Map<string, SymbolCacheEntry>,
+                              results: Record<string, SymbolLookupResult>,
+                              contextId: string): { keysToNotify: string[]; updatedCount: number } {
+    const keysToNotify: string[] = [];
+    let updatedCount = 0;
+
+    for (const [symbol, symbolResult] of Object.entries(results)) {
+        const cacheKey = `${contextId}:${symbol}`;
+        const resolvedEntry: SymbolCacheEntry = {
+            result: symbolResult,
+            status: 'resolved',
+            contextId,
+            timestamp: Date.now(),
+            accessCount: 1
+        };
+
+        const wasUpdated = upsertKey(cache, cacheKey, resolvedEntry);
+        if (wasUpdated) {
+            keysToNotify.push(cacheKey);
+            updatedCount++;
+        }
+    }
+
+    return { keysToNotify, updatedCount };
+}
+
+/**
+ * Handle symbols that were requested but not found in results
+ */
+function updateNotFoundSymbols(cache: Map<string, SymbolCacheEntry>,
+                              resolvedSymbols: Set<string>,
+                              contextId: string): { keysToNotify: string[]; notFoundCount: number } {
+    const notFoundSymbols = settlePending(contextId, resolvedSymbols);
+    const keysToNotify: string[] = [];
+    let notFoundCount = 0;
+
+    for (const symbolName of notFoundSymbols) {
+        const cacheKey = `${contextId}:${symbolName}`;
+        const existingEntry = cache.get(cacheKey);
+        const mockResult = existingEntry?.result;
+
+        const notFoundEntry: SymbolCacheEntry = {
+            result: mockResult ? { ...mockResult, fqn: null } : null,
+            status: 'resolved',
+            contextId,
+            timestamp: Date.now(),
+            accessCount: 1
+        };
+
+        const wasUpdated = upsertKey(cache, cacheKey, notFoundEntry);
+        if (wasUpdated) {
+            keysToNotify.push(cacheKey);
+            notFoundCount++;
+        }
+    }
+
+    return { keysToNotify, notFoundCount };
+}
+
+/**
  * Handle symbol resolution response from Java bridge
  * @param results - Map of symbol names to their SymbolLookupResults (contains FQN, highlight ranges, and partial match info)
  * @param seqOrContextId - Either sequence number (legacy) or contextId (reactive)
  * @param contextId - Context ID (when sequence is provided)
  */
 export function onSymbolResolutionResponse(results: Record<string, SymbolLookupResult>, seqOrContextId: number | string = 'main-context', contextId?: string): void {
-    console.warn(`[SYMBOL-DEBUG] Response received:`, {
-        resultsKeys: Object.keys(results),
-        resultsCount: Object.keys(results).length,
-        seqOrContextId,
-        contextId,
-        results: results
-    });
+    try {
+        const { contextId: actualContextId } = parseResponseParams(seqOrContextId, contextId);
 
-    // Handle both signatures: (results, contextId) and (results, seq, contextId)
-    let actualContextId: string;
-    let sequence: number | null = null;
-
-    if (typeof seqOrContextId === 'string') {
-        // Legacy signature: (results, contextId)
-        actualContextId = seqOrContextId;
-        console.warn(`[SYMBOL-DEBUG] Using legacy signature, contextId: ${actualContextId}`);
-    } else {
-        // New signature: (results, seq, contextId)
-        sequence = seqOrContextId;
-        actualContextId = contextId || 'main-context';
-        console.warn(`[SYMBOL-DEBUG] Using new signature, sequence: ${sequence}, contextId: ${actualContextId}`);
-
-        // Validate sequence if provided
-        if (!isValidSequence(actualContextId, sequence)) {
-            console.warn(`[SYMBOL-DEBUG] Sequence validation failed, discarding response for sequence ${sequence}, contextId ${actualContextId}`);
-            return; // Discard stale response - already logged in isValidSequence
+        if (Object.keys(results).length === 0) {
+            return;
         }
-        console.warn(`[SYMBOL-DEBUG] Sequence validation passed for sequence ${sequence}, contextId ${actualContextId}`);
-    }
 
-    if (Object.keys(results).length === 0) {
+        symbolCacheStore.update(cache => {
+            const newCache = new Map(cache);
+
+            // Handle cache size limit with eviction
+            evictCacheEntriesIfNeeded(newCache, Object.keys(results).length);
+
+            // Update cache with resolved symbols
+            const resolvedUpdate = updateResolvedSymbols(newCache, results, actualContextId);
+
+            // Handle symbols that were requested but not resolved
+            const resolvedSymbols = new Set(Object.keys(results));
+            const notFoundUpdate = updateNotFoundSymbols(newCache, resolvedSymbols, actualContextId);
+
+            // Update cache stats
+            cacheStats.responses++;
+            cacheStats.lastUpdate = Date.now();
+            cacheStats.symbolsFound += resolvedUpdate.updatedCount;
+            cacheStats.symbolsNotFound += notFoundUpdate.notFoundCount;
+
+            // Notify subscribers after cache update is complete
+            const allKeysToNotify = [...resolvedUpdate.keysToNotify, ...notFoundUpdate.keysToNotify];
+            setTimeout(() => {
+                for (const key of allKeysToNotify) {
+                    notifyKey(key);
+                }
+            }, 0);
+
+            return newCache;
+        });
+    } catch (error) {
+        // Invalid sequence or other error - silently discard
         return;
     }
-
-    console.warn(`[SYMBOL-DEBUG] About to update cache with ${Object.keys(results).length} results for contextId ${actualContextId}`);
-
-    symbolCacheStore.update(cache => {
-        const newCache = new Map(cache);
-        let updatedCount = 0;
-
-        // Handle cache size limit with eviction
-        const totalNewEntries = Object.keys(results).length;
-        const currentSize = newCache.size;
-        if (currentSize + totalNewEntries > CACHE_CONFIG.SYMBOL_CACHE_LIMIT) {
-            const toEvict = (currentSize + totalNewEntries) - CACHE_CONFIG.SYMBOL_CACHE_LIMIT;
-            const keysToDelete = Array.from(newCache.keys()).slice(0, toEvict);
-
-            keysToDelete.forEach(key => {
-                newCache.delete(key);
-                cacheStats.evictions++;
-            });
-
-            // Cache eviction performed silently
-        }
-
-        // Update cache with resolved symbols
-        const keysToNotify: string[] = [];
-        for (const [symbol, symbolResult] of Object.entries(results)) {
-            const cacheKey = `${actualContextId}:${symbol}`;
-
-            // Use the backend SymbolLookupResult directly
-            const resolvedEntry: SymbolCacheEntry = {
-                result: symbolResult,
-                status: 'resolved',
-                contextId: actualContextId,
-                timestamp: Date.now(),
-                accessCount: 1
-            };
-
-            // Only notify if the entry actually changed
-            const wasUpdated = upsertKey(newCache, cacheKey, resolvedEntry);
-            if (wasUpdated) {
-                keysToNotify.push(cacheKey);
-                updatedCount++;
-            }
-        }
-
-        // Handle symbols that were requested but not resolved (don't exist)
-        // Use O(1) lookup from tracked pending symbols instead of O(N) cache scan
-        const resolvedSymbols = new Set(Object.keys(results));
-        const notFoundSymbols = settlePending(actualContextId, resolvedSymbols);
-        let notFoundCount = 0;
-
-        for (const symbolName of notFoundSymbols) {
-            const cacheKey = `${actualContextId}:${symbolName}`;
-
-            // Keep the mock result but mark as not found (no FQN)
-            const existingEntry = newCache.get(cacheKey);
-            const mockResult = existingEntry?.result;
-
-            // Symbol was requested but not found in results - mark as resolved with no fqn
-            const notFoundEntry: SymbolCacheEntry = {
-                result: mockResult ? { ...mockResult, fqn: null } : null,
-                status: 'resolved',
-                contextId: actualContextId,
-                timestamp: Date.now(),
-                accessCount: 1
-                // Deliberately no fqn in result - this indicates symbol doesn't exist
-            };
-
-            // Only notify if the entry actually changed
-            const wasUpdated = upsertKey(newCache, cacheKey, notFoundEntry);
-            if (wasUpdated) {
-                keysToNotify.push(cacheKey);
-                notFoundCount++;
-            }
-        }
-
-        // Update cache stats
-        cacheStats.responses++;
-        cacheStats.lastUpdate = Date.now();
-        cacheStats.symbolsFound += updatedCount;
-        cacheStats.symbolsNotFound += notFoundCount;
-
-
-        // Cache statistics are available via getCacheStats() for debugging
-
-        // Notify subscribers after cache update is complete
-        setTimeout(() => {
-            for (const key of keysToNotify) {
-                notifyKey(key);
-            }
-        }, 0);
-
-        console.warn(`[SYMBOL-DEBUG] Cache updated successfully: ${updatedCount} resolved, ${notFoundCount} not found, ${keysToNotify.length} keys to notify`);
-        return newCache;
-    });
 }
 
 /**
@@ -603,8 +610,6 @@ export function clearSymbolCache(contextId = 'main-context'): void {
         clearTimeout(timerId);
     }
     batchTimers.clear();
-
-    console.log(`[symbol-cache] Cleared pending batches and reset batch timers`);
 }
 
 /**
@@ -680,9 +685,9 @@ export function getCacheContents(): {
  */
 export function debugCache(): void {
     symbolCacheStore.subscribe(cache => {
-        console.log('CACHE DEBUG - Total entries:', cache.size);
+        log.debug('CACHE DEBUG - Total entries:', cache.size);
         for (const [key, entry] of cache.entries()) {
-            console.log(`  ${key}: status="${entry.status}" fqn="${entry.fqn}" contextId="${entry.contextId}"`);
+            log.debug(`  ${key}: status="${entry.status}" fqn="${entry.result?.fqn}" contextId="${entry.contextId}"`);
         }
     })();
 }
