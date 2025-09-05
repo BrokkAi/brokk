@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.git;
 
+import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
+
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -848,7 +850,13 @@ public class GitCommitTab extends JPanel {
         tabComponent.add(titleLabel);
 
         var closeButton = new JButton("x");
-        closeButton.setPreferredSize(new Dimension(17, 17));
+        closeButton.setBorder(BorderFactory.createEmptyBorder(0, 4, V_GLUE, 4));
+        closeButton.setContentAreaFilled(false);
+        closeButton.setBorderPainted(false);
+        closeButton.setFocusPainted(false);
+        closeButton.setOpaque(false);
+        closeButton.setRolloverEnabled(true);
+        closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         closeButton.setToolTipText("Close this tab");
         closeButton.addActionListener(e -> {
             historyTabbedPane.remove(tabContent);
