@@ -1065,8 +1065,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Handles capturing text, e.g. from a code block in the MOP.
-     * Submits a task to summarize the text and adds a PasteTextFragment to the context.
+     * Handles capturing text, e.g. from a code block in the MOP. Submits a task to summarize the text and adds a
+     * PasteTextFragment to the context.
      *
      * @param text The text to capture.
      */
