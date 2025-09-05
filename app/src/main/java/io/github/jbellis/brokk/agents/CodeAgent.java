@@ -779,6 +779,7 @@ public class CodeAgent {
                     : 0;
 
             if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
+                report(failures.toString());
                 var msg = "Unable to apply %d edits to %s"
                         .formatted(
                                 failures.size(),
@@ -798,6 +799,7 @@ public class CodeAgent {
                 var newWs = ws.afterApply(
                         nextPending, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginals);
                 report("Failed to apply %s edit(s), asking LLM to retry".formatted(failures.size()));
+                report(failures.toString());
                 return new Step.Retry(new LoopContext(newCs, newWs, currentLoopContext.userGoal()));
             }
         } else {
