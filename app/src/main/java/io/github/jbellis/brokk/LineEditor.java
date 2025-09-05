@@ -367,12 +367,63 @@ public final class LineEditor {
         var actual = actualRaw.strip();
 
         // Empty file + blank expected is OK
-        if (!actualOpt.isPresent() && expected.isEmpty()) {
+        if (actualOpt.isEmpty() && expected.isEmpty()) {
             return null;
         }
         if (!actual.equals(expected)) {
-            return "Anchor mismatch (" + which + "): line '" + address
-                    + "' expected [" + expectedRaw + "] but was [" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "]. Usually this means you cited the wrong line number.";
+            // Build enhanced diagnostic with closest content match and the actual content at the cited line.
+            String suggestion1 = null;
+            try {
+                int given = Integer.parseInt(address);
+                int n = lines.size();
+                int givenIdx0 = given - 1;
+
+                // Find nearest line whose trimmed content matches expected
+                int bestIdx = -1;
+                for (int radius = 0; radius <= n; radius++) {
+                    int left = givenIdx0 - radius;
+                    int right = givenIdx0 + radius;
+                    boolean found = false;
+                    if (left >= 0) {
+                        var lraw = lines.get(left);
+                        if (lraw.strip().equals(expected)) {
+                            bestIdx = left;
+                            found = true;
+                        }
+                    }
+                    if (!found && right < n) {
+                        var rraw = lines.get(right);
+                        if (rraw.strip().equals(expected)) {
+                            bestIdx = right;
+                            found = true;
+                        }
+                    }
+                    if (found) break;
+                }
+                if (bestIdx >= 0) {
+                    // Use the user's original anchor content in the suggestion, per spec
+                    suggestion1 = "@" + (bestIdx + 1) + "| " + expectedRaw;
+                }
+            } catch (NumberFormatException ignore) {
+                // non-numeric addresses are handled above; leave suggestion1 as null
+            }
+
+            String actualGiven = "@" + address + "| " + (actualOpt.isPresent() ? actualRaw : "");
+
+            if (suggestion1 != null) {
+                return ("Anchor mismatch (" + which + "). You gave\n"
+                        + "@" + address + "| " + expectedRaw + "\n"
+                        + "which is not a valid line/content pairing. You may have meant\n"
+                        + suggestion1 + "\n"
+                        + "or perhaps\n"
+                        + actualGiven).trim();
+            } else {
+                return ("Anchor mismatch (" + which + "). You gave\n"
+                        + "@" + address + "| " + expectedRaw + "\n"
+                        + "which is not a valid line/content pairing. I could not find that content near the cited line.\n"
+                        + "For reference, the cited line is\n"
+                        + actualGiven).trim();
+            }
         }
         return null;
     }
