@@ -11,6 +11,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.LintResult;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -90,12 +91,13 @@ class CodeAgentTest {
         var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingEdits), // Modifiable copy
                 0, // consecutiveParseFailures
+                0, // consecutivePartialWithEditsRetries
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
-                new HashSet<>(), // changedFiles
-                new HashMap<>() // originalFileContents
+                new HashSet<ProjectFile>(), // changedFiles
+                new HashMap<ProjectFile, String>() // originalFileContents
                 );
         return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
     }
@@ -185,6 +187,38 @@ class CodeAgentTest {
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
                            .contains("continue from there"));
         assertEquals(1, retryStep.loopContext().editState().pendingEdits().size());
+    }
+
+    // P-3c: parsePhase – cap on partial responses with edits
+    @Test
+    void testParsePhase_partialWithEdits_retriesCap() {
+        var loopContext = createBasicLoopContext("test goal");
+
+        String llmTextWithBlock =
+                """
+                BRK_EDIT_EX file.java
+                1 c
+                1: old
+                new
+                .
+                BRK_EDIT_EX_END
+                """;
+
+        // First 4 partial responses with edits should produce Retry
+        for (int i = 0; i < 4; i++) {
+            var step = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, null);
+            assertInstanceOf(
+                    CodeAgent.Step.Retry.class,
+                    step,
+                    "Expected Retry on partial response with edits (iteration " + i + ")");
+            loopContext = ((CodeAgent.Step.Retry) step).loopContext();
+        }
+
+        // The next partial-with-edits should hit the cap (5th attempt) and be Fatal with PARSE_ERROR
+        var finalStep = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, null);
+        assertInstanceOf(CodeAgent.Step.Fatal.class, finalStep);
+        var fatal = (CodeAgent.Step.Fatal) finalStep;
+        assertEquals(TaskResult.StopReason.PARSE_ERROR, fatal.stopDetails().reason());
     }
 
 
@@ -344,6 +378,7 @@ class CodeAgentTest {
                 new CodeAgent.EditState(
                         List.of(), // pending blocks are empty
                         retryStep.loopContext().editState().consecutiveParseFailures(),
+                        retryStep.loopContext().editState().consecutivePartialWithEditsRetries(),
                         retryStep.loopContext().editState().consecutiveApplyFailures(),
                         retryStep.loopContext().editState().consecutiveBuildFailures(),
                         1, // Simulate one new fix was applied to pass the guard in verifyPhase
