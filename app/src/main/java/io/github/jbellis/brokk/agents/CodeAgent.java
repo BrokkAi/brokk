@@ -386,9 +386,20 @@ public class CodeAgent {
         }
 
         // Construct unified retry prompt
-        var lastGood = parsedEdits.isEmpty() ? null : parsedEdits.getLast();
+        // Determine the last successfully applied edit (if any) to provide a correct continuation hint
+        LineEdit lastGoodApplied = null;
+        if (succeeded > 0 && !parsedEdits.isEmpty()) {
+            var failed = applyFailures.stream().map(LineEditor.ApplyFailure::edit).collect(Collectors.toSet());
+            for (int i = parsedEdits.size() - 1; i >= 0; i--) {
+                var e = parsedEdits.get(i);
+                if (!failed.contains(e)) {
+                    lastGoodApplied = e;
+                    break;
+                }
+            }
+        }
         var retryPrompt = CodePrompts.getCombinedEditFailureMessage(
-                lepResult.failures(), lepResult.error(), lastGood, applyFailures, Math.max(0, succeeded));
+                lepResult.failures(), lepResult.error(), lastGoodApplied, applyFailures, Math.max(0, succeeded));
 
         int newConsecutiveEditRetries = ws.consecutiveEditRetries() + 1;
         int newConsecutiveNoResultRetries = (succeeded == 0) ? (ws.consecutiveNoResultRetries() + 1) : 0;

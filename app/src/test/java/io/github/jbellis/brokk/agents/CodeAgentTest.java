@@ -445,4 +445,31 @@ class CodeAgentTest {
                 continueStep.loopContext().editState().changedFiles().contains(file),
                 "changedFiles should include the edited file");
     }
+
+    // E-7: editPhase – when all edits fail to apply, do not include <last_good_edit>
+    @Test
+    void testEditPhase_noLastGoodWhenAllApplyFailures() throws IOException {
+        var file = contextManager.toFile("file.txt");
+        file.write("hello");
+        contextManager.addEditableFile(file);
+
+        String llmText =
+                """
+                BRK_EDIT_EX file.txt
+                1 a
+                @1| /**
+                new javadoc
+                .
+                BRK_EDIT_EX_END
+                """;
+
+        var loopContext = createBasicLoopContext("goal");
+        var result = codeAgent.editPhase(loopContext, llmText, false, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+        String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        assertFalse(nextRequestText.contains("<last_good_edit>"),
+                "Should not include last_good_edit when no edits were successfully applied");
+    }
 }

@@ -79,6 +79,15 @@ public class Llm {
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
 
+/**
+ * Constructs a new Llm instance.
+ *
+ * @param model The streaming chat model to use for interactions.
+ * @param taskDescription A brief description of the current task, used for logging history.
+ * @param contextManager The context manager providing project and service information.
+ * @param allowPartialResponses If true, allows returning partial responses even when an error occurs.
+ * @param tagRetain If true, adds a "retain" metadata tag to outgoing LLM requests.
+ */
     public Llm(
             StreamingChatModel model,
             String taskDescription,
