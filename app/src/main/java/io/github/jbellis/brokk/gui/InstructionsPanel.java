@@ -51,6 +51,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -572,12 +573,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-        // Action selector: Agent/Ask switch
-        bottomPanel.add(new JLabel("Agent"));
-        bottomPanel.add(Box.createHorizontalStrut(4));
-        bottomPanel.add(modeSwitch);
-        bottomPanel.add(Box.createHorizontalStrut(4));
-        bottomPanel.add(new JLabel("Ask"));
+        // Action selector group: Agent/Ask switch inside a bordered panel
+        JPanel actionGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
+        java.awt.Color borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor == null) {
+            borderColor = java.awt.Color.GRAY;
+        }
+        actionGroup.setBorder(BorderFactory.createCompoundBorder(
+                new io.github.jbellis.brokk.gui.components.RoundedLineBorder(borderColor, 1, -1),
+                BorderFactory.createEmptyBorder(2, 6, 2, 2)
+        ));
+        actionGroup.setOpaque(false);
+        actionGroup.add(new JLabel("Agent"));
+        actionGroup.add(Box.createHorizontalStrut(2));
+        actionGroup.add(modeSwitch);
+        actionGroup.add(Box.createHorizontalStrut(2));
+        actionGroup.add(new JLabel("Ask"));
+
+        // Keep the grouping box tight; prevent BoxLayout from stretching it
+        actionGroup.setMaximumSize(actionGroup.getPreferredSize());
+        actionGroup.setAlignmentY(Component.CENTER_ALIGNMENT);
+
+        bottomPanel.add(actionGroup);
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Dynamic options depending on toggle selection
