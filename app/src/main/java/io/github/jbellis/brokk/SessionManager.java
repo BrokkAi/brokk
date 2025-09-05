@@ -192,7 +192,7 @@ public class SessionManager implements AutoCloseable {
                 var maybeUuid = parseUuidFromFilename(zipPath);
                 if (maybeUuid.isEmpty()) {
                     // Non-UUID filenames are unreadable by definition.
-                    moveZipToUnreadable(zipPath, null);
+                    moveZipToUnreadable(zipPath);
                     quarantinedNoUuid.add(zipPath.getFileName().toString());
                     moved++;
                     continue;
@@ -201,6 +201,7 @@ public class SessionManager implements AutoCloseable {
                 var sessionId = maybeUuid.get();
                 var info = readSessionInfoFromZip(zipPath);
                 if (info.isEmpty()) {
+                    moveSessionToUnreadable(sessionId);
                     quarantinedIds.add(sessionId);
                     moved++;
                     continue;
@@ -308,13 +309,7 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    private void moveZipToUnreadable(Path zipPath, @Nullable UUID sessionId) {
-        if (sessionId != null) {
-            // Will also remove from cache and serialize by sessionId.
-            moveSessionToUnreadable(sessionId);
-            return;
-        }
-
+    private void moveZipToUnreadable(Path zipPath) {
         var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
             Path unreadableDir = sessionsDir.resolve("unreadable");
             try {
