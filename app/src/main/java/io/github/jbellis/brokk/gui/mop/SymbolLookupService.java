@@ -64,7 +64,6 @@ public class SymbolLookupService {
             BiConsumer<String, SymbolLookupResult> resultCallback,
             @Nullable Runnable completionCallback) {
 
-
         if (symbolNames.isEmpty() || contextManager == null) {
             if (completionCallback != null) {
                 completionCallback.run();

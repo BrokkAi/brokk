@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
@@ -277,7 +278,6 @@ public final class MOPBridge {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
 
-
         // Parse symbol names (keep existing parsing logic)
         Set<String> symbolNames;
         try {
@@ -370,7 +370,7 @@ public final class MOPBridge {
             if (component != null && contextManager != null) {
                 if (chrome != null) {
                     try {
-                        io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
+                        ContextMenuBuilder.forSymbol(
                                         symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
                                                 contextManager)
                                 .show(component, x, y);

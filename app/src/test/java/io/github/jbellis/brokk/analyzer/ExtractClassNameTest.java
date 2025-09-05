@@ -51,7 +51,9 @@ public class ExtractClassNameTest {
         assertEquals(Optional.of("SwingUtil"), analyzer.extractClassName("SwingUtil.runOnEdt(...)"));
         assertEquals(Optional.of("SwingUtilities"), analyzer.extractClassName("SwingUtilities.invokeLater(task)"));
         assertEquals(Optional.of("EventQueue"), analyzer.extractClassName("EventQueue.invokeAndWait(runnable)"));
-        assertEquals(Optional.of("JOptionPane"), analyzer.extractClassName("JOptionPane.showMessageDialog(parent, message)"));
+        assertEquals(
+                Optional.of("JOptionPane"),
+                analyzer.extractClassName("JOptionPane.showMessageDialog(parent, message)"));
 
         // Invalid cases - should return empty
         assertEquals(Optional.empty(), analyzer.extractClassName("MyClass"));
