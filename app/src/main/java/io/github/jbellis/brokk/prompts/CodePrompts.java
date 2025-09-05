@@ -891,7 +891,9 @@ Remember:
   <problem_source>
   %s
   </problem_source>
-  <commentary>%s</commentary>
+  <commentary>
+  %s
+  </commentary>
   </failure>
 
 """.formatted(f.reason(), f.snippet().isBlank() ? "<unavailable>" : f.snippet().trim(), f.commentary().trim()));
@@ -941,7 +943,7 @@ Please continue from there WITHOUT repeating that edit.
 <instructions>
 # %d edit command failure%s in %d file%s!
 
-Review the CURRENT state of these files below in <current_content>.
+Review the current state of these files above in the Workspace.
 Provide corrected **BRK_EDIT_EX / BRK_EDIT_RM** blocks for the failed edits only.
 
 Tips:
@@ -969,7 +971,9 @@ Tips:
             <edit>
             %s
             </edit>
-            <commentary>%s</commentary>
+            <commentary>
+            %s
+            </commentary>
             </failed_edit>
             """.formatted(f.reason(), f.edit().repr(), f.commentary()));
             }
