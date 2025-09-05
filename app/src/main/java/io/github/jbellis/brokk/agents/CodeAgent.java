@@ -507,15 +507,17 @@ public class CodeAgent {
         List<ProjectFile> newFiles = new ArrayList<>();
         for (var edit : edits) {
             if (edit instanceof LineEdit.EditFile ef) {
-                var pf = ef.file();
                 boolean isInsertion = ef.endLine() < ef.beginLine();
-                if (isInsertion && !pf.exists()) {
-                    newFiles.add(pf);
-                    try {
-                        pf.write("");
-                        logger.debug("Pre-created empty file: {}", pf);
-                    } catch (IOException e) {
-                        io.toolError("Failed to create empty file " + pf + ": " + e.getMessage(), "Error");
+                if (isInsertion) {
+                    var pf = contextManager.toFile(ef.file());
+                    if (!pf.exists()) {
+                        newFiles.add(pf);
+                        try {
+                            pf.write("");
+                            logger.debug("Pre-created empty file: {}", pf);
+                        } catch (IOException e) {
+                            io.toolError("Failed to create empty file " + pf + ": " + e.getMessage(), "Error");
+                        }
                     }
                 }
             }
@@ -525,7 +527,7 @@ public class CodeAgent {
             try {
                 contextManager.getRepo().add(newFiles);
                 contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
+            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
                 io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }
             contextManager.editFiles(newFiles);
@@ -728,6 +730,7 @@ public class CodeAgent {
         // Detect read-only conflicts
         var filesToTouch = ws.pendingEdits().stream()
                 .map(LineEdit::file)
+                .map(contextManager::toFile)
                 .distinct()
                 .toList();
         var readOnlyConflicts = filesToTouch.stream()

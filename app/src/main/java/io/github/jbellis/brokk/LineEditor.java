@@ -66,13 +66,13 @@ public final class LineEditor {
         var originals = new HashMap<ProjectFile, String>();
         var failures = new ArrayList<ApplyFailure>();
 
-        // Partition edits: group EditFile per file; collect DeleteFile preserving original order.
-        var editsByFile = new HashMap<ProjectFile, List<LineEdit.EditFile>>();
+        // Partition edits: group EditFile per path; collect DeleteFile preserving original order.
+        var editsByPath = new HashMap<String, List<LineEdit.EditFile>>();
         var deletes = new ArrayList<LineEdit.DeleteFile>();
 
         for (var edit : edits) {
             if (edit instanceof LineEdit.EditFile ef) {
-                editsByFile.computeIfAbsent(ef.file(), k -> new ArrayList<>()).add(ef);
+                editsByPath.computeIfAbsent(ef.file(), k -> new ArrayList<>()).add(ef);
             } else if (edit instanceof LineEdit.DeleteFile df) {
                 deletes.add(df);
             } else {
@@ -81,10 +81,10 @@ public final class LineEditor {
             }
         }
 
-        // Apply per file:
+        // Apply per path:
         //   1) replacements/deletes (begin <= end) sorted descending (bottom-to-top)
         //   2) insertions (end < begin) in original input order
-        for (var entry : editsByFile.entrySet()) {
+        for (var entry : editsByPath.entrySet()) {
             var perFile = entry.getValue();
 
             // Detect overlapping edits for this file; record failures and skip them
@@ -115,7 +115,7 @@ public final class LineEditor {
             // 1) Apply bottom-to-top range edits
             for (var ef : changes) {
                 try {
-                    applyEdit(ef, originals, failures);
+                    applyEdit(cm, ef, originals, failures);
                 } catch (IOException e) {
                     var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
                     logger.error("IO error applying {}: {}", describe(ef), msg);
@@ -126,7 +126,7 @@ public final class LineEditor {
             // 2) Apply insertions in original order
             for (var ef : inserts) {
                 try {
-                    applyEdit(ef, originals, failures);
+                    applyEdit(cm, ef, originals, failures);
                 } catch (IOException e) {
                     var msg = java.util.Objects.requireNonNullElse(e.getMessage(), e.toString());
                     logger.error("IO error applying {}: {}", describe(ef), msg);
@@ -156,7 +156,7 @@ public final class LineEditor {
             Map<ProjectFile, String> originals,
             List<ApplyFailure> failures)
             throws IOException {
-        var pf = df.file();
+        var pf = cm.toFile(df.file());
         if (!pf.exists()) {
             failures.add(new ApplyFailure(df, ApplyFailureReason.FILE_NOT_FOUND, "Delete: file does not exist"));
             return;
@@ -172,7 +172,7 @@ public final class LineEditor {
         });
 
         logger.info("Deleting {}", pf);
-        Files.deleteIfExists(pf.absPath());
+        java.nio.file.Files.deleteIfExists(pf.absPath());
         try {
             cm.getRepo().remove(pf); // stage deletion (non-fatal on failure)
         } catch (Exception e) {
@@ -182,11 +182,12 @@ public final class LineEditor {
     }
 
     private static void applyEdit(
+            IContextManager cm,
             LineEdit.EditFile ef,
             Map<ProjectFile, String> originals,
             List<ApplyFailure> failures)
             throws IOException {
-        var pf = ef.file();
+        var pf = cm.toFile(ef.file());
         int begin = ef.beginLine();
         int end = ef.endLine();
         var body = ef.content();
@@ -420,8 +421,8 @@ public final class LineEditor {
     }
 
     private static String describe(LineEdit edit) {
-        if (edit instanceof LineEdit.DeleteFile(ProjectFile file)) {
-            return "Delete(" + file + ")";
+        if (edit instanceof LineEdit.DeleteFile(String path)) {
+            return "Delete(" + path + ")";
         }
         if (edit instanceof LineEdit.EditFile ef) {
             return "Edit(" + ef.file() + "@" + ef.beginLine() + ".." + ef.endLine() + ")";

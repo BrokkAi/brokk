@@ -198,330 +198,384 @@ public final class LineEditorParser {
      * - 'w', 'q' and other non-edit commands are ignored. Shell ('!') is ignored but noted as a parse warning.
      */
     public ParseResult parse(String content) {
-        var parts = new ArrayList<OutputPart>();
-        var errors = new ArrayList<String>();
+        var edits = new ArrayList<LineEdit>();
+        var failures = new ArrayList<ParseFailure>();
+        @Nullable ParseError fatalError = null;
 
         var lines = content.split("\n", -1);
         int i = 0;
 
-        var textBuf = new StringBuilder();
+        // Build snippet as "full edit up to the error (commands/anchors plus a bounded body sample)"
+        StringBuilder blockSnippet = null;
+        final int MAX_BODY_LINES_IN_SNIPPET = 10;
 
-        Runnable flushText = () -> {
-            if (!textBuf.isEmpty()) {
-                parts.add(new OutputPart.Text(textBuf.toString()));
-                textBuf.setLength(0);
-            }
+        // per-block accumulation
+        var pendingBlockEdits = new ArrayList<LineEdit>();
+
+        Runnable resetBlockState = () -> {
+            blockSnippet = null;
+            pendingBlockEdits.clear();
         };
+        resetBlockState.run();
+
+        // Failure helper
+        java.util.function.BiConsumer<ParseFailureReason, String> recordFailure =
+                (reason, message) -> failures.add(new ParseFailure(
+                        reason,
+                        message,
+                        blockSnippet == null ? "" : blockSnippet.toString()));
 
         try {
             while (i < lines.length) {
-                var line = lines[i];
-                var trimmed = line.trim();
+                var raw = lines[i];
+                var trimmed = raw.trim();
 
-                // BRK_EDIT_RM <path>
+                // --- Deletes -----------------------------------------------------
                 if (trimmed.startsWith("BRK_EDIT_RM")) {
                     int sp = trimmed.indexOf(' ');
                     if (sp < 0) {
-                        // structural error: stop immediately, do not add the malformed line to text
-                        errors.add("BRK_EDIT_RM missing filename.");
-                        throw new ParseAbort("BRK_EDIT_RM missing filename.");
+                        recordFailure.accept(ParseFailureReason.MISSING_FILENAME, "BRK_EDIT_RM missing filename.");
+                        i++;
+                        continue;
                     }
                     var path = trimmed.substring(sp + 1).trim();
-                    flushText.run();
-                    parts.add(new OutputPart.Delete(path));
+                    edits.add(new LineEdit.DeleteFile(path));
                     i++;
                     continue;
                 }
 
-                // BRK_EDIT_EX <path>
+                // --- Edit blocks -------------------------------------------------
                 if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
                     int sp = trimmed.indexOf(' ');
                     if (sp < 0) {
-                        // structural error: stop immediately, do not add the malformed line to text
-                        errors.add("BRK_EDIT_EX missing filename.");
-                        throw new ParseAbort("BRK_EDIT_EX missing filename.");
+                        recordFailure.accept(ParseFailureReason.MISSING_FILENAME, "BRK_EDIT_EX missing filename.");
+                        i++;
+                        continue;
                     }
                     var path = trimmed.substring(sp + 1).trim();
 
-                    flushText.run();
+                    // Start block snippet with the opener line
+                    blockSnippet = new StringBuilder();
+                    blockSnippet.append(lines[i]).append('\n');
+                    pendingBlockEdits.clear();
+                    i++; // consume opener
 
-                    i++; // consume the BRK_EDIT_EX line
-                    var commands = new ArrayList<EdCommand>();
                     boolean sawEndFence = false;
 
                     while (i < lines.length) {
-                        var cmdLine = lines[i];
-                        var cmdTrim = cmdLine.trim();
+                        var line = lines[i];
+                        var t = line.trim();
 
-                        if (cmdTrim.equals(END_FENCE)) {
+                        if (t.equals(END_FENCE)) {
                             sawEndFence = true;
-                            i++;
+                            i++; // consume END
                             break;
                         }
 
-                        var range = RANGE_CMD.matcher(cmdTrim);
-                        var ia = IA_CMD.matcher(cmdTrim);
+                        var mRange = RANGE_CMD.matcher(t);
+                        var mIA = IA_CMD.matcher(t);
 
-                        if (range.matches()) {
-                            var addr1 = range.group(1);
-                            var addr2 = range.group(2);
+                        // ---- Range commands: n[,m] c|d
+                        if (mRange.matches()) {
+                            var addr1 = mRange.group(1);
+                            var addr2 = mRange.group(2);
+                            char op = Character.toLowerCase(mRange.group(3).charAt(0));
+
                             int n1 = parseAddr(addr1);
                             int n2 = (addr2 == null) ? n1 : parseAddr(addr2);
-                            char op = Character.toLowerCase(range.group(3).charAt(0));
 
-                            i++; // move past the command line
+                            blockSnippet.append(line).append('\n');
+                            i++; // consume command line
 
-                            var opName = (op == 'd') ? "delete" : "change";
-                            var anchors = readRangeAnchors(lines, i, opName, addr2, path, errors);
-                            i = anchors.nextIndex();
+                            try {
+                                // Anchors
+                                var a1 = readAnchorLine(lines, i,
+                                                        "Malformed or missing first anchor after " + ((op == 'd') ? "delete" : "change") + " command: ");
+                                i = a1.nextIndex();
 
-                            // flag any extra @N| ... anchors before body / next command
-                            checkForExtraAnchorsForRange(
-                                    lines, i, opName, path, addr2 == null, errors);
+                                String beginAnchorLine = a1.addr();
+                                String beginAnchorContent = a1.content();
 
-                            if (op == 'd') {
-                                commands.add(new EdCommand.DeleteRange(
-                                        n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                                // allow implicit close: at EOF or before next BRK_EDIT_EX
-                                while (i < lines.length && lines[i].trim().isEmpty()) i++;
-                                if (i >= lines.length) {
-                                    sawEndFence = true;
-                                    break;
-                                }
-                                var la = lines[i].trim();
-                                if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
-                                    sawEndFence = true;
-                                    break;
-                                }
-                                continue;
-                            } else { // 'c'
-                                var bodyRes = readBody(lines, i);
-                                i = bodyRes.nextIndex();
+                                String endAnchorLine = "";
+                                String endAnchorContent = "";
 
-                                if (bodyRes.implicitClose()) {
-                                    if (i < lines.length) i++; // consume the END fence line that terminated the body
-                                    sawEndFence = true;
-                                    commands.add(new EdCommand.ChangeRange(
-                                            n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                                    break;
+                                if (addr2 != null) {
+                                    var a2 = readAnchorLine(lines, i,
+                                                            "Malformed or missing second anchor after " + ((op == 'd') ? "delete" : "change") + " command: ");
+                                    i = a2.nextIndex();
+                                    endAnchorLine = a2.addr();
+                                    endAnchorContent = a2.content();
+                                } else if (op == 'c') {
+                                    // single-line change uses same anchor for end
+                                    endAnchorLine = beginAnchorLine;
+                                    endAnchorContent = beginAnchorContent;
                                 }
 
-                                while (i < lines.length && lines[i].trim().isEmpty()) i++;
+                                // Disallow extra anchors for same op
+                                checkForExtraAnchorsForSameOp(lines, i);
 
-                                commands.add(new EdCommand.ChangeRange(
-                                        n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                                if (bodyRes.explicitTerminator()) {
-                                    if (i >= lines.length) {
-                                        sawEndFence = true;
-                                        break;
-                                    }
+                                if (op == 'd') {
+                                    // delete (no body)
+                                    int begin = (n1 < 1) ? 1 : n1;
+                                    int end = n2;
+                                    var beginAnchor = new LineEdit.Anchor(beginAnchorLine, beginAnchorContent);
+                                    LineEdit.Anchor endAnchor = endAnchorLine.isBlank() ? null
+                                            : new LineEdit.Anchor(endAnchorLine, endAnchorContent);
+
+                                    pendingBlockEdits.add(new LineEdit.EditFile(
+                                            path, begin, end, "", beginAnchor, endAnchor));
+
+                                    // Allow implicit block close at EOF or next opener
+                                    while (i < lines.length && lines[i].trim().isEmpty()) i++;
+                                    if (i >= lines.length) { sawEndFence = true; break; }
                                     var la = lines[i].trim();
                                     if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
-                                        sawEndFence = true;
-                                        break;
+                                        sawEndFence = true; break;
+                                    }
+                                    continue;
+                                } else {
+                                    // 'c' change requires body
+                                    var bodyRes = readBody(lines, i, MAX_BODY_LINES_IN_SNIPPET);
+                                    i = bodyRes.nextIndex();
+
+                                    for (var b : bodyRes.snippetLines()) blockSnippet.append(b).append('\n');
+                                    if (bodyRes.truncated()) blockSnippet.append("... (body truncated)\n");
+
+                                    int begin = (n1 < 1) ? 1 : n1;
+                                    int end = n2;
+                                    var beginAnchor = new LineEdit.Anchor(beginAnchorLine, beginAnchorContent);
+                                    LineEdit.Anchor endAnchor = endAnchorLine.isBlank() ? null
+                                            : new LineEdit.Anchor(endAnchorLine, endAnchorContent);
+
+                                    pendingBlockEdits.add(new LineEdit.EditFile(
+                                            path, begin, end, String.join("\n", bodyRes.body()), beginAnchor, endAnchor));
+
+                                    if (bodyRes.implicitClose()) {
+                                        if (i < lines.length) i++; // consume END
+                                        sawEndFence = true; break;
+                                    }
+
+                                    while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
+                                    if (bodyRes.explicitTerminator()) {
+                                        if (i >= lines.length) { sawEndFence = true; break; }
+                                        var la = lines[i].trim();
+                                        if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
+                                            sawEndFence = true; break;
+                                        }
+                                    }
+                                    continue;
+                                }
+                            } catch (Abort e) {
+                                // record failure and resync to END fence (no explicit RESYNC reason exposed)
+                                recordFailure.accept(e.reason, e.getMessage());
+                                while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
+                                if (i < lines.length) i++; // consume END
+                                sawEndFence = true;
+                                break;
+                            }
+                        }
+
+                        // ---- Append commands: n a
+                        if (mIA.matches()) {
+                            var addr = mIA.group(1);
+                            int n = parseAddr(addr);
+
+                            blockSnippet.append(line).append('\n');
+                            i++; // move to (optional) anchor line
+
+                            try {
+                                var anchor = readAnchorLine(lines, i,
+                                                            "Malformed or missing anchor line after append command: ");
+                                i = anchor.nextIndex();
+
+                                // Disallow any extra anchors
+                                checkForExtraAnchorsForSameOp(lines, i);
+
+                                var bodyRes = readBody(lines, i, MAX_BODY_LINES_IN_SNIPPET);
+                                i = bodyRes.nextIndex();
+
+                                for (var b : bodyRes.snippetLines()) blockSnippet.append(b).append('\n');
+                                if (bodyRes.truncated()) blockSnippet.append("... (body truncated)\n");
+
+                                int begin = (n == Integer.MAX_VALUE) ? Integer.MAX_VALUE : n + 1;
+                                var beginAnchor = new LineEdit.Anchor(anchor.addr(), anchor.content());
+                                pendingBlockEdits.add(new LineEdit.EditFile(
+                                        path, begin, begin - 1, String.join("\n", bodyRes.body()), beginAnchor, null));
+
+                                if (bodyRes.implicitClose()) {
+                                    if (i < lines.length) i++; // consume END
+                                    sawEndFence = true;
+                                    break;
+                                }
+
+                                while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
+                                if (bodyRes.explicitTerminator()) {
+                                    if (i >= lines.length) { sawEndFence = true; break; }
+                                    var la = lines[i].trim();
+                                    if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
+                                        sawEndFence = true; break;
                                     }
                                 }
                                 continue;
-                            }
-                        }
-
-                        if (ia.matches()) {
-                            var addr = ia.group(1);
-                            int n = parseAddr(addr);
-
-                            i++; // move to (optional) anchor line
-                            var anchor = readAnchorLine(
-                                    lines, i,
-                                    "Malformed or missing anchor line after append command: ",
-                                    "Missing anchor line after append command for " + path,
-                                    errors);
-                            i = anchor.nextIndex();
-
-                            // flag duplicate @n| anchors before body
-                            checkForExtraAnchorsForRange(
-                                    lines, i, "append", path, false, errors);
-
-                            var bodyRes = readBody(lines, i);
-                            i = bodyRes.nextIndex();
-
-                            if (bodyRes.implicitClose()) {
-                                if (i < lines.length) i++; // consume END fence
+                            } catch (Abort e) {
+                                recordFailure.accept(e.reason, e.getMessage());
+                                while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
+                                if (i < lines.length) i++;
                                 sawEndFence = true;
-                                commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
                                 break;
                             }
-
-                            while (i < lines.length && lines[i].trim().isEmpty()) i++;
-
-                            commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
-                            if (bodyRes.explicitTerminator()) {
-                                if (i >= lines.length) {
-                                    sawEndFence = true;
-                                    break;
-                                }
-                                var la = lines[i].trim();
-                                if (la.equals("BRK_EDIT_EX") || la.startsWith("BRK_EDIT_EX ")) {
-                                    sawEndFence = true;
-                                    break;
-                                }
-                            }
-                            continue;
                         }
 
-                        // Unrecognized line inside ED block: ignore silently
+                        // Unrecognized line inside a block: skip without being fussy
                         i++;
                     }
 
                     if (!sawEndFence) {
-                        // structural error: missing END fence (no implicit close condition met)
-                        errors.add("Missing BRK_EDIT_EX_END for " + path);
-                        throw new ParseAbort("Missing BRK_EDIT_EX_END for " + path);
+                        fatalError = (fatalError == null) ? ParseError.EOF_IN_BLOCK : fatalError;
+                        recordFailure.accept(ParseFailureReason.MISSING_END_FENCE, "Missing BRK_EDIT_EX_END for " + path);
                     }
 
-                    parts.add(new OutputPart.EdBlock(path, List.copyOf(commands)));
+                    // commit per-block edits parsed before any failure in this block
+                    edits.addAll(pendingBlockEdits);
+                    resetBlockState.run();
                     continue;
                 }
 
-                // passthrough text
-                textBuf.append(line);
-                if (i < lines.length - 1) textBuf.append('\n');
+                // Plain text outside of edits is ignored by the parser.
                 i++;
             }
-        } catch (ParseAbort abort) {
-            // fall-through: we stop parsing here; flush any accumulated plain text seen before the error
+        } catch (Abort fatal) {
+            if (fatalError == null) fatalError = ParseError.EOF_IN_BODY;
+            recordFailure.accept(fatal.reason, fatal.getMessage());
         }
 
-        if (!textBuf.isEmpty()) {
-            parts.add(new OutputPart.Text(textBuf.toString()));
+        // Sort EditFile ops per path in descending line order, then append DeleteFile ops in original order
+        var editFiles = new ArrayList<LineEdit.EditFile>();
+        var deletes = new ArrayList<LineEdit.DeleteFile>();
+        for (var e : edits) {
+            if (e instanceof LineEdit.EditFile ef) editFiles.add(ef);
+            else if (e instanceof LineEdit.DeleteFile df) deletes.add(df);
         }
+        editFiles.sort((a, b) -> {
+            int c = a.file().compareTo(b.file());
+            if (c != 0) return c;
+            c = Integer.compare(b.beginLine(), a.beginLine());
+            if (c != 0) return c;
+            return Integer.compare(b.endLine(), a.endLine());
+        });
 
-        var error = errors.isEmpty() ? null : String.join("\n", errors);
-        if (error != null && logger.isDebugEnabled()) {
-            logger.debug("LineEditorParser (ED mode) parse warnings/errors:\n{}", error);
+        var combined = new ArrayList<LineEdit>(editFiles.size() + deletes.size());
+        combined.addAll(editFiles);
+        combined.addAll(deletes);
+
+        if (fatalError != null && logger.isDebugEnabled()) {
+            logger.debug("LineEditorParser parse encountered fatal error: {}", fatalError);
         }
-        return new ParseResult(parts, error);
+        return new ParseResult(List.copyOf(combined), List.copyOf(failures), fatalError);
     }
 
-    // Patterns for EX commands
     private static final Pattern RANGE_CMD = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(?:,\\s*([0-9]+|\\$))?\\s*([cd])$");
     private static final Pattern IA_CMD    = Pattern.compile("(?i)^([0-9]+|\\$)\\s*(a)$");
     private static final Pattern ANCHOR_LINE = Pattern.compile("^\\s*@([0-9]+|\\$)\\s*\\|\\s*(.*)$");
     private static final String END_FENCE = "BRK_EDIT_EX_END";
 
-    // Lightweight result records (Java 21)
-    private record BodyReadResult(List<String> body, int nextIndex, boolean implicitClose, boolean explicitTerminator) {}
+    public static String addrToString(int n) {
+        return (n == Integer.MAX_VALUE) ? "$" : Integer.toString(n);
+    }
+    private static int parseAddr(String address) {
+        return "$".equals(address) ? Integer.MAX_VALUE : Integer.parseInt(address);
+    }
+
+    /** Unchecked control flow with a reasoned failure. */
+    private static final class Abort extends Exception {
+        final ParseFailureReason reason;
+        Abort(ParseFailureReason reason, String message) {
+            super(message);
+            this.reason = reason;
+        }
+    }
+
     private record AnchorReadResult(String addr, String content, int nextIndex) {}
-    private record RangeAnchors(String beginAddr, String endAddr, String beginContent, String endContent, int nextIndex) { }
 
+    private static AnchorReadResult readAnchorLine(String[] lines, int index, String malformedPrefix) throws Abort {
+        if (index >= lines.length) {
+            throw new Abort(ParseFailureReason.MISSING_ANCHOR, malformedPrefix + "<EOF>");
+        }
+        var line = lines[index];
+        var m = ANCHOR_LINE.matcher(line);
+        if (m.matches()) {
+            return new AnchorReadResult(m.group(1), m.group(2), index + 1);
+        }
+        throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, malformedPrefix + line);
+    }
 
-    /** Reads the body for 'a' and 'c'. Stops at a single '.' line or at BRK_EDIT_EX_END (implicit close, without consuming it). */
-    private static BodyReadResult readBody(String[] lines, int startIndex) {
+    /**
+     * Ensures we don't have an unexpected extra @N| line for single-address commands or after the
+     * expected two anchors for a range. If found, abort with TOO_MANY_ANCHORS.
+     * We do not consume the offending line here.
+     */
+    private static void checkForExtraAnchorsForSameOp(String[] lines, int startIndex) throws Abort {
+        if (startIndex >= lines.length) return;
+        var next = lines[startIndex];
+        if (ANCHOR_LINE.matcher(next).matches()) {
+            var msg = """
+              Too many anchors for this operation. Only specify one anchor per address.
+
+              First extra anchor:
+              %s
+              """.stripIndent().formatted(next);
+            throw new Abort(ParseFailureReason.TOO_MANY_ANCHORS, msg);
+        }
+    }
+
+    /**
+     * Body reader for 'a' and 'c' commands.
+     * Returns the body and how it ended (explicit "." vs implicit END fence),
+     * plus a bounded set of lines to include in the failure snippet (not the full body).
+     */
+    private static BodyReadResult readBody(String[] lines, int startIndex, int maxSnippetLines) {
         var body = new ArrayList<String>();
+        var snippetLines = new ArrayList<String>();
         int i = startIndex;
         boolean implicitClose = false;
         boolean explicitTerminator = false;
+        boolean truncated = false;
 
         while (i < lines.length) {
             var bodyLine = lines[i];
             var bodyTrim = bodyLine.trim();
 
             if (END_FENCE.equals(bodyTrim)) {
-                implicitClose = true;    // do not consume END fence; outer loop will handle
+                implicitClose = true; // do not consume END fence here
                 break;
             }
             if (".".equals(bodyTrim)) {
                 explicitTerminator = true;
-                i++;                     // consume explicit terminator
+                i++; // consume '.'
                 break;
             }
+            // accumulate body, but cap snippet lines
             body.add(unescapeBodyLine(bodyLine));
+            if (snippetLines.size() < maxSnippetLines) {
+                snippetLines.add(bodyLine);
+            } else {
+                truncated = true;
+            }
             i++;
         }
-        return new BodyReadResult(body, i, implicitClose, explicitTerminator);
+        return new BodyReadResult(body, i, implicitClose, explicitTerminator, snippetLines, truncated);
     }
 
-    /**
-     * Reads a single anchor line for an expected address. If allowOmit==true and the next line is not an anchor,
-     * nothing is consumed and no error is reported. On malformed lines (when not allowed to omit), we report an error
-     * and consume one line to avoid infinite loops, mirroring the previous behavior.
-     */
-    private static AnchorReadResult readAnchorLine(
-            String[] lines, int index,
-            String malformedPrefix, String eofMessage, List<String> errors) throws ParseAbort {
+    private record BodyReadResult(
+            List<String> body,
+            int nextIndex,
+            boolean implicitClose,
+            boolean explicitTerminator,
+            List<String> snippetLines,
+            boolean truncated) {}
 
-        if (index >= lines.length) {
-            errors.add(eofMessage);
-            throw new ParseAbort(eofMessage);
-        }
-
-        var line = lines[index];
-        var m = ANCHOR_LINE.matcher(line);
-        if (m.matches()) {
-            var parsedAddr = m.group(1);
-            var parsedContent = m.group(2);
-
-            // Accept any well-formed anchor line; defer address mismatches to apply-time validation.
-            return new AnchorReadResult(parsedAddr, parsedContent, index + 1); // consume anchor line
-        }
-
-        errors.add(malformedPrefix + line);
-        throw new ParseAbort(malformedPrefix + line);
-    }
-
-    /** Unchecked control flow for hard parse failures. */
-    private static final class ParseAbort extends Exception {
-        ParseAbort(String message) { super(message); }
-    }
-
-    /**
-     * Reads anchors for range commands ('change' / 'delete') and returns normalized end address + contents.
-     * Behavior matches the previous inlined logic, including error wording and consumption rules.
-     */
-    private static RangeAnchors readRangeAnchors(
-            String[] lines, int startIndex, String opName, @Nullable String addr2, String path, List<String> errors) throws ParseAbort {
-
-        int i = startIndex;
-
-        // Begin anchor: always required (presence mandatory). For '0'/'$' addresses, we still allow
-        // lenient address substitutions (e.g., '1' for '0' and numeric for '$').
-        var a1 = readAnchorLine(
-                lines, i,
-                "Malformed or missing first anchor after " + opName + " command: ",
-                "Missing anchor line(s) after " + opName + " command for " + path,
-                errors);
-        i = a1.nextIndex();
-
-        // End anchor logic differs per op and presence of addr2
-        if (addr2 == null) {
-            if ("change".equals(opName)) {
-                // Single-line change: end anchor equals begin
-                return new RangeAnchors(a1.addr(), a1.addr(), a1.content(), a1.content(), i);
-            } else { // delete
-                // Single-address delete: no end anchor
-                return new RangeAnchors(a1.addr(), "", a1.content(), "", i);
-            }
-        }
-
-        // Range form: parse second anchor, required unless 0/$
-        var a2 = readAnchorLine(
-                lines, i,
-                "Malformed or missing second anchor after " + opName + " command: ",
-                "Missing second anchor line for range " + opName + " command for " + path,
-                errors);
-        i = a2.nextIndex();
-
-        return new RangeAnchors(a1.addr(), a2.addr(), a1.content(), a2.content(), i);
-    }
-
-    private static int parseAddr(String address) {
-        return "$".equals(address) ? Integer.MAX_VALUE : Integer.parseInt(address);
-    }
-
-    public static String addrToString(int n) {
-        return (n == Integer.MAX_VALUE) ? "$" : Integer.toString(n);
-    }
-
-    // Minimal unescape for body lines: "\." => ".", "\\" => "\"
     private static String unescapeBodyLine(String line) {
         if (line.equals("\\.")) return ".";
         if (line.equals("\\\\")) return "\\";
