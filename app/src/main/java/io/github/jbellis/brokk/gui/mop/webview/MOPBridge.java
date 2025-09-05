@@ -382,15 +382,31 @@ public final class MOPBridge {
                     : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
                             .getFocusOwner();
 
+            logger.warn("Context menu dependencies - component: {}, contextManager: {}, chrome: {}",
+                component != null ? component.getClass().getSimpleName() : "null",
+                contextManager != null,
+                chrome != null);
+
             if (component != null && contextManager != null) {
                 if (chrome != null) {
-                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
-                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
-                                            contextManager)
-                            .show(component, x, y);
+                    logger.warn("Calling ContextMenuBuilder.forSymbol() with symbol: {}", symbolName);
+                    try {
+                        io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
+                                        symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
+                                                contextManager)
+                                .show(component, x, y);
+                        logger.warn("ContextMenuBuilder.show() completed successfully");
+                    } catch (Exception e) {
+                        logger.error("Failed to show context menu", e);
+                    }
                 } else {
                     logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
                 }
+            } else {
+                logger.warn("Cannot show context menu - missing dependencies: component={}, contextManager={}, chrome={}",
+                        component != null ? component.getClass().getSimpleName() : "null",
+                        contextManager != null,
+                        chrome != null);
             }
         });
     }

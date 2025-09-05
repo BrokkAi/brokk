@@ -295,35 +295,57 @@
     showTooltip = false;
   }
 
-  // Prevent right-clicks on non-highlighted parts for partial matches
-  // Handlers for clicks directly on highlighted spans
-  function onHighlightClick(event: MouseEvent) {
-    if (event.button !== 0) return; // Only left clicks
+  // Single event handler for both left and right clicks (like master branch)
+  function handleClick(event: MouseEvent) {
+    if (!isValidSymbol || !symbolExists) return;
 
-    // Get the actual clicked text from the span
-    const clickedText = (event.target as HTMLElement).textContent || '';
-    const displayText = isPartialMatch ? `${clickedText} (from ${originalText})` : symbolText;
+    // Only process clicks on highlighted spans for partial matches, or any click for exact matches
+    const target = event.target as HTMLElement;
+    const isClickOnHighlight = target.classList.contains('symbol-highlight');
 
-    log.info(`Left-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
+    // For partial matches, only allow clicks on highlighted spans
+    // For exact matches, allow clicks anywhere since the whole symbol is highlighted
+    if (isPartialMatch && !isClickOnHighlight) return;
 
-    if (window.javaBridge?.onSymbolClick) {
-      // Pass the clicked text, not the full symbol text
-      window.javaBridge.onSymbolClick(clickedText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+    // Extract the clicked text - for partial matches get from span, for exact matches use full symbol
+    const clickedText = (isPartialMatch && isClickOnHighlight)
+      ? (target.textContent || symbolText)
+      : symbolText;
+
+    if (event.button === 0) { // Left click
+      const displayText = isPartialMatch ? `${clickedText} (from ${originalText})` : symbolText;
+      log.info(`Left-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
+
+      if (window.javaBridge?.onSymbolClick) {
+        window.javaBridge.onSymbolClick(clickedText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+      }
+    } else if (event.button === 2) { // Right click
+      event.preventDefault();
+      event.stopPropagation();
+
+      const displayText = isPartialMatch ? `${clickedText} (from ${originalText})` : symbolText;
+      log.info(`Right-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
+
+      if (window.javaBridge?.onSymbolClick) {
+        window.javaBridge.onSymbolClick(clickedText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+      }
     }
   }
 
-  function onHighlightContextMenu(event: MouseEvent) {
-    event.preventDefault(); // Prevent browser context menu
+  // Handle right-click via mousedown to prevent browser default behavior
+  function handleMouseDown(event: MouseEvent) {
+    if (event.button === 2 && isValidSymbol && symbolExists) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleClick(event);
+    }
+  }
 
-    // Get the actual clicked text from the span
-    const clickedText = (event.target as HTMLElement).textContent || '';
-    const displayText = isPartialMatch ? `${clickedText} (from ${originalText})` : symbolText;
-
-    log.info(`Right-clicked symbol: ${displayText}, exists: ${symbolExists}, fqn: ${symbolFqn || 'null'}, isPartialMatch: ${isPartialMatch}`);
-
-    if (window.javaBridge?.onSymbolClick) {
-      // Pass the clicked text, not the full symbol text
-      window.javaBridge.onSymbolClick(clickedText, !!symbolExists, symbolFqn, event.clientX, event.clientY);
+  function handleContextMenu(event: MouseEvent) {
+    if (isValidSymbol && symbolExists) {
+      event.preventDefault();
+      event.stopPropagation();
+      return false;
     }
   }
 
@@ -342,6 +364,9 @@
   data-symbol-id={componentId}
   onmouseenter={handleMouseEnter}
   onmouseleave={handleMouseLeave}
+  onmousedown={handleMouseDown}
+  onclick={handleClick}
+  oncontextmenu={handleContextMenu}
   role={symbolExists ? 'button' : undefined}
   {...rest}
   title={showDebugTooltips && isValidSymbol ? tooltipContent : rest.title}
@@ -354,8 +379,6 @@
         {#if segment.highlighted}
           <span
             class="symbol-highlight"
-            onclick={(e) => { e.stopPropagation(); onHighlightClick(e); }}
-            oncontextmenu={(e) => { e.stopPropagation(); e.preventDefault(); onHighlightContextMenu(e); }}
           >{segment.text}</span>
         {:else}
           <span class="symbol-non-highlight">{segment.text}</span>
@@ -365,8 +388,6 @@
       <!-- Full text highlighting for exact matches -->
       <span
         class="symbol-highlight"
-        onclick={(e) => { e.stopPropagation(); onHighlightClick(e); }}
-        oncontextmenu={(e) => { e.stopPropagation(); e.preventDefault(); onHighlightContextMenu(e); }}
       >{displayText}</span>
     {:else}
       <!-- Fallback to children if no text available -->
