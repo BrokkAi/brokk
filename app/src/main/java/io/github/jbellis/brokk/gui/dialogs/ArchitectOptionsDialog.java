@@ -89,7 +89,6 @@ public class ArchitectOptionsDialog {
                     BorderFactory.createEmptyBorder(H_GAP, H_GAP, V_GAP, H_GAP)));
             planningPanel.add(planningSelector.getComponent(), BorderLayout.CENTER);
 
-
             var selectorsRow = new JPanel(new GridLayout(1, 1, 10, 0));
             selectorsRow.add(planningPanel);
             selectorsRow.setAlignmentX(Component.LEFT_ALIGNMENT);

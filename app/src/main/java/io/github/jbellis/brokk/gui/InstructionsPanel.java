@@ -26,14 +26,13 @@ import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceDat
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
-import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
-import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
@@ -165,7 +164,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
-        KeyStroke toggleKs = io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        KeyStroke toggleKs =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
         modeSwitch.setToolTipText("Toggle between Code and Answer modes" + " (" + formatKeyStroke(toggleKs) + ")");
         var switchIcon = new SwitchIcon();
         modeSwitch.setIcon(switchIcon);
@@ -310,7 +310,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
             }
         };
-        KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke submitKs = KeyStroke.getKeyStroke(
+                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         actionButton.setOpaque(false);
         actionButton.setContentAreaFilled(false);
@@ -715,8 +716,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Format a KeyStroke into a human-readable short string such as "Ctrl+M" or "Meta+Enter".
-     * Falls back to KeyStroke.toString() on error.
+     * Format a KeyStroke into a human-readable short string such as "Ctrl+M" or "Meta+Enter". Falls back to
+     * KeyStroke.toString() on error.
      */
     private static String formatKeyStroke(KeyStroke ks) {
         try {
@@ -1598,9 +1599,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
             var codeModel = service.getModel(codeCfg);
             if (codeModel == null) {
-                chrome.toolError(
-                        "Selected model '" + codeCfg.name() + "' is not available with reasoning level "
-                                + codeCfg.reasoning());
+                chrome.toolError("Selected model '" + codeCfg.name() + "' is not available with reasoning level "
+                        + codeCfg.reasoning());
                 codeModel = service.quickModel();
             }
             // Proceed with execution using the selected options
@@ -1834,7 +1834,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Action button reflects current running state
-        KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        KeyStroke submitKs = KeyStroke.getKeyStroke(
+                KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         if (isActionRunning()) {
             actionButton.setIcon(Icons.STOP);
             actionButton.setText(null);
@@ -1924,10 +1925,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } finally {
                         currentActionFuture = null;
                         SwingUtilities.invokeLater(() -> {
-                            KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+                            KeyStroke submitKs = KeyStroke.getKeyStroke(
+                                    KeyEvent.VK_ENTER,
+                                    Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
                             actionButton.setIcon(Icons.SEND);
                             actionButton.setText(null);
-                            actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+                            actionButton.setToolTipText(
+                                    "Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
                             actionButton.setEnabled(true);
                             updateButtonStates();
                         });

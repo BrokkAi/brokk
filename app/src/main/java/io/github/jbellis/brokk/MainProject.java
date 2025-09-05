@@ -939,10 +939,7 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    /**
-     * Workspace preference: whether to "Plan First" (Architect) when coding.
-     * Defaults to true on first run.
-     */
+    /** Workspace preference: whether to "Plan First" (Architect) when coding. Defaults to true on first run. */
     public boolean getPlanFirst() {
         return Boolean.parseBoolean(mainWorkspaceProps.getProperty(PLAN_FIRST_KEY, "true"));
     }
@@ -952,10 +949,7 @@ public final class MainProject extends AbstractProject {
         persistWorkspacePropertiesFile();
     }
 
-    /**
-     * Workspace preference: whether to "Search First" when in Ask/Answer mode.
-     * Defaults to true on first run.
-     */
+    /** Workspace preference: whether to "Search First" when in Ask/Answer mode. Defaults to true on first run. */
     public boolean getSearchFirst() {
         return Boolean.parseBoolean(mainWorkspaceProps.getProperty(SEARCH_FIRST_KEY, "true"));
     }
