@@ -130,14 +130,14 @@ public final class LineEditorParser {
      *    we also return startIndex unchanged.
      *  - If it is an extra anchor for this op, we throw via fail(...).
      */
-    private static int checkForExtraAnchorsForRange(
+    private static void checkForExtraAnchorsForRange(
             String[] lines, int startIndex, int n, @Nullable Integer mOrNull,
-            String opName, String path, List<String> errors) {
+            String opName, String path, List<String> errors) throws ParseAbort {
 
-        if (startIndex >= lines.length) return startIndex;
+        if (startIndex >= lines.length) return;
 
         String addrStr = matchAnchorAddr(lines[startIndex]);
-        if (addrStr == null) return startIndex; // next line isn't an anchor; nothing to consume
+        if (addrStr == null) return;
 
         int addr = parseAddr(addrStr);
 
@@ -157,9 +157,6 @@ public final class LineEditorParser {
             errors.add(msg);
             throw new ParseAbort(msg);
         }
-
-        // Not an error: do not consume; caller should treat it as start of body or next command.
-        return startIndex;
     }
 
     /**
@@ -250,14 +247,6 @@ public final class LineEditorParser {
                             break;
                         }
 
-                        // ignore no-op lines
-                        if (cmdTrim.isEmpty()
-                                || cmdTrim.equals("w") || cmdTrim.equals("q")
-                                || cmdTrim.equals("wq") || cmdTrim.equals("qw")) {
-                            i++;
-                            continue;
-                        }
-
                         var range = RANGE_CMD.matcher(cmdTrim);
                         var ia = IA_CMD.matcher(cmdTrim);
 
@@ -275,7 +264,7 @@ public final class LineEditorParser {
                             i = anchors.nextIndex();
 
                             // flag any extra @N| ... anchors before body / next command
-                            i = checkForExtraAnchorsForRange(
+                            checkForExtraAnchorsForRange(
                                     lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
 
                             if (op == 'd') {
@@ -338,7 +327,7 @@ public final class LineEditorParser {
                             i = anchor.nextIndex();
 
                             // flag duplicate @n| anchors before body
-                            i = checkForExtraAnchorsForRange(
+                            checkForExtraAnchorsForRange(
                                     lines, i, n, null, "append", path, errors);
 
                             var bodyRes = readBody(lines, i);
@@ -447,7 +436,7 @@ public final class LineEditorParser {
      */
     private static AnchorReadResult readAnchorLine(
             String[] lines, int index, String expectedAddr,
-            String mismatchLabel, String malformedPrefix, String eofMessage, List<String> errors) {
+            String mismatchLabel, String malformedPrefix, String eofMessage, List<String> errors) throws ParseAbort {
 
         if (index >= lines.length) {
             errors.add(eofMessage);
@@ -482,7 +471,7 @@ public final class LineEditorParser {
     }
 
     /** Unchecked control flow for hard parse failures. */
-    private static final class ParseAbort extends RuntimeException {
+    private static final class ParseAbort extends Exception {
         ParseAbort(String message) { super(message); }
     }
 
@@ -491,7 +480,7 @@ public final class LineEditorParser {
      * Behavior matches the previous inlined logic, including error wording and consumption rules.
      */
     private static RangeAnchors readRangeAnchors(
-            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors) {
+            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors) throws ParseAbort {
 
         int i = startIndex;
 
@@ -785,7 +774,7 @@ Conventions and constraints:
               @9| def hello():
               @11|     print("hello")
               0 a
-              @0| 
+              @0|
               from hello import hello
               .
               BRK_EDIT_EX_END
