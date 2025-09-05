@@ -874,6 +874,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(instructionsArea::requestFocus);
     }
 
+    /**
+     * Toggle between Agent and Ask modes by flipping the modeSwitch.
+     * This reuses the existing ItemListener on modeSwitch so storedAction,
+     * checkbox visibility and labels are updated consistently.
+     */
+    public void toggleAgentAskMode() {
+        SwingUtilities.invokeLater(() -> {
+            // Flip the checkbox; its ItemListener will update storedAction and UI
+            boolean newAsk = !modeSwitch.isSelected();
+            modeSwitch.setSelected(newAsk);
+            // Ensure labels are updated immediately
+            updateModeLabels();
+            // Place focus back in the command input for convenience
+            requestCommandInputFocus();
+        });
+    }
+
     // --- Private Execution Logic ---
 
     /**
