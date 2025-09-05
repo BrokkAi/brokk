@@ -51,7 +51,14 @@ public class Messages {
     public static String getText(ChatMessage message) {
         return switch (message) {
             case SystemMessage sm -> sm.text();
-            case AiMessage am -> am.text() == null ? "" : am.text();
+            case AiMessage am -> {
+                var text = am.text();
+                if (text != null && !text.isBlank()) {
+                    yield text;
+                }
+                var reasoning = am.reasoningContent();
+                yield reasoning == null ? "" : reasoning;
+            }
             case UserMessage um ->
                 um.contents().stream()
                         .filter(c -> c instanceof TextContent)
