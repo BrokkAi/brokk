@@ -77,13 +77,11 @@ class CodeAgentTest {
             String goal,
             List<ChatMessage> taskMessages,
             UserMessage nextRequest,
-            List<LineEdit> pendingEdits,
             int blocksAppliedWithoutBuild) {
         var conversationState = new CodeAgent.ConversationState(
                 new ArrayList<>(taskMessages),
                 nextRequest);
         var workspaceState = new CodeAgent.EditState(
-                new ArrayList<>(pendingEdits),
                 0, // consecutiveEditRetries
                 0, // consecutiveNoResultRetries
                 0, // consecutiveBuildFailures
@@ -96,7 +94,7 @@ class CodeAgentTest {
     }
 
     private CodeAgent.LoopContext createBasicLoopContext(String goal) {
-        return createLoopContext(goal, List.of(), new UserMessage("test request"), List.of(), 0);
+        return createLoopContext(goal, List.of(), new UserMessage("test request"), 0);
     }
 
     // E-1: editPhase – prose-only response (no blocks) is clean "no edits"
@@ -110,7 +108,6 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.loopContext().editState().consecutiveEditRetries());
-        assertTrue(continueStep.loopContext().editState().pendingEdits().isEmpty());
     }
 
     // E-2: editPhase – valid block followed by trailing prose
@@ -150,7 +147,6 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
                            .contains("Some of your Line Edit tags failed"));
-        assertTrue(retryStep.loopContext().editState().pendingEdits().isEmpty());
     }
 
     // E-3b: editPhase – isPartial with >=1 block (should include last_good_edit)
@@ -282,7 +278,7 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_skipWhenNoEdits() {
         var loopContext = createLoopContext(
-                "test goal", List.of(new AiMessage("no edits")), new UserMessage("test request"), List.of(), 0);
+                "test goal", List.of(new AiMessage("no edits")), new UserMessage("test request"), 0);
         var result = codeAgent.verifyPhase(loopContext, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
@@ -294,7 +290,7 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_verificationCommandAbsent() {
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY);
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), 1);
 
         var result = codeAgent.verifyPhase(loopContext, null);
 
@@ -324,7 +320,7 @@ class CodeAgentTest {
             return "Successful output";
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), 1);
 
         var resultFail = codeAgent.verifyPhase(loopContext, null);
         assertInstanceOf(CodeAgent.Step.Retry.class, resultFail);
@@ -337,7 +333,6 @@ class CodeAgentTest {
         var contextForSecondRun = new CodeAgent.LoopContext(
                 retryStep.loopContext().conversationState(),
                 new CodeAgent.EditState(
-                        List.of(),
                         retryStep.loopContext().editState().consecutiveEditRetries(),
                         retryStep.loopContext().editState().consecutiveNoResultRetries(),
                         retryStep.loopContext().editState().consecutiveBuildFailures(),
@@ -364,7 +359,7 @@ class CodeAgentTest {
             throw new InterruptedException("Simulated interruption during shell command");
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), 1);
 
         var result = codeAgent.verifyPhase(loopContext, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);

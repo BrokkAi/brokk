@@ -108,7 +108,6 @@ public class CodeAgent {
 
         var conversationState = new ConversationState(taskMessages, nextRequest);
         var workspaceState = new EditState(
-                List.of(), // pendingEdits are not carried across turns with combined phase
                 0,         // consecutiveEditRetries
                 0,         // consecutiveNoResultRetries
                 0,         // consecutiveBuildFailures
@@ -169,7 +168,6 @@ public class CodeAgent {
             if (stopDetails != null) break;
 
             // VERIFY PHASE runs the build (only when something was applied since last build)
-            assert loopContext.editState().pendingEdits().isEmpty() : loopContext;
             var verifyOutcome = verifyPhase(loopContext, metrics);
             switch (verifyOutcome) {
                 case Step.Retry(var newLoopContext) -> {
@@ -220,7 +218,7 @@ public class CodeAgent {
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(List.of(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
@@ -380,7 +378,6 @@ public class CodeAgent {
             }
             // Reset both edit retry counters on a clean turn
             var newWs = ws.afterEditAttempt(
-                    List.of(), // no carry-over
                     0,         // consecutiveEditRetries reset
                     0,         // consecutiveNoResultRetries reset
                     newBlocksAppliedWithoutBuild,
@@ -398,15 +395,11 @@ public class CodeAgent {
 
         // Metrics bookkeeping (keep separate counters even though the phase is combined)
         if (metrics != null) {
-            metrics.editRetries++;
             if (isPartialResponse || hasParseProblems) {
-                metrics.parseRetryTriggers++;
+                metrics.parseRetries++;
             }
             if (hasApplyProblems) {
-                metrics.applyRetryTriggers++;
-            }
-            if (succeeded == 0) {
-                metrics.noResultRetries++;
+                metrics.applyRetries++;
             }
         }
 
@@ -426,7 +419,6 @@ public class CodeAgent {
         int newBlocksAppliedWithoutBuild = ws.blocksAppliedWithoutBuild() + Math.max(0, succeeded);
         var nextCs = new ConversationState(cs.taskMessages(), new UserMessage(retryPrompt));
         var nextWs = ws.afterEditAttempt(
-                List.of(), // do not carry pending edits across turns
                 newConsecutiveEditRetries,
                 newConsecutiveNoResultRetries,
                 newBlocksAppliedWithoutBuild,
@@ -810,7 +802,6 @@ public class CodeAgent {
     record ConversationState(List<ChatMessage> taskMessages, UserMessage nextRequest) {}
 
     record EditState(
-            List<LineEdit> pendingEdits,
             int consecutiveEditRetries,
             int consecutiveNoResultRetries,
             int consecutiveBuildFailures,
@@ -823,13 +814,11 @@ public class CodeAgent {
          * Returns a new EditState after an edit attempt (success or retry).
          */
         EditState afterEditAttempt(
-                List<LineEdit> newPendingEdits,
                 int newConsecutiveEditRetries,
                 int newConsecutiveNoResultRetries,
                 int newBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
             return new EditState(
-                    newPendingEdits,
                     newConsecutiveEditRetries,
                     newConsecutiveNoResultRetries,
                     consecutiveBuildFailures,
@@ -842,7 +831,6 @@ public class CodeAgent {
         /** Returns a new EditState after a build failure, updating the error message. */
         EditState afterBuildFailure(String newBuildError) {
             return new EditState(
-                    pendingEdits,
                     consecutiveEditRetries,
                     consecutiveNoResultRetries,
                     consecutiveBuildFailures + 1,
