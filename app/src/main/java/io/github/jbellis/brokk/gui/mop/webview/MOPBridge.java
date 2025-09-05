@@ -41,6 +41,7 @@ public final class MOPBridge {
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
 
+
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -109,9 +110,31 @@ public final class MOPBridge {
         if (text.isEmpty()) {
             return;
         }
-        // Epoch is assigned later, just queue the content
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
+
+        String outText = addReasoningNewlines(text, isNew, reasoning);
+
+        eventQueue.add(new BrokkEvent.Chunk(outText, isNew, msgType, -1, streaming, reasoning));
         scheduleSend();
+    }
+
+    /**
+     * Stateless heuristic to improve formatting of reasoning sections from some models (e.g. recent OpenAI models)
+     * that don't always add a newline before a new bolded section like "**Analyzing ...**".
+     *
+     * @param text The incoming text chunk.
+     * @param isNew Whether this is the first chunk of a new message bubble.
+     * @param reasoning Whether this chunk is part of a reasoning block.
+     * @return The text, possibly with newlines prepended to bolded sections.
+     */
+    private static String addReasoningNewlines(String text, boolean isNew, boolean reasoning) {
+        if (reasoning && !isNew && !text.isEmpty()) {
+            // - Only for reasoning chunks.
+            // - Skip at the very start of the reasoning message (!isNew).
+            // - Match only opening "**": not preceded by a newline or a word char, and followed by a word char.
+            // - Does not match '***'.
+            return text.replaceAll("(?<!\\n)(?<!\\w)\\*\\*(?=\\w)(?!\\*)", "\n\n**");
+        }
+        return text;
     }
 
     public void setTheme(boolean isDark, boolean isDevMode) {
@@ -385,6 +408,7 @@ public final class MOPBridge {
     public String getContextCacheId() {
         return "main-context";
     }
+
 
     private static String toJson(Object obj) {
         try {
