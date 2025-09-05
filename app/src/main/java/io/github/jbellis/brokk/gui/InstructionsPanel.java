@@ -99,8 +99,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JToggleButton askToggle;
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
-    private final JButton goButton;
-    private final JButton stopButton;
+    private final JButton actionButton;
+    private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
     private String storedAction;
     private final ContextManager contextManager;
@@ -214,23 +214,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeCheckBox.setVisible(true);
         scanProjectCheckBox.setVisible(false);
 
-        // Go and Stop buttons
-        goButton = new JButton("Go");
-        goButton.setToolTipText("Run the selected action");
-        goButton.addActionListener(e -> {
-            switch (storedAction) {
-                case ACTION_ARCHITECT -> runArchitectCommand();
-                case ACTION_CODE -> runCodeCommand();
-                case ACTION_SEARCH -> runSearchCommand();
-                case ACTION_SCAN_PROJECT -> runScanProjectCommand();
-                default -> runArchitectCommand();
-            }
-        });
-
-        stopButton = new JButton("Stop");
-        stopButton.setToolTipText("Cancel the current operation");
-        stopButton.setEnabled(false); // Start disabled, enabled when an action runs
-        stopButton.addActionListener(e -> chrome.getContextManager().interruptUserActionThread());
+        // Single Action button (Go/Stop toggle)
+        actionButton = new JButton("Go");
+        actionButton.setToolTipText("Run the selected action");
+        actionButton.addActionListener(e -> onActionButtonPressed());
 
         modelSelector = new ModelSelector(chrome);
         modelSelector.selectConfig(chrome.getProject().getCodeModelConfig());
@@ -314,7 +301,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         SwingUtilities.invokeLater(() -> {
             if (chrome.getFrame().getRootPane() != null) {
-                chrome.getFrame().getRootPane().setDefaultButton(goButton);
+                chrome.getFrame().getRootPane().setDefaultButton(actionButton);
             }
         });
 
@@ -595,12 +582,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Flexible space between action controls and Go/Stop
         bottomPanel.add(Box.createHorizontalGlue());
 
-        // Go and Stop buttons on the right
-        goButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(goButton);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        stopButton.setAlignmentY(Component.CENTER_ALIGNMENT);
-        bottomPanel.add(stopButton);
+        // Action button (Go/Stop toggle) on the right
+        actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        bottomPanel.add(actionButton);
 
         return bottomPanel;
     }
@@ -1299,7 +1283,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // don't use submitAction, we're going to kick off a new Worktree + Chrome and run in that, leaving the original
         // free
-        cm.submitUserTask("Setup Architect Worktree", true, () -> {
+        var future = cm.submitUserTask("Setup Architect Worktree", true, () -> {
             try {
                 chrome.showOutputSpinner("Setting up Git worktree...");
 
@@ -1383,6 +1367,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.hideOutputSpinner();
             }
         });
+        setActionRunning(future);
     }
 
     /**
@@ -1393,7 +1378,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param options The pre-configured ArchitectOptions.
      */
     public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
-        submitAction(ACTION_ARCHITECT, goal, () -> {
+        var future = submitAction(ACTION_ARCHITECT, goal, () -> {
             var service = chrome.getContextManager().getService();
             var planningModel = service.getModel(options.planningModel());
             if (planningModel == null) {
@@ -1406,6 +1391,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Proceed with execution using the selected options
             executeArchitectCommand(planningModel, codeModel, goal, options);
         });
+        setActionRunning(future);
     }
 
     // Methods for running commands. These prepare the input and model, then delegate
@@ -1476,7 +1462,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction(ACTION_CODE, input, () -> executeCodeCommand(modelToUse, input));
+        var future = submitAction(ACTION_CODE, input, () -> executeCodeCommand(modelToUse, input));
+        setActionRunning(future);
     }
 
     // Public entry point for default Ask model
@@ -1500,7 +1487,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction(ACTION_ASK, input, () -> {
+        var future = submitAction(ACTION_ASK, input, () -> {
             var result = executeAskCommand(contextManager, modelToUse, input);
 
             // Display result in the LLM output panel
@@ -1521,6 +1508,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
         });
+        setActionRunning(future);
     }
 
     public void runSearchCommand() {
@@ -1542,7 +1530,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 ChatMessageType.CUSTOM);
         clearCommandInput();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(modelToUse, input));
+        var future = submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(modelToUse, input));
+        setActionRunning(future);
     }
 
     public void runRunCommand() {
@@ -1558,7 +1547,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public void runRunCommand(String input) {
         clearCommandInput();
-        submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
+        var future = submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
+        setActionRunning(future);
     }
 
     /** sets the llm output to indicate the action has started, and submits the task on the user pool */
@@ -1585,12 +1575,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Methods to disable and enable buttons.
     void disableButtons() {
+        // Disable ancillary controls only; leave the action button alone so it can become "Stop"
         agentToggle.setEnabled(false);
         askToggle.setEnabled(false);
         codeCheckBox.setEnabled(false);
         scanProjectCheckBox.setEnabled(false);
-        goButton.setEnabled(false);
-        stopButton.setEnabled(true);
+
+        // Keep the action button usable for "Stop" while a task is running.
+        if (isActionRunning()) {
+            actionButton.setText("Stop");
+            actionButton.setEnabled(true);
+            actionButton.setToolTipText("Cancel the current operation");
+        } else {
+            // If there is no running action, keep the action button enabled so the user can start an action.
+            actionButton.setEnabled(true);
+        }
     }
 
     /**
@@ -1619,11 +1618,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Ask mode");
         }
 
-        // Go is available when not running
-        goButton.setEnabled(true);
-
-        // Stop is only enabled when an action is running
-        stopButton.setEnabled(false);
+        // Action button reflects current running state
+        if (isActionRunning()) {
+            actionButton.setText("Stop");
+            actionButton.setToolTipText("Cancel the current operation");
+        } else {
+            actionButton.setText("Go");
+            actionButton.setToolTipText("Run the selected action");
+        }
+        actionButton.setEnabled(true);
 
         // Ensure storedAction is consistent with current UI
         if (agentToggle.isSelected()) {
@@ -1649,6 +1652,61 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     private void notifyActionComplete(String actionName) {
         chrome.notifyActionComplete("Action '" + actionName + "' completed.");
+    }
+
+    private boolean isActionRunning() {
+        var f = currentActionFuture;
+        return f != null && !f.isDone();
+    }
+
+    private void onActionButtonPressed() {
+        if (isActionRunning()) {
+            // Stop action
+            chrome.getContextManager().interruptUserActionThread();
+            var f = currentActionFuture;
+            if (f != null) {
+                f.cancel(true);
+            }
+            // Button will flip back to "Go" once the Future completes (see watcher in setActionRunning)
+            return;
+        }
+
+        // Go action
+        switch (storedAction) {
+            case ACTION_ARCHITECT -> runArchitectCommand();
+            case ACTION_CODE -> runCodeCommand();
+            case ACTION_SEARCH -> runSearchCommand();
+            case ACTION_SCAN_PROJECT -> runScanProjectCommand();
+            default -> runArchitectCommand();
+        }
+    }
+
+    private void setActionRunning(Future<?> f) {
+        currentActionFuture = f;
+        SwingUtilities.invokeLater(() -> {
+            actionButton.setText("Stop");
+            actionButton.setToolTipText("Cancel the current operation");
+            actionButton.setEnabled(true);
+        });
+        Thread watcher = new Thread(() -> {
+            try {
+                f.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException | CancellationException ignored) {
+                // ignore
+            } finally {
+                currentActionFuture = null;
+                SwingUtilities.invokeLater(() -> {
+                    actionButton.setText("Go");
+                    actionButton.setToolTipText("Run the selected action");
+                    actionButton.setEnabled(true);
+                    updateButtonStates();
+                });
+            }
+        }, "Brokk-Action-Watcher");
+        watcher.setDaemon(true);
+        watcher.start();
     }
 
     public void populateInstructionsArea(String text) {
@@ -1697,7 +1755,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(goal, 20);
         clearCommandInput();
 
-        submitAction("Scan Project", goal, () -> executeScanProjectCommand(modelToUse, goal));
+        var future = submitAction("Scan Project", goal, () -> executeScanProjectCommand(modelToUse, goal));
+        setActionRunning(future);
     }
 
     private void executeScanProjectCommand(StreamingChatModel model, String goal) {
