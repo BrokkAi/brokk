@@ -180,8 +180,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setText("");
         modeSwitch.setSelected(false); // Agent by default
 
-        codeCheckBox = new JCheckBox("Code");
-        codeCheckBox.setToolTipText("Tell the LLM to write code in Agent mode");
+        codeCheckBox = new JCheckBox("Speed Mode");
+        codeCheckBox.setToolTipText("Enable Speed Mode (tell the agent to write code automatically)");
 
         scanProjectCheckBox = new JCheckBox("Scan Project");
         scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Ask mode");
@@ -583,12 +583,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         java.awt.Color base = UIManager.getColor("Label.foreground");
         if (base == null) base = agentModeLabel.getForeground();
 
-        float factor = 0.6f; // slightly darker for non-selected
-        java.awt.Color dim = new java.awt.Color(
-                Math.max(0, Math.min(255, Math.round(base.getRed() * factor))),
-                Math.max(0, Math.min(255, Math.round(base.getGreen() * factor))),
-                Math.max(0, Math.min(255, Math.round(base.getBlue() * factor)))
-        );
+        boolean isDark = UIManager.getBoolean("laf.dark");
+        java.awt.Color dim = isDark
+                ? darkenColor(base, 0.6f) // darken for dark theme
+                : lightenColor(base, 0.4f); // lighten for light theme
 
         // Keep fonts consistent (plain) to prevent layout shifts
         Font baseFont = agentModeLabel.getFont().deriveFont(Font.PLAIN);
@@ -602,6 +600,28 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             agentModeLabel.setForeground(base);
             askModeLabel.setForeground(dim);
         }
+    }
+
+    private static java.awt.Color lightenColor(java.awt.Color base, float amount) {
+        amount = Math.max(0f, Math.min(1f, amount));
+        int r = Math.round(base.getRed() + (255 - base.getRed()) * amount);
+        int g = Math.round(base.getGreen() + (255 - base.getGreen()) * amount);
+        int b = Math.round(base.getBlue() + (255 - base.getBlue()) * amount);
+        r = Math.max(0, Math.min(255, r));
+        g = Math.max(0, Math.min(255, g));
+        b = Math.max(0, Math.min(255, b));
+        return new java.awt.Color(r, g, b);
+    }
+
+    private static java.awt.Color darkenColor(java.awt.Color base, float factor) {
+        factor = Math.max(0f, Math.min(1f, factor));
+        int r = Math.round(base.getRed() * factor);
+        int g = Math.round(base.getGreen() * factor);
+        int b = Math.round(base.getBlue() * factor);
+        r = Math.max(0, Math.min(255, r));
+        g = Math.max(0, Math.min(255, g));
+        b = Math.max(0, Math.min(255, b));
+        return new java.awt.Color(r, g, b);
     }
 
     private JPanel buildBottomPanel() {
@@ -1666,8 +1686,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             scanProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
             codeCheckBox.setToolTipText(gitAvailable
-                    ? "Tell the LLM to write code in Agent mode"
-                    : "Code feature requires Git integration for this project.");
+                    ? "Enable Speed Mode (tell the agent to write code automatically)"
+                    : "Speed Mode requires Git integration for this project.");
         } else {
             codeCheckBox.setVisible(false);
             scanProjectCheckBox.setVisible(true);
