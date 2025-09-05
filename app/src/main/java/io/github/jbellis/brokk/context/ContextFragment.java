@@ -1244,7 +1244,14 @@ public interface ContextFragment {
 
         @Override
         public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+            final var allSources = sources().stream().map(CodeUnit::source);
+            if (!includeTestFiles) {
+                return allSources
+                        .filter(source -> !ContextManager.isTestFile(source))
+                        .collect(Collectors.toSet());
+            } else {
+                return allSources.collect(Collectors.toSet());
+            }
         }
 
         @Override
