@@ -182,6 +182,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         agentToggle.addActionListener(e -> {
             if (agentToggle.isSelected()) {
                 codeCheckBox.setVisible(true);
+                // Enable the Code checkbox only when the project has a Git repository available
+                codeCheckBox.setEnabled(chrome.getProject().hasGit());
                 scanProjectCheckBox.setVisible(false);
                 storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
             }
