@@ -82,7 +82,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
-    public static final String ACTION_ASK = "Ask";
+    public static final String ACTION_ASK = "Answer";
     public static final String ACTION_SEARCH = "Search";
     public static final String ACTION_RUN = "Run";
     public static final String ACTION_SCAN_PROJECT = "Scan Project";
@@ -101,8 +101,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
     // Labels flanking the mode switch; bold the selected side
-    private final JLabel agentModeLabel = new JLabel("Agent");
-    private final JLabel askModeLabel = new JLabel("Ask");
+private final JLabel codeModeLabel = new JLabel("Code");
+private final JLabel answerModeLabel = new JLabel("Answer");
     private final JButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
@@ -164,7 +164,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
-        modeSwitch.setToolTipText("Toggle between Agent and Ask modes");
+        modeSwitch.setToolTipText("Toggle between Code and Answer modes");
         var switchIcon = new SwitchIcon();
         modeSwitch.setIcon(switchIcon);
         modeSwitch.setSelectedIcon(switchIcon);
@@ -178,13 +178,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         modeSwitch.setRolloverEnabled(false);
         modeSwitch.setMargin(new Insets(0, 0, 0, 0));
         modeSwitch.setText("");
-        modeSwitch.setSelected(false); // Agent by default
+        modeSwitch.setSelected(false); // Code by default
 
         codeCheckBox = new JCheckBox("Speed Mode");
-        codeCheckBox.setToolTipText("Enable Speed Mode (tell the agent to write code automatically)");
+        codeCheckBox.setToolTipText("Enable Speed Mode (write code directly without planning)");
 
         scanProjectCheckBox = new JCheckBox("Scan Project");
-        scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Ask mode");
+        scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Answer mode");
 
         // default stored action: Architect
         storedAction = ACTION_ARCHITECT;
@@ -577,30 +577,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
     private void updateModeLabels() {
-        boolean askMode = modeSwitch.isSelected();
+    boolean askMode = modeSwitch.isSelected();
 
-        // Base and dimmed colors (theme-aware via UIManager)
-        java.awt.Color base = UIManager.getColor("Label.foreground");
-        if (base == null) base = agentModeLabel.getForeground();
+    // Base and dimmed colors (theme-aware via UIManager)
+    java.awt.Color base = UIManager.getColor("Label.foreground");
+    if (base == null) base = codeModeLabel.getForeground();
 
-        boolean isDark = UIManager.getBoolean("laf.dark");
-        java.awt.Color dim = isDark
-                ? darkenColor(base, 0.6f) // darken for dark theme
-                : lightenColor(base, 0.4f); // lighten for light theme
+    boolean isDark = UIManager.getBoolean("laf.dark");
+    java.awt.Color dim = isDark
+            ? darkenColor(base, 0.6f) // darken for dark theme
+            : lightenColor(base, 0.4f); // lighten for light theme
 
-        // Keep fonts consistent (plain) to prevent layout shifts
-        Font baseFont = agentModeLabel.getFont().deriveFont(Font.PLAIN);
-        agentModeLabel.setFont(baseFont);
-        askModeLabel.setFont(baseFont);
+    // Keep fonts consistent (plain) to prevent layout shifts
+    Font baseFont = codeModeLabel.getFont().deriveFont(Font.PLAIN);
+    codeModeLabel.setFont(baseFont);
+    answerModeLabel.setFont(baseFont);
 
-        if (askMode) {
-            agentModeLabel.setForeground(dim);
-            askModeLabel.setForeground(base);
-        } else {
-            agentModeLabel.setForeground(base);
-            askModeLabel.setForeground(dim);
-        }
+    if (askMode) {
+        codeModeLabel.setForeground(dim);
+        answerModeLabel.setForeground(base);
+    } else {
+        codeModeLabel.setForeground(base);
+        answerModeLabel.setForeground(dim);
     }
+}
 
     private static java.awt.Color lightenColor(java.awt.Color base, float amount) {
         amount = Math.max(0f, Math.min(1f, amount));
@@ -629,7 +629,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-        // Action selector group: Agent/Ask switch inside a bordered panel
+        // Action selector group: Code/Answer switch inside a bordered panel
         JPanel actionGroup = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         java.awt.Color borderColor = UIManager.getColor("Component.borderColor");
         if (borderColor == null) {
@@ -640,11 +640,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 BorderFactory.createEmptyBorder(2, 6, 2, 2)
         ));
         actionGroup.setOpaque(false);
-        actionGroup.add(agentModeLabel);
+        actionGroup.add(codeModeLabel);
         actionGroup.add(Box.createHorizontalStrut(2));
         actionGroup.add(modeSwitch);
         actionGroup.add(Box.createHorizontalStrut(2));
-        actionGroup.add(askModeLabel);
+        actionGroup.add(answerModeLabel);
 
         // Keep the grouping box tight; prevent BoxLayout from stretching it
         actionGroup.setMaximumSize(actionGroup.getPreferredSize());
@@ -875,11 +875,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Toggle between Agent and Ask modes by flipping the modeSwitch.
+     * Toggle between Code and Answer modes by flipping the modeSwitch.
      * This reuses the existing ItemListener on modeSwitch so storedAction,
      * checkbox visibility and labels are updated consistently.
      */
-    public void toggleAgentAskMode() {
+    public void toggleCodeAnswerMode() {
         SwingUtilities.invokeLater(() -> {
             // Flip the checkbox; its ItemListener will update storedAction and UI
             boolean newAsk = !modeSwitch.isSelected();
@@ -1174,12 +1174,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             return new TaskResult(
                     cm,
-                    "Ask: " + question,
+                    "Answer: " + question,
                     List.of(),
                     Set.of(),
                     new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
-        var llm = cm.getLlm(model, "Ask: " + question);
+        var llm = cm.getLlm(model, "Answer: " + question);
 
         return executeAskCommand(llm, messages, cm, question);
     }
@@ -1211,7 +1211,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Ask: " + question,
+                "Answer: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages(false)),
                 Set.of(), // Ask never changes files
                 stop);
@@ -1239,7 +1239,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Executes the core logic for the "Agent" command. This runs inside the Runnable passed to
+     * Executes the core logic for the "Architect" command. This runs inside the Runnable passed to
      * contextManager.submitAction.
      *
      * @param goal The initial user instruction passed to the agent.
@@ -1259,8 +1259,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         } catch (Exception e) {
-            logger.error("Error during Agent execution", e);
-            chrome.toolError("Internal error during Agent command: " + e.getMessage());
+            logger.error("Error during Architect execution", e);
+            chrome.toolError("Internal error during Architect command: " + e.getMessage());
         }
     }
 
@@ -1340,7 +1340,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runArchitectCommand() {
         var goal = getInstructions();
         if (goal.isBlank()) {
-            chrome.toolError("Please provide an initial goal or instruction for the Agent");
+            chrome.toolError("Please provide an initial goal or instruction for the Architect");
             return;
         }
 
@@ -1351,7 +1351,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If the user cancelled the dialog, choices will be null.
         if (choices == null) {
-            logger.debug("Agent command cancelled during option selection.");
+            logger.debug("Architect command cancelled during option selection.");
             enableButtons(); // Re-enable buttons since the action was cancelled before submission
             return;
         }
@@ -1442,9 +1442,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .open()
                         .thenAccept(success -> {
                             if (Boolean.TRUE.equals(success)) {
-                                chrome.systemOutput("New worktree opened for Agent");
+                                chrome.systemOutput("New worktree opened for Architect");
                             } else {
-                                chrome.toolError("Failed to open the new worktree project for Agent.");
+                                chrome.toolError("Failed to open the new worktree project for Architect.");
                                 populateInstructionsArea(originalInstructions);
                             }
                         })
@@ -1564,7 +1564,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     // Public entry point for default Ask model
     public void runAskCommand(String input) {
-        final var modelToUse = selectDropdownModelOrShowError("Ask", true);
+        final var modelToUse = selectDropdownModelOrShowError("Answer", true);
         if (modelToUse == null) {
             return;
         }
@@ -1599,9 +1599,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Provide a brief status update
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
+                chrome.llmOutput("Answer command complete!", ChatMessageType.CUSTOM);
             } else {
-                chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+                chrome.llmOutput("Answer command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
         });
         setActionRunning(future);
@@ -1703,7 +1703,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             scanProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
             codeCheckBox.setToolTipText(gitAvailable
-                    ? "Enable Speed Mode (tell the agent to write code automatically)"
+                    ? "Enable Speed Mode (tell Brokk to write code automatically)"
                     : "Speed Mode requires Git integration for this project.");
         } else {
             codeCheckBox.setVisible(false);
