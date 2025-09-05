@@ -135,7 +135,7 @@ class CodeAgentTest {
         assertEquals("new", file.read().strip());
     }
 
-    // E-3a: editPhase – isPartial flag handling (no blocks)
+    // E-3a: editPhase – isPartial flag handling (no blocks) => cut-off prompt
     @Test
     void testEditPhase_isPartial_zeroBlocks() {
         var loopContext = createBasicLoopContext("test goal");
@@ -146,10 +146,10 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
-                           .contains("Some of your Line Edit tags failed"));
+                           .contains("got cut off"));
     }
 
-    // E-3b: editPhase – isPartial with >=1 block (should include last_good_edit)
+    // E-3b: editPhase – isPartial with >=1 block => cut-off prompt, no last_good_edit
     @Test
     void testEditPhase_isPartial_withBlocks() throws IOException {
         var file = contextManager.toFile("file.java");
@@ -172,7 +172,8 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         String nextText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
-        assertTrue(nextText.contains("<last_good_edit>"));
+        assertFalse(nextText.contains("<last_good_edit>"));
+        assertTrue(nextText.contains("got cut off"));
         assertTrue(retryStep.loopContext().editState().blocksAppliedWithoutBuild() >= 0);
     }
 

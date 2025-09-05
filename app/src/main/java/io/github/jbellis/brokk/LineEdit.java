@@ -73,6 +73,54 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
         return toString();
     }
 
+    /**
+     * Concise summary for display in errors/prompts; elides the body as "[...]".
+     */
+    default String summary() {
+        if (this instanceof DeleteFile(String path)) {
+            return "BRK_EDIT_RM " + path;
+        }
+        if (this instanceof EditFile(
+                String path, int beginLine, int endLine, String content, Anchor beginAnchor,
+                @Nullable Anchor endAnchor
+        )) {
+            var sb = new StringBuilder();
+            sb.append("BRK_EDIT_EX ").append(path).append('\n');
+
+            if (endLine < beginLine) {
+                // insertion
+                String addr = (beginLine == Integer.MAX_VALUE) ? "$" : LineEditorParser.addrToString(beginLine - 1);
+                sb.append(addr).append(" a\n");
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+                sb.append("[...]\n");
+                sb.append("BRK_EDIT_EX_END");
+                return sb.toString();
+            } else if (content.isEmpty()) {
+                // delete (no body to elide)
+                sb.append(LineEditorParser.addrToString(beginLine)).append(',')
+                        .append(LineEditorParser.addrToString(endLine)).append(" d\n");
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+                if (endAnchor != null && !endAnchor.address().isBlank()) {
+                    sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
+                }
+                sb.append("BRK_EDIT_EX_END");
+                return sb.toString();
+            } else {
+                // change with elided body
+                sb.append(LineEditorParser.addrToString(beginLine)).append(',')
+                        .append(LineEditorParser.addrToString(endLine)).append(" c\n");
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+                if (endAnchor != null) {
+                    sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
+                }
+                sb.append("[...]\n");
+                sb.append("BRK_EDIT_EX_END");
+                return sb.toString();
+            }
+        }
+        return toString();
+    }
+
     /** Path to the file being edited/deleted, relative to the project root. */
     String file();
 

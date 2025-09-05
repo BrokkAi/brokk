@@ -521,6 +521,21 @@ public abstract class CodePrompts {
             List<LineEditor.ApplyFailure> applyFailures,
             int succeededCount) {
 
+        // Special case: no parse/apply failures -> likely a partial/cut-off response.
+        if ((fatalParseError == null) && parseFailures.isEmpty() && applyFailures.isEmpty()) {
+            return """
+<instructions>
+It looks like we got cut off before you finished sending your edit blocks.
+Please continue from where you left off and send the remaining BRK_EDIT_EX / BRK_EDIT_RM blocks.
+
+Reminders:
+- Close every BRK_EDIT_EX block with BRK_EDIT_EX_END.
+- Emit non-overlapping edits in descending order per file.
+- Anchors are mandatory and must match the addressed lines; bodies end with a single '.' line.
+</instructions>
+""";
+        }
+
         var hasParse = (fatalParseError != null) || !parseFailures.isEmpty();
 
         var sb = new StringBuilder();
@@ -601,7 +616,7 @@ Reminders:
   %s
   </commentary>
   </failed_edit>
-""".formatted(f.reason(), f.edit().repr(), f.commentary()));
+""".formatted(f.reason(), f.edit().summary(), f.commentary()));
                     }
                     sb.append("</apply_failures>\n");
                 }
@@ -659,15 +674,7 @@ The other %d edit%s applied successfully and are now reflected in the latest fil
 """.stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
         }
 
-        if (lastGoodEdit != null) {
-            sb.append("""
-<last_good_edit>
-%s
-</last_good_edit>
-
-Please continue from there WITHOUT repeating that edit.
-""".stripIndent().formatted(lastGoodEdit.repr()));
-        }
+        // Intentionally removed last_good_edit section.
 
         return sb.toString();
     }
