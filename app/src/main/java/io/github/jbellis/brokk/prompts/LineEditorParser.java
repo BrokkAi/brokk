@@ -793,7 +793,8 @@ Guidance:
 - After the explanation, output ONLY BRK_EDIT_EX / BRK_EDIT_RM blocks for the actual edits (no other formats).
 - Always include the closing fence BRK_EDIT_EX_END for every BRK_EDIT_EX block.
 - Prefer multiple commands inside a single BRK_EDIT_EX block per file instead of opening many blocks.
-- Keep edits small and **emit last-edits-first** within each file. Avoid overlapping ranges entirely.
+- Keep edits small and emit last-edits-first within each file. Avoid overlapping ranges entirely;
+  combine into a single edit instead.
 - Use `0 a` to insert at the start of a file, and `$ a` to append at the end.
 - To create a new file, use `0 a` with the whole file body; do not attempt a replace on a missing file.
 - `n,m c` ranges are INCLUSIVE, MAKE SURE YOU ARE NOT OFF BY ONE.

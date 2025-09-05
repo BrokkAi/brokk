@@ -43,6 +43,7 @@ public final class LineEditor {
         FILE_NOT_FOUND,
         INVALID_LINE_RANGE,
         ANCHOR_MISMATCH,
+        OVERLAPPING_EDITS,
         IO_ERROR
     }
 
@@ -86,10 +87,21 @@ public final class LineEditor {
         for (var entry : editsByFile.entrySet()) {
             var perFile = entry.getValue();
 
+            // Detect overlapping edits for this file; record failures and skip them
+            var overlapping = detectOverlapping(perFile);
+            if (!overlapping.isEmpty()) {
+                for (var ef : overlapping) {
+                    failures.add(new FailedEdit(
+                            ef, FailureReason.OVERLAPPING_EDITS,
+                            "Overlapping edit detected within " + ef.file() + " at " + ef.beginLine() + ".." + ef.endLine()));
+                }
+            }
+
             var changes = new ArrayList<LineEdit.EditFile>();
             var inserts = new ArrayList<LineEdit.EditFile>();
 
             for (var ef : perFile) {
+                if (overlapping.contains(ef)) continue; // skip conflicted edits
                 if (ef.endLine() < ef.beginLine()) inserts.add(ef);
                 else changes.add(ef);
             }
@@ -380,5 +392,64 @@ public final class LineEditor {
             return "Edit(" + ef.file() + "@" + ef.beginLine() + ".." + ef.endLine() + ")";
         }
         return edit.getClass().getSimpleName();
+    }
+
+    // Detect overlapping edits within a single file. Returns the set of edits that conflict.
+    private static List<LineEdit.EditFile> detectOverlapping(List<LineEdit.EditFile> edits) {
+        var conflicts = new java.util.HashSet<LineEdit.EditFile>();
+        int size = edits.size();
+        for (int i = 0; i < size; i++) {
+            var a = edits.get(i);
+            for (int j = i + 1; j < size; j++) {
+                var b = edits.get(j);
+                if (overlaps(a, b)) {
+                    conflicts.add(a);
+                    conflicts.add(b);
+                }
+            }
+        }
+        if (conflicts.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(conflicts);
+    }
+
+    private static boolean isInsertion(LineEdit.EditFile ef) {
+        return ef.endLine() < ef.beginLine();
+    }
+
+    private static boolean overlaps(LineEdit.EditFile a, LineEdit.EditFile b) {
+        boolean aIns = isInsertion(a);
+        boolean bIns = isInsertion(b);
+
+        if (!aIns && !bIns) {
+            // range-vs-range: [a.begin..a.end] intersects [b.begin..b.end]
+            int lo = Math.max(a.beginLine(), b.beginLine());
+            int hi = Math.min(a.endLine(), b.endLine());
+            return lo <= hi;
+        }
+
+        if (aIns && bIns) {
+            // Allow multiple insertions at the same location; not considered overlapping.
+            return false;
+        }
+
+        // insertion vs range
+        var ins = aIns ? a : b;
+        var rng = aIns ? b : a;
+
+        // '$ a' is modeled as begin=Integer.MAX_VALUE (insert after last line); do not consider it overlapping
+        if (ins.beginLine() == Integer.MAX_VALUE) {
+            return false;
+        }
+
+        int k = ins.beginLine(); // insertion occurs between (k-1) and k
+        int rBegin = rng.beginLine();
+        int rEnd = rng.endLine(); // rng is guaranteed to be range (end >= begin)
+
+        // insertion overlaps the range if it falls strictly inside the range boundary:
+        // specifically, inserting before the first replaced line (k == rBegin) does NOT overlap,
+        // but inserting at any position within the replaced lines (rBegin < k <= rEnd) does.
+        return (rBegin < k) && (k <= rEnd);
     }
 }

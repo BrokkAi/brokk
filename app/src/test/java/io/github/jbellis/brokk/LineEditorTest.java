@@ -248,4 +248,68 @@ class LineEditorTest {
         assertEquals("hello world\n", java.nio.file.Files.readString(pf.absPath()),
                      "File should remain unchanged on anchor mismatch");
     }
+
+    @Test
+    void overlappingRanges_bothFail_fileUnchanged(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "ov1.txt");
+        Files.writeString(pf.absPath(), "A\nB\nC\nD\nE\n");
+
+        var e1 = new LineEdit.EditFile(
+                pf, 2, 4, "X",
+                new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("4", "D"));
+        var e2 = new LineEdit.EditFile(
+                pf, 3, 5, "Y",
+                new LineEdit.Anchor("3", "C"), new LineEdit.Anchor("5", "E"));
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(e1, e2));
+
+        assertEquals(2, res.failures().size(), "Both overlapping edits should be rejected");
+        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.FailureReason.OVERLAPPING_EDITS));
+        assertEquals("A\nB\nC\nD\nE\n", Files.readString(pf.absPath()), "File should remain unchanged");
+    }
+
+    @Test
+    void insertionInsideRange_bothFail_fileUnchanged(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "ov2.txt");
+        Files.writeString(pf.absPath(), "A\nB\nC\nD\n");
+
+        var change = new LineEdit.EditFile(
+                pf, 2, 3, "X",
+                new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("3", "C"));
+        // Insert after line 2 -> begin=3,end=2; anchor on line 2 content
+        var insert = new LineEdit.EditFile(
+                pf, 3, 2, "I",
+                new LineEdit.Anchor("2", "B"), null);
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(change, insert));
+
+        assertEquals(2, res.failures().size(), "Insertion overlapping with a range should reject both edits");
+        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.FailureReason.OVERLAPPING_EDITS));
+        assertEquals("A\nB\nC\nD\n", Files.readString(pf.absPath()), "File should remain unchanged");
+    }
+
+    @Test
+    void overlappingPairSkipped_nonOverlappingStillApplies(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "ov3.txt");
+        Files.writeString(pf.absPath(), "A\nB\nC\nD\nE\n");
+
+        var overlap1 = new LineEdit.EditFile(
+                pf, 2, 4, "X",
+                new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("4", "D"));
+        var overlap2 = new LineEdit.EditFile(
+                pf, 3, 5, "Y",
+                new LineEdit.Anchor("3", "C"), new LineEdit.Anchor("5", "E"));
+        var nonOverlap = new LineEdit.EditFile(
+                pf, 1, 1, "AA",
+                new LineEdit.Anchor("1", "A"), new LineEdit.Anchor("1", "A"));
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(overlap1, overlap2, nonOverlap));
+
+        assertEquals(2, res.failures().size(), "Only the overlapping pair should fail");
+        assertTrue(res.failures().stream().allMatch(f -> f.reason() == LineEditor.FailureReason.OVERLAPPING_EDITS));
+        assertEquals("AA\nB\nC\nD\nE\n", Files.readString(pf.absPath()), "Non-overlapping change should apply");
+    }
 }
