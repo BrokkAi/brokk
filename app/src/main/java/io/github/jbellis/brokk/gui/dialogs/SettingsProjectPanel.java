@@ -16,6 +16,9 @@ import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
+import io.github.jbellis.brokk.util.ExecutorValidator;
+import java.util.Arrays;
 import java.awt.*;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -84,6 +87,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JComboBox<JdkItem> jdkComboBox = new JComboBox<>();
     private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
+
+    // Executor configuration UI
+    private JTextField executorPathField = new JTextField(20);
+    private JTextField executorArgsField = new JTextField(20);
+    private JButton testExecutorButton = new JButton("Test");
+    private JButton resetExecutorButton = new JButton("Reset");
+    private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
@@ -784,6 +794,58 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(buildTimeoutSpinner, gbc);
 
+        // Executor configuration section
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(new JLabel("Custom Executor:"), gbc);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(executorPathField, gbc);
+
+        // Executor path controls (reset button and common executors)
+        var executorControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        executorControlPanel.add(resetExecutorButton);
+        executorControlPanel.add(new JLabel("Common:"));
+        executorControlPanel.add(commonExecutorsComboBox);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(executorControlPanel, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(new JLabel("Executor Arguments:"), gbc);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(executorArgsField, gbc);
+
+        // Test button and info
+        var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        executorTestPanel.add(testExecutorButton);
+        var executorInfoLabel = new JLabel(
+                "<html>Phase 1: Custom executors work in non-sandboxed mode only. Default args: \"-c\"</html>");
+        executorInfoLabel.setFont(executorInfoLabel
+                .getFont()
+                .deriveFont(Font.ITALIC, executorInfoLabel.getFont().getSize() * 0.9f));
+        executorTestPanel.add(executorInfoLabel);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 2, 8, 2);
+        buildPanel.add(executorTestPanel, gbc);
+        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
+
         // Removed Build Instructions Area and its ScrollPane
 
         gbc.gridx = 0;
@@ -907,6 +969,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         inferBuildDetailsButton.addActionListener(e -> runBuildAgent());
+
+        // Initialize executor UI components
+        initializeExecutorUI();
 
         // Vertical glue to push all build panel content up
         gbc.gridx = 0;
@@ -1230,6 +1295,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         for (String dir : sortedExcludedDirs) {
             excludedDirectoriesListModel.addElement(dir);
         }
+
+        // Load executor configuration
+        String executorPath = project.getCommandExecutor();
+        String executorArgs = project.getExecutorArgs();
+
+        executorPathField.setText(executorPath != null ? executorPath : "");
+        executorArgsField.setText(executorArgs != null ? executorArgs : "-c");
+
         logger.trace("Build panel settings loaded/reloaded with details: {}", details);
     }
 
@@ -1332,6 +1405,26 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             } else {
                 project.setJdk(BuildAgent.JAVA_HOME_SENTINEL);
             }
+        }
+
+        // Apply executor configuration
+        String currentExecutorPath = project.getCommandExecutor();
+        String currentExecutorArgs = project.getExecutorArgs();
+        String newExecutorPath = executorPathField.getText().trim();
+        String newExecutorArgs = executorArgsField.getText().trim();
+
+        // Set to null if empty to clear the configuration
+        String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
+        String argsToSet = newExecutorArgs.isEmpty() ? null : newExecutorArgs;
+
+        if (!Objects.equals(currentExecutorPath, pathToSet)) {
+            project.setCommandExecutor(pathToSet);
+            logger.debug("Applied Custom Executor Path: {}", pathToSet);
+        }
+
+        if (!Objects.equals(currentExecutorArgs, argsToSet)) {
+            project.setExecutorArgs(argsToSet);
+            logger.debug("Applied Custom Executor Args: {}", argsToSet);
         }
 
         // Data Retention Tab
@@ -1480,6 +1573,108 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         }
         return new ArrayList<>(langs);
+    }
+
+    private void initializeExecutorUI() {
+        // Set up tooltips
+        executorPathField.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
+        executorArgsField.setToolTipText("Arguments to pass to executor (default: -c)");
+        executorArgsField.setText("-c"); // Set default value
+
+        // Populate common executors dropdown
+        var commonExecutors = ExecutorValidator.getCommonExecutors();
+        commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
+        commonExecutorsComboBox.setSelectedIndex(-1); // No selection by default
+
+        // Reset button action
+        resetExecutorButton.addActionListener(e -> resetExecutor());
+
+        // Common executors selection action
+        commonExecutorsComboBox.addActionListener(e -> {
+            String selected = (String) commonExecutorsComboBox.getSelectedItem();
+            if (selected != null && !selected.isEmpty()) {
+                executorPathField.setText(selected);
+            }
+        });
+
+        // Test executor button action
+        testExecutorButton.addActionListener(e -> testExecutor());
+    }
+
+    private void resetExecutor() {
+        // Clear the UI fields
+        executorPathField.setText("");
+        executorArgsField.setText("-c");
+
+        // Clear the project configuration immediately
+        var project = chrome.getProject();
+        project.setCommandExecutor(null);
+        project.setExecutorArgs(null);
+
+        // Reset common executors selection
+        commonExecutorsComboBox.setSelectedIndex(-1);
+    }
+
+    private void testExecutor() {
+        String executorPath = executorPathField.getText().trim();
+        String executorArgs = executorArgsField.getText().trim();
+
+        if (executorPath.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                "Please specify an executor path first.",
+                "No Executor Specified",
+                JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Default args if empty
+        if (executorArgs.isEmpty()) {
+            executorArgs = "-c";
+        }
+
+        testExecutorButton.setEnabled(false);
+        testExecutorButton.setText("Testing...");
+
+        // Make variables effectively final for use in inner class
+        final String finalExecutorPath = executorPath;
+        final String finalExecutorArgs = executorArgs;
+
+        SwingWorker<ExecutorValidator.ValidationResult, Void> worker = new SwingWorker<>() {
+            @Override
+            protected ExecutorValidator.ValidationResult doInBackground() {
+                String[] argsArray = finalExecutorArgs.split("\\s+");
+                var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
+                return ExecutorValidator.validateExecutor(config);
+            }
+
+            @Override
+            protected void done() {
+                testExecutorButton.setEnabled(true);
+                testExecutorButton.setText("Test");
+
+                try {
+                    var result = get();
+                    if (result.success()) {
+                        JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                            result.message(),
+                            "Executor Test Successful",
+                            JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                            result.message(),
+                            "Test Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    logger.error("Error during executor test", ex);
+                    JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                        "Test failed with error: " + ex.getMessage(),
+                        "Executor Test Error",
+                        JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
     }
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)
