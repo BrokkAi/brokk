@@ -1,8 +1,11 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.TableUtils;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -16,17 +19,15 @@ public class GitHistoryTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel;
     private final ProjectFile file;
 
     private JTable fileHistoryTable;
     private DefaultTableModel fileHistoryModel;
 
-    public GitHistoryTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, ProjectFile file) {
+    public GitHistoryTab(Chrome chrome, ContextManager contextManager, ProjectFile file) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.gitPanel = gitPanel;
         this.file = file;
         buildHistoryTabUI();
         loadFileHistory();
@@ -61,7 +62,7 @@ public class GitHistoryTab extends JPanel {
         }
 
         var menu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(menu);
+        chrome.getTheme().registerPopupMenu(menu);
 
         var captureDiffItem = new JMenuItem("Capture Diff");
         var compareWithLocalItem = new JMenuItem("Compare with Local");
@@ -170,7 +171,7 @@ public class GitHistoryTab extends JPanel {
             int row = fileHistoryTable.getSelectedRow();
             if (row >= 0) {
                 var commitId = (String) fileHistoryTable.getValueAt(row, 3);
-                gitPanel.showCommitInLogTab(commitId);
+                chrome.showCommitInLogTab(commitId);
             }
         });
 

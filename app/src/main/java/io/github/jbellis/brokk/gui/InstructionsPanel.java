@@ -30,6 +30,7 @@ import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
+import io.github.jbellis.brokk.gui.git.GitWorktreeTab;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
@@ -569,18 +570,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         final var noHistory = "(No history items)";
 
         var project = chrome.getProject();
-        List<String> historyItems = project.loadTextHistory();
 
         var model = new DefaultComboBoxModel<>();
         model.addElement(placeholder);
-
-        if (historyItems.isEmpty()) {
-            model.addElement(noHistory);
-        } else {
-            for (String item : historyItems) {
-                model.addElement(item);
-            }
-        }
 
         var dropdown = new JComboBox<>(model);
         dropdown.setToolTipText("Select a previous instruction from history");
@@ -591,7 +583,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof String historyItem) {
-                    setText(historyItem);
+                    // To prevent the dropdown from becoming excessively wide, we truncate the display text
+                    // to fit within the width of the JComboBox itself.
+                    String displayText = historyItem.replace('\n', ' ');
+                    int width = dropdown.getWidth();
+                    if (width > 20) {
+                        FontMetrics fm = getFontMetrics(getFont());
+                        if (fm.stringWidth(displayText) > width) {
+                            displayText = SwingUtilities.layoutCompoundLabel(
+                                    this,
+                                    fm,
+                                    displayText,
+                                    null,
+                                    SwingConstants.CENTER,
+                                    SwingConstants.LEFT,
+                                    SwingConstants.CENTER,
+                                    SwingConstants.LEFT,
+                                    new Rectangle(width, getHeight()),
+                                    new Rectangle(),
+                                    new Rectangle(),
+                                    0);
+                        }
+                    }
+
+                    setText(displayText);
                     setEnabled(true);
                     if (historyItem.equals(noHistory) || historyItem.equals(placeholder)) {
                         setToolTipText(null);
@@ -609,16 +624,40 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     && !selected.equals(placeholder)
                     && !selected.equals(noHistory)) {
                 // This is a valid history item
-                commandInputOverlay.hideOverlay();
-                instructionsArea.setEnabled(true);
+                Objects.requireNonNull(commandInputOverlay).hideOverlay();
+                Objects.requireNonNull(instructionsArea).setEnabled(true);
 
                 instructionsArea.setText(historyItem);
-                commandInputUndoManager.discardAllEdits();
+                Objects.requireNonNull(commandInputUndoManager).discardAllEdits();
                 instructionsArea.requestFocusInWindow();
 
                 // Reset to placeholder
                 SwingUtilities.invokeLater(() -> dropdown.setSelectedItem(placeholder));
             }
+        });
+
+        dropdown.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                model.removeAllElements();
+                model.addElement(placeholder);
+                List<String> historyItems = project.loadTextHistory();
+
+                logger.trace("History items loaded: {}", historyItems.size());
+                if (historyItems.isEmpty()) {
+                    model.addElement(noHistory);
+                } else {
+                    for (var item : historyItems) {
+                        model.addElement(item);
+                    }
+                }
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
         return dropdown;
@@ -1876,7 +1915,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var symbols = Completions.completeSymbols(text, analyzer);
                 completions = symbols.stream()
                         .limit(50)
-                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.identifier(), symbol.fqName()))
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.shortName(), symbol.fqName()))
                         .toList();
             }
 

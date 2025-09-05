@@ -76,4 +76,5 @@ export interface EditBlockProperties {
     search?: string;
     replace?: string;
     headerOk: boolean;
+    isGitDiff?: boolean;
 }

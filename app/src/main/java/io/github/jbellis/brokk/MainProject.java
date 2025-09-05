@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
@@ -31,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
@@ -972,6 +974,29 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
 
+    // UI Scale global preference
+    // Values:
+    //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
+    //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
+    private static final String UI_SCALE_KEY = "uiScale";
+
+    public static String getUiScalePref() {
+        var props = loadGlobalProperties();
+        return props.getProperty(UI_SCALE_KEY, "auto");
+    }
+
+    public static void setUiScalePrefAuto() {
+        var props = loadGlobalProperties();
+        props.setProperty(UI_SCALE_KEY, "auto");
+        saveGlobalProperties(props);
+    }
+
+    public static void setUiScalePrefCustom(double scale) {
+        var props = loadGlobalProperties();
+        props.setProperty(UI_SCALE_KEY, Double.toString(scale));
+        saveGlobalProperties(props);
+    }
+
     public static String getBrokkKey() {
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
@@ -1525,5 +1550,21 @@ public final class MainProject extends AbstractProject {
     @Override
     public SessionManager getSessionManager() {
         return sessionManager;
+    }
+
+    @Override
+    public void sessionsListChanged() {
+        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
+        var worktreeChromes = Brokk.getWorktreeChromes(this);
+
+        var allChromes = new ArrayList<Chrome>();
+        if (mainChrome != null) {
+            allChromes.add(mainChrome);
+        }
+        allChromes.addAll(worktreeChromes);
+
+        for (var chrome : allChromes) {
+            SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+        }
     }
 }

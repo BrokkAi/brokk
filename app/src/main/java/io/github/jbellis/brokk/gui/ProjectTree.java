@@ -457,8 +457,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         boolean hasGit = contextManager.getProject().hasGit();
         JMenuItem historyItem = new JMenuItem("Show History");
         historyItem.addActionListener(ev -> {
-            if (chrome.getGitPanel() != null) {
-                chrome.getGitPanel().addFileHistoryTab(file);
+            if (chrome.getGitCommitTab() != null) {
+                chrome.addFileHistoryTab(file);
             } else {
                 logger.warn("GitPanel is null, cannot show history for {}", file);
             }

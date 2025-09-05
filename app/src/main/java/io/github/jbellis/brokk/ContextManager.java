@@ -310,9 +310,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 // Log and refresh UI if anything was moved
                 logger.info("Quarantine complete; moved {} unreadable session zip(s).", report.movedCount());
-                if (report.movedCount() > 0 && io instanceof Chrome chrome) {
-                    SwingUtilities.invokeLater(
-                            () -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+                if (report.movedCount() > 0 && io instanceof Chrome) {
+                    mainProject.sessionsListChanged();
                 }
 
                 // If the active session was unreadable, create a new session and notify the user
@@ -521,11 +520,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public AbstractProject getProject() {
         return project;
-    }
-
-    @Override
-    public ProjectFile toFile(String relName) {
-        return new ProjectFile(project.getRoot(), relName);
     }
 
     @Override
@@ -1946,11 +1940,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (currentSession.isPresent()
                 && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
             renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
-                SwingUtilities.invokeLater(() -> {
-                    if (io instanceof Chrome chrome) {
-                        chrome.getHistoryOutputPanel().updateSessionComboBox();
-                    }
-                });
+                if (io instanceof Chrome) {
+                    project.getMainProject().sessionsListChanged();
+                }
             });
         }
 

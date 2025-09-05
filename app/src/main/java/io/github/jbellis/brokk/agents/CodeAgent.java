@@ -29,6 +29,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -677,6 +678,7 @@ public class CodeAgent {
         String latestBuildError;
         try {
             latestBuildError = performBuildVerification();
+            latestBuildError = sanitizeBuildOutput(latestBuildError);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
@@ -879,6 +881,46 @@ public class CodeAgent {
             // Add the combined error and output to the history for the next request
             return e.getMessage() + "\n\n" + e.getOutput();
         }
+    }
+
+    /**
+     * Sanitize build output by relativizing absolute paths that begin with the project root.
+     *
+     * <p>Behavior: - Handles both Unix-style and Windows-style absolute paths. - Converts the project root path to both
+     * forward- and back-slash forms and appends a trailing separator, so that only paths that are clearly children of
+     * the project root are matched. - Replacement is case-insensitive to accommodate tooling differences. - The root
+     * markers are only removed when they appear as a directory prefix of a larger path (root + separator) and when
+     * preceded by a non-path character boundary. This prevents accidental removal when the root string appears as part
+     * of some other token, and avoids removing the root itself when it stands alone.
+     *
+     * <p>Examples: - Unix: /home/user/repo/src/Main.java -> src/Main.java - Windows: C:\repo\pkg\mod.py -> pkg\mod.py
+     */
+    private String sanitizeBuildOutput(String text) {
+        var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
+        var rootAbs = root.toString();
+
+        // Build forward- and back-slash variants with a trailing separator
+        var rootFwd = rootAbs.replace('\\', '/');
+        if (!rootFwd.endsWith("/")) {
+            rootFwd = rootFwd + "/";
+        }
+        var rootBwd = rootAbs.replace('/', '\\');
+        if (!rootBwd.endsWith("\\")) {
+            rootBwd = rootBwd + "\\";
+        }
+
+        // Case-insensitive replacement and boundary-checked:
+        // - (?<![A-Za-z0-9._-]) ensures the match is not preceded by a typical path/token character.
+        // - The trailing separator in rootFwd/rootBwd ensures we only match a directory prefix of a larger path.
+        // - (?=\S) ensures there is at least one non-whitespace character following the prefix (i.e., a larger path).
+        var sanitized = text;
+        var forwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootFwd) + "(?=\\S)");
+        var backwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootBwd) + "(?=\\S)");
+
+        sanitized = forwardPattern.matcher(sanitized).replaceAll("");
+        sanitized = backwardPattern.matcher(sanitized).replaceAll("");
+
+        return sanitized;
     }
 
     record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}

@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.GitUiUtil;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;

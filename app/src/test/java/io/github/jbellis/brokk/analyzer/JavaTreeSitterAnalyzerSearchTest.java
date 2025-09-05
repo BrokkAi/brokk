@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -182,5 +183,85 @@ public class JavaTreeSitterAnalyzerSearchTest {
 
         assertEquals(method2Names1, method2Names2, "Auto-wrapped pattern should match explicit pattern");
         assertTrue(method2Names1.contains("A.method2"), "Should find 'A.method2'");
+    }
+
+    @Test
+    public void testAutocomplete_BasicFieldsMethodsClasses() {
+        var res1 = analyzer.autocompleteDefinitions("D.field1");
+        assertFalse(res1.isEmpty(), "Should find 'D.field1' via autocomplete");
+        var names1 = res1.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(names1.contains("D.field1"), "Autocomplete should include 'D.field1'");
+
+        var res2 = analyzer.autocompleteDefinitions("iField");
+        assertFalse(res2.isEmpty(), "Should find fields containing 'iField'");
+        var names2 = res2.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(
+                names2.stream().anyMatch(n -> n.contains("iField")),
+                "Should include an 'iField' declaration (e.g. 'E.iField')");
+
+        var res3 = analyzer.autocompleteDefinitions("method1");
+        assertFalse(res3.isEmpty(), "Should find methods matching 'method1'");
+        var names3List = res3.stream().map(CodeUnit::fqName).collect(Collectors.toList());
+        var names3 = Set.copyOf(names3List);
+        assertTrue(names3.contains("A.method1"), "Should autocomplete 'A.method1' for 'method1'");
+        // Ensure it's ranked reasonably highly (within top 3)
+        assertTrue(
+                names3List.indexOf("A.method1") >= 0 && names3List.indexOf("A.method1") < 3,
+                "A.method1 should be ranked near the top for query 'method1'");
+    }
+
+    @Test
+    public void testAutocomplete_CamelCase() {
+        var camel = analyzer.autocompleteDefinitions("CC");
+        assertFalse(camel.isEmpty(), "Camel-case query 'CC' should return results");
+        var camelNames = camel.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(camelNames.contains("CamelClass"), "Camel-case should match 'CamelClass'");
+    }
+
+    @Test
+    public void testAutocomplete_HierarchicalWithDots() {
+        var res = analyzer.autocompleteDefinitions("A.method2");
+        assertFalse(res.isEmpty(), "Hierarchical query 'A.method2' should return results");
+        var names = res.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(names.contains("A.method2"), "Should find 'A.method2' when querying 'A.method2'");
+    }
+
+    @Test
+    public void testAutocomplete_CaseInsensitiveAndMixedCase() {
+        var upper = analyzer.autocompleteDefinitions("E");
+        var lower = analyzer.autocompleteDefinitions("e");
+
+        var upperNames = upper.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        var lowerNames = lower.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        assertEquals(upperNames, lowerNames, "Autocomplete should be case-insensitive for single letter 'E'/'e'");
+        assertTrue(upperNames.contains("E"), "Should find class 'E' regardless of pattern case");
+        assertTrue(upperNames.contains("UseE"), "Should find class 'UseE' regardless of pattern case");
+
+        var mixedCase = analyzer.autocompleteDefinitions("UsE");
+        var mixedCaseNames = mixedCase.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertFalse(mixedCaseNames.isEmpty(), "Mixed case 'UsE' should find symbols containing 'UsE'");
+        assertTrue(mixedCaseNames.contains("UseE"), "Should find 'UseE' with pattern 'UsE'");
+
+        var lowerUse = analyzer.autocompleteDefinitions("use");
+        var lowerUseNames = lowerUse.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertEquals(
+                mixedCaseNames, lowerUseNames, "Case-insensitive: 'UsE' and 'use' should return identical results");
+    }
+
+    @Test
+    public void testAutocomplete_DotDollarEquivalence_NestedClasses() {
+        // Query using dot-separated nested path; stored nested FQNs use '$' separators
+        var dotQuery = analyzer.autocompleteDefinitions("A.AInner.AInnerInner");
+        var dotNames = dotQuery.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(
+                dotNames.contains("A$AInner$AInnerInner"),
+                "Dot-hierarchy query should match nested class FQN with $ separators");
+
+        // Query using dollar-separated nested path should also match
+        var dollarQuery = analyzer.autocompleteDefinitions("A$AInner$AInnerInner");
+        var dollarNames = dollarQuery.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(
+                dollarNames.contains("A$AInner$AInnerInner"), "Dollar-hierarchy query should match nested class FQN");
     }
 }

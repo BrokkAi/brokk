@@ -17,31 +17,30 @@ public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
-        String pattern = input.trim();
-        if (pattern.length() < 2) {
+        String query = input.trim();
+        if (query.length() < 2) {
             return List.of();
         }
 
         // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
-        List<CodeUnit> allDefs;
+        List<CodeUnit> candidates;
         try {
-            // fixme: This will have terrible performance implications for large projects. Should this
-            //   fuzzy search rather not be for the analyzers themselves?
-            allDefs = analyzer.searchDefinitions(".*").stream().limit(5000).toList();
+            candidates =
+                    analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
         } catch (Exception e) {
             // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
             // Fall back to using top-level declarations only
-            allDefs = analyzer.getAllDeclarations();
+            candidates = analyzer.getAllDeclarations();
         }
 
-        var matcher = new FuzzyMatcher(pattern);
-        boolean hierarchicalQuery = pattern.indexOf('.') >= 0 || pattern.indexOf('$') >= 0;
+        var matcher = new FuzzyMatcher(query);
+        boolean hierarchicalQuery = query.indexOf('.') >= 0 || query.indexOf('$') >= 0;
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
         record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
         }
-        return allDefs.stream()
+        return candidates.stream()
                 .map(cu -> {
                     int score;
                     if (hierarchicalQuery) {
@@ -56,9 +55,10 @@ public class Completions {
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparing(sc -> sc.cu().fqName()))
+                .map(ScoredCU::cu)
+                .sorted(Comparator.comparing(CodeUnit::fqName))
                 .distinct()
                 .limit(100)
-                .map(ScoredCU::cu)
                 .toList();
     }
 

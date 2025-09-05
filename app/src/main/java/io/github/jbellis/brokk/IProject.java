@@ -281,6 +281,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default void sessionsListChanged() {
+        throw new UnsupportedOperationException();
+    }
+
     default Set<String> getExcludedDirectories() {
         return Set.of();
     }
