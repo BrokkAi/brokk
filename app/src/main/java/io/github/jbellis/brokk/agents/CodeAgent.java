@@ -371,7 +371,7 @@ public class CodeAgent {
             } else {
                 updatedConsecutiveParseFailures = 0;
                 updatedPartialWithEditsRetries = updatedPartialWithEditsRetries + 1;
-                var repr = LineEditorParser.repr(newlyParsedEdits.getLast());
+                var repr = newlyParsedEdits.getLast().repr();
                 messageForRetry = new UserMessage("""
                                                           Parse error after %d Line Edits: %s
                                                           
@@ -432,7 +432,7 @@ public class CodeAgent {
                     reportComplete("Partial response limit reached; ending task.");
                     return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
                 }
-                var repr = LineEditorParser.repr(newlyParsedEdits.getLast());
+                var repr = newlyParsedEdits.getLast().repr();
                 messageForRetry = new UserMessage("""
                                                           It looks like we got cut off. The last Line Edit tag I successfully parsed was:
                                                           

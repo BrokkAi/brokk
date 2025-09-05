@@ -1,7 +1,10 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.prompts.LineEditorParser;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Data model for line-based editing operations.
@@ -17,6 +20,52 @@ import org.jetbrains.annotations.Nullable;
  * beginLine`. For example, `beginLine=1, endLine=0` inserts at the start of the file.
  */
 public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile {
+    static void renderBody(StringBuilder sb, List<String> lines) {
+        for (var l : lines) {
+            if (l.equals(".")) sb.append("\\.\n");
+            else if (l.equals("\\")) sb.append("\\\\\n");
+            else sb.append(l).append('\n');
+        }
+        sb.append(".\n");
+    }
+
+    default String repr() {
+        if (this instanceof DeleteFile(ProjectFile file)) {
+            return "BRK_EDIT_RM " + file;
+        }
+        if (this instanceof EditFile(
+                ProjectFile file, int beginLine, int endLine, String content, Anchor beginAnchor,
+                @Nullable LineEdit.Anchor endAnchor
+        )) {
+            var sb = new StringBuilder();
+            sb.append("BRK_EDIT_EX ").append(file).append('\n');
+
+            if (endLine < beginLine) {
+                // insertion
+                String addr = (beginLine == Integer.MAX_VALUE) ? "$" : LineEditorParser.addrToString(beginLine - 1);
+                sb.append(addr).append(" a\n");
+                // beginAnchor is non-null in the model; always render it.
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+                renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
+            } else if (content.isEmpty()) {
+                // delete
+                sb.append(LineEditorParser.addrToString(beginLine)).append(',').append(LineEditorParser.addrToString(endLine)).append(" d\n");
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+            } else {
+                // change
+                sb.append(LineEditorParser.addrToString(beginLine)).append(',').append(LineEditorParser.addrToString(endLine)).append(" c\n");
+                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
+                if (endAnchor != null) {
+                    sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
+                }
+                renderBody(sb, content.lines().toList());
+            }
+            sb.append("BRK_EDIT_EX_END");
+            return sb.toString();
+        }
+        return toString();
+    }
+
     ProjectFile file();
 
     /**

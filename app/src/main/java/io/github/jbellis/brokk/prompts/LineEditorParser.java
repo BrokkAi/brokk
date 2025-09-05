@@ -528,7 +528,7 @@ public final class LineEditorParser {
         return "$".equals(address) ? Integer.MAX_VALUE : Integer.parseInt(address);
     }
 
-    private static String addrToString(int n) {
+    public static String addrToString(int n) {
         return (n == Integer.MAX_VALUE) ? "$" : Integer.toString(n);
     }
 
@@ -859,7 +859,7 @@ Guidance:
                 )) {
                     sb.append(addrToString(line)).append(" a\n");
                     sb.append("@").append(anchorLine).append("| ").append(anchorContent).append('\n');
-                    renderBody(sb, body);
+                    LineEdit.renderBody(sb, body);
                 } else if (c instanceof EdCommand.ChangeRange(
                         int begin, int end, List<String> body, String beginAnchorLine, String beginAnchorContent,
                         String endAnchorLine, String endAnchorContent
@@ -869,7 +869,7 @@ Guidance:
                     if (!endAnchorLine.isBlank()) {
                         sb.append("@").append(endAnchorLine).append("| ").append(requireNonNull(endAnchorContent)).append('\n');
                     }
-                    renderBody(sb, body);
+                    LineEdit.renderBody(sb, body);
                 } else if (c instanceof EdCommand.DeleteRange(
                         int begin, int end, String beginAnchorLine, String beginAnchorContent, String endAnchorLine,
                         String endAnchorContent
@@ -890,57 +890,4 @@ Guidance:
         return part.toString();
     }
 
-    public static String repr(LineEdit edit) {
-        if (edit instanceof LineEdit.DeleteFile(ProjectFile file)) {
-            return "BRK_EDIT_RM " + canonicalPath(file);
-        }
-        if (edit instanceof LineEdit.EditFile(
-                ProjectFile file, int beginLine, int endLine, String content, LineEdit.Anchor beginAnchor,
-                @Nullable LineEdit.Anchor endAnchor
-        )) {
-            var sb = new StringBuilder();
-            sb.append("BRK_EDIT_EX ").append(canonicalPath(file)).append('\n');
-
-            if (endLine < beginLine) {
-                // insertion
-                String addr = (beginLine == Integer.MAX_VALUE) ? "$" : addrToString(beginLine - 1);
-                sb.append(addr).append(" a\n");
-                // beginAnchor is non-null in the model; always render it.
-                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
-                renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
-            } else if (content.isEmpty()) {
-                // delete
-                sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" d\n");
-                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
-            } else {
-                // change
-                sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" c\n");
-                sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
-                if (endAnchor != null) {
-                    sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
-                }
-                renderBody(sb, content.lines().toList());
-            }
-            sb.append("BRK_EDIT_EX_END");
-            return sb.toString();
-        }
-        return edit.toString();
-    }
-
-    private static void renderBody(StringBuilder sb, List<String> lines) {
-        for (var l : lines) {
-            if (l.equals(".")) sb.append("\\.\n");
-            else if (l.equals("\\")) sb.append("\\\\\n");
-            else sb.append(l).append('\n');
-        }
-        sb.append(".\n");
-    }
-
-    /**
-     * Returns the canonical string path for a ProjectFile, used in tag formatting.
-     * This uses ProjectFile.toString(), which should correspond to the full workspace path.
-     */
-    private static String canonicalPath(ProjectFile file) {
-        return file.toString();
-    }
 }

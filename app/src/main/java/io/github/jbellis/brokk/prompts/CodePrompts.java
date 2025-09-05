@@ -874,21 +874,14 @@ Tips:
             sb.append("<failed_edits>\n");
 
             for (var f : fileFailures) {
-                String details;
-                if (f.edit() instanceof LineEdit.EditFile ef) {
-                    details = "EditFile(beginline=%d, endline=%d)".formatted(ef.beginLine(), ef.endLine());
-                } else if (f.edit() instanceof LineEdit.DeleteFile) {
-                    details = "DeleteFile";
-                } else {
-                    details = f.edit().getClass().getSimpleName();
-                }
-
                 sb.append("""
             <failed_edit reason="%s">
-            <edit>%s</edit>
+            <edit>
+            %s
+            </edit>
             <commentary>%s</commentary>
             </failed_edit>
-            """.stripIndent().formatted(f.reason(), details, f.commentary()));
+            """.formatted(f.reason(), f.edit().repr(), f.commentary()));
             }
 
             sb.append("</failed_edits>\n</file>\n\n");
