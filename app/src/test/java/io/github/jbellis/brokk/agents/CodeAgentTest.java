@@ -131,7 +131,7 @@ class CodeAgentTest {
                 """
                 BRK_EDIT_EX file.java
                 1 c
-                1: old
+                @1| old
                 new
                 .
                 BRK_EDIT_EX_END
@@ -174,7 +174,7 @@ class CodeAgentTest {
                 """
                 BRK_EDIT_EX file.java
                 1 c
-                1: old
+                @1| old
                 new
                 .
                 BRK_EDIT_EX_END
@@ -198,7 +198,7 @@ class CodeAgentTest {
                 """
                 BRK_EDIT_EX file.java
                 1 c
-                1: old
+                @1| old
                 new
                 .
                 BRK_EDIT_EX_END
@@ -216,6 +216,40 @@ class CodeAgentTest {
 
         // The next partial-with-edits should hit the cap (5th attempt) and be Fatal with PARSE_ERROR
         var finalStep = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, null);
+        assertInstanceOf(CodeAgent.Step.Fatal.class, finalStep);
+        var fatal = (CodeAgent.Step.Fatal) finalStep;
+        assertEquals(TaskResult.StopReason.PARSE_ERROR, fatal.stopDetails().reason());
+    }
+
+    // P-3d: parsePhase – cap on parseError responses with edits (should count toward partial-with-edits cap)
+    @Test
+    void testParsePhase_parseErrorWithEdits_retriesCap() {
+        var loopContext = createBasicLoopContext("test goal");
+
+        // Valid block + a shell line inside to trigger a parse warning/error while still yielding edits.
+        String llmTextWithErrorAndBlock =
+                """
+                BRK_EDIT_EX file.java
+                1 c
+                @1| old
+                new
+                .
+                !ignored
+                BRK_EDIT_EX_END
+                """;
+
+        // First 4 parseError-with-edits responses should produce Retry
+        for (int i = 0; i < 4; i++) {
+            var step = codeAgent.parsePhase(loopContext, llmTextWithErrorAndBlock, false, null);
+            assertInstanceOf(
+                    CodeAgent.Step.Retry.class,
+                    step,
+                    "Expected Retry on parse error with edits (iteration " + i + ")");
+            loopContext = ((CodeAgent.Step.Retry) step).loopContext();
+        }
+
+        // The next should hit the cap (5th attempt) and be Fatal with PARSE_ERROR
+        var finalStep = codeAgent.parsePhase(loopContext, llmTextWithErrorAndBlock, false, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, finalStep);
         var fatal = (CodeAgent.Step.Fatal) finalStep;
         assertEquals(TaskResult.StopReason.PARSE_ERROR, fatal.stopDetails().reason());
@@ -442,7 +476,7 @@ class CodeAgentTest {
                 """
                 BRK_EDIT_EX test.txt
                 1 c
-                1: hello
+                @1| hello
                 goodbye
                 .
                 BRK_EDIT_EX_END

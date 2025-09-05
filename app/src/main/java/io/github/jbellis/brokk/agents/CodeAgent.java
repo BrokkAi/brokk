@@ -361,22 +361,29 @@ public class CodeAgent {
 
         if (lepResult.parseError() != null) {
             int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
-            int updatedPartialWithEditsRetries = 0; // reset for any non-partial error path
+            int updatedPartialWithEditsRetries = ws.consecutivePartialWithEditsRetries();
             UserMessage messageForRetry;
             String consoleLogForRetry;
             if (newlyParsedEdits.isEmpty()) {
                 updatedConsecutiveParseFailures++;
+                updatedPartialWithEditsRetries = 0; // reset when no edits parsed
                 messageForRetry = new UserMessage(lepResult.parseError());
                 consoleLogForRetry = "Failed to parse LLM response; retrying";
             } else {
                 updatedConsecutiveParseFailures = 0;
+                updatedPartialWithEditsRetries = updatedPartialWithEditsRetries + 1;
                 messageForRetry = new UserMessage(getContinueFromLastEditPrompt(newlyParsedEdits.getLast()));
                 consoleLogForRetry = "Malformed or incomplete response after %d Line Edits parsed; asking LLM to continue/fix"
                         .formatted(newlyParsedEdits.size());
+                consoleLogForRetry += "Parse error was: " + lepResult.parseError();
             }
 
             if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {
                 reportComplete("Parse error limit reached; ending task.");
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+            }
+            if (!newlyParsedEdits.isEmpty() && updatedPartialWithEditsRetries >= MAX_PARTIAL_WITH_EDITS_RETRIES) {
+                reportComplete("Partial response limit reached; ending task.");
                 return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
             }
 
