@@ -416,7 +416,7 @@ public abstract class CodePrompts {
                       <instructions>
                       # %d SEARCH/REPLACE block%s failed to match in %d files!
 
-                      Take a look at the CURRENT state of the relevant file%s provided below in the `<current_content>` tags.
+                      Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
                       If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
                       Remember that the SEARCH text within a `<block>` must match EXACTLY the lines in the file -- but
                       I can accommodate whitespace differences, so if you think the only problem is whitespace, you need to look closer.
@@ -432,21 +432,6 @@ public abstract class CodePrompts {
                 .map(entry -> {
                     var filename = entry.getKey();
                     var fileFailures = entry.getValue();
-                    var file = cm.toFile(filename);
-                    String currentContentBlock;
-                    try {
-                        var content = file.read();
-                        currentContentBlock =
-                                """
-                                              <current_content>
-                                              %s
-                                              </current_content>
-                                              """
-                                        .formatted(content.isBlank() ? "[File is empty]" : content)
-                                        .stripIndent();
-                    } catch (java.io.IOException e) {
-                        return null;
-                    }
 
                     String failedBlocksXml = fileFailures.stream()
                             .map(f -> {
@@ -473,17 +458,14 @@ public abstract class CodePrompts {
 
                     return """
                            <file name="%s">
-                           %s
-
                            <failed_blocks>
                            %s
                            </failed_blocks>
                            </file>
                            """
-                            .formatted(filename, currentContentBlock, failedBlocksXml)
+                            .formatted(filename, failedBlocksXml)
                             .stripIndent();
                 })
-                .filter(Objects::nonNull)
                 .collect(Collectors.joining("\n\n"));
 
         // Add info about successful blocks, if any
@@ -888,15 +870,7 @@ Tips:
             var file = entry.getKey();
             var fileFailures = entry.getValue();
 
-            String content;
-            try {
-                content = file.exists() ? file.read() : "[File does not exist]";
-            } catch (IOException e) {
-                content = "[Error reading file: %s]".formatted(e.getMessage());
-            }
-
             sb.append("<file name=\"").append(file).append("\">\n");
-            sb.append("<current_content>\n").append(content).append("\n</current_content>\n");
             sb.append("<failed_edits>\n");
 
             for (var f : fileFailures) {
