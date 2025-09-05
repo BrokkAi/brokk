@@ -79,22 +79,75 @@ public final class LineEditorParser {
 
     private record AnchorReadResult(String addr, String content, int nextIndex) {}
 
-    private static AnchorReadResult readAnchorLine(String[] lines, int index, String malformedPrefix) throws Abort {
+    private static AnchorReadResult readAnchorLine(String[] lines, int index, String expectedAddr, String contextPrefix) throws Abort {
         if (index >= lines.length) {
-            throw new Abort(ParseFailureReason.MISSING_ANCHOR, malformedPrefix + "<EOF>");
+            var msg = """
+              %s
+              Missing anchor line!
+
+              Expected: @%s| <exact current line text at %s>
+              Got: <EOF>
+
+              Action: Emit the missing anchor line (no blank lines in between) and, if needed, close the block with BRK_EDIT_EX_END.
+              """.stripIndent().formatted(contextPrefix, expectedAddr, expectedAddr);
+            throw new Abort(ParseFailureReason.MISSING_ANCHOR, msg);
         }
         var line = lines[index];
         var m = ANCHOR_LINE.matcher(line);
         if (m.matches()) {
-            return new AnchorReadResult(m.group(1), m.group(2), index + 1);
+            var foundAddr = m.group(1);
+            if (!expectedAddr.equals(foundAddr)) {
+                var msg = """
+                  %s
+                  Anchor address mismatch!
+
+                  Command address: %s
+                  Anchor address:  %s
+
+                  Expected the anchor address to match the command's address.
+
+                  Expected: @%s| <exact current line text at %s>
+                  Got:      %s
+
+                  Action: Fix the '@%s|' anchor to match the command address.
+                  """.stripIndent().formatted(contextPrefix, expectedAddr, foundAddr,
+                                              expectedAddr, expectedAddr, line, expectedAddr);
+                throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, msg);
+            }
+            return new AnchorReadResult(foundAddr, m.group(2), index + 1);
         }
         // Classify as MISSING_ANCHOR if the next line doesn't even start with '@'
         // Reserve ANCHOR_SYNTAX for lines that start with '@' but are malformed.
         var trimmed = line.trim();
         if (trimmed.startsWith("@")) {
-            throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, malformedPrefix + line);
+            var msg = """
+              %s
+              Malformed anchor line!
+
+              Valid forms:
+              - @N| <exact current line text at N>
+              - @0| <blank at start-of-file>
+              - @$| <blank at end-of-file>
+
+              Make sure there is exactly one '|' and the address is '0', '$', or a positive integer.
+
+              Got: %s
+
+              Action: Rewrite the anchor to the expected form. If you emitted two anchors,
+              ensure your command uses the two-address form (n,m) and that both anchors match those endpoints.
+              """.stripIndent().formatted(contextPrefix, line);
+            throw new Abort(ParseFailureReason.ANCHOR_SYNTAX, msg);
         } else {
-            throw new Abort(ParseFailureReason.MISSING_ANCHOR, malformedPrefix + line);
+            var msg = """
+              %s
+              Missing anchor line!
+
+              Expected: @%s| <exact current line text at %s>
+              Got: %s
+
+              Action: Insert the missing anchor line right after the command (no blank lines), then continue.
+              """.stripIndent().formatted(contextPrefix, expectedAddr, expectedAddr, line);
+            throw new Abort(ParseFailureReason.MISSING_ANCHOR, msg);
         }
     }
 
@@ -104,7 +157,12 @@ public final class LineEditorParser {
         var next = lines[startIndex];
         if (ANCHOR_LINE.matcher(next).matches()) {
             var msg = """
-              Too many anchors for this operation. Only specify one anchor per address.
+              Too many anchors for this operation. Only specify one anchor per address on the command line.
+
+              How to fix:
+              - If you intended a range, change the command to 'n,m c' or 'n,m d' and keep exactly two anchors
+                (one for n and one for m).
+              - Otherwise, remove the extra '@N|' lines; keep only the single anchor for the given address.
 
               First extra anchor:
               %s
@@ -245,7 +303,7 @@ public final class LineEditorParser {
                                     Offending line: """
                                             .stripIndent()
                                             .formatted((op == 'd') ? "delete" : "change", addr1, addr1);
-                            var a1 = readAnchorLine(lines, i, firstAnchorHint);
+                            var a1 = readAnchorLine(lines, i, addr1, firstAnchorHint);
                             i = a1.nextIndex();
 
                             String beginAnchorLine = a1.addr();
@@ -264,7 +322,7 @@ public final class LineEditorParser {
                                         Offending line: """
                                                 .stripIndent()
                                                 .formatted((op == 'd') ? "delete" : "change", addr2, addr2);
-                                var a2 = readAnchorLine(lines, i, secondAnchorHint);
+                                var a2 = readAnchorLine(lines, i, addr2, secondAnchorHint);
                                 i = a2.nextIndex();
                                 endAnchorLine = a2.addr();
                                 endAnchorContent = a2.content();
@@ -354,7 +412,7 @@ public final class LineEditorParser {
                                     Offending line: """
                                             .stripIndent()
                                             .formatted(addr, addr);
-                            var anchor = readAnchorLine(lines, i, anchorHint);
+                            var anchor = readAnchorLine(lines, i, addr, anchorHint);
                             i = anchor.nextIndex();
 
                             checkForExtraAnchorsForSameOp(lines, i);
