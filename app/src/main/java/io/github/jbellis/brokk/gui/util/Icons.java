@@ -23,4 +23,6 @@ public final class Icons {
     public static final Icon OPEN_IN_BROWSER = SwingUtil.uiIcon("Brokk.open_in_browser");
     public static final Icon MIC = SwingUtil.uiIcon("Brokk.mic");
     public static final Icon MIC_OFF = SwingUtil.uiIcon("Brokk.mic_off");
+    public static final Icon SEND = SwingUtil.uiIcon("Brokk.send");
+    public static final Icon STOP = SwingUtil.uiIcon("Brokk.stop");
 }

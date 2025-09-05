@@ -32,6 +32,7 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
+import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -227,10 +228,57 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeCheckBox.setVisible(true);
         scanProjectCheckBox.setVisible(false);
 
-        // Single Action button (Go/Stop toggle)
-        actionButton = new JButton("Go");
+        // Single Action button (Go/Stop toggle) — rounded visual style via custom painting
+        actionButton = new JButton() {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            protected void paintComponent(Graphics g) {
+                // Paint rounded background
+                Graphics2D g2 = (Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    int arc = 12;
+                    Color bg = getBackground();
+                    if (!isEnabled()) {
+                        Color disabled = UIManager.getColor("Button.disabledBackground");
+                        if (disabled != null) bg = disabled;
+                    } else if (getModel().isPressed()) {
+                        bg = bg.darker();
+                    } else if (getModel().isRollover()) {
+                        bg = bg.brighter();
+                    }
+                    g2.setColor(bg);
+                    g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
+                } finally {
+                    g2.dispose();
+                }
+                // Let the button render its icon/text on top
+                super.paintComponent(g);
+            }
+
+            @Override
+            protected void paintBorder(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                try {
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    int arc = 12;
+                    Color borderColor = UIManager.getColor("Component.borderColor");
+                    if (borderColor == null) borderColor = Color.GRAY;
+                    g2.setColor(borderColor);
+                    g2.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, arc, arc);
+                } finally {
+                    g2.dispose();
+                }
+            }
+        };
         KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
+        actionButton.setOpaque(false);
+        actionButton.setContentAreaFilled(false);
+        actionButton.setFocusPainted(false);
+        actionButton.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        actionButton.setRolloverEnabled(true);
         actionButton.addActionListener(e -> onActionButtonPressed());
 
         modelSelector = new ModelSelector(chrome);
@@ -683,6 +731,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Action button (Go/Stop toggle) on the right
         actionButton.setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Make the action button slightly smaller while keeping a fixed minimum height
+        int fixedHeight = Math.max(actionButton.getPreferredSize().height, 32);
+        var prefSize = new Dimension(64, fixedHeight);
+        actionButton.setPreferredSize(prefSize);
+        actionButton.setMinimumSize(prefSize);
+        actionButton.setMaximumSize(prefSize);
+        actionButton.setMargin(new Insets(4, 10, 4, 10));
         bottomPanel.add(actionButton);
 
         return bottomPanel;
@@ -1698,7 +1753,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Keep the action button usable for "Stop" while a task is running.
         if (isActionRunning()) {
-            actionButton.setText("Stop");
+            actionButton.setIcon(Icons.STOP);
+            actionButton.setText(null);
             actionButton.setEnabled(true);
             actionButton.setToolTipText("Cancel the current operation");
         } else {
@@ -1733,10 +1789,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Action button reflects current running state
         KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         if (isActionRunning()) {
-            actionButton.setText("Stop");
+            actionButton.setIcon(Icons.STOP);
+            actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
         } else {
-            actionButton.setText("Go");
+            actionButton.setIcon(Icons.SEND);
+            actionButton.setText(null);
             actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         }
         actionButton.setEnabled(true);
@@ -1803,7 +1861,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void setActionRunning(Future<?> f) {
         currentActionFuture = f;
         SwingUtilities.invokeLater(() -> {
-            actionButton.setText("Stop");
+            actionButton.setIcon(Icons.STOP);
+            actionButton.setText(null);
             actionButton.setToolTipText("Cancel the current operation");
             actionButton.setEnabled(true);
         });
@@ -1819,7 +1878,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         currentActionFuture = null;
                         SwingUtilities.invokeLater(() -> {
                             KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-                            actionButton.setText("Go");
+                            actionButton.setIcon(Icons.SEND);
+                            actionButton.setText(null);
                             actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
                             actionButton.setEnabled(true);
                             updateButtonStates();
