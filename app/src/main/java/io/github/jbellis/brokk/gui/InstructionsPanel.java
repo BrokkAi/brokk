@@ -51,7 +51,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -101,8 +100,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
     // Labels flanking the mode switch; bold the selected side
-private final JLabel codeModeLabel = new JLabel("Code");
-private final JLabel answerModeLabel = new JLabel("Answer");
+    private final JLabel codeModeLabel = new JLabel("Code");
+    private final JLabel answerModeLabel = new JLabel("Answer");
     private final JButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
@@ -180,11 +179,11 @@ private final JLabel answerModeLabel = new JLabel("Answer");
         modeSwitch.setText("");
         modeSwitch.setSelected(false); // Code by default
 
-        codeCheckBox = new JCheckBox("Speed Mode");
-        codeCheckBox.setToolTipText("Enable Speed Mode (write code directly without planning)");
+        codeCheckBox = new JCheckBox("Plan First");
+        codeCheckBox.setToolTipText("Plan First (prefer planning via Architect before coding)");
 
-        scanProjectCheckBox = new JCheckBox("Scan Project");
-        scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Answer mode");
+        scanProjectCheckBox = new JCheckBox("Search First");
+        scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
 
         // default stored action: Architect
         storedAction = ACTION_ARCHITECT;
@@ -196,13 +195,15 @@ private final JLabel answerModeLabel = new JLabel("Answer");
                 scanProjectCheckBox.setVisible(true);
                 scanProjectCheckBox.setEnabled(true);
                 codeCheckBox.setVisible(false);
-                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+                // Checked => Search, Unchecked => Answer
+                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             } else {
                 codeCheckBox.setVisible(true);
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
                 scanProjectCheckBox.setVisible(false);
-                storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
+                // Inverted semantics: checked = Architect (Plan First)
+                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
             // Update label emphasis
             updateModeLabels();
@@ -210,13 +211,14 @@ private final JLabel answerModeLabel = new JLabel("Answer");
 
         codeCheckBox.addActionListener(e -> {
             if (!modeSwitch.isSelected()) {
-                storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
+                // Inverted semantics: checked = Architect (Plan First)
+                storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
             }
         });
 
         scanProjectCheckBox.addActionListener(e -> {
             if (modeSwitch.isSelected()) {
-                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
             }
         });
 
@@ -577,30 +579,30 @@ private final JLabel answerModeLabel = new JLabel("Answer");
 
     // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
     private void updateModeLabels() {
-    boolean askMode = modeSwitch.isSelected();
+        boolean askMode = modeSwitch.isSelected();
 
-    // Base and dimmed colors (theme-aware via UIManager)
-    java.awt.Color base = UIManager.getColor("Label.foreground");
-    if (base == null) base = codeModeLabel.getForeground();
+        // Base and dimmed colors (theme-aware via UIManager)
+        java.awt.Color base = UIManager.getColor("Label.foreground");
+        if (base == null) base = codeModeLabel.getForeground();
 
-    boolean isDark = UIManager.getBoolean("laf.dark");
-    java.awt.Color dim = isDark
-            ? darkenColor(base, 0.6f) // darken for dark theme
-            : lightenColor(base, 0.4f); // lighten for light theme
+        boolean isDark = UIManager.getBoolean("laf.dark");
+        java.awt.Color dim = isDark
+                ? darkenColor(base, 0.6f) // darken for dark theme
+                : lightenColor(base, 0.4f); // lighten for light theme
 
-    // Keep fonts consistent (plain) to prevent layout shifts
-    Font baseFont = codeModeLabel.getFont().deriveFont(Font.PLAIN);
-    codeModeLabel.setFont(baseFont);
-    answerModeLabel.setFont(baseFont);
+        // Keep fonts consistent (plain) to prevent layout shifts
+        Font baseFont = codeModeLabel.getFont().deriveFont(Font.PLAIN);
+        codeModeLabel.setFont(baseFont);
+        answerModeLabel.setFont(baseFont);
 
-    if (askMode) {
-        codeModeLabel.setForeground(dim);
-        answerModeLabel.setForeground(base);
-    } else {
-        codeModeLabel.setForeground(base);
-        answerModeLabel.setForeground(dim);
+        if (askMode) {
+            codeModeLabel.setForeground(dim);
+            answerModeLabel.setForeground(base);
+        } else {
+            codeModeLabel.setForeground(base);
+            answerModeLabel.setForeground(dim);
+        }
     }
-}
 
     private static java.awt.Color lightenColor(java.awt.Color base, float amount) {
         amount = Math.max(0f, Math.min(1f, amount));
@@ -637,8 +639,7 @@ private final JLabel answerModeLabel = new JLabel("Answer");
         }
         actionGroup.setBorder(BorderFactory.createCompoundBorder(
                 new io.github.jbellis.brokk.gui.components.RoundedLineBorder(borderColor, 1, -1),
-                BorderFactory.createEmptyBorder(2, 6, 2, 2)
-        ));
+                BorderFactory.createEmptyBorder(2, 6, 2, 2)));
         actionGroup.setOpaque(false);
         actionGroup.add(codeModeLabel);
         actionGroup.add(Box.createHorizontalStrut(2));
@@ -875,9 +876,8 @@ private final JLabel answerModeLabel = new JLabel("Answer");
     }
 
     /**
-     * Toggle between Code and Answer modes by flipping the modeSwitch.
-     * This reuses the existing ItemListener on modeSwitch so storedAction,
-     * checkbox visibility and labels are updated consistently.
+     * Toggle between Code and Answer modes by flipping the modeSwitch. This reuses the existing ItemListener on
+     * modeSwitch so storedAction, checkbox visibility and labels are updated consistently.
      */
     public void toggleCodeAnswerMode() {
         SwingUtilities.invokeLater(() -> {
@@ -1601,7 +1601,8 @@ private final JLabel answerModeLabel = new JLabel("Answer");
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 chrome.llmOutput("Answer command complete!", ChatMessageType.CUSTOM);
             } else {
-                chrome.llmOutput("Answer command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+                chrome.llmOutput(
+                        "Answer command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
             }
         });
         setActionRunning(future);
@@ -1702,14 +1703,12 @@ private final JLabel answerModeLabel = new JLabel("Answer");
             codeCheckBox.setVisible(true);
             scanProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
-            codeCheckBox.setToolTipText(gitAvailable
-                    ? "Enable Speed Mode (tell Brokk to write code automatically)"
-                    : "Speed Mode requires Git integration for this project.");
+            codeCheckBox.setToolTipText("Plan First (prefer planning via Architect before coding)");
         } else {
             codeCheckBox.setVisible(false);
             scanProjectCheckBox.setVisible(true);
             scanProjectCheckBox.setEnabled(true);
-            scanProjectCheckBox.setToolTipText("Scan the repository for relevant files in Ask mode");
+            scanProjectCheckBox.setToolTipText("Search First (checked = Search, unchecked = Answer)");
         }
 
         // Action button reflects current running state
@@ -1724,9 +1723,11 @@ private final JLabel answerModeLabel = new JLabel("Answer");
 
         // Ensure storedAction is consistent with current UI
         if (!modeSwitch.isSelected()) {
-            storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
+            // Inverted semantics: checked = Architect (Plan First)
+            storedAction = codeCheckBox.isSelected() ? ACTION_ARCHITECT : ACTION_CODE;
         } else {
-            storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+            // Ask-mode: checked => Search, unchecked => Ask/Answer
+            storedAction = scanProjectCheckBox.isSelected() ? ACTION_SEARCH : ACTION_ASK;
         }
 
         // Keep label emphasis in sync with selected mode
@@ -1773,6 +1774,7 @@ private final JLabel answerModeLabel = new JLabel("Answer");
             case ACTION_ARCHITECT -> runArchitectCommand();
             case ACTION_CODE -> runCodeCommand();
             case ACTION_SEARCH -> runSearchCommand();
+            case ACTION_ASK -> runAskCommand(getInstructions());
             case ACTION_SCAN_PROJECT -> runScanProjectCommand();
             default -> runArchitectCommand();
         }
@@ -1785,23 +1787,25 @@ private final JLabel answerModeLabel = new JLabel("Answer");
             actionButton.setToolTipText("Cancel the current operation");
             actionButton.setEnabled(true);
         });
-        Thread watcher = new Thread(() -> {
-            try {
-                f.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (ExecutionException | CancellationException ignored) {
-                // ignore
-            } finally {
-                currentActionFuture = null;
-                SwingUtilities.invokeLater(() -> {
-                    actionButton.setText("Go");
-                    actionButton.setToolTipText("Run the selected action");
-                    actionButton.setEnabled(true);
-                    updateButtonStates();
-                });
-            }
-        }, "Brokk-Action-Watcher");
+        Thread watcher = new Thread(
+                () -> {
+                    try {
+                        f.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (ExecutionException | CancellationException ignored) {
+                        // ignore
+                    } finally {
+                        currentActionFuture = null;
+                        SwingUtilities.invokeLater(() -> {
+                            actionButton.setText("Go");
+                            actionButton.setToolTipText("Run the selected action");
+                            actionButton.setEnabled(true);
+                            updateButtonStates();
+                        });
+                    }
+                },
+                "Brokk-Action-Watcher");
         watcher.setDaemon(true);
         watcher.start();
     }
@@ -1835,7 +1839,6 @@ private final JLabel answerModeLabel = new JLabel("Answer");
         }
         instructionsArea.requestFocusInWindow(); // Give it focus
     }
-
 
     public void runScanProjectCommand() {
         var goal = getInstructions();

@@ -52,12 +52,12 @@ public class SwitchIcon extends FlatCheckBoxIcon {
         boolean selected = (c instanceof AbstractButton ab && ab.isSelected());
 
         // Track geometry (pill)
-        int padding = 2;                 // outer horizontal padding
+        int padding = 2; // outer horizontal padding
         int trackX = padding;
-        int trackY = 1;                  // slight vertical centering
+        int trackY = 1; // slight vertical centering
         int trackW = ICON_WIDTH - padding * 2;
         int trackH = ICON_HEIGHT - 2;
-        int arc = trackH;                // perfect pill
+        int arc = trackH; // perfect pill
 
         // Draw the pill-shaped track (keep color constant regardless of selection)
         java.awt.Color trackColor = disabledCheckmarkColor;
@@ -65,7 +65,7 @@ public class SwitchIcon extends FlatCheckBoxIcon {
         g.fillRoundRect(trackX, trackY, trackW, trackH, arc, arc);
 
         // Knob geometry
-        int knobInset = 2;               // inner spacing from track edge
+        int knobInset = 2; // inner spacing from track edge
         int knobH = trackH - knobInset * 2;
         int knobW = (trackW / 2) - knobInset; // fits exactly half the track with inset
         if (knobW < knobH) {
@@ -74,7 +74,7 @@ public class SwitchIcon extends FlatCheckBoxIcon {
         int knobY = trackY + (trackH - knobH) / 2;
         int knobX = selected
                 ? trackX + trackW - knobW - knobInset // right position
-                : trackX + knobInset;                  // left position
+                : trackX + knobInset; // left position
 
         // Draw knob
         g.setColor(java.awt.Color.WHITE);
