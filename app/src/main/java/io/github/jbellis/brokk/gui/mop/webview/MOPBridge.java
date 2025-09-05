@@ -111,31 +111,10 @@ public final class MOPBridge {
             return;
         }
 
-        String outText = addReasoningNewlines(text, isNew, reasoning);
-
-        eventQueue.add(new BrokkEvent.Chunk(outText, isNew, msgType, -1, streaming, reasoning));
+        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
         scheduleSend();
     }
 
-    /**
-     * Stateless heuristic to improve formatting of reasoning sections from some models (e.g. recent OpenAI models)
-     * that don't always add a newline before a new bolded section like "**Analyzing ...**".
-     *
-     * @param text The incoming text chunk.
-     * @param isNew Whether this is the first chunk of a new message bubble.
-     * @param reasoning Whether this chunk is part of a reasoning block.
-     * @return The text, possibly with newlines prepended to bolded sections.
-     */
-    private static String addReasoningNewlines(String text, boolean isNew, boolean reasoning) {
-        if (reasoning && !isNew && !text.isEmpty()) {
-            // - Only for reasoning chunks.
-            // - Skip at the very start of the reasoning message (!isNew).
-            // - Match only opening "**": not preceded by a newline or a word char, and followed by a word char.
-            // - Does not match '***'.
-            return text.replaceAll("(?<!\\n)(?<!\\w)\\*\\*(?=\\w)(?!\\*)", "\n\n**");
-        }
-        return text;
-    }
 
     public void setTheme(boolean isDark, boolean isDevMode) {
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
