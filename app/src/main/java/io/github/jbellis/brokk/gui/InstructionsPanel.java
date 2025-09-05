@@ -163,7 +163,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Initialize Action Selection UI
         modeSwitch = new JCheckBox();
-        modeSwitch.setToolTipText("Toggle between Code and Answer modes");
+        KeyStroke toggleKs = io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        modeSwitch.setToolTipText("Toggle between Code and Answer modes" + " (" + formatKeyStroke(toggleKs) + ")");
         var switchIcon = new SwitchIcon();
         modeSwitch.setIcon(switchIcon);
         modeSwitch.setSelectedIcon(switchIcon);
@@ -228,7 +229,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Single Action button (Go/Stop toggle)
         actionButton = new JButton("Go");
-        actionButton.setToolTipText("Run the selected action");
+        KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         actionButton.addActionListener(e -> onActionButtonPressed());
 
         modelSelector = new ModelSelector(chrome);
@@ -624,6 +626,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         g = Math.max(0, Math.min(255, g));
         b = Math.max(0, Math.min(255, b));
         return new java.awt.Color(r, g, b);
+    }
+
+    /**
+     * Format a KeyStroke into a human-readable short string such as "Ctrl+M" or "Meta+Enter".
+     * Falls back to KeyStroke.toString() on error.
+     */
+    private static String formatKeyStroke(KeyStroke ks) {
+        try {
+            int modifiers = ks.getModifiers();
+            int keyCode = ks.getKeyCode();
+            String modText = java.awt.event.InputEvent.getModifiersExText(modifiers);
+            String keyText = KeyEvent.getKeyText(keyCode);
+            if (modText == null || modText.isBlank()) return keyText;
+            return modText + "+" + keyText;
+        } catch (Exception e) {
+            return ks.toString();
+        }
     }
 
     private JPanel buildBottomPanel() {
@@ -1712,12 +1731,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Action button reflects current running state
+        KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         if (isActionRunning()) {
             actionButton.setText("Stop");
             actionButton.setToolTipText("Cancel the current operation");
         } else {
             actionButton.setText("Go");
-            actionButton.setToolTipText("Run the selected action");
+            actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
         }
         actionButton.setEnabled(true);
 
@@ -1798,8 +1818,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     } finally {
                         currentActionFuture = null;
                         SwingUtilities.invokeLater(() -> {
+                            KeyStroke submitKs = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
                             actionButton.setText("Go");
-                            actionButton.setToolTipText("Run the selected action");
+                            actionButton.setToolTipText("Run the selected action" + " (" + formatKeyStroke(submitKs) + ")");
                             actionButton.setEnabled(true);
                             updateButtonStates();
                         });
