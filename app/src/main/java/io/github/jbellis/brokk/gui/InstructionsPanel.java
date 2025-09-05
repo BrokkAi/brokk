@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.components.SwitchIcon;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -95,8 +96,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
-    private final JToggleButton agentToggle;
-    private final JToggleButton askToggle;
+    private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
     private final JButton actionButton;
@@ -159,15 +159,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 msg -> chrome.toolError(msg, "Error"));
 
         // Initialize Action Selection UI
-        agentToggle = new JToggleButton("Agent");
-        agentToggle.setToolTipText("Select Agent mode (Architect)");
-        askToggle = new JToggleButton("Ask");
-        askToggle.setToolTipText("Select Ask mode (Search)");
-
-        var toggleGroup = new ButtonGroup();
-        toggleGroup.add(agentToggle);
-        toggleGroup.add(askToggle);
-        agentToggle.setSelected(true);
+        modeSwitch = new JCheckBox();
+        modeSwitch.setToolTipText("Toggle between Agent and Ask modes");
+        var switchIcon = new SwitchIcon();
+        modeSwitch.setIcon(switchIcon);
+        modeSwitch.setSelectedIcon(switchIcon);
+        modeSwitch.setFocusPainted(false);
+        modeSwitch.setFocusable(false);
+        modeSwitch.setBorderPainted(false);
+        modeSwitch.setBorder(BorderFactory.createEmptyBorder());
+        modeSwitch.setContentAreaFilled(false);
+        modeSwitch.setOpaque(false);
+        modeSwitch.setIconTextGap(0);
+        modeSwitch.setRolloverEnabled(false);
+        modeSwitch.setMargin(new Insets(0, 0, 0, 0));
+        modeSwitch.setText("");
+        modeSwitch.setSelected(false); // Agent by default
 
         codeCheckBox = new JCheckBox("Code");
         codeCheckBox.setToolTipText("Tell the LLM to write code in Agent mode");
@@ -179,8 +186,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         storedAction = ACTION_ARCHITECT;
 
         // Toggle listeners update visibility and storedAction
-        agentToggle.addActionListener(e -> {
-            if (agentToggle.isSelected()) {
+        modeSwitch.addItemListener(e2 -> {
+            boolean askMode = modeSwitch.isSelected();
+            if (askMode) {
+                scanProjectCheckBox.setVisible(true);
+                scanProjectCheckBox.setEnabled(true);
+                codeCheckBox.setVisible(false);
+                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
+            } else {
                 codeCheckBox.setVisible(true);
                 // Enable the Code checkbox only when the project has a Git repository available
                 codeCheckBox.setEnabled(chrome.getProject().hasGit());
@@ -189,23 +202,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        askToggle.addActionListener(e -> {
-            if (askToggle.isSelected()) {
-                scanProjectCheckBox.setVisible(true);
-                scanProjectCheckBox.setEnabled(true);
-                codeCheckBox.setVisible(false);
-                storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
-            }
-        });
-
         codeCheckBox.addActionListener(e -> {
-            if (agentToggle.isSelected()) {
+            if (!modeSwitch.isSelected()) {
                 storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
             }
         });
 
         scanProjectCheckBox.addActionListener(e -> {
-            if (askToggle.isSelected()) {
+            if (modeSwitch.isSelected()) {
                 storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
             }
         });
@@ -568,10 +572,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
-        // Action selector: Agent/Ask toggle
-        bottomPanel.add(agentToggle);
-        bottomPanel.add(Box.createHorizontalStrut(H_GAP));
-        bottomPanel.add(askToggle);
+        // Action selector: Agent/Ask switch
+        bottomPanel.add(new JLabel("Agent"));
+        bottomPanel.add(Box.createHorizontalStrut(4));
+        bottomPanel.add(modeSwitch);
+        bottomPanel.add(Box.createHorizontalStrut(4));
+        bottomPanel.add(new JLabel("Ask"));
         bottomPanel.add(Box.createHorizontalStrut(H_GAP));
 
         // Dynamic options depending on toggle selection
@@ -1576,8 +1582,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     // Methods to disable and enable buttons.
     void disableButtons() {
         // Disable ancillary controls only; leave the action button alone so it can become "Stop"
-        agentToggle.setEnabled(false);
-        askToggle.setEnabled(false);
+        modeSwitch.setEnabled(false);
         codeCheckBox.setEnabled(false);
         scanProjectCheckBox.setEnabled(false);
 
@@ -1599,12 +1604,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void updateButtonStates() {
         boolean gitAvailable = chrome.getProject().hasGit();
 
-        // Toggles
-        agentToggle.setEnabled(true);
-        askToggle.setEnabled(true);
+        // Toggle
+        modeSwitch.setEnabled(true);
 
         // Checkbox visibility and enablement
-        if (agentToggle.isSelected()) {
+        if (!modeSwitch.isSelected()) {
             codeCheckBox.setVisible(true);
             scanProjectCheckBox.setVisible(false);
             codeCheckBox.setEnabled(gitAvailable);
@@ -1629,7 +1633,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         actionButton.setEnabled(true);
 
         // Ensure storedAction is consistent with current UI
-        if (agentToggle.isSelected()) {
+        if (!modeSwitch.isSelected()) {
             storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
         } else {
             storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
