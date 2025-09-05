@@ -64,17 +64,8 @@ public class SymbolLookupService {
             BiConsumer<String, SymbolLookupResult> resultCallback,
             @Nullable Runnable completionCallback) {
 
-        logger.debug(
-                "[SYMBOL-DEBUG] SymbolLookupService.lookupSymbols called with {} symbols: {}",
-                symbolNames.size(),
-                symbolNames);
-        logger.debug("[SYMBOL-DEBUG] contextManager is null: {}", contextManager == null);
 
         if (symbolNames.isEmpty() || contextManager == null) {
-            logger.debug(
-                    "[SYMBOL-DEBUG] Early return - symbolNames empty: {}, contextManager null: {}",
-                    symbolNames.isEmpty(),
-                    contextManager == null);
             if (completionCallback != null) {
                 completionCallback.run();
             }
@@ -99,22 +90,17 @@ public class SymbolLookupService {
             }
 
             // Process each symbol individually and send result immediately
-            logger.debug("[SYMBOL-DEBUG] Processing {} symbols with analyzer", symbolNames.size());
             for (var symbolName : symbolNames) {
-                logger.debug("[SYMBOL-DEBUG] Processing symbol: '{}'", symbolName);
                 try {
                     var symbolResult = checkSymbolExists(analyzer, symbolName);
-                    logger.debug("[SYMBOL-DEBUG] Symbol '{}' result: {}", symbolName, symbolResult);
 
                     // Send result immediately (always send the SymbolLookupResult)
                     resultCallback.accept(symbolName, symbolResult);
-                    logger.debug("[SYMBOL-DEBUG] Callback completed for symbol: '{}'", symbolName);
                 } catch (Exception e) {
-                    logger.warn("[SYMBOL-DEBUG] Error processing symbol '{}' in streaming lookup", symbolName, e);
+                    logger.warn("Error processing symbol '{}' in streaming lookup", symbolName, e);
                     // Send not found result for failed lookups
                     var notFoundResult = SymbolLookupResult.notFound(symbolName);
                     resultCallback.accept(symbolName, notFoundResult);
-                    logger.debug("[SYMBOL-DEBUG] Sent not-found result for symbol: '{}'", symbolName);
                 }
             }
 

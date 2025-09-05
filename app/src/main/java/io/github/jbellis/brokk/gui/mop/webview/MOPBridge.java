@@ -277,13 +277,6 @@ public final class MOPBridge {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
 
-        logger.debug("[SYMBOL-DEBUG] === BACKEND ENTRY POINT ===");
-        logger.debug(
-                "[SYMBOL-DEBUG] lookupSymbolsAsync called with JSON: {}, seq: {}, contextId: {}",
-                symbolNamesJson,
-                seq,
-                contextId);
-        logger.debug("[SYMBOL-DEBUG] ContextManager available: {}", contextManager != null);
 
         // Parse symbol names (keep existing parsing logic)
         Set<String> symbolNames;
@@ -321,24 +314,16 @@ public final class MOPBridge {
                         contextManager,
                         // Result callback - called for each individual symbol result
                         (symbolName, symbolResult) -> {
-                            logger.debug(
-                                    "[SYMBOL-DEBUG] Backend received symbol result: {} -> {}",
-                                    symbolName,
-                                    symbolResult);
-
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
                                     var singleResult = java.util.Map.of(symbolName, symbolResult);
                                     var resultsJson = toJson(singleResult);
-                                    logger.debug("[SYMBOL-DEBUG] Sending to frontend: {}", resultsJson);
 
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
                                             + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
                                             + toJson(contextId) + "); }";
-                                    logger.debug("[SYMBOL-DEBUG] Executing JS: {}", js);
                                     engine.executeScript(js);
-                                    logger.debug("[SYMBOL-DEBUG] JS execution completed for symbol: {}", symbolName);
                                 } catch (Exception e) {
                                     logger.warn(
                                             "Failed to send streaming symbol lookup result for '{}'", symbolName, e);
@@ -382,20 +367,13 @@ public final class MOPBridge {
                     : java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager()
                             .getFocusOwner();
 
-            logger.warn("Context menu dependencies - component: {}, contextManager: {}, chrome: {}",
-                component != null ? component.getClass().getSimpleName() : "null",
-                contextManager != null,
-                chrome != null);
-
             if (component != null && contextManager != null) {
                 if (chrome != null) {
-                    logger.warn("Calling ContextMenuBuilder.forSymbol() with symbol: {}", symbolName);
                     try {
                         io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
                                         symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
                                                 contextManager)
                                 .show(component, x, y);
-                        logger.warn("ContextMenuBuilder.show() completed successfully");
                     } catch (Exception e) {
                         logger.error("Failed to show context menu", e);
                     }
@@ -403,10 +381,7 @@ public final class MOPBridge {
                     logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
                 }
             } else {
-                logger.warn("Cannot show context menu - missing dependencies: component={}, contextManager={}, chrome={}",
-                        component != null ? component.getClass().getSimpleName() : "null",
-                        contextManager != null,
-                        chrome != null);
+                logger.warn("Cannot show context menu - missing dependencies");
             }
         });
     }
