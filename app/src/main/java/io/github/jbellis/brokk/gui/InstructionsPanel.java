@@ -100,6 +100,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox scanProjectCheckBox;
+    // Labels flanking the mode switch; bold the selected side
+    private final JLabel agentModeLabel = new JLabel("Agent");
+    private final JLabel askModeLabel = new JLabel("Ask");
     private final JButton actionButton;
     private @Nullable volatile Future<?> currentActionFuture;
     private final ModelSelector modelSelector;
@@ -201,6 +204,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 scanProjectCheckBox.setVisible(false);
                 storedAction = codeCheckBox.isSelected() ? ACTION_CODE : ACTION_ARCHITECT;
             }
+            // Update label emphasis
+            updateModeLabels();
         });
 
         codeCheckBox.addActionListener(e -> {
@@ -239,6 +244,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Bottom Bar (Mic, Model, Actions) (South)
         JPanel bottomPanel = buildBottomPanel();
         add(bottomPanel, BorderLayout.SOUTH);
+        // Ensure initial label bolding matches current mode
+        updateModeLabels();
 
         // Initialize the reference file table and suggestion area
         initializeReferenceFileTable();
@@ -568,6 +575,35 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         centerPanel.add(suggestionAreaPanel, 1);
     }
 
+    // Emphasize selected label by color; dim the non-selected one (no bold to avoid width changes)
+    private void updateModeLabels() {
+        boolean askMode = modeSwitch.isSelected();
+
+        // Base and dimmed colors (theme-aware via UIManager)
+        java.awt.Color base = UIManager.getColor("Label.foreground");
+        if (base == null) base = agentModeLabel.getForeground();
+
+        float factor = 0.6f; // slightly darker for non-selected
+        java.awt.Color dim = new java.awt.Color(
+                Math.max(0, Math.min(255, Math.round(base.getRed() * factor))),
+                Math.max(0, Math.min(255, Math.round(base.getGreen() * factor))),
+                Math.max(0, Math.min(255, Math.round(base.getBlue() * factor)))
+        );
+
+        // Keep fonts consistent (plain) to prevent layout shifts
+        Font baseFont = agentModeLabel.getFont().deriveFont(Font.PLAIN);
+        agentModeLabel.setFont(baseFont);
+        askModeLabel.setFont(baseFont);
+
+        if (askMode) {
+            agentModeLabel.setForeground(dim);
+            askModeLabel.setForeground(base);
+        } else {
+            agentModeLabel.setForeground(base);
+            askModeLabel.setForeground(dim);
+        }
+    }
+
     private JPanel buildBottomPanel() {
         JPanel bottomPanel = new JPanel();
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.LINE_AXIS));
@@ -584,11 +620,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 BorderFactory.createEmptyBorder(2, 6, 2, 2)
         ));
         actionGroup.setOpaque(false);
-        actionGroup.add(new JLabel("Agent"));
+        actionGroup.add(agentModeLabel);
         actionGroup.add(Box.createHorizontalStrut(2));
         actionGroup.add(modeSwitch);
         actionGroup.add(Box.createHorizontalStrut(2));
-        actionGroup.add(new JLabel("Ask"));
+        actionGroup.add(askModeLabel);
 
         // Keep the grouping box tight; prevent BoxLayout from stretching it
         actionGroup.setMaximumSize(actionGroup.getPreferredSize());
@@ -1655,6 +1691,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
         }
+
+        // Keep label emphasis in sync with selected mode
+        updateModeLabels();
 
         chrome.enableHistoryPanel();
     }
