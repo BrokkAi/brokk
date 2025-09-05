@@ -46,10 +46,18 @@ import org.jetbrains.annotations.VisibleForTesting;
  */
 public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
-    private static final int MAX_PARSE_ATTEMPTS = 5;
 
+    /** maximum combined parse+apply retries before giving up */
     @VisibleForTesting
-    static final int MAX_APPLY_FAILURES = 3;
+    static final int MAX_EDIT_RETRIES = 8;
+
+    /**
+     * stricter cap when a turn results in **no successful applications** (succeeded == 0);
+     * counts consecutively and resets on any success
+     */
+    @VisibleForTesting
+    static final int MAX_EDIT_RETRIES_NO_RESULTS = 3;
+
     /** maximum consecutive build failures before giving up */
     @VisibleForTesting
     static final int MAX_BUILD_FAILURES = 5;
@@ -80,19 +88,13 @@ public class CodeAgent {
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         var io = contextManager.getIo();
-        // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
         coder.setOutput(io);
 
-        // Track changed files
         var changedFiles = new HashSet<ProjectFile>();
 
-        // Retry-loop state tracking
-        int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
-
         String buildError = "";
-        var edits = new ArrayList<LineEdit>(); // This will be part of WorkspaceState
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
@@ -106,7 +108,14 @@ public class CodeAgent {
 
         var conversationState = new ConversationState(taskMessages, nextRequest);
         var workspaceState = new EditState(
-                edits, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+                List.of(), // pendingEdits are not carried across turns with combined phase
+                0,         // consecutiveEditRetries
+                0,         // consecutiveNoResultRetries
+                0,         // consecutiveBuildFailures
+                blocksAppliedWithoutBuild,
+                buildError,
+                changedFiles,
+                originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
@@ -116,10 +125,8 @@ public class CodeAgent {
                 break;
             }
 
-            // Variables needed across phase calls if not passed via Step results
-            StreamingResult streamingResult; // Will be set before requestPhase
-
             // Make the LLM request
+            StreamingResult streamingResult;
             try {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         contextManager,
@@ -139,50 +146,29 @@ public class CodeAgent {
                 continue; // let main loop interruption check handle
             }
 
-            // REQUEST PHASE handles the result of sendLlmRequest
+            // REQUEST PHASE
             var requestOutcome = requestPhase(loopContext, streamingResult, metrics);
             switch (requestOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Fatal(var details) -> stopDetails = details;
-                default ->
-                    throw new IllegalStateException(
-                            "requestPhase returned unexpected Step type: " + requestOutcome.getClass());
+                default -> throw new IllegalStateException(
+                        "requestPhase returned unexpected Step type: " + requestOutcome.getClass());
             }
-            if (stopDetails != null) break; // If requestPhase was Fatal
+            if (stopDetails != null) break;
 
-            // PARSE PHASE parses edit blocks
-            var parseOutcome = parsePhase(
-                    loopContext,
-                    streamingResult.text(),
-                    streamingResult.isPartial(),
-                    metrics);
-            switch (parseOutcome) {
+            // EDIT PHASE (combined parse+apply)
+            var editOutcome = editPhase(loopContext, streamingResult.text(), streamingResult.isPartial(), metrics);
+            switch (editOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Retry(var newLoopContext) -> {
-                    if (metrics != null) {
-                        metrics.parseRetries++;
-                    }
                     loopContext = newLoopContext;
-                    continue; // Restart main loop
+                    continue; // Retry the LLM turn
                 }
                 case Step.Fatal(var details) -> stopDetails = details;
             }
             if (stopDetails != null) break;
 
-            // APPLY PHASE applies blocks
-            var applyOutcome = applyPhase(loopContext, metrics);
-            switch (applyOutcome) {
-                case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
-                case Step.Retry(var newLoopContext) -> {
-                    loopContext = newLoopContext;
-                    continue; // Restart main loop
-                }
-                case Step.Fatal(var details) -> stopDetails = details;
-            }
-            if (stopDetails != null) break;
-
-            // VERIFY PHASE runs the build
-            // since this is the last phase, it does not use Continue
+            // VERIFY PHASE runs the build (only when something was applied since last build)
             assert loopContext.editState().pendingEdits().isEmpty() : loopContext;
             var verifyOutcome = verifyPhase(loopContext, metrics);
             switch (verifyOutcome) {
@@ -191,8 +177,7 @@ public class CodeAgent {
                     continue;
                 }
                 case Step.Fatal(var details) -> stopDetails = details;
-                default ->
-                    throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
+                default -> throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
             }
             // awkward construction but maintains symmetry
             if (stopDetails != null) break;
@@ -224,18 +209,10 @@ public class CodeAgent {
     }
 
     /**
-     * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
-     * same request / parse / apply FSM that {@link #runTask(String, boolean)} uses, but it stops after all
-     * Line Edit tags have been applied (no build verification is performed).
-     *
-     * @param file the file to edit
-     * @param instructions user instructions describing the desired change
-     * @param readOnlyMessages conversation context that should be provided to the LLM as read-only (e.g., other related
-     *     files, build output, etc.)
-     * @return a {@link TaskResult} recording the conversation and the original contents of all files that were changed
+     * Runs a “single-file edit” session. Uses the same request → edit (combined) flow as runTask, but stops
+     * after all Line Edit tags for this turn have been applied (no verify/build).
      */
     public TaskResult runSingleFileEdit(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
-        // 0.  Setup: coder, parser, initial messages, and initial LoopContext
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
         coder.setOutput(io);
 
@@ -243,26 +220,24 @@ public class CodeAgent {
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(List.of(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
-                .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
+                             .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
 
         TaskResult.StopDetails stopDetails;
 
-        // 1.  Main FSM loop (request → parse → apply)
         while (true) {
-            // ----- 1-a.  Construct messages for this turn --------------------
-            List<ChatMessage> llmMessages;
-            llmMessages = CodePrompts.instance.getSingleFileCodeMessages(
+            // Build messages for this turn
+            List<ChatMessage> llmMessages = CodePrompts.instance.getSingleFileCodeMessages(
                     contextManager.getProject().getStyleGuide(),
                     readOnlyMessages,
                     loopContext.conversationState().taskMessages(),
                     loopContext.conversationState().nextRequest(),
                     file);
 
-            // ----- 1-b.  Send to LLM -----------------------------------------
+            // Send to LLM
             StreamingResult streamingResult;
             try {
                 streamingResult = coder.sendRequest(llmMessages, true);
@@ -272,19 +247,19 @@ public class CodeAgent {
                 break;
             }
 
-            // ----- 1-c.  REQUEST PHASE ---------------------------------------
+            // REQUEST
             var step = requestPhase(loopContext, streamingResult, null);
             if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
                 stopDetails = details;
                 break;
             }
-            loopContext = step.loopContext(); // Step.Continue
+            loopContext = step.loopContext();
 
-            // ----- 1-d.  PARSE PHASE -----------------------------------------
-            step = parsePhase(loopContext, streamingResult.text(), streamingResult.isPartial(), null);
+            // EDIT (combined)
+            step = editPhase(loopContext, streamingResult.text(), streamingResult.isPartial(), null);
             if (step instanceof Step.Retry retry) {
                 loopContext = retry.loopContext();
-                continue; // back to while-loop top
+                continue; // ask LLM again
             }
             if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
                 stopDetails = details;
@@ -292,31 +267,11 @@ public class CodeAgent {
             }
             loopContext = step.loopContext();
 
-            // ----- 1-e.  APPLY PHASE -----------------------------------------
-            step = applyPhase(loopContext, null);
-            if (step instanceof Step.Retry retry2) {
-                loopContext = retry2.loopContext();
-                continue;
-            }
-            if (step instanceof Step.Fatal fatal3) {
-                stopDetails = fatal3.stopDetails();
-                break;
-            }
-            loopContext = step.loopContext();
-
-            // ----- 1-f.  Termination checks ----------------------------------
-            if (loopContext.editState().pendingEdits().isEmpty()) {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-                break;
-            }
-
-            if (Thread.currentThread().isInterrupted()) {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
+            // Stop after this turn (no build in single-file mode)
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            break;
         }
 
-        // 2.  Produce TaskResult
         assert stopDetails != null;
         var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages(false));
 
@@ -341,7 +296,11 @@ public class CodeAgent {
         io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM);
     }
 
-    Step parsePhase(
+    /**
+     * Combined phase: parse LineEdits from the LLM response and immediately attempt to apply them.
+     * If any parse or apply problems occur, return a Retry with a unified failure message.
+     */
+    Step editPhase(
             LoopContext currentLoopContext,
             String llmText,
             boolean isPartialResponse,
@@ -352,88 +311,141 @@ public class CodeAgent {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
         var lepResult = LineEditorParser.instance.parse(llmText);
-        var newlyParsedEdits = lepResult.edits();
+        var parsedEdits = lepResult.edits();
         if (metrics != null) {
-            metrics.totalLineEdits += newlyParsedEdits.size();
+            metrics.totalLineEdits += parsedEdits.size();
+        }
+
+        // If there are parsed edits, ensure we’re not touching read-only files
+        if (!parsedEdits.isEmpty()) {
+            var filesToTouch = parsedEdits.stream()
+                    .map(LineEdit::file)
+                    .map(contextManager::toFile)
+                    .distinct()
+                    .toList();
+            var readOnlyConflicts = filesToTouch.stream()
+                    .filter(f -> contextManager.getReadonlyProjectFiles().contains(f))
+                    .toList();
+            if (!readOnlyConflicts.isEmpty()) {
+                var msg =
+                        "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
+                                .formatted(readOnlyConflicts.stream()
+                                                   .map(ProjectFile::toString)
+                                                   .collect(Collectors.joining(",")));
+                reportComplete(msg);
+                var filenames = readOnlyConflicts.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
+            }
+        }
+
+        // Pre-create empty files for insertion edits
+        preCreateNewFilesForInsertEdits(parsedEdits);
+
+        // Attempt to apply edits (if any)
+        List<LineEditor.ApplyFailure> applyFailures = List.of();
+        int succeeded = 0;
+        Map<ProjectFile, String> nextOriginals = new HashMap<>(ws.originalFileContents());
+
+        if (!parsedEdits.isEmpty()) {
+            LineEditor.ApplyResult applyResult;
+            try {
+                applyResult = LineEditor.applyEdits(contextManager, io, parsedEdits);
+            } catch (Exception e) {
+                var msg = Objects.toString(e.getMessage(), e.toString());
+                io.toolError(msg);
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, msg));
+            }
+
+            ws.changedFiles().addAll(applyResult.originalContents().keySet());
+            applyResult.originalContents().forEach(nextOriginals::putIfAbsent);
+
+            applyFailures = applyResult.failures();
+            if (metrics != null) {
+                metrics.failedLineEdits += applyFailures.size();
+            }
+
+            int attempted = parsedEdits.size();
+            succeeded = attempted - applyFailures.size();
         }
 
         boolean hasParseProblems = lepResult.error() != null || !lepResult.failures().isEmpty();
-        if (hasParseProblems) {
-            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
+        boolean hasApplyProblems = !applyFailures.isEmpty();
+        boolean hasErrors = isPartialResponse || hasParseProblems || hasApplyProblems;
 
-            // Build a structured parse-failure message aligned with apply failures
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            if (newlyParsedEdits.isEmpty()) {
-                var msg = CodePrompts.getParseFailureMessage(
-                        lepResult.failures(), lepResult.error(), 0, null);
-                messageForRetry = new UserMessage(msg);
-                consoleLogForRetry = "Failed to parse LLM response; retrying";
-            } else {
-                var lastGood = newlyParsedEdits.getLast();
-                var msg = CodePrompts.getParseFailureMessage(
-                        lepResult.failures(), lepResult.error(), newlyParsedEdits.size(), lastGood);
-                messageForRetry = new UserMessage(msg);
-                consoleLogForRetry = "Malformed or incomplete response after %d Line Edits parsed; asking LLM to continue/fix"
-                        .formatted(newlyParsedEdits.size());
+        if (!hasErrors) {
+            // Clean, complete turn; may be a prose-only response or actual edits applied successfully
+            int newBlocksAppliedWithoutBuild = ws.blocksAppliedWithoutBuild() + Math.max(0, succeeded);
+            if (succeeded > 0) {
+                report(succeeded + " line edit(s) applied.");
             }
-
-            if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {
-                reportComplete("Parse error limit reached; ending task.");
-                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
-            }
-
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
-            var nextPending = new ArrayList<>(ws.pendingEdits());
-            nextPending.addAll(newlyParsedEdits);
-            var nextWs = ws.withPendingEdits(nextPending, updatedConsecutiveParseFailures);
-            report(consoleLogForRetry);
-            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+            // Reset both edit retry counters on a clean turn
+            var newWs = ws.afterEditAttempt(
+                    List.of(), // no carry-over
+                    0,         // consecutiveEditRetries reset
+                    0,         // consecutiveNoResultRetries reset
+                    newBlocksAppliedWithoutBuild,
+                    nextOriginals);
+            return new Step.Continue(new LoopContext(cs, newWs, currentLoopContext.userGoal()));
         }
 
-        // No explicit parse error. Reset parse failure counter. Add newly parsed edits to the pending list.
-        var mutablePendingEdits = new ArrayList<>(ws.pendingEdits());
-        mutablePendingEdits.addAll(newlyParsedEdits);
+        // Construct unified retry prompt
+        var lastGood = parsedEdits.isEmpty() ? null : parsedEdits.getLast();
+        var retryPrompt = CodePrompts.getCombinedEditFailureMessage(
+                lepResult.failures(), lepResult.error(), lastGood, applyFailures, Math.max(0, succeeded));
 
-        // Handle case where LLM response was cut short
-        if (isPartialResponse) {
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
+        int newConsecutiveEditRetries = ws.consecutiveEditRetries() + 1;
+        int newConsecutiveNoResultRetries = (succeeded == 0) ? (ws.consecutiveNoResultRetries() + 1) : 0;
 
-            if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {
-                reportComplete("Parse error limit reached; ending task.");
-                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+        // Metrics bookkeeping (keep separate counters even though the phase is combined)
+        if (metrics != null) {
+            metrics.editRetries++;
+            if (isPartialResponse || hasParseProblems) {
+                metrics.parseRetryTriggers++;
             }
-
-            if (newlyParsedEdits.isEmpty()) {
-                messageForRetry = new UserMessage(
-                        "It looks like the response was cut off before you provided any Line Edit tags. Please continue with your response.");
-                consoleLogForRetry =
-                        "LLM indicated response was partial before any Line Edit tags; counting as parse failure and asking to continue";
-            } else {
-                var repr = newlyParsedEdits.getLast().repr();
-                messageForRetry = new UserMessage("""
-                                                          It looks like we got cut off. The last Line Edit tag I successfully parsed was:
-                                                          
-                                                          %s
-                                                          
-                                                          Please continue from there (WITHOUT repeating that one).
-                                                          """
-                                                          .stripIndent()
-                                                          .formatted(repr));
-                consoleLogForRetry = "LLM indicated response was partial after %d clean Line Edits tags; asking to continue"
-                        .formatted(newlyParsedEdits.size());
+            if (hasApplyProblems) {
+                metrics.applyRetryTriggers++;
             }
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
-            var nextWs = ws.withPendingEdits(mutablePendingEdits, updatedConsecutiveParseFailures);
-            report(consoleLogForRetry);
-            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+            if (succeeded == 0) {
+                metrics.noResultRetries++;
+            }
         }
 
-        // Clean, complete parse: reset both counters.
-        var nextWs = ws.withPendingEdits(mutablePendingEdits, 0);
-        return new Step.Continue(new LoopContext(cs, nextWs, currentLoopContext.userGoal()));
+        // Decide if we exceeded caps
+        boolean hitCombinedCap = newConsecutiveEditRetries >= MAX_EDIT_RETRIES;
+        boolean hitNoResultCap = newConsecutiveNoResultRetries >= MAX_EDIT_RETRIES_NO_RESULTS;
+
+        if (hitCombinedCap || hitNoResultCap) {
+            reportComplete("Edit retry limit reached; ending task.");
+            var stopReason = (isPartialResponse || hasParseProblems)
+                    ? TaskResult.StopReason.PARSE_ERROR
+                    : TaskResult.StopReason.APPLY_ERROR;
+            return new Step.Fatal(new TaskResult.StopDetails(stopReason));
+        }
+
+        // Retry: increment blocksAppliedWithoutBuild by any success we did get
+        int newBlocksAppliedWithoutBuild = ws.blocksAppliedWithoutBuild() + Math.max(0, succeeded);
+        var nextCs = new ConversationState(cs.taskMessages(), new UserMessage(retryPrompt));
+        var nextWs = ws.afterEditAttempt(
+                List.of(), // do not carry pending edits across turns
+                newConsecutiveEditRetries,
+                newConsecutiveNoResultRetries,
+                newBlocksAppliedWithoutBuild,
+                nextOriginals);
+
+        // Helpful console logging
+        if (isPartialResponse && parsedEdits.isEmpty()) {
+            report("LLM indicated response was partial before any Line Edit tags; asking to continue");
+        } else if (isPartialResponse) {
+            report("Malformed or partial response after %d Line Edits parsed; asking LLM to continue/fix"
+                           .formatted(parsedEdits.size()));
+        } else if (hasParseProblems) {
+            report("Failed to parse some Line Edits; asking LLM to fix parse issues");
+        } else {
+            report("Failed to apply %s edit(s), asking LLM to retry".formatted(applyFailures.size()));
+            report(applyFailures.toString());
+        }
+
+        return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
     }
 
     /**
@@ -458,7 +470,7 @@ public class CodeAgent {
             // Create the empty file if it doesn't exist yet
             if (!file.exists()) {
                 try {
-                    file.write(""); // Using ProjectFile.write handles directory creation internally
+                    file.write("");
                     logger.debug("Pre-created empty file: {}", file);
                 } catch (IOException e) {
                     io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
@@ -550,8 +562,6 @@ public class CodeAgent {
         coder.setOutput(io);
 
         // Use up to 5 related classes as context
-        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment
-        // directly
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents;
@@ -561,12 +571,9 @@ public class CodeAgent {
             throw new java.io.UncheckedIOException(e);
         }
 
-        var styleGuide = contextManager.getProject().getStyleGuide();
-
         // Build the prompt messages
+        var styleGuide = contextManager.getProject().getStyleGuide();
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-
-        // The user instructions
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
@@ -648,7 +655,7 @@ public class CodeAgent {
         var cs = loopContext.conversationState();
         var ws = loopContext.editState();
 
-        // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
+        // Verify only runs when editsSinceLastBuild > 0.
         if (ws.blocksAppliedWithoutBuild() == 0) {
             reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
             TaskResult.StopDetails stopDetails;
@@ -698,101 +705,6 @@ public class CodeAgent {
         }
     }
 
-    Step applyPhase(LoopContext currentLoopContext, @Nullable Metrics metrics) {
-        var cs = currentLoopContext.conversationState();
-        var ws = currentLoopContext.editState();
-
-        if (ws.pendingEdits().isEmpty()) {
-            logger.debug("nothing to apply, continuing to next phase");
-            return new Step.Continue(currentLoopContext);
-        }
-
-        // Detect read-only conflicts
-        var filesToTouch = ws.pendingEdits().stream()
-                .map(LineEdit::file)
-                .map(contextManager::toFile)
-                .distinct()
-                .toList();
-        var readOnlyConflicts = filesToTouch.stream()
-                .filter(f -> contextManager.getReadonlyProjectFiles().contains(f))
-                .toList();
-        if (!readOnlyConflicts.isEmpty()) {
-            var msg =
-                    "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
-                            .formatted(readOnlyConflicts.stream()
-                                    .map(ProjectFile::toString)
-                                    .collect(Collectors.joining(",")));
-            reportComplete(msg);
-            var filenames = readOnlyConflicts.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
-            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
-        }
-
-        // Pre-create empty files for insertion edits
-        preCreateNewFilesForInsertEdits(ws.pendingEdits());
-
-        LineEditor.ApplyResult applyResult;
-        try {
-            applyResult = LineEditor.applyEdits(contextManager, io, ws.pendingEdits());
-        } catch (Exception e) {
-            var msg = Objects.toString(e.getMessage(), e.toString());
-            io.toolError(msg);
-            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, msg));
-        }
-
-        // Track changed files and originals
-        ws.changedFiles().addAll(applyResult.originalContents().keySet());
-        Map<ProjectFile, String> nextOriginals = new HashMap<>(ws.originalFileContents());
-        applyResult.originalContents().forEach(nextOriginals::putIfAbsent);
-
-        var failures = applyResult.failures();
-        if (metrics != null) {
-            metrics.failedLineEdits += failures.size();
-        }
-
-        int attempted = ws.pendingEdits().size();
-        int succeeded = attempted - failures.size();
-        int newBlocksAppliedWithoutBuild = ws.blocksAppliedWithoutBuild() + Math.max(0, succeeded);
-
-        List<LineEdit> nextPending = List.of(); // clear batch
-
-        if (!failures.isEmpty()) {
-            int updatedConsecutiveApplyFailures = (succeeded == 0)
-                    ? ws.consecutiveApplyFailures() + 1
-                    : 0;
-
-            if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
-                report(failures.toString());
-                var msg = "Unable to apply %d edits to %s"
-                        .formatted(
-                                failures.size(),
-                                failures.stream()
-                                        .map(f -> f.edit().file().toString())
-                                        .distinct()
-                                        .collect(Collectors.joining(",")));
-                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, msg));
-            } else {
-                if (metrics != null) {
-                    metrics.applyRetries++;
-                }
-                String retryPromptText =
-                        CodePrompts.getLineEditFailureMessage(failures, succeeded, contextManager);
-                UserMessage retryRequest = new UserMessage(retryPromptText);
-                var newCs = new ConversationState(cs.taskMessages(), retryRequest);
-                var newWs = ws.afterApply(
-                        nextPending, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginals);
-                report("Failed to apply %s edit(s), asking LLM to retry".formatted(failures.size()));
-                report(failures.toString());
-                return new Step.Retry(new LoopContext(newCs, newWs, currentLoopContext.userGoal()));
-            }
-        } else {
-            if (succeeded > 0) {
-                report(succeeded + " line edit(s) applied.");
-            }
-            var newWs = ws.afterApply(nextPending, 0, newBlocksAppliedWithoutBuild, nextOriginals);
-            return new Step.Continue(new LoopContext(cs, newWs, currentLoopContext.userGoal()));
-        }
-    }
-
     private String performBuildVerification() throws InterruptedException {
         var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
         if (verificationCommand == null || verificationCommand.isBlank()) {
@@ -818,7 +730,7 @@ public class CodeAgent {
         Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
 
         try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-                FileLock lock = channel.lock()) {
+             FileLock lock = channel.lock()) {
             logger.debug("Acquired build lock {}", lockFile);
             return runVerificationCommand(verificationCommand);
         } catch (IOException ioe) {
@@ -898,51 +810,28 @@ public class CodeAgent {
     record ConversationState(List<ChatMessage> taskMessages, UserMessage nextRequest) {}
 
     record EditState(
-            // parsed but not yet applied
             List<LineEdit> pendingEdits,
-            int consecutiveParseFailures,
-            int consecutiveApplyFailures,
+            int consecutiveEditRetries,
+            int consecutiveNoResultRetries,
             int consecutiveBuildFailures,
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents) {
-        /** Returns a new WorkspaceState with updated pending edits and counters. */
-        EditState withPendingEdits(List<LineEdit> newPendingEdits, int newParseFailures) {
-            return new EditState(
-                    newPendingEdits,
-                    newParseFailures,
-                    consecutiveApplyFailures,
-                    consecutiveBuildFailures,
-                    blocksAppliedWithoutBuild,
-                    lastBuildError,
-                    changedFiles,
-                    originalFileContents);
-        }
 
-        /** Returns a new WorkspaceState after a build failure, updating the error message. */
-        EditState afterBuildFailure(String newBuildError) {
-            return new EditState(
-                    pendingEdits,
-                    consecutiveParseFailures,
-                    consecutiveApplyFailures,
-                    consecutiveBuildFailures + 1,
-                    0,
-                    newBuildError,
-                    changedFiles,
-                    originalFileContents);
-        }
-
-        /** Returns a new WorkspaceState after applying edits, updating relevant fields. */
-        EditState afterApply(
+        /**
+         * Returns a new EditState after an edit attempt (success or retry).
+         */
+        EditState afterEditAttempt(
                 List<LineEdit> newPendingEdits,
-                int newApplyFailures,
+                int newConsecutiveEditRetries,
+                int newConsecutiveNoResultRetries,
                 int newBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
             return new EditState(
                     newPendingEdits,
-                    consecutiveParseFailures,
-                    newApplyFailures,
+                    newConsecutiveEditRetries,
+                    newConsecutiveNoResultRetries,
                     consecutiveBuildFailures,
                     newBlocksApplied,
                     lastBuildError,
@@ -950,20 +839,17 @@ public class CodeAgent {
                     newOriginalContents);
         }
 
-        /** Returns a new WorkspaceState after a successful full-file replacement fallback. */
-        EditState afterFallbackSuccess(
-                List<LineEdit> newPendingEdits,
-                Set<ProjectFile> updatedChangedFiles,
-                Map<ProjectFile, String> newOriginalContents) {
+        /** Returns a new EditState after a build failure, updating the error message. */
+        EditState afterBuildFailure(String newBuildError) {
             return new EditState(
-                    newPendingEdits,
-                    consecutiveParseFailures,
+                    pendingEdits,
+                    consecutiveEditRetries,
+                    consecutiveNoResultRetries,
+                    consecutiveBuildFailures + 1,
                     0,
-                    consecutiveBuildFailures,
-                    1,
-                    lastBuildError,
-                    updatedChangedFiles,
-                    newOriginalContents);
+                    newBuildError,
+                    changedFiles,
+                    originalFileContents);
         }
     }
 

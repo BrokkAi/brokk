@@ -411,7 +411,7 @@ public final class LineEditor {
             String actualGiven = "@" + address + "| " + (actualOpt.isPresent() ? actualRaw : "");
 
             if (suggestion1 != null) {
-                return ("""
+                return """
                         Anchor mismatch (%s)!
                         You gave
                         @%s| %s
@@ -419,16 +419,16 @@ public final class LineEditor {
                         %s
                         or perhaps
                         %s
-                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, suggestion1, actualGiven)).trim();
+                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, suggestion1, actualGiven).trim();
             } else {
-                return ("""
+                return """
                         Anchor mismatch (%s)!
                         You gave
                         @%s| %s
                         which is not a valid line/content pairing. I could not find that content near the cited line.
                         For reference, the cited line is
                         %s
-                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, actualGiven)).trim();
+                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, actualGiven).trim();
             }
         }
         return null;

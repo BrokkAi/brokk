@@ -11,11 +11,14 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.LineEditor;
+import io.github.jbellis.brokk.LineEdit;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.prompts.LineEditorParser.ParseError;
+import io.github.jbellis.brokk.prompts.LineEditorParser.ParseFailure;
 import io.github.jbellis.brokk.util.ImageUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,7 +41,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
-    public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
+    public static final CodePrompts instance = new CodePrompts() {};
 
     public static final String LAZY_REMINDER =
             """
@@ -112,12 +115,6 @@ public abstract class CodePrompts {
         return "";
     }
 
-    /**
-     * Redacts BRK_EDIT_EX blocks from an AiMessage (mixed content allowed).
-     * - ED blocks become a placeholder that cannot be confused with valid blocks.
-     * - BRK_EDIT_RM lines are preserved.
-     * - If there are no edits, returns the original message (unless blank).
-     */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
         var rawText = aiMessage.text();
         var parsed = LineEditorParser.instance.parse(rawText);
@@ -130,23 +127,17 @@ public abstract class CodePrompts {
         return redacted.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redacted));
     }
 
-    /** Helper used by redactAiMessage(AiMessage): elide BRK_EDIT_EX blocks from raw text while preserving BRK_EDIT_RM lines. */
     private static @NotNull String redactParsedEdBlocks(String rawText) {
         var sb = new StringBuilder();
-        var lines = rawText.split("\n", -1); // keep trailing empty
+        var lines = rawText.split("\n", -1);
         boolean inBlock = false;
-        String currentPath = null;
 
-        for (int i = 0; i < lines.length; i++) {
-            var line = lines[i];
+        for (var line : lines) {
             var trimmed = line.trim();
-
             if (!inBlock) {
                 if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
-                    // Start of an edit block; record the path (if present) and emit a placeholder
                     int sp = trimmed.indexOf(' ');
-                    currentPath = (sp >= 0) ? trimmed.substring(sp + 1).trim() : null;
-
+                    String currentPath = (sp >= 0) ? trimmed.substring(sp + 1).trim() : null;
                     if (currentPath == null || currentPath.isBlank()) {
                         sb.append("[[ELIDED EDIT BLOCK]]\n");
                     } else {
@@ -157,12 +148,9 @@ public abstract class CodePrompts {
                     sb.append(line).append('\n');
                 }
             } else {
-                // Inside a BRK_EDIT_EX block: elide until END fence (or EOF)
                 if (trimmed.equals("BRK_EDIT_EX_END")) {
                     inBlock = false;
-                    currentPath = null;
                 }
-                // Do not append body lines
             }
         }
 
@@ -283,7 +271,6 @@ public abstract class CodePrompts {
         }
         messages.add(new UserMessage(fileContent));
         messages.add(new AiMessage("Thank you for the file."));
-
         messages.add(askRequest(question));
 
         return messages;
@@ -301,12 +288,6 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    /**
-     * Generates a concise description of the workspace contents.
-     *
-     * @param cm The ContextManager.
-     * @return A string summarizing editable files, read-only snippets, etc.
-     */
     public static String formatWorkspaceDescriptions(IContextManager cm) {
         var editableContents = cm.getEditableSummary();
         var readOnlyContents = cm.getReadOnlySummary();
@@ -414,23 +395,21 @@ public abstract class CodePrompts {
         return new UserMessage(text);
     }
 
-    /** Generates a message based on parse/apply errors from failed edit blocks */
+    /** Existing (apply-only) failure helper kept for other flows. */
     public static String getApplyFailureMessage(
             List<EditBlock.FailedBlock> failedBlocks, EditBlockParser parser, int succeededCount, IContextManager cm) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
 
-        // Group failed blocks by filename
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().filename() != null) // Only include blocks with filenames
+                .filter(fb -> fb.block().filename() != null)
                 .collect(Collectors.groupingBy(fb -> fb.block().filename()));
 
         int totalFailCount = failedBlocks.size();
         boolean singularFail = (totalFailCount == 1);
         var pluralizeFail = singularFail ? "" : "s";
 
-        // Instructions for the LLM
         String instructions =
                 """
                       <instructions>
@@ -462,7 +441,7 @@ public abstract class CodePrompts {
                                                        %s
                                                        </commentary>
                                                        """
-                                                .formatted(f.commentary());
+                                        .formatted(f.commentary());
                                 return """
                                        <failed_block reason="%s">
                                        <block>
@@ -488,7 +467,6 @@ public abstract class CodePrompts {
                 })
                 .collect(Collectors.joining("\n\n"));
 
-        // Add info about successful blocks, if any
         String successNote = "";
         if (succeededCount > 0) {
             boolean singularSuccess = (succeededCount == 1);
@@ -503,7 +481,6 @@ public abstract class CodePrompts {
                             .stripIndent();
         }
 
-        // Construct the full message for the LLM
         return """
                %s
 
@@ -515,16 +492,111 @@ public abstract class CodePrompts {
     }
 
     /**
-     * Collects messages for a full-file replacement request, typically used as a fallback when standard SEARCH/REPLACE
-     * fails repeatedly. Includes system intro, history, workspace, target file content, and the goal. Asks for the
-     * *entire* new file content back.
-     *
-     * @param cm ContextManager to access history, workspace, style guide.
-     * @param targetFile The file whose content needs full replacement.
-     * @param goal The user's original goal or reason for the replacement (e.g., build error).
-     * @param taskMessages
-     * @return List of ChatMessages ready for the LLM.
+     * NEW: Combined parse+apply failure prompt builder for the single editPhase.
      */
+    public static String getCombinedEditFailureMessage(
+            List<ParseFailure> parseFailures,
+            @Nullable ParseError fatalParseError,
+            @Nullable LineEdit lastGoodEdit,
+            List<LineEditor.ApplyFailure> applyFailures,
+            int succeededCount) {
+
+        var hasParse = (fatalParseError != null) || !parseFailures.isEmpty();
+        var hasApply = !applyFailures.isEmpty();
+
+        var sb = new StringBuilder();
+        sb.append("""
+<instructions>
+# Some of your Line Edit tags failed to **parse** or **apply**.
+
+Review the CURRENT file contents above in the Workspace and fix only the failing pieces.
+Provide corrected **BRK_EDIT_EX / BRK_EDIT_RM** blocks for the failures below.
+
+Reminders:
+- Emit exactly one anchor per numeric address (1-based inclusive ranges; use `0` and `$` as documented).
+- Anchors are mandatory for numeric addresses except `0` and `$`; bodies end with a single `.` line.
+- Always close each block with `BRK_EDIT_EX_END`. Avoid overlapping edits; within a file, emit edits in descending order.
+</instructions>
+
+""");
+
+        // Group apply failures by file
+        if (hasApply) {
+            var byFile = applyFailures.stream().collect(Collectors.groupingBy(f -> f.edit().file()));
+            sb.append("<files>\n");
+            for (var entry : byFile.entrySet()) {
+                var file = entry.getKey();
+                var fileFailures = entry.getValue();
+                sb.append("<file name=\"").append(file).append("\">\n");
+                sb.append("<apply_failures>\n");
+                for (var f : fileFailures) {
+                    sb.append("""
+  <failed_edit reason="%s">
+  <edit>
+  %s
+  </edit>
+  <commentary>
+  %s
+  </commentary>
+  </failed_edit>
+""".formatted(f.reason(), f.edit().repr(), f.commentary()));
+                }
+                sb.append("</apply_failures>\n</file>\n\n");
+            }
+            sb.append("</files>\n\n");
+        }
+
+        // Unattributed parse failures
+        if (hasParse) {
+            sb.append("<unattributed_parse_failures>\n");
+            for (var pf : parseFailures) {
+                sb.append("""
+  <failure reason="%s">
+  <problem_source>
+  %s
+  </problem_source>
+  <commentary>
+  %s
+  </commentary>
+  </failure>
+""".formatted(pf.reason(), pf.snippet().isBlank() ? "<unavailable>" : pf.snippet().trim(), pf.commentary().trim()));
+            }
+            sb.append("</unattributed_parse_failures>\n\n");
+        }
+
+        if (fatalParseError != null) {
+            sb.append("""
+<note>
+Fatal parse condition detected: %s.
+If your block ended at EOF, ensure the body ended with a single '.' line and include BRK_EDIT_EX_END
+unless the response ends immediately after a complete edit.
+</note>
+
+""".stripIndent().formatted(fatalParseError));
+        }
+
+        if (succeededCount > 0) {
+            sb.append("""
+<note>
+The other %d edit%s applied successfully and are now reflected in the latest file contents. Do not re-send them; only fix the failures listed above.
+</note>
+
+""".stripIndent().formatted(succeededCount, succeededCount == 1 ? "" : "s"));
+        }
+
+        if (lastGoodEdit != null) {
+            sb.append("""
+<last_good_edit>
+%s
+</last_good_edit>
+
+Please continue from there WITHOUT repeating that edit.
+""".stripIndent().formatted(lastGoodEdit.repr()));
+        }
+
+        return sb.toString();
+    }
+
     public List<ChatMessage> collectFullFileReplacementMessages(
             IContextManager cm,
             ProjectFile targetFile,
@@ -533,20 +605,11 @@ public abstract class CodePrompts {
             List<ChatMessage> taskMessages) {
         var messages = new ArrayList<ChatMessage>();
 
-        // 1. System Intro + Style Guide
         messages.add(systemMessage(cm, LAZY_REMINDER));
-        // 2. No examples provided for full-file replacement
-
-        // 3. History Messages (provides conversational context)
         messages.addAll(getHistoryMessages(cm.liveContext()));
-
-        // 4. Workspace
         messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
-
-        // 5. task-messages-so-far
         messages.addAll(taskMessages);
 
-        // 5. Target File Content + Goal + Failed Blocks
         String currentContent;
         try {
             currentContent = targetFile.read();
@@ -563,7 +626,7 @@ public abstract class CodePrompts {
                             %s
                             </commentary>
                             """
-                                    .formatted(f.commentary());
+                            .formatted(f.commentary());
                     return """
                             <failed_block reason="%s">
                             <block>
@@ -610,42 +673,30 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    /**
-     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
-     * include editable content or related classes.
-     */
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx) {
         var allContents = new ArrayList<Content>();
 
-        // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
         var readOnlyTextFragments = new StringBuilder();
         var readOnlyImageFragments = new ArrayList<ImageContent>();
         ctx.getReadOnlyFragments().forEach(fragment -> {
             if (fragment.isText()) {
-                // Handle text-based fragments
-                String formatted = fragment.format(); // No analyzer
+                String formatted = fragment.format();
                 if (!formatted.isBlank()) {
                     readOnlyTextFragments.append(formatted).append("\n\n");
                 }
             } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
                     || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                // Handle image fragments - explicitly check for known image fragment types
                 try {
-                    // Convert AWT Image to LangChain4j ImageContent
                     var l4jImage = ImageUtil.toL4JImage(fragment.image());
                     readOnlyImageFragments.add(ImageContent.from(l4jImage));
-                    // Add a placeholder in the text part for reference
-                    readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
+                    readOnlyTextFragments.append(fragment.format()).append("\n\n");
                 } catch (IOException e) {
                     logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
-                    // Add a placeholder indicating the error, do not call removeBadFragment from here
                     readOnlyTextFragments.append(String.format(
                             "[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
                 }
             } else {
-                // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
-                // Just add their formatted representation as text
-                String formatted = fragment.format(); // No analyzer
+                String formatted = fragment.format();
                 if (!formatted.isBlank()) {
                     readOnlyTextFragments.append(formatted).append("\n\n");
                 }
@@ -656,7 +707,6 @@ public abstract class CodePrompts {
             return List.of();
         }
 
-        // Add the combined text content for read-only items if any exists
         String readOnlyText =
                 """
                               <workspace_readonly>
@@ -669,24 +719,17 @@ public abstract class CodePrompts {
                         .stripIndent()
                         .formatted(readOnlyTextFragments.toString().trim());
 
-        // text and image content must be distinct
         allContents.add(new TextContent(readOnlyText));
         allContents.addAll(readOnlyImageFragments);
 
-        // Create the main UserMessage
         var readOnlyUserMessage = UserMessage.from(allContents);
         return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
     }
 
-    /**
-     * Returns messages containing only the editable workspace content. Does not include read-only content or related
-     * classes.
-     */
     public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
-        // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();
         ctx.getEditableFragments().forEach(fragment -> {
-            String formatted = fragment.format(); // format() on live fragment
+            String formatted = fragment.format();
             if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
@@ -715,23 +758,14 @@ public abstract class CodePrompts {
         return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
     }
 
-    /**
-     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable
-     * files/fragments). Handles both text and image fragments, creating a multimodal UserMessage if necessary.
-     *
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
-     *     empty if no content.
-     */
     public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
         var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx);
         var editableMessages = getWorkspaceEditableMessages(ctx);
-
         return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
     }
 
     private List<ChatMessage> getWorkspaceContentsMessages(
             Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
-        // If both are empty and no related classes requested, return empty
         if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
             return List.of();
         }
@@ -739,7 +773,6 @@ public abstract class CodePrompts {
         var allContents = new ArrayList<Content>();
         var combinedText = new StringBuilder();
 
-        // Extract text and image content from read-only messages
         if (!readOnlyMessages.isEmpty()) {
             var readOnlyUserMessage = readOnlyMessages.stream()
                     .filter(UserMessage.class::isInstance)
@@ -757,7 +790,6 @@ public abstract class CodePrompts {
             }
         }
 
-        // Extract text from editable messages
         if (!editableMessages.isEmpty()) {
             var editableUserMessage = editableMessages.stream()
                     .filter(UserMessage.class::isInstance)
@@ -773,7 +805,6 @@ public abstract class CodePrompts {
             }
         }
 
-        // Wrap everything in workspace tags
         var workspaceText =
                 """
                            <workspace>
@@ -783,18 +814,11 @@ public abstract class CodePrompts {
                         .stripIndent()
                         .formatted(combinedText.toString().trim());
 
-        // Add the workspace text as the first content
         allContents.addFirst(new TextContent(workspaceText));
-
-        // Create the main UserMessage
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
     }
 
-    /**
-     * @return a summary of each fragment in the workspace; for most fragment types this is just the description, but
-     *     for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
-     */
     public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
         var summaries = ContextFragment.getSummary(ctx.getAllFragmentsInDisplayOrder());
         if (summaries.isEmpty()) {
@@ -819,20 +843,17 @@ public abstract class CodePrompts {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
-        // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
                 .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
+                .map(TaskEntry::toString)
                 .collect(Collectors.joining("\n\n"));
         if (!compressed.isEmpty()) {
             messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
             messages.add(new AiMessage("Ok, I see the history."));
         }
 
-        // Uncompressed messages: process for Line-Edit Tag redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
             var entryRawMessages = castNonNull(e.log()).messages();
-            // Determine the messages to include from the entry
             var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
                     ? entryRawMessages
                     : entryRawMessages.subList(0, entryRawMessages.size() - 1);
@@ -842,7 +863,6 @@ public abstract class CodePrompts {
                 if (chatMessage instanceof AiMessage aiMessage) {
                     redactAiMessage(aiMessage).ifPresent(processedMessages::add);
                 } else {
-                    // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
                     processedMessages.add(chatMessage);
                 }
             }
@@ -852,10 +872,6 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    /**
-     * Generates a message for parse failures returned by the LineEditorParser.
-     * Aligns with apply failure reporting: shows problem source (snippet), reason, and commentary.
-     */
     public static String getParseFailureMessage(
             List<LineEditorParser.ParseFailure> failures,
             @Nullable LineEditorParser.ParseError fatalError,
