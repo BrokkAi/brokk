@@ -1574,8 +1574,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (planningModel == null) {
                 planningModel = service.quickModel();
             }
-            var codeModel = service.getModel(options.codeModel());
+            // Determine Code model from the Instructions dropdown, not from options
+            Service.ModelConfig codeCfg;
+            try {
+                codeCfg = modelSelector.getModel();
+                chrome.getProject().setCodeModelConfig(codeCfg);
+            } catch (IllegalStateException e) {
+                chrome.toolError("Please finish configuring your custom model or select a favorite first.");
+                codeCfg = chrome.getProject().getCodeModelConfig();
+            }
+            var codeModel = service.getModel(codeCfg);
             if (codeModel == null) {
+                chrome.toolError(
+                        "Selected model '" + codeCfg.name() + "' is not available with reasoning level "
+                                + codeCfg.reasoning());
                 codeModel = service.quickModel();
             }
             // Proceed with execution using the selected options
