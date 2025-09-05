@@ -41,7 +41,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 2, 2, "Two",
+                        "a.txt", 2, 2, "Two",
                         new LineEdit.Anchor("2", "L2"),
                         new LineEdit.Anchor("2", "L2")));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
@@ -60,11 +60,11 @@ class LineEditorTest {
         var edits = java.util.List.of(
                 // insert at start (use 0 anchor, omitted validation)
                 new LineEdit.EditFile(
-                        pf, 1, 0, "A",
+                        "a.txt", 1, 0, "A",
                         new LineEdit.Anchor("0", ""), null),
                 // append at end using '$' sentinel so we can omit anchor validation
                 new LineEdit.EditFile(
-                        pf, Integer.MAX_VALUE, Integer.MAX_VALUE - 1, "C",
+                        "a.txt", Integer.MAX_VALUE, Integer.MAX_VALUE - 1, "C",
                         new LineEdit.Anchor("$", ""), null));
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
@@ -79,7 +79,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 1, 0, "Hello\nWorld",
+                        "new.txt", 1, 0, "Hello\nWorld",
                         new LineEdit.Anchor("0", ""), null));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
@@ -95,7 +95,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 3, 4, "X",
+                        "a.txt", 3, 4, "X",
                         new LineEdit.Anchor("3", ""), new LineEdit.Anchor("4", "")));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
@@ -111,7 +111,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 1, 1, "X",
+                        "missing.txt", 1, 1, "X",
                         new LineEdit.Anchor("1", ""), new LineEdit.Anchor("1", "")));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
@@ -125,7 +125,7 @@ class LineEditorTest {
         var pf = new ProjectFile(dir, "a.txt");
         Files.writeString(pf.absPath(), "data\n");
 
-        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(new LineEdit.DeleteFile(pf)));
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(new LineEdit.DeleteFile("a.txt")));
 
         assertTrue(res.failures().isEmpty());
         assertFalse(Files.exists(pf.absPath()));
@@ -141,7 +141,7 @@ class LineEditorTest {
         // Insert at position 4 (valid positions are 1..3)
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 4, 3, "X",
+                        "a.txt", 4, 3, "X",
                         new LineEdit.Anchor("3", ""), null));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
@@ -157,7 +157,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 1, 0, "Hello",
+                        "new.txt", 1, 0, "Hello",
                         new LineEdit.Anchor("0", ""), null));
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
 
@@ -174,9 +174,9 @@ class LineEditorTest {
 
         // Intentionally provide edits in an order that would be wrong without internal sorting.
         var insertAt2 = new LineEdit.EditFile(
-                pf, 2, 1, "I", new LineEdit.Anchor("1", "A"), null);      // insert before line 2; anchor on line 1
+                "a.txt", 2, 1, "I", new LineEdit.Anchor("1", "A"), null);      // insert before line 2; anchor on line 1
         var replace2to3 = new LineEdit.EditFile(
-                pf, 2, 3, "X", new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("3", "C"));    // replace lines 2..3 with "X"
+                "a.txt", 2, 3, "X", new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("3", "C"));    // replace lines 2..3 with "X"
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(insertAt2, replace2to3));
 
@@ -190,7 +190,7 @@ class LineEditorTest {
         var cm = new TestContextManager(dir);
         var pf = new ProjectFile(dir, "missing.txt");
 
-        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(new LineEdit.DeleteFile(pf)));
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(new LineEdit.DeleteFile("missing.txt")));
 
         assertEquals(1, res.failures().size());
         assertEquals(LineEditor.ApplyFailureReason.FILE_NOT_FOUND, res.failures().getFirst().reason());
@@ -204,7 +204,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 2, 2, "B2",
+                        "a.txt", 2, 2, "B2",
                         new LineEdit.Anchor("2", "  B  "),
                         new LineEdit.Anchor("2", "B  ")));
 
@@ -222,7 +222,7 @@ class LineEditorTest {
         var edits = java.util.List.of(
                 // Insert before line 2 (after line 1), validate anchor on line 1 with extra spaces
                 new LineEdit.EditFile(
-                        pf, 2, 1, "X",
+                        "b.txt", 2, 1, "X",
                         new LineEdit.Anchor("1", "  A  "), null));
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
@@ -238,7 +238,7 @@ class LineEditorTest {
 
         var edits = java.util.List.of(
                 new LineEdit.EditFile(
-                        pf, 1, 1, "X",
+                        "c.txt", 1, 1, "X",
                         new LineEdit.Anchor("1", "hello  world"), // double space inside should not be ignored
                         new LineEdit.Anchor("1", "hello  world")));
 
@@ -256,10 +256,10 @@ class LineEditorTest {
         Files.writeString(pf.absPath(), "A\nB\nC\nD\nE\n");
 
         var e1 = new LineEdit.EditFile(
-                pf, 2, 4, "X",
+                "ov1.txt", 2, 4, "X",
                 new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("4", "D"));
         var e2 = new LineEdit.EditFile(
-                pf, 3, 5, "Y",
+                "ov1.txt", 3, 5, "Y",
                 new LineEdit.Anchor("3", "C"), new LineEdit.Anchor("5", "E"));
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(e1, e2));
@@ -276,11 +276,11 @@ class LineEditorTest {
         Files.writeString(pf.absPath(), "A\nB\nC\nD\n");
 
         var change = new LineEdit.EditFile(
-                pf, 2, 3, "X",
+                "ov2.txt", 2, 3, "X",
                 new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("3", "C"));
         // Insert after line 2 -> begin=3,end=2; anchor on line 2 content
         var insert = new LineEdit.EditFile(
-                pf, 3, 2, "I",
+                "ov2.txt", 3, 2, "I",
                 new LineEdit.Anchor("2", "B"), null);
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(change, insert));
@@ -297,13 +297,13 @@ class LineEditorTest {
         Files.writeString(pf.absPath(), "A\nB\nC\nD\nE\n");
 
         var overlap1 = new LineEdit.EditFile(
-                pf, 2, 4, "X",
+                "ov3.txt", 2, 4, "X",
                 new LineEdit.Anchor("2", "B"), new LineEdit.Anchor("4", "D"));
         var overlap2 = new LineEdit.EditFile(
-                pf, 3, 5, "Y",
+                "ov3.txt", 3, 5, "Y",
                 new LineEdit.Anchor("3", "C"), new LineEdit.Anchor("5", "E"));
         var nonOverlap = new LineEdit.EditFile(
-                pf, 1, 1, "AA",
+                "ov3.txt", 1, 1, "AA",
                 new LineEdit.Anchor("1", "A"), new LineEdit.Anchor("1", "A"));
 
         var res = LineEditor.applyEdits(cm, new TestConsoleIO(), java.util.List.of(overlap1, overlap2, nonOverlap));

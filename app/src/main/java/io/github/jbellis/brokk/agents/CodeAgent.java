@@ -353,27 +353,39 @@ public class CodeAgent {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
         var lepResult = LineEditorParser.instance.parse(llmText);
-        var newlyParsedEdits = LineEditorParser.materializeEdits(lepResult, contextManager);
+        var newlyParsedEdits = lepResult.edits();
         if (metrics != null) {
             metrics.totalLineEdits += newlyParsedEdits.size();
         }
 
-        if (lepResult.parseError() != null) {
+        boolean hasParseProblems = lepResult.error() != null || !lepResult.failures().isEmpty();
+        if (hasParseProblems) {
             int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
             int updatedPartialWithEditsRetries = ws.consecutivePartialWithEditsRetries();
+
+            String problemSummary;
+            if (lepResult.error() != null) {
+                problemSummary = "Parse error: " + lepResult.error().name();
+            } else {
+                problemSummary = lepResult.failures().stream()
+                        .map(f -> "[" + f.reason() + "] " + f.message())
+                        .collect(java.util.stream.Collectors.joining("\n\n"));
+            }
+
             UserMessage messageForRetry;
             String consoleLogForRetry;
             if (newlyParsedEdits.isEmpty()) {
                 updatedConsecutiveParseFailures++;
                 updatedPartialWithEditsRetries = 0; // reset when no edits parsed
-                messageForRetry = new UserMessage(lepResult.parseError());
+                messageForRetry = new UserMessage(problemSummary);
                 consoleLogForRetry = "Failed to parse LLM response; retrying";
             } else {
                 updatedConsecutiveParseFailures = 0;
                 updatedPartialWithEditsRetries = updatedPartialWithEditsRetries + 1;
                 var repr = newlyParsedEdits.getLast().repr();
                 messageForRetry = new UserMessage("""
-                                                          Parse error after %d Line Edits: %s
+                                                          Parse error after %d Line Edits:
+                                                          %s
                                                           
                                                           The last Line Edit I successfully parsed was:
                                                           ```
@@ -382,10 +394,10 @@ public class CodeAgent {
                                                           
                                                           Please continue from there (WITHOUT repeating that one).
                                                           """
-                                                          .formatted(newlyParsedEdits.size(), lepResult.parseError(), repr));
+                                                          .formatted(newlyParsedEdits.size(), problemSummary, repr));
                 consoleLogForRetry = "Malformed or incomplete response after %d Line Edits parsed; asking LLM to continue/fix"
                         .formatted(newlyParsedEdits.size());
-                consoleLogForRetry += "Parse error was: " + lepResult.parseError();
+                consoleLogForRetry += " Problems: " + problemSummary;
             }
 
             if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {

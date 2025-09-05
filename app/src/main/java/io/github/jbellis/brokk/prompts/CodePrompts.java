@@ -119,31 +119,53 @@ public abstract class CodePrompts {
      * - If there are no edits, returns the original message (unless blank).
      */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
-        var parsed = LineEditorParser.instance.parse(aiMessage.text());
-        boolean hasEdits = parsed.hasEdits();
+        var rawText = aiMessage.text();
+        var parsed = LineEditorParser.instance.parse(rawText);
 
-        if (!hasEdits) {
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
+        if (!parsed.hasEdits()) {
+            return rawText.isBlank() ? Optional.empty() : Optional.of(aiMessage);
         }
 
-        var redacted = redactParsedEdBlocks(parsed);
+        var redacted = redactParsedEdBlocks(rawText);
         return redacted.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redacted));
     }
 
-    /** Helper used by redactAiMessage(AiMessage): turn parsed ED parts into redacted text. */
-    private static @NotNull String redactParsedEdBlocks(LineEditorParser.ParseResult parsed) {
+    /** Helper used by redactAiMessage(AiMessage): elide BRK_EDIT_EX blocks from raw text while preserving BRK_EDIT_RM lines. */
+    private static @NotNull String redactParsedEdBlocks(String rawText) {
         var sb = new StringBuilder();
-        for (LineEditorParser.OutputPart p : parsed.parts()) {
-            if (p instanceof LineEditorParser.OutputPart.Text(String text)) {
-                sb.append(text);
-            } else if (p instanceof LineEditorParser.OutputPart.Delete(String path)) {
-                // Keep BRK_EDIT_RM visible; it's safe and helpful in history.
-                sb.append("BRK_EDIT_RM ").append(path).append('\n');
-            } else if (p instanceof LineEditorParser.OutputPart.EdBlock ed) {
-                // Elide edit bodies with a placeholder that CANNOT be mistaken for a valid block.
-                sb.append("[[ELIDED EDIT BLOCK for ").append(ed.path()).append("]]\n");
+        var lines = rawText.split("\n", -1); // keep trailing empty
+        boolean inBlock = false;
+        String currentPath = null;
+
+        for (int i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var trimmed = line.trim();
+
+            if (!inBlock) {
+                if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
+                    // Start of an edit block; record the path (if present) and emit a placeholder
+                    int sp = trimmed.indexOf(' ');
+                    currentPath = (sp >= 0) ? trimmed.substring(sp + 1).trim() : null;
+
+                    if (currentPath == null || currentPath.isBlank()) {
+                        sb.append("[[ELIDED EDIT BLOCK]]\n");
+                    } else {
+                        sb.append("[[ELIDED EDIT BLOCK for ").append(currentPath).append("]]\n");
+                    }
+                    inBlock = true;
+                } else {
+                    sb.append(line).append('\n');
+                }
+            } else {
+                // Inside a BRK_EDIT_EX block: elide until END fence (or EOF)
+                if (trimmed.equals("BRK_EDIT_EX_END")) {
+                    inBlock = false;
+                    currentPath = null;
+                }
+                // Do not append body lines
             }
         }
+
         return sb.toString();
     }
 
