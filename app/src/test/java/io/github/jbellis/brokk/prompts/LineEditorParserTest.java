@@ -91,7 +91,7 @@ Outro
     }
 
     @Test
-    void parse_reportsMissingEndFence() {
+    void parse_reportsMissingEndFence_withTrailingContent() {
         var input = """
             BRK_EDIT_EX a.txt
             1 c
@@ -108,6 +108,26 @@ Outro
                    "Malformed block should be preserved as text");
         var text = ((LineEditorParser.OutputPart.Text) r.parts().get(0)).text();
         assertTrue(text.contains("BRK_EDIT_STOP"));
+    }
+
+    @Test
+    void parse_allowsMissingEndFence_ifResponseEndsImmediatelyAfterValidEdit() {
+        var input = """
+            BRK_EDIT_EX a.txt
+            1 c
+            body
+            .
+            """.stripIndent();
+        var r = LineEditorParser.instance.parse(input);
+        assertNull(r.parseError(), "Expected no parse error when the response ends immediately after a complete edit");
+        assertTrue(r.parts().stream().anyMatch(p -> p instanceof LineEditorParser.OutputPart.EdBlock),
+                   "Expected an EdBlock when block ends at EOF after a valid edit");
+        var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().stream()
+                .filter(p -> p instanceof LineEditorParser.OutputPart.EdBlock)
+                .findFirst()
+                .orElseThrow();
+        assertEquals("a.txt", ed.path());
+        assertFalse(ed.commands().isEmpty());
     }
 
     @Test
@@ -168,6 +188,7 @@ NEW
 
         var r = LineEditorParser.instance.parse(input);
         assertNull(r.parseError(), "No errors expected for implicit body termination and escapes");
+        assertEquals(1, r.parts().size(), "Implicit close should not leave stray text parts like BRK_EDIT_EX_END");
 
         var ed = (LineEditorParser.OutputPart.EdBlock) r.parts().getFirst();
         var cmd = (LineEditorParser.EdCommand.AppendAfter) ed.commands().getFirst();

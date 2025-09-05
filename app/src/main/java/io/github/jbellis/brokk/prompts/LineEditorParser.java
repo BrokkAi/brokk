@@ -268,7 +268,10 @@ public final class LineEditorParser {
                         i++; // move past the command line
 
                         var opName = (op == 'd') ? "delete" : "change";
-                        var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors);
+                        // If the next line is not an anchor line, allow the begin-anchor to be omitted
+                        // (this accommodates responses that end immediately after a valid edit body).
+                        boolean allowOmitBegin = (i < lines.length) && (matchAnchorAddr(lines[i]) == null);
+                        var anchors = readRangeAnchors(lines, i, opName, addr1, addr2, path, errors, allowOmitBegin);
                         i = anchors.nextIndex();
 
                         // NEW: flag & consume any extra @N| ... anchors before body / next command
@@ -276,19 +279,41 @@ public final class LineEditorParser {
                                 lines, i, n1, (addr2 == null ? null : Integer.valueOf(n2)), opName, path, errors);
 
                         if (op == 'd') {
-                                commands.add(new EdCommand.DeleteRange(
-                                        n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                                continue;
-                            } else { // 'c'
-                                var bodyRes = readBody(lines, i);
-                                i = bodyRes.nextIndex();
-                                if (bodyRes.implicitClose()) {
-                                    sawEndFence = true;
-                                }
+                            commands.add(new EdCommand.DeleteRange(
+                                    n1, n2, anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                            // If EOF immediately after anchors, accept as implicit close of the block.
+                            if (i >= lines.length) {
+                                sawEndFence = true;
+                                break;
+                            }
+                            continue;
+                        } else { // 'c'
+                            var bodyRes = readBody(lines, i);
+                            i = bodyRes.nextIndex();
+
+                            // If body encountered an explicit END_FENCE marker, readBody sets implicitClose=true
+                            if (bodyRes.implicitClose()) {
+                                // consume the END fence line that terminated the body
+                                if (i < lines.length) i++;
+                                sawEndFence = true;
                                 commands.add(new EdCommand.ChangeRange(
                                         n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
-                                continue;
+                                break;
                             }
+
+                            // Skip any blank-only lines that may follow the body (e.g., trailing newline at EOF).
+                            while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
+                            // Add the command regardless; if the body ended with '.' and we are now at EOF
+                            // (or only blank lines remained), accept the block as implicitly closed.
+                            commands.add(new EdCommand.ChangeRange(
+                                    n1, n2, bodyRes.body(), anchors.beginAddr(), anchors.beginContent(), anchors.endAddr(), anchors.endContent()));
+                            if (i >= lines.length && bodyRes.explicitTerminator()) {
+                                sawEndFence = true;
+                                break;
+                            }
+                            continue;
+                        }
                     }
 
                     if (ia.matches()) {
@@ -310,10 +335,24 @@ public final class LineEditorParser {
 
                         var bodyRes = readBody(lines, i);
                         i = bodyRes.nextIndex();
+
                         if (bodyRes.implicitClose()) {
+                            // consume the END fence line that terminated the body
+                            if (i < lines.length) i++;
                             sawEndFence = true;
+                            commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
+                            break;
                         }
+
+                        // Skip any blank-only lines that may follow the body (e.g., trailing newline at EOF).
+                        while (i < lines.length && lines[i].trim().isEmpty()) i++;
+
                         commands.add(new EdCommand.AppendAfter(n, bodyRes.body(), anchor.addr(), anchor.content()));
+                        // If EOF (or only blanks) immediately after explicit '.' terminator, accept block as implicitly closed.
+                        if (i >= lines.length && bodyRes.explicitTerminator()) {
+                            sawEndFence = true;
+                            break;
+                        }
                         continue;
                     }
 
@@ -360,7 +399,7 @@ public final class LineEditorParser {
     private static final String END_FENCE = "BRK_EDIT_EX_END";
 
     // Lightweight result records (Java 21)
-    private record BodyReadResult(List<String> body, int nextIndex, boolean implicitClose) {}
+    private record BodyReadResult(List<String> body, int nextIndex, boolean implicitClose, boolean explicitTerminator) {}
     private record AnchorReadResult(String addr, String content, int nextIndex) {}
     private record RangeAnchors(String beginAddr, String endAddr, String beginContent, String endContent, int nextIndex) { }
 
@@ -370,6 +409,7 @@ public final class LineEditorParser {
         var body = new ArrayList<String>();
         int i = startIndex;
         boolean implicitClose = false;
+        boolean explicitTerminator = false;
 
         while (i < lines.length) {
             var bodyLine = lines[i];
@@ -380,13 +420,14 @@ public final class LineEditorParser {
                 break;
             }
             if (".".equals(bodyTrim)) {
+                explicitTerminator = true;
                 i++;                     // consume explicit terminator
                 break;
             }
             body.add(unescapeBodyLine(bodyLine));
             i++;
         }
-        return new BodyReadResult(body, i, implicitClose);
+        return new BodyReadResult(body, i, implicitClose, explicitTerminator);
     }
 
     /**
@@ -443,13 +484,14 @@ public final class LineEditorParser {
      * Behavior matches the previous inlined logic, including error wording and consumption rules.
      */
     private static RangeAnchors readRangeAnchors(
-            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors) {
+            String[] lines, int startIndex, String opName, String addr1, @Nullable String addr2, String path, List<String> errors, boolean allowOmitBeginIfNoAnchor) {
 
         int i = startIndex;
 
-        // Begin anchor: required unless 0/$
+        // Begin anchor: required unless 0/$. If allowOmitBeginIfNoAnchor is true and the next line
+        // is not an anchor, permit omission (do not report an error and do not consume).
         var a1 = readAnchorLine(
-                lines, i, addr1, false,
+                lines, i, addr1, allowOmitBeginIfNoAnchor,
                 capitalize(opName) + " begin anchor",
                 "Malformed or missing first anchor after " + opName + " command: ",
                 "Missing anchor line(s) after " + opName + " command for " + path,
