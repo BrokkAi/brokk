@@ -46,8 +46,7 @@ import org.jetbrains.annotations.VisibleForTesting;
  */
 public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
-    private static final int MAX_PARSE_ATTEMPTS = 3;
-    private static final int MAX_PARTIAL_WITH_EDITS_RETRIES = 5;
+    private static final int MAX_PARSE_ATTEMPTS = 5;
 
     @VisibleForTesting
     static final int MAX_APPLY_FAILURES = 3;
@@ -107,7 +106,7 @@ public class CodeAgent {
 
         var conversationState = new ConversationState(taskMessages, nextRequest);
         var workspaceState = new EditState(
-                edits, 0, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+                edits, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
@@ -244,7 +243,7 @@ public class CodeAgent {
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
@@ -360,22 +359,17 @@ public class CodeAgent {
 
         boolean hasParseProblems = lepResult.error() != null || !lepResult.failures().isEmpty();
         if (hasParseProblems) {
-            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
-            int updatedPartialWithEditsRetries = ws.consecutivePartialWithEditsRetries();
+            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
 
             // Build a structured parse-failure message aligned with apply failures
             UserMessage messageForRetry;
             String consoleLogForRetry;
             if (newlyParsedEdits.isEmpty()) {
-                updatedConsecutiveParseFailures++;
-                updatedPartialWithEditsRetries = 0; // reset when no edits parsed
                 var msg = CodePrompts.getParseFailureMessage(
                         lepResult.failures(), lepResult.error(), 0, null);
                 messageForRetry = new UserMessage(msg);
                 consoleLogForRetry = "Failed to parse LLM response; retrying";
             } else {
-                updatedConsecutiveParseFailures = 0;
-                updatedPartialWithEditsRetries = updatedPartialWithEditsRetries + 1;
                 var lastGood = newlyParsedEdits.getLast();
                 var msg = CodePrompts.getParseFailureMessage(
                         lepResult.failures(), lepResult.error(), newlyParsedEdits.size(), lastGood);
@@ -388,21 +382,16 @@ public class CodeAgent {
                 reportComplete("Parse error limit reached; ending task.");
                 return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
             }
-            if (!newlyParsedEdits.isEmpty() && updatedPartialWithEditsRetries >= MAX_PARTIAL_WITH_EDITS_RETRIES) {
-                reportComplete("Partial response limit reached; ending task.");
-                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
-            }
 
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
             var nextPending = new ArrayList<>(ws.pendingEdits());
             nextPending.addAll(newlyParsedEdits);
-            var nextWs = ws.withPendingEdits(nextPending, updatedConsecutiveParseFailures, updatedPartialWithEditsRetries);
+            var nextWs = ws.withPendingEdits(nextPending, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
         }
 
         // No explicit parse error. Reset parse failure counter. Add newly parsed edits to the pending list.
-        int updatedConsecutiveParseFailures = 0;
         var mutablePendingEdits = new ArrayList<>(ws.pendingEdits());
         mutablePendingEdits.addAll(newlyParsedEdits);
 
@@ -410,24 +399,19 @@ public class CodeAgent {
         if (isPartialResponse) {
             UserMessage messageForRetry;
             String consoleLogForRetry;
-            int updatedPartialWithEditsRetries;
+            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
+
+            if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {
+                reportComplete("Parse error limit reached; ending task.");
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+            }
+
             if (newlyParsedEdits.isEmpty()) {
-                updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
-                updatedPartialWithEditsRetries = 0; // not counted toward partial-with-edits cap
-                if (updatedConsecutiveParseFailures >= MAX_PARSE_ATTEMPTS) {
-                    reportComplete("Parse error limit reached; ending task.");
-                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
-                }
                 messageForRetry = new UserMessage(
                         "It looks like the response was cut off before you provided any Line Edit tags. Please continue with your response.");
                 consoleLogForRetry =
                         "LLM indicated response was partial before any Line Edit tags; counting as parse failure and asking to continue";
             } else {
-                updatedPartialWithEditsRetries = ws.consecutivePartialWithEditsRetries() + 1;
-                if (updatedPartialWithEditsRetries >= MAX_PARTIAL_WITH_EDITS_RETRIES) {
-                    reportComplete("Partial response limit reached; ending task.");
-                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
-                }
                 var repr = newlyParsedEdits.getLast().repr();
                 messageForRetry = new UserMessage("""
                                                           It looks like we got cut off. The last Line Edit tag I successfully parsed was:
@@ -442,13 +426,13 @@ public class CodeAgent {
                         .formatted(newlyParsedEdits.size());
             }
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
-            var nextWs = ws.withPendingEdits(mutablePendingEdits, updatedConsecutiveParseFailures, updatedPartialWithEditsRetries);
+            var nextWs = ws.withPendingEdits(mutablePendingEdits, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
         }
 
         // Clean, complete parse: reset both counters.
-        var nextWs = ws.withPendingEdits(mutablePendingEdits, 0, 0);
+        var nextWs = ws.withPendingEdits(mutablePendingEdits, 0);
         return new Step.Continue(new LoopContext(cs, nextWs, currentLoopContext.userGoal()));
     }
 
@@ -917,7 +901,6 @@ public class CodeAgent {
             // parsed but not yet applied
             List<LineEdit> pendingEdits,
             int consecutiveParseFailures,
-            int consecutivePartialWithEditsRetries,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
             int blocksAppliedWithoutBuild,
@@ -925,11 +908,10 @@ public class CodeAgent {
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents) {
         /** Returns a new WorkspaceState with updated pending edits and counters. */
-        EditState withPendingEdits(List<LineEdit> newPendingEdits, int newParseFailures, int newPartialWithEditsRetries) {
+        EditState withPendingEdits(List<LineEdit> newPendingEdits, int newParseFailures) {
             return new EditState(
                     newPendingEdits,
                     newParseFailures,
-                    newPartialWithEditsRetries,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
                     blocksAppliedWithoutBuild,
@@ -943,7 +925,6 @@ public class CodeAgent {
             return new EditState(
                     pendingEdits,
                     consecutiveParseFailures,
-                    0,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures + 1,
                     0,
@@ -961,7 +942,6 @@ public class CodeAgent {
             return new EditState(
                     newPendingEdits,
                     consecutiveParseFailures,
-                    consecutivePartialWithEditsRetries,
                     newApplyFailures,
                     consecutiveBuildFailures,
                     newBlocksApplied,
@@ -978,7 +958,6 @@ public class CodeAgent {
             return new EditState(
                     newPendingEdits,
                     consecutiveParseFailures,
-                    0,
                     0,
                     consecutiveBuildFailures,
                     1,

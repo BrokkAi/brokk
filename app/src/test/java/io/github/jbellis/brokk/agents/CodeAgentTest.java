@@ -91,7 +91,6 @@ class CodeAgentTest {
         var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingEdits), // Modifiable copy
                 0, // consecutiveParseFailures
-                0, // consecutivePartialWithEditsRetries
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
@@ -413,7 +412,6 @@ class CodeAgentTest {
                 new CodeAgent.EditState(
                         List.of(), // pending blocks are empty
                         retryStep.loopContext().editState().consecutiveParseFailures(),
-                        retryStep.loopContext().editState().consecutivePartialWithEditsRetries(),
                         retryStep.loopContext().editState().consecutiveApplyFailures(),
                         retryStep.loopContext().editState().consecutiveBuildFailures(),
                         1, // Simulate one new fix was applied to pass the guard in verifyPhase
