@@ -296,9 +296,8 @@ public final class LineEditorParser {
                         int n = parseAddr(addr);
 
                         i++; // move to (optional) anchor line
-                        var allowOmit = isZeroOrDollar(addr);
                         var anchor = readAnchorLine(
-                                lines, i, addr, allowOmit,
+                                lines, i, addr, false,
                                 "Append anchor",
                                 "Malformed or missing anchor line after append command: ",
                                 "Missing anchor line after append command for " + path,
@@ -365,9 +364,6 @@ public final class LineEditorParser {
     private record AnchorReadResult(String addr, String content, int nextIndex) {}
     private record RangeAnchors(String beginAddr, String endAddr, String beginContent, String endContent, int nextIndex) { }
 
-    private static boolean isZeroOrDollar(String addr) {
-        return "0".equals(addr) || "$".equals(addr);
-    }
 
     /** Reads the body for 'a' and 'c'. Stops at a single '.' line or at BRK_EDIT_EX_END (implicit close, without consuming it). */
     private static BodyReadResult readBody(String[] lines, int startIndex) {
@@ -419,8 +415,12 @@ public final class LineEditorParser {
 
             // Special case: if expected is "$" but a numeric anchor was provided, allow it (no parse error).
             if (!parsedAddr.equals(expectedAddr)) {
-                if ("$".equals(expectedAddr) && !"0".equals(parsedAddr) && !"$".equals(parsedAddr)) {
-                    // accept numeric anchor for "$" without error
+                boolean acceptNumericForDollar =
+                        "$".equals(expectedAddr) && !"0".equals(parsedAddr) && !"$".equals(parsedAddr);
+                boolean acceptFirstForZero =
+                        "0".equals(expectedAddr) && "1".equals(parsedAddr);
+                if (acceptNumericForDollar || acceptFirstForZero) {
+                    // Accept Postel alternatives: numeric for '$', line 1 for '0'
                     return new AnchorReadResult(parsedAddr, parsedContent, i + 1);
                 } else {
                     errors.add(mismatchLabel + " line '" + parsedAddr + "' does not match address '" + expectedAddr + "'");
@@ -449,7 +449,7 @@ public final class LineEditorParser {
 
         // Begin anchor: required unless 0/$
         var a1 = readAnchorLine(
-                lines, i, addr1, isZeroOrDollar(addr1),
+                lines, i, addr1, false,
                 capitalize(opName) + " begin anchor",
                 "Malformed or missing first anchor after " + opName + " command: ",
                 "Missing anchor line(s) after " + opName + " command for " + path,
@@ -469,7 +469,7 @@ public final class LineEditorParser {
 
         // Range form: parse second anchor, required unless 0/$
         var a2 = readAnchorLine(
-                lines, i, addr2, isZeroOrDollar(addr2),
+                lines, i, addr2, false,
                 capitalize(opName) + " end anchor",
                 "Malformed or missing second anchor after " + opName + " command: ",
                 "Missing second anchor line for range " + opName + " command for " + path,
@@ -533,7 +533,7 @@ public final class LineEditorParser {
                         int end = cr.end();
                         String body = String.join("\n", cr.body());
                         var beginAnchor = new LineEdit.Anchor(cr.beginAnchorLine(), cr.beginAnchorContent());
-                        @Nullable LineEdit.Anchor endAnchor = cr.endAnchorLine().isBlank()
+                        LineEdit.Anchor endAnchor = cr.endAnchorLine().isBlank()
                                 ? null
                                 : new LineEdit.Anchor(requireNonNull(cr.endAnchorLine()), requireNonNull(cr.endAnchorContent()));
                         editFiles.add(new LineEdit.EditFile(pf, begin, end, body, beginAnchor, endAnchor));
@@ -541,7 +541,7 @@ public final class LineEditorParser {
                         int begin = (dr.begin() < 1) ? 1 : dr.begin();
                         int end = dr.end();
                         var beginAnchor = new LineEdit.Anchor(dr.beginAnchorLine(), dr.beginAnchorContent());
-                        @Nullable LineEdit.Anchor endAnchor = dr.endAnchorLine().isBlank()
+                        LineEdit.Anchor endAnchor = dr.endAnchorLine().isBlank()
                                 ? null
                                 : new LineEdit.Anchor(requireNonNull(dr.endAnchorLine()), requireNonNull(dr.endAnchorContent()));
                         editFiles.add(new LineEdit.EditFile(pf, begin, end, "", beginAnchor, endAnchor));
@@ -592,7 +592,7 @@ stmt     ::= append | change | delete
 append   ::= n SP "a" NL [ anchor(n) ] body
 change   ::= n ["," m] SP "c" NL [ anchor(n) ] [ anchor(m) ] body
 delete   ::= n ["," m] SP "d" NL [ anchor(n) ] [ anchor(m) ]
-anchor(x)::= "@" x "|" SP? text NL    (* required unless x ∈ {"0","$"} *)
+anchor(x)::= "@" x "|" SP? text NL    (* required for all x; for x ∈ {"0","$"}, use a blank content after the pipe *)
 body     ::= { body_line } ( "." NL | /* implicit before END */ )
 body_line::= "\\." NL | "\\\\" NL | other NL
 n,m      ::= addr ; addr ::= "0" | "$" | INT
@@ -609,7 +609,7 @@ An address may be a single line number, or a range denoted with commas. Addition
 - `$`  -> the end of the file (after the last line)
 
 Anchors are the current content at an address line, used to validate that the edit is applied to the expected version.
-Provide one anchor per address parameter (except you may omit anchors for `0` and `$`). Anchors use the form:
+Provide one anchor per address parameter (anchors are mandatory for all addresses; for `0` and `$`, include a blank anchor like `@0| ` or `@$| `). Anchors use the form:
     @N| <exact current content of line N>
 DO NOT provide anchors for the entire range; only for the start and end lines. If there is only one address,
 provide only one anchor.
@@ -686,6 +686,7 @@ Conventions and constraints:
               @9| def get_factorial(n):
               @14|     return n * get_factorial(n - 1)
               0 a
+              @0| 
               import math
               .
               BRK_EDIT_EX_END
@@ -719,6 +720,7 @@ Conventions and constraints:
               
               BRK_EDIT_EX hello.py
               0 a
+              @0| 
               def hello():
                   \\\"\\\"\\\"print a greeting\\\"\\\"\\\"
                   print("hello")
@@ -727,12 +729,14 @@ Conventions and constraints:
               
               BRK_EDIT_EX main.py
               $ a
+              @$| 
               # Usage: hello()
               .
               9,11 d
               @9| def hello():
               @11|     print("hello")
               0 a
+              @0| 
               from hello import hello
               .
               BRK_EDIT_EX_END
@@ -855,22 +859,17 @@ Guidance:
                 // insertion
                 String addr = (beginLine == Integer.MAX_VALUE) ? "$" : addrToString(beginLine - 1);
                 sb.append(addr).append(" a\n");
-                if (ef.beginAnchor() != null) {
-                    sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
-                }
+                // beginAnchor is non-null in the model; always render it.
+                sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
                 renderBody(sb, content.isEmpty() ? List.of() : content.lines().toList());
             } else if (content.isEmpty()) {
                 // delete
                 sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" d\n");
-                if (ef.beginAnchor() != null) {
-                    sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
-                }
+                sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
             } else {
                 // change
                 sb.append(addrToString(beginLine)).append(',').append(addrToString(endLine)).append(" c\n");
-                if (ef.beginAnchor() != null) {
-                    sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
-                }
+                sb.append("@").append(ef.beginAnchor().address()).append("| ").append(ef.beginAnchor().content()).append('\n');
                 if (ef.endAnchor() != null) {
                     sb.append("@").append(ef.endAnchor().address()).append("| ").append(ef.endAnchor().content()).append('\n');
                 }

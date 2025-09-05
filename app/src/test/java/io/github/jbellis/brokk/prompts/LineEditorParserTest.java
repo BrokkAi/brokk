@@ -62,6 +62,7 @@ Outro
     Before
     BRK_EDIT_EX x.txt
     0 a
+    @0| 
     // Content can include angle brackets: <not a tag>
     .
     BRK_EDIT_EX_END
@@ -159,7 +160,8 @@ NEW
         var input = """
     BRK_EDIT_EX a.txt
     0 a
-    \\.
+    @0| 
+    \\. 
     \\\\
     BRK_EDIT_EX_END
     """.stripIndent();
@@ -233,6 +235,7 @@ X
         var input = """
         BRK_EDIT_EX new.txt
         0 a
+        @0| 
         A
         B
         .
@@ -279,6 +282,7 @@ BRK_EDIT_EX_END
         var input = """
         BRK_EDIT_EX a.txt
         $ a
+        @$|
         X
         .
         BRK_EDIT_EX_END
@@ -300,6 +304,7 @@ BRK_EDIT_EX_END
         var input = """
         BRK_EDIT_EX a.txt
         $ a
+        @$|
         X
         .
         BRK_EDIT_EX_END
@@ -320,6 +325,7 @@ BRK_EDIT_EX_END
         var input = """
     BRK_EDIT_EX a.txt
     0 a
+    @0| 
     A
     .
     BRK_EDIT_EX_END
@@ -340,6 +346,7 @@ BRK_EDIT_EX_END
         var input = """
     BRK_EDIT_EX a.txt
     $ a
+    @$|
     Z
     .
     BRK_EDIT_EX_END
@@ -427,6 +434,8 @@ BRK_EDIT_EX_END
         var input = """
     BRK_EDIT_EX a.txt
     0,$ c
+    @0| 
+    @$| 
     X
     .
     BRK_EDIT_EX_END

@@ -285,17 +285,12 @@ public final class LineEditor {
         var sb = new StringBuilder();
         boolean mismatch = false;
 
-        // Always validate begin anchor (presence; content checked in checkOneAnchor)
+        // beginAnchor is non-null in the model; always validate its content.
         var beginAnchor = ef.beginAnchor();
-        if (beginAnchor == null) {
+        var msg = checkOneAnchor("begin", ef, beginAnchor, lines);
+        if (msg != null) {
             mismatch = true;
-            sb.append("Anchor mismatch (begin): required anchor is missing\n");
-        } else {
-            var msg = checkOneAnchor("begin", ef, beginAnchor, lines);
-            if (msg != null) {
-                mismatch = true;
-                sb.append(msg).append('\n');
-            }
+            sb.append(msg).append('\n');
         }
 
         if (isChange || (isDelete && isRange)) {

@@ -43,7 +43,7 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
                     int beginLine,
                     int endLine,
                     String content,
-                    @Nullable Anchor beginAnchor,
+                    Anchor beginAnchor,
                     @Nullable Anchor endAnchor) implements LineEdit {
         public EditFile {
             assert beginLine >= 1 : "beginLine must be >= 1";
