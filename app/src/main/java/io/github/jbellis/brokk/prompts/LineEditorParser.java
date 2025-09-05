@@ -736,6 +736,39 @@ Conventions and constraints:
               from hello import hello
               .
               BRK_EDIT_EX_END
+              """.stripIndent()),
+                new UserMessage("""
+                Demonstrate a range change, anchored append (non-0/$), and a single-line delete on sample.txt.
+
+                <workspace>
+                <file path="sample.txt">
+                1: one
+                2: two
+                3: three
+                4: four
+                5: five
+                </file>
+                </workspace>
+                """.stripIndent()),
+                new AiMessage("""
+              We will:
+              - Append a line after 3, anchored to current content of line 3
+              - Replace the inclusive range 2..4
+              - Delete line 5
+
+              BRK_EDIT_EX sample.txt
+              3 a
+              @3| three
+              after three
+              .
+              2,4 c
+              @2| two
+              @4| four
+              TWO_TO_FOUR
+              .
+              5 d
+              @5| five
+              BRK_EDIT_EX_END
               """.stripIndent())
         );
     }
