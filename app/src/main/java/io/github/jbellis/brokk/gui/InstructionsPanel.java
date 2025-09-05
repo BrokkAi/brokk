@@ -190,6 +190,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         askToggle.addActionListener(e -> {
             if (askToggle.isSelected()) {
                 scanProjectCheckBox.setVisible(true);
+                scanProjectCheckBox.setEnabled(true);
                 codeCheckBox.setVisible(false);
                 storedAction = scanProjectCheckBox.isSelected() ? ACTION_SCAN_PROJECT : ACTION_SEARCH;
             }
