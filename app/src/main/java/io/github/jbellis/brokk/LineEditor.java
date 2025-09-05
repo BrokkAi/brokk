@@ -92,8 +92,9 @@ public final class LineEditor {
             if (!overlapping.isEmpty()) {
                 for (var ef : overlapping) {
                     failures.add(new ApplyFailure(
-                            ef, ApplyFailureReason.OVERLAPPING_EDITS,
-                            "Overlapping edit detected within " + ef.file() + " at " + ef.beginLine() + ".." + ef.endLine()));
+                            ef,
+                            ApplyFailureReason.OVERLAPPING_EDITS,
+                            "Overlapping edit detected within " + ef.file() + ": " + formatOverlapBounds(ef)));
                 }
             }
 
@@ -485,6 +486,32 @@ public final class LineEditor {
             return "Edit(" + ef.file() + "@" + ef.beginLine() + ".." + ef.endLine() + ")";
         }
         return edit.getClass().getSimpleName();
+    }
+
+    /**
+     * Formats a user-friendly description of the edit bounds specifically for overlap reporting.
+     * - Ranges display as "range B..E" with '$' for end-of-file
+     * - Insertions display as one of:
+     *     "insert at start-of-file (before line 1)"
+     *     "insert after line K"
+     *     "append at end-of-file ($)"
+     */
+    private static String formatOverlapBounds(LineEdit.EditFile ef) {
+        if (isInsertion(ef)) {
+            // insertion occurs between (k-1) and k; begin is the k index (1-based)
+            int k = ef.beginLine();
+            if (k == Integer.MAX_VALUE) {
+                return "append at end-of-file ($)";
+            }
+            if (k == 1) {
+                return "insert at start-of-file (before line 1)";
+            }
+            return "insert after line " + (k - 1);
+        } else {
+            String b = ef.beginLine() == Integer.MAX_VALUE ? "$" : Integer.toString(ef.beginLine());
+            String e = ef.endLine() == Integer.MAX_VALUE ? "$" : Integer.toString(ef.endLine());
+            return "range " + b + ".." + e;
+        }
     }
 
     // Detect overlapping edits within a single file. Returns the set of edits that conflict.
