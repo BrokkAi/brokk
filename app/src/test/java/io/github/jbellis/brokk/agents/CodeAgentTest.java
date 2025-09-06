@@ -90,7 +90,7 @@ class CodeAgentTest {
                 new HashSet<ProjectFile>(),
                 new HashMap<ProjectFile, String>()
         );
-        return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
+        return new CodeAgent.LoopContext(conversationState, workspaceState, new CodeAgent.TurnState(new ArrayList<>(), new ArrayList<>()), goal);
     }
 
     private CodeAgent.LoopContext createBasicLoopContext(String goal) {
@@ -341,6 +341,7 @@ class CodeAgentTest {
                         retryStep.loopContext().editState().lastBuildError(),
                         retryStep.loopContext().editState().changedFiles(),
                         retryStep.loopContext().editState().originalFileContents()),
+                retryStep.loopContext().turnState(),
                 retryStep.loopContext().userGoal());
 
         var resultSuccess = codeAgent.verifyPhase(contextForSecondRun, null);

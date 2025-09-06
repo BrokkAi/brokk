@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
+import java.util.Objects;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,6 +17,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.LineEditorParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
+import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.LineEdit;
 import io.github.jbellis.brokk.LineEditor;
 import io.github.jbellis.brokk.util.Environment;
@@ -90,6 +92,7 @@ public class CodeAgent {
         var io = contextManager.getIo();
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
         coder.setOutput(io);
+        var summarizer = contextManager.getLlm(contextManager.getService().quickModel(), "Summarize for history");
 
         var changedFiles = new HashSet<ProjectFile>();
 
@@ -115,7 +118,7 @@ public class CodeAgent {
                 buildError,
                 changedFiles,
                 originalFileContents);
-        var loopContext = new LoopContext(conversationState, workspaceState, userInput);
+        var loopContext = new LoopContext(conversationState, workspaceState, new TurnState(new ArrayList<>(), new ArrayList<>()), userInput);
 
         while (true) {
             if (Thread.interrupted()) {
@@ -146,7 +149,7 @@ public class CodeAgent {
             }
 
             // REQUEST PHASE
-            var requestOutcome = requestPhase(loopContext, streamingResult, metrics);
+            var requestOutcome = requestPhase(loopContext, streamingResult, metrics, summarizer);
             switch (requestOutcome) {
                 case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
                 case Step.Fatal(var details) -> stopDetails = details;
@@ -219,7 +222,7 @@ public class CodeAgent {
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
         var editState = new EditState(0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
-        var loopContext = new LoopContext(conversationState, editState, instructions);
+        var loopContext = new LoopContext(conversationState, editState, new TurnState(new ArrayList<>(), new ArrayList<>()), instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
                              .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
@@ -246,7 +249,7 @@ public class CodeAgent {
             }
 
             // REQUEST
-            var step = requestPhase(loopContext, streamingResult, null);
+            var step = requestPhase(loopContext, streamingResult, null, null);
             if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
                 stopDetails = details;
                 break;
@@ -382,7 +385,13 @@ public class CodeAgent {
                     0,         // consecutiveNoResultRetries reset
                     newBlocksAppliedWithoutBuild,
                     nextOriginals);
-            return new Step.Continue(new LoopContext(cs, newWs, currentLoopContext.userGoal()));
+
+            // Do not finalize the turn yet; wait until after build results.
+            return new Step.Continue(new LoopContext(
+                    currentLoopContext.conversationState(),
+                    newWs,
+                    currentLoopContext.turnState(),
+                    currentLoopContext.userGoal()));
         }
 
         // Construct unified retry prompt
@@ -448,7 +457,7 @@ public class CodeAgent {
             report(applyFailures.toString());
         }
 
-        return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+        return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.turnState(), currentLoopContext.userGoal()));
     }
 
     /**
@@ -628,7 +637,7 @@ public class CodeAgent {
     }
 
     Step requestPhase(
-            LoopContext currentLoopContext, StreamingResult streamingResultFromLlm, @Nullable Metrics metrics) {
+            LoopContext currentLoopContext, StreamingResult streamingResultFromLlm, @Nullable Metrics metrics, @Nullable Llm summarizer) {
         var cs = currentLoopContext.conversationState();
 
         var llmError = streamingResultFromLlm.error();
@@ -647,15 +656,51 @@ public class CodeAgent {
             return new Step.Fatal(fatalDetails);
         }
 
-        // Append request and AI message to taskMessages
-        cs.taskMessages().add(cs.nextRequest());
-        cs.taskMessages().add(streamingResultFromLlm.aiMessage());
+        // DO NOT append straight to taskMessages here. Instead sandbox this turn's messages.
+        var aiMessage = streamingResultFromLlm.aiMessage();
 
-        return new Step.Continue(currentLoopContext);
+        var newTurnMessages = new ArrayList<ChatMessage>(currentLoopContext.turnState().messages());
+        newTurnMessages.add(cs.nextRequest());
+        newTurnMessages.add(aiMessage);
+
+        // Propagate any previously queued summary futures for this turn
+        var newSummaries = new ArrayList<java.util.concurrent.CompletableFuture<String>>(currentLoopContext.turnState().summaries());
+
+        // If a summarizer is provided and the AI response contains edits, start async summarization.
+        try {
+            if (summarizer != null && aiMessage.text().contains("BRK_EDIT_EX")) {
+                var toSummarize = aiMessage.text();
+                var future = java.util.concurrent.CompletableFuture.<String>supplyAsync(() -> {
+                    try {
+                        var messagesForSummarizer = SummarizerPrompts.instance.compressHistory(toSummarize);
+                        var sr = summarizer.sendRequest(messagesForSummarizer, true);
+                        if (sr.error() != null) {
+                            throw new RuntimeException("Summarizer LLM error: " + sr.error().getMessage());
+                        }
+                        if (sr.text().isBlank()) {
+                            throw new RuntimeException("Summarizer returned empty result");
+                        }
+                        return sr.text();
+                    } catch (RuntimeException re) {
+                        throw re;
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+                newSummaries.add(future);
+            }
+        } catch (RuntimeException e) {
+            // If launching the summarization itself fails, surface as fatal so caller can decide.
+            return new Step.Fatal(new TaskResult.StopDetails(
+                    TaskResult.StopReason.LLM_ERROR,
+                    Objects.toString(e.getMessage(), e.toString())));
+        }
+
+        var nextTurnState = new TurnState(newTurnMessages, newSummaries);
+        return new Step.Continue(new LoopContext(cs, currentLoopContext.editState(), nextTurnState, currentLoopContext.userGoal()));
     }
 
     Step verifyPhase(LoopContext loopContext, @Nullable Metrics metrics) {
-        var cs = loopContext.conversationState();
         var ws = loopContext.editState();
 
         // Verify only runs when editsSinceLastBuild > 0.
@@ -663,9 +708,7 @@ public class CodeAgent {
             reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
             TaskResult.StopDetails stopDetails;
             if (loopContext.editState().lastBuildError().isEmpty()) {
-                var text = Messages.getText(
-                        loopContext.conversationState().taskMessages.getLast());
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, text);
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
             } else {
                 stopDetails = new TaskResult.StopDetails(
                         TaskResult.StopReason.BUILD_ERROR,
@@ -701,10 +744,23 @@ public class CodeAgent {
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestBuildError)));
             }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
-            var newCs = new ConversationState(cs.taskMessages(), nextRequestForBuildFailure);
             var newWs = ws.afterBuildFailure(latestBuildError);
             report("Asking LLM to fix build/lint failures");
-            return new Step.Retry(new LoopContext(newCs, newWs, loopContext.userGoal()));
+
+            LoopContext ended;
+            try {
+                ended = endTurn(loopContext, nextRequestForBuildFailure);
+            } catch (SummarizationException se) {
+                return new Step.Fatal(new TaskResult.StopDetails(
+                        TaskResult.StopReason.LLM_ERROR,
+                        Objects.toString(se.getMessage(), se.toString())));
+            }
+
+            return new Step.Retry(new LoopContext(
+                    ended.conversationState(),
+                    newWs,
+                    ended.turnState(),
+                    loopContext.userGoal()));
         }
     }
 
@@ -786,7 +842,15 @@ public class CodeAgent {
         }
     }
 
-    record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}
+    public static record TurnState(List<ChatMessage> messages, List<java.util.concurrent.CompletableFuture<String>> summaries) {}
+
+    private static class SummarizationException extends RuntimeException {
+        public SummarizationException(Throwable cause) {
+            super(cause);
+        }
+    }
+
+    record LoopContext(ConversationState conversationState, EditState editState, TurnState turnState, String userGoal) {}
 
     sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
         LoopContext loopContext();
@@ -850,6 +914,54 @@ public class CodeAgent {
                     changedFiles,
                     originalFileContents);
         }
+    }
+
+    private LoopContext endTurn(LoopContext currentLoopContext, @Nullable UserMessage nextRequest) {
+        // Wait for any pending summary futures and then fold either summaries or raw messages into task history.
+        List<String> summaries = new ArrayList<>();
+        try {
+            summaries = currentLoopContext.turnState().summaries().stream()
+                    .map(f -> {
+                        try {
+                            return f.join();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .toList();
+        } catch (RuntimeException e) {
+            throw new SummarizationException(e.getCause() == null ? e : e.getCause());
+        }
+
+        // base task messages on the prior taskMessages
+        var newTaskMessages = new ArrayList<ChatMessage>(currentLoopContext.conversationState().taskMessages());
+
+        if (!summaries.isEmpty()) {
+            // find the first UserMessage of the turn to pair with the combined summary AI message
+            var maybeUser = currentLoopContext.turnState().messages().stream()
+                    .filter(m -> m instanceof UserMessage)
+                    .findFirst();
+            if (maybeUser.isPresent()) {
+                var firstUser = (UserMessage) maybeUser.get();
+                newTaskMessages.add(firstUser);
+            }
+            var combined = new StringBuilder();
+            combined.append("I've made the following edits (not shown) following the BRK_EDIT_EX format:\n\n");
+            for (int i = 0; i < summaries.size(); i++) {
+                if (i > 0) combined.append("\n\n");
+                combined.append(summaries.get(i));
+            }
+            newTaskMessages.add(new AiMessage(combined.toString()));
+        } else {
+            // no summaries: append all sandboxed messages for the turn
+            newTaskMessages.addAll(currentLoopContext.turnState().messages());
+        }
+
+        var resultingNextRequest = (nextRequest != null) ? nextRequest : currentLoopContext.conversationState().nextRequest();
+        var newConversation = new ConversationState(newTaskMessages, resultingNextRequest);
+        var newTurnState = new TurnState(new ArrayList<>(), new ArrayList<>());
+
+        return new LoopContext(newConversation, currentLoopContext.editState(), newTurnState, currentLoopContext.userGoal());
     }
 
     private static class Metrics {
