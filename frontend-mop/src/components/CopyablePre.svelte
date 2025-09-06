@@ -9,6 +9,32 @@
   let copyTimeout: number | null = null;
   let captureTimeout: number | null = null;
 
+  function handleWheel(event: WheelEvent) {
+    // Only intervene if the pre element doesn't need to scroll vertically
+    const { scrollTop, scrollHeight, clientHeight } = preElem;
+    const canScrollDown = scrollTop < scrollHeight - clientHeight;
+    const canScrollUp = scrollTop > 0;
+
+    const isScrollingDown = event.deltaY > 0;
+    const isScrollingUp = event.deltaY < 0;
+
+    // If we can't scroll vertically in the intended direction, pass to parent
+    if ((isScrollingDown && !canScrollDown) || (isScrollingUp && !canScrollUp)) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Find scrollable parent (more generic than .chat-container)
+      let parent = preElem.parentElement;
+      while (parent && parent.scrollHeight <= parent.clientHeight) {
+        parent = parent.parentElement;
+      }
+
+      if (parent) {
+        parent.scrollBy(0, event.deltaY);
+      }
+    }
+  }
+
   async function copyToClipboard() {
     const text = preElem?.innerText ?? '';
     if (!text) {
@@ -108,7 +134,7 @@
       {copied ? 'Copied to clipboard' : captured ? 'Captured to workspace' : ''}
     </span>
   </div>
-  <pre bind:this={preElem} {...rest}>{@render children?.()}</pre>
+  <pre bind:this={preElem} on:wheel={handleWheel} {...rest}>{@render children?.()}</pre>
 </div>
 
 <style>
