@@ -1020,7 +1020,9 @@ public class CodeAgent {
         }
 
         return """
-I have made edits using the BRK_EDIT_EX format. I am showing the REVERSE edits, to go back to the pre-edit state, because you can see the post-edit state in the current Workspace. This allows you to reference any original code and replace or repair it if it is necessary to fix the build or lint errors.
+I have made edits using the BRK_EDIT_EX format. I am showing the REVERSE edits, to go back to the pre-edit state,
+because I can see the post-edit state in the current Workspace. This allows me to reference any original code
+and replace or repair it if it becomes necessary to do so to fix build or lint errors.
 I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
 
 %s""".stripIndent().formatted(sb.toString().stripTrailing());
