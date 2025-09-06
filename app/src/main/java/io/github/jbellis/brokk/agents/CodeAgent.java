@@ -884,7 +884,7 @@ public class CodeAgent {
                                 : "";
 
                         var beginAnchor = new LineEdit.Anchor(beginAddr, beginText);
-                        var endAnchor = new LineEdit.Anchor(endAddr, endText);
+                        var endAnchor = (begin == end) ? null : new LineEdit.Anchor(endAddr, endText);
 
                         results.add(new LineEdit.EditFile(
                                 pf.toString(),
@@ -909,7 +909,7 @@ public class CodeAgent {
                                 : "";
 
                         var beginAnchor = new LineEdit.Anchor(beginAddr, beginText);
-                        var endAnchor = new LineEdit.Anchor(endAddr, endText);
+                        var endAnchor = (begin == end) ? null : new LineEdit.Anchor(endAddr, endText);
 
                         results.add(new LineEdit.EditFile(
                                 pf.toString(),
