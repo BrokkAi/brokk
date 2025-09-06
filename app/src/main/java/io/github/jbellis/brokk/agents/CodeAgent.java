@@ -121,7 +121,8 @@ public class CodeAgent {
                 blocksAppliedWithoutBuild,
                 buildError,
                 changedFiles,
-                originalFileContents);
+                originalFileContents,
+                new HashMap<ProjectFile, String>());
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
@@ -225,7 +226,11 @@ public class CodeAgent {
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
-        var editState = new EditState(0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var editState = new EditState(
+                0, 0, 0, 0, "",
+                new HashSet<ProjectFile>(),
+                new HashMap<ProjectFile, String>(),
+                new HashMap<ProjectFile, String>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
@@ -350,6 +355,7 @@ public class CodeAgent {
         List<LineEditor.ApplyFailure> applyFailures = List.of();
         int succeeded = 0;
         Map<ProjectFile, String> nextOriginals = new HashMap<>(ws.originalFileContents());
+        Map<ProjectFile, String> nextPostSnapshot = new HashMap<>(ws.postEditFileContents());
 
         if (!parsedEdits.isEmpty()) {
             LineEditor.ApplyResult applyResult;
@@ -362,7 +368,18 @@ public class CodeAgent {
             }
 
             ws.changedFiles().addAll(applyResult.originalContents().keySet());
+            // Keep originalFileContents as the pre-turn baseline (for reverse diffs this turn)
             applyResult.originalContents().forEach(nextOriginals::putIfAbsent);
+            // Snapshot current contents after edits to serve as baseline for NEXT turn
+            var filesToSnapshot = new HashSet<ProjectFile>(ws.changedFiles());
+            filesToSnapshot.addAll(applyResult.originalContents().keySet());
+            for (var pf : filesToSnapshot) {
+                try {
+                    nextPostSnapshot.put(pf, pf.read());
+                } catch (IOException e) {
+                    logger.warn("Failed to snapshot current contents of {} after edit phase", pf, e);
+                }
+            }
 
             applyFailures = applyResult.failures();
             if (metrics != null) {
@@ -388,7 +405,8 @@ public class CodeAgent {
                     0,         // consecutiveEditRetries reset
                     0,         // consecutiveNoResultRetries reset
                     newBlocksAppliedWithoutBuild,
-                    nextOriginals);
+                    nextOriginals,
+                    nextPostSnapshot);
 
             // Do not finalize the turn yet; wait until after build results.
             return new Step.Continue(new LoopContext(
@@ -445,7 +463,8 @@ public class CodeAgent {
                 newConsecutiveEditRetries,
                 newConsecutiveNoResultRetries,
                 newBlocksAppliedWithoutBuild,
-                nextOriginals);
+                nextOriginals,
+                nextPostSnapshot);
 
         // Helpful console logging
         if (isPartialResponse && parsedEdits.isEmpty()) {
@@ -1062,7 +1081,8 @@ I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
             int blocksAppliedWithoutBuild,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
-            Map<ProjectFile, String> originalFileContents) {
+            Map<ProjectFile, String> originalFileContents,
+            Map<ProjectFile, String> postEditFileContents) {
 
         /**
          * Returns a new EditState after an edit attempt (success or retry).
@@ -1071,7 +1091,8 @@ I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
                 int newConsecutiveEditRetries,
                 int newConsecutiveNoResultRetries,
                 int newBlocksApplied,
-                Map<ProjectFile, String> newOriginalContents) {
+                Map<ProjectFile, String> newOriginalContents,
+                Map<ProjectFile, String> newPostEditFileContents) {
             return new EditState(
                     newConsecutiveEditRetries,
                     newConsecutiveNoResultRetries,
@@ -1079,11 +1100,14 @@ I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
                     newBlocksApplied,
                     lastBuildError,
                     changedFiles,
-                    newOriginalContents);
+                    newOriginalContents,
+                    newPostEditFileContents);
         }
 
         /** Returns a new EditState after a build failure, updating the error message. */
         EditState afterBuildFailure(String newBuildError) {
+            // Promote the post-edit snapshot to be the new baseline for the next turn
+            Map<ProjectFile, String> nextBaseline = postEditFileContents;
             return new EditState(
                     consecutiveEditRetries,
                     consecutiveNoResultRetries,
@@ -1091,7 +1115,8 @@ I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
                     0,
                     newBuildError,
                     changedFiles,
-                    originalFileContents);
+                    nextBaseline,
+                    nextBaseline);
         }
     }
 

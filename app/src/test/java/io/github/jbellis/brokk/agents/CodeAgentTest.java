@@ -86,6 +86,7 @@ class CodeAgentTest {
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
                 new HashSet<ProjectFile>(),
+                new HashMap<ProjectFile, String>(),
                 new HashMap<ProjectFile, String>()
         );
         return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
@@ -338,7 +339,8 @@ class CodeAgentTest {
                         1,
                         retryStep.loopContext().editState().lastBuildError(),
                         retryStep.loopContext().editState().changedFiles(),
-                        retryStep.loopContext().editState().originalFileContents()),
+                        retryStep.loopContext().editState().originalFileContents(),
+                        retryStep.loopContext().editState().postEditFileContents()),
                 retryStep.loopContext().userGoal());
 
         var resultSuccess = codeAgent.verifyPhase(contextForSecondRun, null);
@@ -484,7 +486,9 @@ class CodeAgentTest {
         var ws = new CodeAgent.EditState(
                 0, 0, 0, 0, "",
                 changedFiles,
-                originalMap);
+                originalMap,
+                new HashMap<ProjectFile, String>()
+        );
 
         var edits = codeAgent.generateReverseEdits(ws);
         assertNotNull(edits);
@@ -513,7 +517,9 @@ class CodeAgentTest {
         var ws = new CodeAgent.EditState(
                 0, 0, 0, 0, "",
                 changedFiles,
-                originalMap);
+                originalMap,
+                new HashMap<ProjectFile, String>()
+        );
 
         var edits = codeAgent.generateReverseEdits(ws);
         var ef = edits.stream()
@@ -531,4 +537,62 @@ class CodeAgentTest {
         assertEquals("B", bodies.get(2));
         assertEquals("D", bodies.get(4));
     }
- }
+    // RE-3: Baseline updates between turns (reverse diffs only include latest-turn changes)
+    @Test
+    void testReverseEditsBaselineUpdatesBetweenTurns() throws Exception {
+        var pf = contextManager.toFile("turns.txt");
+        pf.write("A");
+        contextManager.addEditableFile(pf);
+
+        // First edit: A -> B
+        String firstEdit =
+                """
+                BRK_EDIT_EX turns.txt
+                1 c
+                @1| A
+                B
+                .
+                BRK_EDIT_EX_END
+                """;
+        var loop1 = createBasicLoopContext("goal1");
+        var r1 = codeAgent.editPhase(loop1, firstEdit, false, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, r1);
+        assertEquals("B", pf.read().strip());
+
+        // Build fails -> verifyPhase should promote post-edit snapshot to new baseline for next turn
+        contextManager.getProject().setBuildDetails(new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of()));
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (out, timeout) -> {
+            out.accept("Simulated build failure");
+            throw new Environment.FailureException("Build failed", "Failure details");
+        };
+        var retryAfterFail = codeAgent.verifyPhase(((CodeAgent.Step.Continue) r1).loopContext(), null);
+        assertInstanceOf(CodeAgent.Step.Retry.class, retryAfterFail);
+
+        var loopAfterFail = ((CodeAgent.Step.Retry) retryAfterFail).loopContext();
+
+        // Second edit: B -> C
+        String secondEdit =
+                """
+                BRK_EDIT_EX turns.txt
+                1 c
+                @1| B
+                C
+                .
+                BRK_EDIT_EX_END
+                """;
+        var r2 = codeAgent.editPhase(loopAfterFail, secondEdit, false, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, r2);
+        assertEquals("C", pf.read().strip());
+
+        // Now reverse edits must describe changes relative to baseline "B" (i.e., revert C -> B only)
+        var reverseEdits = codeAgent.generateReverseEdits(((CodeAgent.Step.Continue) r2).loopContext().editState());
+        var ef = reverseEdits.stream()
+                .filter(e -> e instanceof LineEdit.EditFile && e.file().equals(pf.toString()))
+                .map(e -> (LineEdit.EditFile) e)
+                .toList();
+
+        assertEquals(1, ef.size(), "Expected exactly one reverse edit for the second turn");
+        assertEquals("B", ef.getFirst().content(), "Reverse edit should restore previous turn content B");
+    }
+}
