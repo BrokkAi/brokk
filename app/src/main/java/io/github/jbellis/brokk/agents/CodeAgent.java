@@ -663,40 +663,7 @@ public class CodeAgent {
         newTurnMessages.add(cs.nextRequest());
         newTurnMessages.add(aiMessage);
 
-        // Propagate any previously queued summary futures for this turn
-        var newSummaries = new ArrayList<java.util.concurrent.CompletableFuture<String>>(currentLoopContext.turnState().summaries());
-
-        // If a summarizer is provided and the AI response contains edits, start async summarization.
-        try {
-            if (summarizer != null && aiMessage.text().contains("BRK_EDIT_EX")) {
-                var toSummarize = aiMessage.text();
-                var future = java.util.concurrent.CompletableFuture.<String>supplyAsync(() -> {
-                    try {
-                        var messagesForSummarizer = SummarizerPrompts.instance.compressHistory(toSummarize);
-                        var sr = summarizer.sendRequest(messagesForSummarizer, true);
-                        if (sr.error() != null) {
-                            throw new RuntimeException("Summarizer LLM error: " + sr.error().getMessage());
-                        }
-                        if (sr.text().isBlank()) {
-                            throw new RuntimeException("Summarizer returned empty result");
-                        }
-                        return sr.text();
-                    } catch (RuntimeException re) {
-                        throw re;
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-                newSummaries.add(future);
-            }
-        } catch (RuntimeException e) {
-            // If launching the summarization itself fails, surface as fatal so caller can decide.
-            return new Step.Fatal(new TaskResult.StopDetails(
-                    TaskResult.StopReason.LLM_ERROR,
-                    Objects.toString(e.getMessage(), e.toString())));
-        }
-
-        var nextTurnState = new TurnState(newTurnMessages, newSummaries);
+        var nextTurnState = new TurnState(newTurnMessages, new ArrayList<>());
         return new Step.Continue(new LoopContext(cs, currentLoopContext.editState(), nextTurnState, currentLoopContext.userGoal()));
     }
 
@@ -715,6 +682,22 @@ public class CodeAgent {
                         loopContext.editState().lastBuildError());
             }
             return new Step.Fatal(stopDetails);
+        }
+
+        // Before running verification, emit a reverse-edit BRK_EDIT_EX message derived from diffs
+        // between the post-edit state and the saved original contents.
+        var reverseMsg = generateReverseEditsMessage(ws);
+        if (!reverseMsg.isBlank()) {
+            // Show to user in the console before verification output
+            io.llmOutput("\n" + reverseMsg, ChatMessageType.CUSTOM);
+            // Also add to turn history for this turn
+            var newTurnMessages = new ArrayList<ChatMessage>(loopContext.turnState().messages());
+            newTurnMessages.add(new AiMessage(reverseMsg));
+            loopContext = new LoopContext(
+                    loopContext.conversationState(),
+                    loopContext.editState(),
+                    new TurnState(newTurnMessages, loopContext.turnState().summaries()),
+                    loopContext.userGoal());
         }
 
         String latestBuildError;
@@ -750,7 +733,7 @@ public class CodeAgent {
             LoopContext ended;
             try {
                 ended = endTurn(loopContext, nextRequestForBuildFailure);
-            } catch (SummarizationException se) {
+            } catch (RuntimeException se) {
                 return new Step.Fatal(new TaskResult.StopDetails(
                         TaskResult.StopReason.LLM_ERROR,
                         Objects.toString(se.getMessage(), se.toString())));
@@ -844,10 +827,82 @@ public class CodeAgent {
 
     public static record TurnState(List<ChatMessage> messages, List<java.util.concurrent.CompletableFuture<String>> summaries) {}
 
-    private static class SummarizationException extends RuntimeException {
-        public SummarizationException(Throwable cause) {
-            super(cause);
+
+    // Compose a reverse BRK_EDIT_EX message to revert edits back to original contents.
+    // Strategy: whole-file operations for reliability.
+    @VisibleForTesting
+    String generateReverseEditsMessage(EditState ws) {
+        if (ws.originalFileContents().isEmpty() || ws.changedFiles().isEmpty()) {
+            return "";
         }
+
+        var blocks = new StringBuilder();
+        var sortedFiles = ws.changedFiles().stream()
+                .filter(ws.originalFileContents()::containsKey)
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
+
+        for (var pf : sortedFiles) {
+            String original = requireNonNull(ws.originalFileContents().get(pf));
+            String current;
+            try {
+                current = pf.read();
+            } catch (IOException e) {
+                logger.warn("Failed reading current contents of {} to generate reverse edits", pf, e);
+                continue;
+            }
+            if (Objects.equals(original, current)) {
+                continue; // no change to reverse
+            }
+
+            var path = pf.toString();
+            var currentLines = current.isEmpty() ? List.<String>of() : Arrays.asList(current.split("\n", -1));
+            var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
+
+            blocks.append("BRK_EDIT_EX ").append(path).append("\n");
+
+            if (currentLines.isEmpty() && !originalLines.isEmpty()) {
+                // Insert the entire original file
+                blocks.append("0 a\n");
+                blocks.append("@0| \n");
+                for (var line : originalLines) {
+                    blocks.append(escapeBodyLine(line)).append("\n");
+                }
+                blocks.append(".\n");
+            } else if (!currentLines.isEmpty() && originalLines.isEmpty()) {
+                // Delete everything
+                blocks.append("1,$ d\n");
+                blocks.append("@1| ").append(currentLines.getFirst()).append("\n");
+                blocks.append("@$| ").append(currentLines.getLast()).append("\n");
+            } else {
+                // Replace entire file content
+                blocks.append("1,$ c\n");
+                blocks.append("@1| ").append(currentLines.getFirst()).append("\n");
+                blocks.append("@$| ").append(currentLines.getLast()).append("\n");
+                for (var line : originalLines) {
+                    blocks.append(escapeBodyLine(line)).append("\n");
+                }
+                blocks.append(".\n");
+            }
+
+            blocks.append("BRK_EDIT_EX_END\n\n");
+        }
+
+        if (blocks.isEmpty()) {
+            return "";
+        }
+
+        return """
+I have made edits using the BRK_EDIT_EX format. I am showing the REVERSE edits, to go back to the pre-edit state, because you can see the post-edit state in the current Workspace. This allows you to reference any original code and replace or repair it if it is necessary to fix the build or lint errors.
+I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
+
+%s""".stripIndent().formatted(blocks.toString().stripTrailing());
+    }
+
+    private static String escapeBodyLine(String line) {
+        if (line.equals(".")) return "\\.";
+        if (line.equals("\\")) return "\\\\";
+        return line;
     }
 
     record LoopContext(ConversationState conversationState, EditState editState, TurnState turnState, String userGoal) {}
@@ -917,45 +972,9 @@ public class CodeAgent {
     }
 
     private LoopContext endTurn(LoopContext currentLoopContext, @Nullable UserMessage nextRequest) {
-        // Wait for any pending summary futures and then fold either summaries or raw messages into task history.
-        List<String> summaries = new ArrayList<>();
-        try {
-            summaries = currentLoopContext.turnState().summaries().stream()
-                    .map(f -> {
-                        try {
-                            return f.join();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    })
-                    .toList();
-        } catch (RuntimeException e) {
-            throw new SummarizationException(e.getCause() == null ? e : e.getCause());
-        }
-
-        // base task messages on the prior taskMessages
+        // We no longer wait for summaries; directly fold sandboxed messages into task history.
         var newTaskMessages = new ArrayList<ChatMessage>(currentLoopContext.conversationState().taskMessages());
-
-        if (!summaries.isEmpty()) {
-            // find the first UserMessage of the turn to pair with the combined summary AI message
-            var maybeUser = currentLoopContext.turnState().messages().stream()
-                    .filter(m -> m instanceof UserMessage)
-                    .findFirst();
-            if (maybeUser.isPresent()) {
-                var firstUser = (UserMessage) maybeUser.get();
-                newTaskMessages.add(firstUser);
-            }
-            var combined = new StringBuilder();
-            combined.append("I've made the following edits (not shown) following the BRK_EDIT_EX format:\n\n");
-            for (int i = 0; i < summaries.size(); i++) {
-                if (i > 0) combined.append("\n\n");
-                combined.append(summaries.get(i));
-            }
-            newTaskMessages.add(new AiMessage(combined.toString()));
-        } else {
-            // no summaries: append all sandboxed messages for the turn
-            newTaskMessages.addAll(currentLoopContext.turnState().messages());
-        }
+        newTaskMessages.addAll(currentLoopContext.turnState().messages());
 
         var resultingNextRequest = (nextRequest != null) ? nextRequest : currentLoopContext.conversationState().nextRequest();
         var newConversation = new ConversationState(newTaskMessages, resultingNextRequest);

@@ -450,28 +450,59 @@ class CodeAgentTest {
 
     // E-7: editPhase – when all edits fail to apply, do not include <last_good_edit>
     @Test
-    void testEditPhase_noLastGoodWhenAllApplyFailures() throws IOException {
-        var file = contextManager.toFile("file.txt");
-        file.write("hello");
-        contextManager.addEditableFile(file);
-
-        String llmText =
-                """
-                BRK_EDIT_EX file.txt
-                1 a
-                @1| /**
-                new javadoc
-                .
-                BRK_EDIT_EX_END
-                """;
-
-        var loopContext = createBasicLoopContext("goal");
-        var result = codeAgent.editPhase(loopContext, llmText, false, null);
-
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retryStep = (CodeAgent.Step.Retry) result;
-        String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
-        assertFalse(nextRequestText.contains("<last_good_edit>"),
-                "Should not include last_good_edit when no edits were successfully applied");
-    }
-}
+     void testEditPhase_noLastGoodWhenAllApplyFailures() throws IOException {
+         var file = contextManager.toFile("file.txt");
+         file.write("hello");
+         contextManager.addEditableFile(file);
+ 
+         String llmText =
+                 """
+                 BRK_EDIT_EX file.txt
+                 1 a
+                 @1| /**
+                 new javadoc
+                 .
+                 BRK_EDIT_EX_END
+                 """;
+ 
+         var loopContext = createBasicLoopContext("goal");
+         var result = codeAgent.editPhase(loopContext, llmText, false, null);
+ 
+         assertInstanceOf(CodeAgent.Step.Retry.class, result);
+         var retryStep = (CodeAgent.Step.Retry) result;
+         String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+         assertFalse(nextRequestText.contains("<last_good_edit>"),
+                 "Should not include last_good_edit when no edits were successfully applied");
+     }
+ 
+     // RE-1: direct test of generateReverseEditsMessage
+     @Test
+     void testGenerateReverseEditsMessage_wholeFileReplace() throws IOException {
+         var pf = contextManager.toFile("file.txt");
+         // current content on disk
+         pf.write("cur-first\ncur-middle\ncur-last");
+         // original content saved before edits
+         var original = "orig-1\norig-2";
+         var changedFiles = new HashSet<ProjectFile>();
+         changedFiles.add(pf);
+         var originalMap = new HashMap<ProjectFile, String>();
+         originalMap.put(pf, original);
+ 
+         var ws = new CodeAgent.EditState(
+                 0, 0, 0, 0, "",
+                 changedFiles,
+                 originalMap);
+ 
+         var msg = codeAgent.generateReverseEditsMessage(ws);
+ 
+         assertNotNull(msg);
+         assertFalse(msg.isBlank(), "Expected non-blank reverse edits message");
+         assertTrue(msg.contains("BRK_EDIT_EX " + pf.toString()), "Must contain BRK_EDIT_EX for file");
+         assertTrue(msg.contains("1,$ c"), "Must be a whole-file change");
+         assertTrue(msg.contains("@1| cur-first"), "Must include begin anchor for current content");
+         assertTrue(msg.contains("@$| cur-last"), "Must include end anchor for current content");
+         assertTrue(msg.contains("orig-1"), "Body should include original content");
+         assertTrue(msg.contains("orig-2"), "Body should include original content");
+         assertTrue(msg.strip().endsWith("BRK_EDIT_EX_END"), "Should end with closing fence");
+     }
+ }
