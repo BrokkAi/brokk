@@ -658,6 +658,26 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (undoRedoGroupStrutAfter3 != null) {
             undoRedoGroupStrutAfter3.setVisible(showUndoRedo);
         }
+
+        // Update per-file dirty indicators in the file tree (only when multiple files are shown)
+        if (fileComparisons.size() > 1) {
+            var dirty = new java.util.HashSet<Integer>();
+
+            // Current (visible) file
+            if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) {
+                dirty.add(currentFileIndex);
+            }
+
+            // Cached files (use keys to keep index association)
+            for (var key : panelCache.getCachedKeys()) {
+                var panel = panelCache.get(key);
+                if (panel != null && panel.hasUnsavedChanges()) {
+                    dirty.add(key);
+                }
+            }
+
+            fileTreePanel.setDirtyFiles(dirty);
+        }
     }
 
     /** Returns true if any loaded diff-panel holds modified documents. */
