@@ -44,6 +44,7 @@
     <div id="symbol-test-controls">
         <button onclick="showSymbolTestContent()">Load Symbol Test Content</button>
         <button onclick="streamSymbolTestContent()">Stream Symbol Test Content</button>
+        <button onclick="showPartialMatchTest()">🆕 Test Partial Matches</button>
         <button onclick="showJavaSymbols()">Show Java Symbols</button>
         <button onclick="showPythonSymbols()">Show Python Symbols</button>
         <button onclick="showJavaScriptSymbols()">Show JavaScript Symbols</button>
@@ -55,12 +56,11 @@
     </div>
 
     <textarea id="md-playground"
-              placeholder="Type Markdown here..."
+              placeholder="Type Markdown here... Try: `List` vs `List.add` to test partial matches!"
               style="width:100%;height:150px;margin:1em 0;box-sizing:border-box;"></textarea>
 
 </div>
 
-<script type="module" src="/src/index.ts"></script>
 <script>
     // Immediately define brokk with a buffer to catch early events and calls from Java
     (function () {
@@ -90,92 +90,17 @@
             }
         });
     })();
-    // Mock Java bridge for dev mode
-    window.javaBridge = {
-        onAck: (epoch) => {},
-        searchStateChanged: (total, current) => {
-            console.log(`[Java Bridge Mock] Search State: total=${total}, current=${current}`);
-            const stateDisplay = document.getElementById('search-state-display');
-            if (stateDisplay) {
-                stateDisplay.textContent = `Total: ${total}, Current: ${current}`;
-            }
-        },
+</script>
 
-        // Mock symbols for testing - shared across functions
-        _mockSymbolsSet: new Set([
-            // Java symbols
-            'String', 'List', 'Map', 'ArrayList', 'HashMap', 'Set', 'Collection',
-            'toString', 'size', 'add', 'get', 'put', 'remove', 'contains', 'isEmpty',
-            'Object', 'Class', 'Exception', 'Thread', 'Runnable',
-            // Python symbols
-            'list', 'dict', 'str', 'int', 'float', 'bool', 'len', 'range',
-            'append', 'keys', 'values', 'items', 'pop', 'extend', 'join',
-            'print', 'input', 'open', 'close', 'read', 'write',
-            // JavaScript/TypeScript symbols
-            'var', 'let', 'const', 'function', 'class', 'interface', 'type',
-            'Array', 'Object', 'Promise', 'async', 'await', 'console',
-            'document', 'window', 'setTimeout', 'setInterval',
-            // Generic programming terms
-            'parser', 'lexer', 'token', 'node', 'tree', 'visitor',
-            'handler', 'callback', 'iterator', 'stream', 'buffer'
-        ]),
+<script type="module">
+    // Import and initialize mock Java bridge for dev mode
+    import { createMockJavaBridge } from '/src/dev/mockJavaBridge.ts';
+    window.javaBridge = createMockJavaBridge();
+</script>
 
-        // Unified symbol lookup implementation for new store-based architecture
-        lookupSymbolsAsync: function(symbolNamesJson, seq, contextId) {
-            console.log(`[Mock JavaBridge] Lookup request received: symbols=${symbolNamesJson}, seq=${seq}, contextId=${contextId}`);
-            const results = {};
+<script type="module" src="/src/index.ts"></script>
 
-            // Parse symbols from JSON
-            const symbols = JSON.parse(symbolNamesJson);
-            console.log(`[Mock JavaBridge] Processing ${symbols.length} symbols:`, symbols);
-
-            for (const symbol of symbols) {
-                const exists = this._mockSymbolsSet.has(symbol);
-                if (exists) {
-                    results[symbol] = `com.example.mock.${symbol}`;  // FQN for existing symbols
-                }
-            }
-
-            console.log(`[Mock JavaBridge] Results:`, results);
-
-            // Simulate async behavior, then call the response handler
-            setTimeout(() => {
-                if (window.brokk?.onSymbolLookupResponse) {
-                    // Always use the new signature with sequence and contextId
-                    window.brokk.onSymbolLookupResponse(results, seq, contextId);
-                    console.log(`[Mock JavaBridge] Response sent with seq=${seq}, contextId=${contextId}`);
-                } else {
-                    console.error('[Mock JavaBridge] Response handler not available');
-                }
-            }, 50); // 50ms delay to simulate async behavior
-        },
-
-        // Helper for debugging
-        jsLog: function(level, message) {
-            console.log(`[Mock JavaBridge ${level}] ${message}`);
-        },
-
-
-        // Mock symbol click implementation
-        onSymbolClick: function(symbolName, symbolExists, symbolFqn, x, y) {
-            console.log(`[Mock JavaBridge] Click on ${symbolName}`);
-
-            // Simulate context menu with basic actions
-            const actions = [];
-            if (symbolExists) {
-                actions.push('Open in Preview');
-                actions.push('Open in Project Tree');
-            }
-            actions.push('Copy Symbol Name');
-
-            const selectedAction = confirm(`Symbol: ${symbolName} (${symbolExists ? 'exists' : 'does not exist'})\nFQN: ${symbolFqn || 'N/A'}\n\nAvailable actions:\n${actions.map((action, i) => `${i + 1}. ${action}`).join('\n')}\n\nClick OK to simulate opening context menu, Cancel to ignore.`);
-
-            if (selectedAction) {
-                console.log(`[Mock JavaBridge] Context menu opened`);
-            }
-        }
-    };
-
+<script>
     function simulateEvent(type, data = {}) {
         window.brokk.onEvent({type, epoch: Date.now(), ...data});
     }
@@ -937,6 +862,19 @@ Common classes: \`String\`, \`List\`, \`Map\`, \`ArrayList\`, \`HashMap\`, \`Set
 Methods: \`toString\`, \`size\`, \`add\`, \`get\`, \`put\`, \`remove\`, \`contains\`
 Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
 
+## **NEW: Partial Match Tests (Should be highlighted with dotted underline and ◦ indicator)**
+Java method references: \`List.add\`, \`String.toString\`, \`Map.put\`, \`ArrayList.size\`, \`HashMap.get\`
+More examples: \`Set.contains\`, \`Object.toString\`, \`Collection.isEmpty\`, \`Thread.run\`
+
+**Complex Method Calls with Parameters:**
+\`SwingUtil.runOnEdt(task)\`, \`SwingUtilities.invokeLater(...)\`, \`EventQueue.invokeAndWait(runnable)\`, \`JOptionPane.showMessageDialog(...)\`
+
+**Note:** Partial matches like \`List.add\` should:
+1. Have dotted underlines (not solid)
+2. Show a small ◦ indicator after the text
+3. Have dashed borders (not solid)
+4. When clicked, navigate to the \`List\` class, not the method
+
 ## Python Symbols (Should be highlighted)
 Built-ins: \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`len\`, \`range\`
 Methods: \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
@@ -952,11 +890,16 @@ Patterns: \`handler\`, \`callback\`, \`iterator\`, \`stream\`, \`buffer\`
 
 ## Unknown Symbols (Should NOT be highlighted)
 These should appear normal: \`fakeSymbol\`, \`nonExistent\`, \`madeUpClass\`, \`bogusMethod\`
+Invalid partials: \`FakeClass.method\`, \`NotReal.function\`, \`missing.call\`
 
 ## Mixed Test
 Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\` and \`invalid\`
+Partial vs Exact: \`List\` (exact, solid underline) vs \`List.add\` (partial, dotted underline + ◦)
 
-**Instructions:** Highlighted symbols should have underlines and change cursor to pointer on hover. Click on them to test interactions!`;
+**Instructions:**
+- Exact matches: solid underlines, solid borders
+- Partial matches: dotted underlines, dashed borders, ◦ indicator
+- Click to test interactions!`;
 
         window.brokk.clear();
         simulateEvent('chunk', {
@@ -974,6 +917,11 @@ Common classes: \`String\`, \`List\`, \`Map\`, \`ArrayList\`, \`HashMap\`, \`Set
 Methods: \`toString\`, \`size\`, \`add\`, \`get\`, \`put\`, \`remove\`, \`contains\`
 Core: \`Object\`, \`Class\`, \`Exception\`, \`Thread\`
 
+## **NEW: Partial Matches During Streaming**
+Method references: \`List.add\`, \`String.toString\`, \`Map.put\`, \`ArrayList.size\`
+More examples: \`Set.contains\`, \`Object.toString\`, \`HashMap.get\`
+Complex patterns: \`SwingUtil.runOnEdt(task)\`, \`SwingUtilities.invokeLater(...)\`
+
 ## Python Symbols (Should be highlighted progressively)
 Built-ins: \`list\`, \`dict\`, \`str\`, \`int\`, \`float\`, \`bool\`, \`len\`, \`range\`
 Methods: \`append\`, \`keys\`, \`values\`, \`items\`, \`pop\`, \`extend\`, \`join\`
@@ -989,8 +937,9 @@ Patterns: \`handler\`, \`callback\`, \`iterator\`, \`stream\`, \`buffer\`
 
 ## Mixed Test - Streaming
 Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\` and \`invalid\`
+Partial vs Exact: \`List\` vs \`List.add\` (watch for different styling!)
 
-**Instructions:** This tests the throttled symbol resolution during streaming. Symbols should appear unhighlighted first, then get highlighted in batches as the streaming throttle processes them!`;
+**Instructions:** This tests the throttled symbol resolution during streaming. Symbols should appear unhighlighted first, then get highlighted in batches as the streaming throttle processes them! Partial matches should get dotted underlines + ◦ indicators.`;
 
         window.brokk.clear();
 
@@ -1011,6 +960,42 @@ Real: \`String\` and \`List\` and \`parser\` vs Fake: \`NotReal\` and \`Missing\
                 console.log('[Dev] Streaming symbol test completed - should see throttled symbol resolution');
             }
         }, 50); // 50ms between chunks to simulate real streaming
+    }
+
+    function showPartialMatchTest() {
+        const testContent = `
+# Partial Symbol Matching Test Cases
+
+## Java Method References (Should highlight class part only)
+- \`List.add\` - should highlight "List"
+- \`String.toString\` - should highlight "String"
+- \`Map.put\` - should highlight "Map"
+- \`ArrayList.get\` - should highlight "ArrayList"
+- \`StringBuilder.append\` - should highlight "StringBuilder"
+
+## Nested Class References
+- \`Collections.emptyList\` - should highlight "Collections"
+- \`System.currentTimeMillis\` - should highlight "System"
+
+## Full Class Names (Should highlight entire text)
+- \`ArrayList\` - should highlight "ArrayList"
+- \`String\` - should highlight "String"
+- \`HashMap\` - should highlight "HashMap"
+
+## Invalid Cases (Should not highlight)
+- \`myMethod\` - lowercase method name
+- \`list.add\` - lowercase class name
+- \`add\` - standalone method name
+- \`123invalid\` - starts with number
+
+## Multi-Range Test (Future)
+When backend supports multiple ranges:
+- \`Package.Class.method\` - could highlight both "Package" and "Class"
+`;
+
+        window.brokk.clear();
+        simulateEvent('chunk', { text: "Testing partial symbol matching with mock data...", msgType: 'USER', streaming: false });
+        simulateEvent('chunk', { text: testContent, msgType: 'AI', streaming: false });
     }
 
     function showJavaSymbols() {
@@ -1135,7 +1120,7 @@ This tests the visual difference between real and fake symbols!`;
     }
 
     function listMockSymbols() {
-        const symbols = Array.from(window.javaBridge._mockSymbolsSet).sort();
+        const symbols = Array.from(window.javaBridge?._mockSymbolsSet || []).sort();
         const symbolList = symbols.map(s => `- \`${s}\``).join('\n');
         const content = `# Mock Symbol Database (${symbols.length} symbols)
 
@@ -1157,7 +1142,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 
     // Update symbol count display
     function updateSymbolCount() {
-        const count = window.javaBridge._mockSymbolsSet.size;
+        const count = window.javaBridge?._mockSymbolsSet?.size || 0;
         const symbolCountEl = document.getElementById('symbol-count');
         if (symbolCountEl) {
             symbolCountEl.textContent = count;
@@ -1167,6 +1152,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
     // Ensure functions are available globally for onclick handlers
     window.showSymbolTestContent = showSymbolTestContent;
     window.streamSymbolTestContent = streamSymbolTestContent;
+    window.showPartialMatchTest = showPartialMatchTest;
     window.showJavaSymbols = showJavaSymbols;
     window.showPythonSymbols = showPythonSymbols;
     window.showJavaScriptSymbols = showJavaScriptSymbols;

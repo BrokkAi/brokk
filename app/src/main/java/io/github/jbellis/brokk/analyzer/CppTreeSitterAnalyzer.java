@@ -22,6 +22,11 @@ import org.treesitter.TreeSitterCpp;
 public class CppTreeSitterAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LogManager.getLogger(CppTreeSitterAnalyzer.class);
 
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return ClassNameExtractor.extractForCpp(reference);
+    }
+
     private final SkeletonGenerator skeletonGenerator;
     private final NamespaceProcessor namespaceProcessor;
     private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();

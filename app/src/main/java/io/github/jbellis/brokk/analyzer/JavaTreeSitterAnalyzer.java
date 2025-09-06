@@ -4,6 +4,7 @@ import static io.github.jbellis.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
 import io.github.jbellis.brokk.IProject;
 import java.util.*;
+import java.util.Optional;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterJava;
@@ -12,6 +13,11 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
 
     public JavaTreeSitterAnalyzer(IProject project) {
         super(project, Language.JAVA, project.getExcludedDirectories());
+    }
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return ClassNameExtractor.extractForJava(reference);
     }
 
     @Override

@@ -16,6 +16,11 @@ import org.treesitter.TreeSitterRust;
 public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return ClassNameExtractor.extractForRust(reference);
+    }
+
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             /* classLikeNodeTypes  */ Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
             /* functionLikeNodes   */ Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),

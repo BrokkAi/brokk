@@ -101,8 +101,63 @@ li > p {
   cursor: pointer;
 }
 
-:not(pre) > code.symbol-exists:hover {
+/* Hover effects only for exact matches (exclude partial matches) */
+:not(pre) > code.symbol-exists:not(.partial-match):hover {
   background-color: color-mix(in srgb, var(--link-color-hex) 10%, transparent);
+  color: var(--link-color-hex);
+  font-weight: bold;
+}
+
+/* Partial match styling - remove base underline and cursor since we use span-based highlighting */
+:not(pre) > code.symbol-exists.partial-match {
+  text-decoration: none; /* Remove underline from entire code element */
+  cursor: default; /* Remove pointer cursor from entire element */
+  contain: style;
+  color: var(--link-color-hex); /* Match the base symbol-exists color */
+  font-weight: normal;
+}
+
+:not(pre) > code.symbol-exists.partial-match::after {
+  content: "◦";
+  font-size: 0.7em;
+  vertical-align: super;
+  opacity: 0.6;
+  margin-left: 1px;
+}
+
+/* Multi-range symbol highlighting - restore original underline style */
+.symbol-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Make highlighted spans clickable */
+}
+
+/* Enhanced partial match styling - use same styling as exact matches */
+:not(pre) > code.symbol-exists.partial-match .symbol-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--link-color-hex);
+  cursor: pointer; /* Ensure partial match highlights are clickable */
+  color: var(--link-color-hex); /* Match exact match color */
+  font-weight: normal; /* Match exact match base font weight */
+}
+
+/* Ensure non-highlighted spans have no interactive hover effects but inherit base styling */
+.symbol-non-highlight {
+  cursor: default;
+}
+
+.symbol-non-highlight:hover {
+  cursor: default;
+  /* Prevent any hover effects by maintaining current state */
+  color: inherit;
+  font-weight: inherit;
+  background-color: inherit;
+  text-shadow: inherit;
+}
+
+/* Hover effect only on highlighted spans within partial matches */
+:not(pre) > code.symbol-exists.partial-match .symbol-highlight:hover {
+  background-color: color-mix(in srgb, var(--link-color-hex) 15%, transparent);
   color: var(--link-color-hex);
   font-weight: bold;
 }

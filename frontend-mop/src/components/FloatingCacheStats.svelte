@@ -1,9 +1,10 @@
 <script lang="ts">
   import {symbolCacheStore, getCacheStats, getCacheSize, CACHE_CONFIG} from '../stores/symbolCacheStore';
+  import {isDebugEnabled} from '../dev/debug';
   import {onMount, onDestroy} from 'svelte';
 
-  // Debug flag - set to true to show cache stats, false to hide
-  const SHOW_CACHE_STATS = false;
+  // Use centralized debug configuration
+  const SHOW_CACHE_STATS = isDebugEnabled('showCacheStats');
 
   let stats = getCacheStats();
   let cacheSize = 0;

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
@@ -277,10 +278,6 @@ public final class MOPBridge {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
 
-        logger.debug(
-                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
-        logger.debug("ContextManager available: {}", contextManager != null);
-
         // Parse symbol names (keep existing parsing logic)
         Set<String> symbolNames;
         try {
@@ -316,12 +313,13 @@ public final class MOPBridge {
                         symbolNames,
                         contextManager,
                         // Result callback - called for each individual symbol result
-                        (symbolName, fqn) -> {
+                        (symbolName, symbolResult) -> {
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
+                                    var singleResult = java.util.Map.of(symbolName, symbolResult);
                                     var resultsJson = toJson(singleResult);
+
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
                                             + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
                                             + toJson(contextId) + "); }";
@@ -371,13 +369,19 @@ public final class MOPBridge {
 
             if (component != null && contextManager != null) {
                 if (chrome != null) {
-                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
-                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
-                                            contextManager)
-                            .show(component, x, y);
+                    try {
+                        ContextMenuBuilder.forSymbol(
+                                        symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
+                                                contextManager)
+                                .show(component, x, y);
+                    } catch (Exception e) {
+                        logger.error("Failed to show context menu", e);
+                    }
                 } else {
                     logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
                 }
+            } else {
+                logger.warn("Cannot show context menu - missing dependencies");
             }
         });
     }

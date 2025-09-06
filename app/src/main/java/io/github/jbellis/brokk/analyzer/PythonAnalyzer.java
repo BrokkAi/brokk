@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -13,6 +14,11 @@ import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
+
+    @Override
+    public Optional<String> extractClassName(String reference) {
+        return ClassNameExtractor.extractForPython(reference);
+    }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
