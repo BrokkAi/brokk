@@ -44,6 +44,56 @@ class CommitPromptsTest {
         return String.join("\n", lines) + "\n";
     }
 
+    private static String createEmptyFileDiff(String filename) {
+        return String.format(
+                """
+            diff --git a/%s b/%s
+            new file mode 100644
+            index 0000000..e69de29
+            --- /dev/null
+            +++ b/%s
+            """,
+                filename, filename, filename);
+    }
+
+    private static String createNewFileWithContentDiff(String filename, String... contentLines) {
+        var content = String.join("\n+", contentLines);
+        return String.format(
+                """
+            diff --git a/%s b/%s
+            new file mode 100644
+            index 0000000..abc123
+            --- /dev/null
+            +++ b/%s
+            @@ -0,0 +1,%d @@
+            +%s
+            """,
+                filename, filename, filename, contentLines.length, content);
+    }
+
+    private static String createMixedDiff(String emptyFile, String contentFile, String... contentLines) {
+        return createEmptyFileDiff(emptyFile) + createNewFileWithContentDiff(contentFile, contentLines);
+    }
+
+    private static String createTwoStageDiff(String filename, String... contentLines) {
+        var content = String.join("\n+", contentLines);
+        return String.format(
+                """
+            diff --git a/%s b/%s
+            new file mode 100644
+            index 0000000..e69de29
+            --- /dev/null
+            +++ b/%s
+            diff --git a/%s b/%s
+            index e69de29..abc123 100644
+            --- a/%s
+            +++ b/%s
+            @@ -0,0 +1,%d @@
+            +%s
+            """,
+                filename, filename, filename, filename, filename, filename, filename, contentLines.length, content);
+    }
+
     @Test
     void singleSmallHunk_isIncluded() {
         String diff = genFileDiff("hello.txt", List.of(new int[] {2, 3}));
@@ -122,5 +172,92 @@ class CommitPromptsTest {
         int idxB = trimmed.indexOf("diff --git a/b.txt b/b.txt");
         assertTrue(idxB >= 0 && idxA >= 0, "Both file headers should be present");
         assertTrue(idxB < idxA, "Files should be ordered by hunk count (b.txt before a.txt)");
+    }
+
+    @Test
+    void malformedDiff_isHandledGracefully() {
+        // Test case 1: Empty/whitespace diff
+        String emptyDiff = "";
+        String whitespaceDiff = "   \n  \n\t\n";
+
+        String result1 = invokePreprocess(emptyDiff);
+        assertTrue(result1.isBlank(), "Empty diff should return blank result");
+
+        String result2 = invokePreprocess(whitespaceDiff);
+        assertTrue(result2.isBlank(), "Whitespace-only diff should return blank result");
+
+        // Test case 2: Diff with no markers (should be rejected by pre-validation)
+        String noMarkersDiff =
+                """
+            Some random text
+            that doesn't look like a diff
+            at all
+            """;
+        String result3 = invokePreprocess(noMarkersDiff);
+        assertTrue(result3.isBlank(), "Non-diff text should return blank result");
+
+        // Test case 3: Hunk without file header (might cause parse errors)
+        String orphanHunk =
+                """
+            @@ -1,2 +1,3 @@
+            -old line
+            +new line
+            +another line
+            """;
+        String result4 = invokePreprocess(orphanHunk);
+        assertTrue(result4.isBlank(), "Orphan hunk should return blank result gracefully");
+
+        // Test case 4: Malformed diff that might trigger parser exception
+        String malformedDiff =
+                """
+            diff --git a/test.txt b/test.txt
+            index abc123..def456 100644
+            this line doesn't belong here
+            @@ invalid hunk header
+            +some content
+            """;
+        String result5 = invokePreprocess(malformedDiff);
+        // Should handle gracefully without throwing exceptions
+        // Result might be empty or might parse partially - both are acceptable
+        assertNotNull(result5, "Malformed diff should not cause null result");
+    }
+
+    @Test
+    void emptyFileCreation_isFilteredOut() {
+        // Test case: Empty file creation that would cause UnifiedDiffReader to fail
+        String emptyFileCreation = createEmptyFileDiff("app/src/main/java/Empty.java");
+
+        String result1 = invokePreprocess(emptyFileCreation);
+        assertTrue(result1.isBlank(), "Empty file creation should be filtered out");
+
+        // Test case: Mixed diff with empty file + real changes
+        String mixedDiff = createMixedDiff("empty.txt", "real.txt", "line 1", "line 2");
+
+        String result2 = invokePreprocess(mixedDiff);
+        assertFalse(result2.isBlank(), "Mixed diff should not be completely empty");
+        assertFalse(result2.contains("empty.txt"), "Empty file should be filtered out");
+        assertTrue(result2.contains("real.txt"), "Real file should remain");
+        assertTrue(result2.contains("@@"), "Should contain hunk header");
+        assertTrue(result2.contains("+line 1"), "Should contain added line 1");
+        assertTrue(result2.contains("+line 2"), "Should contain added line 2");
+    }
+
+    @Test
+    void newFileWithContent_isNotFiltered() {
+        // Test case: New file that starts empty but has content added (like AppQuitHandler.java scenario)
+        // This represents the real-world case where a file is created empty and then content is added
+        String newFileWithContentDiff =
+                createTwoStageDiff("app/src/main/java/NewClass.java", "public class NewClass {", "    // content", "}");
+
+        String result = invokePreprocess(newFileWithContentDiff);
+        assertFalse(result.isBlank(), "New file with content should not be completely filtered out");
+        assertTrue(result.contains("NewClass"), "File name should remain in result");
+        assertTrue(result.contains("@@"), "Should contain hunk header");
+        assertTrue(result.contains("+public class NewClass"), "Actual content should be preserved");
+        assertTrue(result.contains("+    // content"), "Actual content should be preserved");
+        assertTrue(result.contains("+}"), "Actual content should be preserved");
+
+        // The empty file creation section should be filtered out, but content section should remain
+        // We should only see the content diff, not the initial empty creation
     }
 }

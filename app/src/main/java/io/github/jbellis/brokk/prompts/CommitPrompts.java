@@ -85,13 +85,48 @@ public class CommitPrompts {
     }
 
     private String preprocessUnifiedDiff(String diffTxt) {
+        // Pre-validate the diff text to avoid unnecessary parsing attempts
+        if (diffTxt.trim().isEmpty()) {
+            return "";
+        }
+
+        // Check for basic diff structure - should contain "diff --git" or at least "@@ "
+        String trimmed = diffTxt.trim();
+        if (!trimmed.contains("diff --git") && !trimmed.contains("@@ ")) {
+            logger.debug(
+                    "Diff text lacks expected diff markers (no 'diff --git' or '@@'), skipping parse. Length: {} chars",
+                    diffTxt.length());
+            if (logger.isTraceEnabled()) {
+                logger.trace(
+                        "Rejected diff text (first 200 chars): {}",
+                        diffTxt.length() > 200 ? diffTxt.substring(0, 200) + "..." : diffTxt);
+            }
+            return "";
+        }
+
+        // Pre-process diff to remove empty file sections that would cause parser failures
+        String processedDiff = filterEmptyFileCreations(diffTxt);
+
+        if (processedDiff.trim().isEmpty()) {
+            logger.debug("Diff contains only empty file creations, skipping commit message generation");
+            return "";
+        }
+
         List<UnifiedDiffFile> files;
         try {
-            var input = new ByteArrayInputStream(diffTxt.getBytes(UTF_8));
+            var input = new ByteArrayInputStream(processedDiff.getBytes(UTF_8));
             UnifiedDiff unified = UnifiedDiffReader.parseUnifiedDiff(input);
             files = List.copyOf(unified.getFiles());
         } catch (IOException | RuntimeException e) {
-            logger.error(e);
+            logger.debug(
+                    "Failed to parse unified diff: {} (length: {} chars, {} lines)",
+                    e.getMessage(),
+                    diffTxt.length(),
+                    diffTxt.split("\n").length);
+
+            if (logger.isTraceEnabled()) {
+                logger.trace("Full diff text that failed to parse:\n{}", diffTxt);
+            }
             return "";
         }
 
@@ -215,5 +250,70 @@ public class CommitPrompts {
             for (var t : tgt.getLines()) lines.add("+" + t);
         }
         return lines;
+    }
+
+    /**
+     * Filters out empty file creations that would cause UnifiedDiffReader to fail. Empty files have index lines like
+     * "0000000..e69de29" and include --- /+++ headers but no @@ hunk headers, which confuses the parser.
+     */
+    private String filterEmptyFileCreations(String diffTxt) {
+        String[] lines = diffTxt.split("\n", -1);
+        var result = new ArrayList<String>();
+        int i = 0;
+
+        while (i < lines.length) {
+            String line = lines[i];
+
+            // Look for file headers
+            if (line.startsWith("diff --git ")) {
+                int fileStart = i;
+                int j = i + 1; // Start looking from the line after diff --git
+
+                // Check if this is an empty file creation
+                boolean isEmptyFile = false;
+                boolean hasFromToPaths = false;
+
+                // Look ahead to analyze this file section
+                while (j < lines.length && !lines[j].startsWith("diff --git ")) {
+                    String currentLine = lines[j];
+
+                    // Check for empty blob hash (e69de29 is SHA1 of empty content)
+                    if (currentLine.contains("index ") && currentLine.contains("e69de29")) {
+                        isEmptyFile = true;
+                    }
+
+                    // Check for from/to path headers
+                    if (currentLine.startsWith("--- ") && (j + 1 < lines.length) && lines[j + 1].startsWith("+++ ")) {
+                        hasFromToPaths = true;
+                    }
+
+                    // If we find a hunk header, this is not problematic
+                    if (currentLine.startsWith("@@ ")) {
+                        isEmptyFile = false;
+                        break;
+                    }
+
+                    j++;
+                }
+
+                // If this is an empty file creation with from/to headers but no hunks, skip it
+                if (isEmptyFile && hasFromToPaths) {
+                    logger.debug("Filtering out empty file creation: {}", line);
+                    i = j; // Skip to next file or end
+                    continue;
+                }
+
+                // Otherwise, add all lines for this file (including the diff --git line)
+                for (int k = fileStart; k < j; k++) {
+                    result.add(lines[k]);
+                }
+                i = j; // Move to next file or end
+            } else {
+                result.add(line);
+                i++;
+            }
+        }
+
+        return String.join("\n", result);
     }
 }

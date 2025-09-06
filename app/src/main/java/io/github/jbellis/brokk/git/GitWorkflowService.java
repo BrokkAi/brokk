@@ -75,6 +75,8 @@ public final class GitWorkflowService {
      * throw RuntimeException if diffing fails or InterruptedException occurs.
      */
     public String suggestCommitMessage(List<ProjectFile> files) {
+        logger.debug("Suggesting commit message for {} files", files.size());
+
         String diff;
         try {
             diff = files.isEmpty() ? repo.diff() : repo.diffFiles(files);
@@ -84,11 +86,13 @@ public final class GitWorkflowService {
         }
 
         if (diff.isBlank()) {
+            logger.debug("Empty diff - no commit message to suggest");
             return "";
         }
 
         var messages = CommitPrompts.instance.collectMessages(contextManager.getProject(), diff);
         if (messages.isEmpty()) {
+            logger.debug("No commit message generated - diff preprocessing returned empty result");
             return "";
         }
 
