@@ -246,7 +246,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // load session contents
         var loadedCH = sessionManager.loadHistory(currentSessionId, this);
         if (loadedCH == null) {
-            contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+            if (forceNew) {
+                contextHistory = new ContextHistory(new Context(this, buildWelcomeMessage()));
+            } else {
+                initializeCurrentSessionAndHistory(true);
+                return;
+            }
         } else {
             contextHistory = loadedCH;
         }
@@ -2082,7 +2087,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private void switchToSession(UUID sessionId) {
         var sessionManager = project.getSessionManager();
-        updateActiveSession(sessionId); // Mark as active
 
         String sessionName = sessionManager.listSessions().stream()
                 .filter(s -> s.id().equals(sessionId))
@@ -2091,12 +2095,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .orElse("(Unknown Name)");
         logger.debug("Switched to session: {} ({})", sessionName, sessionId);
 
-        ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
+        ContextHistory loadedCh = sessionManager.loadHistory(sessionId, this);
 
         if (loadedCh == null) {
-            contextHistory = new ContextHistory(new Context(this, "Welcome to session: " + sessionName));
-            sessionManager.saveHistory(contextHistory, currentSessionId);
+            io.toolError("Error while loading history for session '%s'.".formatted(sessionName));
         } else {
+            updateActiveSession(sessionId); // Mark as active
             contextHistory = loadedCh;
         }
         notifyContextListeners(topContext());
