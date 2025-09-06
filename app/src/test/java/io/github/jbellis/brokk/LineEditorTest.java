@@ -250,6 +250,26 @@ class LineEditorTest {
     }
 
     @Test
+    void offByOneAnchor_isCorrectedAndApplied(@TempDir Path dir) throws Exception {
+        var cm = new TestContextManager(dir);
+        var pf = new ProjectFile(dir, "off1.txt");
+        java.nio.file.Files.writeString(pf.absPath(), "A\nB\nC\n");
+
+        // Intent: change line 2 from B -> BB
+        // Mistake: command cites line 1, but anchor content matches line 2.
+        var edits = java.util.List.of(
+                new LineEdit.EditFile(
+                        "off1.txt", 1, 1, "BB",
+                        new LineEdit.Anchor("1", "B"),  // mismatched at 1, but neighbor (2) matches
+                        new LineEdit.Anchor("1", "B")));
+
+        var res = LineEditor.applyEdits(cm, new TestConsoleIO(), edits);
+        assertTrue(res.failures().isEmpty(), "Off-by-1 anchor should be corrected");
+        assertEquals("A\nBB\nC\n", java.nio.file.Files.readString(pf.absPath()),
+                     "Edit should be applied at the corrected line");
+    }
+
+    @Test
     void overlappingRanges_bothFail_fileUnchanged(@TempDir Path dir) throws Exception {
         var cm = new TestContextManager(dir);
         var pf = new ProjectFile(dir, "ov1.txt");

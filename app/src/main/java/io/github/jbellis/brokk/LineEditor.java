@@ -216,21 +216,26 @@ public final class LineEditor {
                 return;
             }
 
-            // Validate anchors (insertion validates only the begin anchor)
-            String anchorError = validateAnchors(ef, lines);
-            if (anchorError != null) {
-                failures.add(new ApplyFailure(ef, ApplyFailureReason.ANCHOR_MISMATCH, anchorError));
+            // Validate anchors (insertion validates only the begin anchor), correcting off-by-1 addresses
+            try {
+                ef = validateAnchors(ef, lines);
+            } catch (Abort e) {
+                failures.add(new ApplyFailure(ef, ApplyFailureReason.ANCHOR_MISMATCH, java.util.Objects.requireNonNullElse(e.getMessage(), "Anchor mismatch")));
                 return;
             }
 
             var bodyLines = splitIntoLines(body);
             var newLines = new ArrayList<String>(n + bodyLines.size());
-            int insertAt = requestedBegin - 1; // 0-based
+
+            // Map corrected anchor to insertion index (1-based); '$' sentinel maps to end+1
+            int requestedBeginCorrected = (ef.beginLine() == Integer.MAX_VALUE) ? (n + 1) : ef.beginLine();
+            int insertAt = requestedBeginCorrected - 1; // 0-based
+
             newLines.addAll(lines.subList(0, insertAt));
             newLines.addAll(bodyLines);
             newLines.addAll(lines.subList(insertAt, n));
 
-            logger.info("Inserting {} lines at {} into {}", bodyLines.size(), requestedBegin, pf);
+            logger.info("Inserting {} lines at {} into {}", bodyLines.size(), requestedBeginCorrected, pf);
             writeBack(pf, newLines);
             return;
         }
@@ -257,15 +262,22 @@ public final class LineEditor {
             return;
         }
 
-        // Validate anchors: delete checks begin only; change checks begin+end
-        String anchorError = validateAnchors(ef, lines);
-        if (anchorError != null) {
-            failures.add(new ApplyFailure(ef, ApplyFailureReason.ANCHOR_MISMATCH, anchorError));
+        // Validate anchors: delete checks begin only; change checks begin+end (with off-by-1 correction)
+        try {
+            ef = validateAnchors(ef, lines);
+        } catch (Abort e) {
+            failures.add(new ApplyFailure(ef, ApplyFailureReason.ANCHOR_MISMATCH, java.util.Objects.requireNonNullElse(e.getMessage(), "Anchor mismatch")));
             return;
         }
 
-        int startIdx = normalizedBegin - 1; // inclusive
-        int endIdxExcl = normalizedEnd;     // exclusive
+        // Recompute normalized bounds from corrected anchors (Postel correction)
+        begin = ef.beginLine();
+        end = ef.endLine();
+        int correctedBegin = (begin == 0) ? 1 : (begin == Integer.MAX_VALUE ? n : begin);
+        int correctedEnd   = (end   == Integer.MAX_VALUE) ? n : end;
+
+        int startIdx = correctedBegin - 1; // inclusive
+        int endIdxExcl = correctedEnd;     // exclusive
 
         var bodyLines = splitIntoLines(body);
         var newLines = new ArrayList<String>(n - (endIdxExcl - startIdx) + bodyLines.size());
@@ -274,58 +286,108 @@ public final class LineEditor {
         newLines.addAll(lines.subList(endIdxExcl, n));
 
         logger.info("Replacing lines {}..{} (incl) in {} with {} new line(s)",
-                    normalizedBegin, normalizedEnd, pf, bodyLines.size());
+                    correctedBegin, correctedEnd, pf, bodyLines.size());
         writeBack(pf, newLines);
     }
 
-    private static @Nullable String validateAnchors(LineEdit.EditFile ef, List<String> lines) {
+    // Unchecked control flow for validation failures
+    private static final class Abort extends RuntimeException {
+        Abort(String message) {
+            super(message);
+        }
+    }
+
+    // Returns a corrected edit (possibly with adjusted begin/end line numbers and anchors) or throws Abort on failure.
+    private static LineEdit.EditFile validateAnchors(LineEdit.EditFile ef, List<String> lines) {
         final boolean isInsertion = ef.endLine() < ef.beginLine();
         final boolean isDelete = !isInsertion && ef.content().isEmpty();
         final boolean isChange = !isInsertion && !isDelete;
         final boolean isRange = !isInsertion && (ef.endLine() != ef.beginLine());
 
-        var sb = new StringBuilder();
-        boolean mismatch = false;
+        // Validate and possibly correct anchors
+        var correctedBeginAnchor = checkOneAnchor("begin", ef, ef.beginAnchor(), lines);
 
-        // beginAnchor is non-null in the model; always validate its content.
-        var beginAnchor = ef.beginAnchor();
-        var msg = checkOneAnchor("begin", ef, beginAnchor, lines);
-        if (msg != null) {
-            mismatch = true;
-            sb.append(msg).append('\n');
-        }
-
+        LineEdit.Anchor correctedEndAnchor = null;
         if (isChange || (isDelete && isRange)) {
             var endAnchor = ef.endAnchor();
             if (endAnchor == null) {
-                mismatch = true;
-                sb.append("Anchor mismatch (end): required anchor is missing\n");
+                throw new Abort("Anchor mismatch (end): required anchor is missing");
+            }
+            correctedEndAnchor = checkOneAnchor("end", ef, endAnchor, lines);
+        } else if (ef.endAnchor() != null) {
+            // For single-line delete or insertion, ignore endAnchor if present
+            correctedEndAnchor = ef.endAnchor();
+        }
+
+        // Compute corrected begin and end lines from anchors
+        int n = lines.size();
+
+        int correctedBeginLine;
+        int correctedEndLine;
+
+        if (isInsertion) {
+            // Insertion: begin is k+1 (or sentinel for $)
+            if (ef.beginLine() == Integer.MAX_VALUE) {
+                correctedBeginLine = Integer.MAX_VALUE;
+                correctedEndLine = Integer.MAX_VALUE - 1;
             } else {
-                var msg2 = checkOneAnchor("end", ef, endAnchor, lines);
-                if (msg2 != null) {
-                    mismatch = true;
-                    sb.append(msg2).append('\n');
+                var addr = correctedBeginAnchor.address();
+                if ("0".equals(addr)) {
+                    correctedBeginLine = 1;
+                    correctedEndLine = 0;
+                } else if ("$".equals(addr)) {
+                    correctedBeginLine = Integer.MAX_VALUE;
+                    correctedEndLine = Integer.MAX_VALUE - 1;
+                } else {
+                    int k = Integer.parseInt(addr);
+                    correctedBeginLine = k + 1;
+                    correctedEndLine = correctedBeginLine - 1;
                 }
+            }
+        } else {
+            // Change/Delete range mapping: 0 -> 1, $ -> n
+            var bAddr = correctedBeginAnchor.address();
+            correctedBeginLine =
+                    "0".equals(bAddr) ? 1 :
+                    "$".equals(bAddr) ? n :
+                    Integer.parseInt(bAddr);
+
+            if (isRange) {
+                var eAddr = correctedEndAnchor == null ? bAddr : correctedEndAnchor.address();
+                correctedEndLine =
+                        "0".equals(eAddr) ? 1 :
+                        "$".equals(eAddr) ? n :
+                        Integer.parseInt(eAddr);
+            } else {
+                correctedEndLine = correctedBeginLine;
             }
         }
 
-        return mismatch ? sb.toString().trim() : null;
+        // Build corrected edit (anchors reflect any corrected addresses)
+        return new LineEdit.EditFile(
+                ef.file(),
+                correctedBeginLine,
+                correctedEndLine,
+                ef.content(),
+                correctedBeginAnchor,
+                correctedEndAnchor
+        );
     }
 
-    private static @Nullable String checkOneAnchor(String which, LineEdit.EditFile ef, LineEdit.Anchor anchor, List<String> lines) {
+    // Validates a single anchor and returns a possibly corrected anchor; throws Abort on failure.
+    private static LineEdit.Anchor checkOneAnchor(String which, LineEdit.EditFile ef, LineEdit.Anchor anchor, List<String> lines) {
         var address = anchor.address();
 
         // Always skip validation for 0
         if ("0".equals(address)) {
-            return null;
+            return anchor;
         }
 
         final boolean editSideIsDollar =
                 ("begin".equals(which) && ef.beginLine() == Integer.MAX_VALUE)
                         || ("end".equals(which) && ef.endLine() == Integer.MAX_VALUE);
 
-        // Special handling: if the edit uses '$' on this side, allow a numeric anchor address
-        // within ±2 lines of the actual file length. Compare content to the last line ('$').
+        // For edits addressed at '$', allow numeric anchors within ±2 of EOF; compare content to last line.
         if (editSideIsDollar && !"$".equals(address)) {
             try {
                 int k = Integer.parseInt(address);
@@ -339,25 +401,24 @@ public final class LineEditor {
                     var actual = actualRaw.strip();
 
                     if (!actualOpt.isPresent() && expected.isEmpty()) {
-                        return null;
+                        return anchor;
                     }
                     if (!actual.equals(expected)) {
-                        return "Anchor mismatch (" + which + ") for `$`"
-                                + " expected `" + expectedRaw + "` but was `" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "`";
+                        throw new Abort("Anchor mismatch (" + which + ") for `$` expected `" + expectedRaw + "` but was `" + (actualOpt.isPresent() ? actualRaw : "<no line>") + "`");
                     }
-                    return null; // success within tolerance and content matched
+                    return anchor; // success within tolerance and content matched
                 } else {
-                    return "Anchor mismatch (" + which + "): specified address `$` but line " + address
-                            + " is too far from end-of-file (n=" + n + "). You can just use `$` as the anchor address directly.";
+                    throw new Abort("Anchor mismatch (" + which + "): specified address `$` but line " + address
+                            + " is too far from end-of-file (n=" + n + "). You can just use `$` as the anchor address directly.");
                 }
             } catch (NumberFormatException ignore) {
                 // fall through to normal handling
             }
         }
 
-        // If the address is '$', skip (we don't require content match for '$' itself)
+        // If the address is '$', accept without requiring content match
         if ("$".equals(address)) {
-            return null;
+            return anchor;
         }
 
         var expectedRaw = anchor.content();
@@ -369,17 +430,30 @@ public final class LineEditor {
 
         // Empty file + blank expected is OK
         if (actualOpt.isEmpty() && expected.isEmpty()) {
-            return null;
+            return anchor;
         }
         if (!actual.equals(expected)) {
-            // Build enhanced diagnostic with closest content match and the actual content at the cited line.
+            try {
+                int k = Integer.parseInt(address);
+                int n = lines.size();
+                boolean prevOk = (k - 1 >= 1) && lines.get(k - 2).strip().equals(expected);
+                boolean nextOk = (k + 1 <= n) && lines.get(k).strip().equals(expected);
+                if (prevOk ^ nextOk) {
+                    int corrected = prevOk ? k - 1 : k + 1;
+                    logger.info("Anchor {} address corrected by ±1: {} -> {} based on matching content", which, k, corrected);
+                    return new LineEdit.Anchor(Integer.toString(corrected), anchor.content());
+                }
+            } catch (NumberFormatException ignore) {
+                // non-numeric addresses are handled above; fall through to diagnostics
+            }
+
+            // Enhanced diagnostics
             String suggestion1 = null;
             try {
                 int given = Integer.parseInt(address);
                 int n = lines.size();
                 int givenIdx0 = given - 1;
 
-                // Find nearest line whose trimmed content matches expected
                 int bestIdx = -1;
                 for (int radius = 0; radius <= n; radius++) {
                     int left = givenIdx0 - radius;
@@ -402,17 +476,15 @@ public final class LineEditor {
                     if (found) break;
                 }
                 if (bestIdx >= 0) {
-                    // Use the user's original anchor content in the suggestion, per spec
                     suggestion1 = "@" + (bestIdx + 1) + "| " + expectedRaw;
                 }
             } catch (NumberFormatException ignore) {
-                // non-numeric addresses are handled above; leave suggestion1 as null
+                // leave suggestion1 as null
             }
 
             String actualGiven = "@" + address + "| " + (actualOpt.isPresent() ? actualRaw : "");
-
             if (suggestion1 != null) {
-                return """
+                throw new Abort("""
                         Anchor mismatch (%s)!
                         You gave
                         @%s| %s
@@ -420,19 +492,21 @@ public final class LineEditor {
                         %s
                         or perhaps
                         %s
-                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, suggestion1, actualGiven).trim();
+                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!"""
+                        .formatted(which, address, expectedRaw, suggestion1, actualGiven).trim());
             } else {
-                return """
+                throw new Abort("""
                         Anchor mismatch (%s)!
                         You gave
                         @%s| %s
                         which is not a valid line/content pairing. I could not find that content near the cited line.
                         For reference, the cited line is
                         %s
-                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!""".formatted(which, address, expectedRaw, actualGiven).trim();
+                        NOTE: line numbers may have shifted due to other edits, verify them against the latest contents above!"""
+                        .formatted(which, address, expectedRaw, actualGiven).trim());
             }
         }
-        return null;
+        return anchor;
     }
 
     /** Returns the exact line content for an address ("0", "1".., "$"), or empty if no such line exists. */
