@@ -618,7 +618,7 @@ Conventions and constraints:
                 new UserMessage("""
                 Change get_factorial() to use math.factorial
 
-                <workspace>
+                <sample_workspace>
                 <file path="mathweb/flask/app.py">
                 1: from flask import Flask, request
                 2: app = Flask(__name__)
@@ -645,7 +645,7 @@ Conventions and constraints:
                 23: if __name__ == "__main__":
                 24:     app.run()
                 </file>
-                </workspace>
+                </sample_workspace>
                 """.stripIndent()),
                 new AiMessage("""
               We will:
@@ -670,7 +670,7 @@ Conventions and constraints:
                 new UserMessage("""
                 Refactor hello() into its own file.
 
-                <workspace>
+                <sample_workspace>
                 <file path="main.py">
                 1: import sys
                 2:
@@ -684,7 +684,7 @@ Conventions and constraints:
                 10:     \\"\\"\\"print a greeting\\"\\"\\"
                 11:     print("hello")
                 </file>
-                </workspace>
+                </sample_workspace>
                 """.stripIndent()),
                 new AiMessage("""
               We will:
