@@ -232,7 +232,7 @@ public final class LineEditorParser {
         var lines = content.split("\n", -1);
         int i = 0;
 
-        StringBuilder blockSnippet = null; // full edit up to error (bounded body sample)
+        StringBuilder opSnippet = null; // per-operation snippet (no fences)
         final int MAX_BODY_LINES_IN_SNIPPET = 10;
 
         var pendingBlockEdits = new ArrayList<LineEdit>();
@@ -245,7 +245,7 @@ public final class LineEditorParser {
             if (trimmed.startsWith("BRK_EDIT_RM")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
-                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, blockSnippet == null ? "" : blockSnippet.toString(), "BRK_EDIT_RM missing filename."
+                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, "", "BRK_EDIT_RM missing filename."
                     ));
                     i++;
                     continue;
@@ -260,15 +260,14 @@ public final class LineEditorParser {
             if (trimmed.equals("BRK_EDIT_EX") || trimmed.startsWith("BRK_EDIT_EX ")) {
                 int sp = trimmed.indexOf(' ');
                 if (sp < 0) {
-                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, blockSnippet == null ? "" : blockSnippet.toString(), "BRK_EDIT_EX missing filename."
+                    failures.add(new ParseFailure(ParseFailureReason.MISSING_FILENAME, "", "BRK_EDIT_EX missing filename."
                     ));
                     i++;
                     continue;
                 }
                 var path = trimmed.substring(sp + 1).trim();
 
-                blockSnippet = new StringBuilder();
-                blockSnippet.append(lines[i]).append('\n');
+                // start new edit block; snippets are per-operation (opSnippet)
                 pendingBlockEdits.clear();
                 i++; // consume opener
 
@@ -296,7 +295,8 @@ public final class LineEditorParser {
                         int n1 = parseAddr(addr1);
                         int n2 = (addr2 == null) ? n1 : parseAddr(addr2);
 
-                        blockSnippet.append(line).append('\n');
+                        opSnippet = new StringBuilder();
+                        opSnippet.append(line).append('\n');
                         i++; // consume command line
 
                         try {
@@ -362,9 +362,9 @@ public final class LineEditorParser {
                             checkForExtraAnchorsForSameOp(lines, i);
 
                             // Include only the command and anchor lines in the snippet (no body)
-                            blockSnippet.append("@").append(beginAnchorLine).append("| ").append(beginAnchorContent).append('\n');
+                            opSnippet.append("@").append(beginAnchorLine).append("| ").append(beginAnchorContent).append('\n');
                             if (!endAnchorLine.isBlank()) {
-                                blockSnippet.append("@").append(endAnchorLine).append("| ").append(endAnchorContent).append('\n');
+                                opSnippet.append("@").append(endAnchorLine).append("| ").append(endAnchorContent).append('\n');
                             }
 
                             if (op == 'd') {
@@ -414,7 +414,9 @@ public final class LineEditorParser {
                                 continue;
                             }
                         } catch (Abort e) {
-                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), requireNonNull(e.getMessage())));
+                            failures.add(new ParseFailure(e.reason,
+                                                          (opSnippet == null ? "" : opSnippet.toString()),
+                                                          requireNonNull(e.getMessage())));
                             boolean foundEnd = false;
                             while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
                             if (i < lines.length) {
@@ -431,7 +433,8 @@ public final class LineEditorParser {
                         var addr = mIA.group(1);
                         int n = parseAddr(addr);
 
-                        blockSnippet.append(line).append('\n');
+                        opSnippet = new StringBuilder();
+                        opSnippet.append(line).append('\n');
                         i++; // to anchor
 
                         try {
@@ -450,7 +453,7 @@ public final class LineEditorParser {
                             checkForExtraAnchorsForSameOp(lines, i);
 
                             // Include only the command and anchor lines in the snippet (no body)
-                            blockSnippet.append("@").append(anchor.addr()).append("| ").append(anchor.content()).append('\n');
+                            opSnippet.append("@").append(anchor.addr()).append("| ").append(anchor.content()).append('\n');
 
                             var bodyRes = readBody(lines, i, MAX_BODY_LINES_IN_SNIPPET);
                             i = bodyRes.nextIndex();
@@ -479,7 +482,9 @@ public final class LineEditorParser {
                             }
                             continue;
                         } catch (Abort e) {
-                            failures.add(new ParseFailure(e.reason, blockSnippet.toString(), requireNonNull(e.getMessage())));
+                            failures.add(new ParseFailure(e.reason,
+                                                          (opSnippet == null ? "" : opSnippet.toString()),
+                                                          requireNonNull(e.getMessage())));
                             boolean foundEnd = false;
                             while (i < lines.length && !lines[i].trim().equals(END_FENCE)) i++;
                             if (i < lines.length) {
@@ -498,13 +503,14 @@ public final class LineEditorParser {
                 if (!sawEndFence) {
                     fatalError = ParseError.EOF_IN_BLOCK;
                     failures.add(new ParseFailure(ParseFailureReason.MISSING_END_FENCE,
-                                                  blockSnippet.toString(), "Missing BRK_EDIT_EX_END for " + path
+                                                  (opSnippet == null ? "" : opSnippet.toString()),
+                                                  "Missing BRK_EDIT_EX_END for " + path
                     ));
                 }
 
                 edits.addAll(pendingBlockEdits);
                 // reset block state
-                blockSnippet = null;
+                opSnippet = null;
                 pendingBlockEdits.clear();
                 continue;
             }

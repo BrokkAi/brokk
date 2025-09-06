@@ -47,9 +47,9 @@ import org.jetbrains.annotations.VisibleForTesting;
 public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
 
-    /** maximum combined parse+apply retries before giving up */
+    /** maximum combined parse+apply retries [while making progress] before giving up */
     @VisibleForTesting
-    static final int MAX_EDIT_RETRIES = 8;
+    static final int MAX_EDIT_RETRIES = 12;
 
     /**
      * stricter cap when a turn results in **no successful applications** (succeeded == 0);

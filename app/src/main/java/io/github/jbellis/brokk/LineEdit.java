@@ -85,7 +85,6 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
                 @Nullable Anchor endAnchor
         )) {
             var sb = new StringBuilder();
-            sb.append("BRK_EDIT_EX ").append(path).append('\n');
 
             if (endLine < beginLine) {
                 // insertion
@@ -93,7 +92,6 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
                 sb.append(addr).append(" a\n");
                 sb.append("@").append(beginAnchor.address()).append("| ").append(beginAnchor.content()).append('\n');
                 sb.append("[...]\n");
-                sb.append("BRK_EDIT_EX_END");
                 return sb.toString();
             } else if (content.isEmpty()) {
                 // delete (no body to elide)
@@ -103,7 +101,6 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
                 if (endAnchor != null && !endAnchor.address().isBlank()) {
                     sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
                 }
-                sb.append("BRK_EDIT_EX_END");
                 return sb.toString();
             } else {
                 // change with elided body
@@ -114,7 +111,6 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
                     sb.append("@").append(endAnchor.address()).append("| ").append(endAnchor.content()).append('\n');
                 }
                 sb.append("[...]\n");
-                sb.append("BRK_EDIT_EX_END");
                 return sb.toString();
             }
         }
