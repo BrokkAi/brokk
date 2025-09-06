@@ -52,12 +52,12 @@ public class Messages {
         return switch (message) {
             case SystemMessage sm -> sm.text();
             case AiMessage am -> {
-                boolean hasReasoning =
-                        am.reasoningContent() != null && !am.reasoningContent().isBlank();
-                if (hasReasoning) {
-                    yield am.reasoningContent();
+                var text = am.text();
+                if (text != null && !text.isBlank()) {
+                    yield text;
                 }
-                yield am.text() == null ? "" : am.text();
+                var reasoning = am.reasoningContent();
+                yield reasoning == null ? "" : reasoning;
             }
             case UserMessage um ->
                 um.contents().stream()
@@ -95,14 +95,30 @@ public class Messages {
             case SystemMessage sm -> sm.text();
             case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             case AiMessage am -> {
-                var raw = getText(am);
-                if (!am.hasToolExecutionRequests()) {
-                    yield raw;
+                var reasoning = am.reasoningContent();
+                var text = am.text();
+                var hasReasoning = reasoning != null && !reasoning.isBlank();
+                var hasText = text != null && !text.isBlank();
+                var hasTools = am.hasToolExecutionRequests();
+
+                var parts = new java.util.ArrayList<String>();
+                if (hasReasoning) {
+                    parts.add("Reasoning:\n" + reasoning);
+                    if (hasText) {
+                        parts.add("Text:\n" + text);
+                    }
+                } else if (hasText) {
+                    parts.add(text);
                 }
-                var toolText = am.toolExecutionRequests().stream()
-                        .map(Messages::getRepr)
-                        .collect(Collectors.joining("\n"));
-                yield "%s\nTool calls:\n%s".formatted(raw, toolText);
+
+                if (hasTools) {
+                    var toolText = am.toolExecutionRequests().stream()
+                            .map(Messages::getRepr)
+                            .collect(Collectors.joining("\n"));
+                    parts.add("Tool calls:\n" + toolText);
+                }
+
+                yield String.join("\n", parts);
             }
             case UserMessage um -> {
                 yield um.contents().stream()
