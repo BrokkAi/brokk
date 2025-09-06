@@ -1,10 +1,14 @@
 package io.github.jbellis.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
-import java.util.Objects;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.DiffUtils;
+import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Chunk;
+import com.github.difflib.patch.DeltaType;
+import com.github.difflib.patch.Patch;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -118,7 +122,7 @@ public class CodeAgent {
                 buildError,
                 changedFiles,
                 originalFileContents);
-        var loopContext = new LoopContext(conversationState, workspaceState, new TurnState(new ArrayList<>(), new ArrayList<>()), userInput);
+        var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
             if (Thread.interrupted()) {
@@ -222,7 +226,7 @@ public class CodeAgent {
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
         var editState = new EditState(0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
-        var loopContext = new LoopContext(conversationState, editState, new TurnState(new ArrayList<>(), new ArrayList<>()), instructions);
+        var loopContext = new LoopContext(conversationState, editState, instructions);
 
         logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
                              .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
@@ -390,7 +394,6 @@ public class CodeAgent {
             return new Step.Continue(new LoopContext(
                     currentLoopContext.conversationState(),
                     newWs,
-                    currentLoopContext.turnState(),
                     currentLoopContext.userGoal()));
         }
 
@@ -457,7 +460,7 @@ public class CodeAgent {
             report(applyFailures.toString());
         }
 
-        return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.turnState(), currentLoopContext.userGoal()));
+        return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
     }
 
     /**
@@ -656,15 +659,14 @@ public class CodeAgent {
             return new Step.Fatal(fatalDetails);
         }
 
-        // DO NOT append straight to taskMessages here. Instead sandbox this turn's messages.
         var aiMessage = streamingResultFromLlm.aiMessage();
 
-        var newTurnMessages = new ArrayList<ChatMessage>(currentLoopContext.turnState().messages());
-        newTurnMessages.add(cs.nextRequest());
-        newTurnMessages.add(aiMessage);
+        var newTaskMessages = new ArrayList<ChatMessage>(cs.taskMessages());
+        newTaskMessages.add(cs.nextRequest());
+        newTaskMessages.add(aiMessage);
 
-        var nextTurnState = new TurnState(newTurnMessages, new ArrayList<>());
-        return new Step.Continue(new LoopContext(cs, currentLoopContext.editState(), nextTurnState, currentLoopContext.userGoal()));
+        var newCs = new ConversationState(newTaskMessages, cs.nextRequest());
+        return new Step.Continue(new LoopContext(newCs, currentLoopContext.editState(), currentLoopContext.userGoal()));
     }
 
     Step verifyPhase(LoopContext loopContext, @Nullable Metrics metrics) {
@@ -684,19 +686,18 @@ public class CodeAgent {
             return new Step.Fatal(stopDetails);
         }
 
-        // Before running verification, emit a reverse-edit BRK_EDIT_EX message derived from diffs
-        // between the post-edit state and the saved original contents.
+        // Before running verification, emit reverse edits (derived from diffs) to get back to original.
         var reverseMsg = generateReverseEditsMessage(ws);
         if (!reverseMsg.isBlank()) {
             // Show to user in the console before verification output
             io.llmOutput("\n" + reverseMsg, ChatMessageType.CUSTOM);
-            // Also add to turn history for this turn
-            var newTurnMessages = new ArrayList<ChatMessage>(loopContext.turnState().messages());
-            newTurnMessages.add(new AiMessage(reverseMsg));
+            // Also add to conversation history
+            var cs = loopContext.conversationState();
+            var newTaskMessages = new ArrayList<ChatMessage>(cs.taskMessages());
+            newTaskMessages.add(new AiMessage(reverseMsg));
             loopContext = new LoopContext(
-                    loopContext.conversationState(),
+                    new ConversationState(newTaskMessages, cs.nextRequest()),
                     loopContext.editState(),
-                    new TurnState(newTurnMessages, loopContext.turnState().summaries()),
                     loopContext.userGoal());
         }
 
@@ -742,7 +743,6 @@ public class CodeAgent {
             return new Step.Retry(new LoopContext(
                     ended.conversationState(),
                     newWs,
-                    ended.turnState(),
                     loopContext.userGoal()));
         }
     }
@@ -825,24 +825,26 @@ public class CodeAgent {
         }
     }
 
-    public static record TurnState(List<ChatMessage> messages, List<java.util.concurrent.CompletableFuture<String>> summaries) {}
 
-
-    // Compose a reverse BRK_EDIT_EX message to revert edits back to original contents.
-    // Strategy: whole-file operations for reliability.
+    // Compute reverse edits (current -> original) using fine-grained diff, one or more LineEdit per file.
     @VisibleForTesting
-    String generateReverseEditsMessage(EditState ws) {
-        if (ws.originalFileContents().isEmpty() || ws.changedFiles().isEmpty()) {
-            return "";
+    List<LineEdit> generateReverseEdits(EditState ws) {
+        if (ws.changedFiles().isEmpty()) {
+            return List.of();
         }
 
-        var blocks = new StringBuilder();
+        var results = new ArrayList<LineEdit>();
         var sortedFiles = ws.changedFiles().stream()
-                .filter(ws.originalFileContents()::containsKey)
                 .sorted(Comparator.comparing(ProjectFile::toString))
                 .toList();
 
         for (var pf : sortedFiles) {
+            // If the file wasn't present in the original map, treat as a newly created file -> delete on reverse.
+            if (!ws.originalFileContents().containsKey(pf)) {
+                results.add(new LineEdit.DeleteFile(pf.toString()));
+                continue;
+            }
+
             String original = requireNonNull(ws.originalFileContents().get(pf));
             String current;
             try {
@@ -851,61 +853,181 @@ public class CodeAgent {
                 logger.warn("Failed reading current contents of {} to generate reverse edits", pf, e);
                 continue;
             }
+
             if (Objects.equals(original, current)) {
-                continue; // no change to reverse
+                continue; // nothing to reverse for this file
             }
 
-            var path = pf.toString();
             var currentLines = current.isEmpty() ? List.<String>of() : Arrays.asList(current.split("\n", -1));
             var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
 
-            blocks.append("BRK_EDIT_EX ").append(path).append("\n");
+            Patch<String> patch = DiffUtils.diff(currentLines, originalLines);
 
-            if (currentLines.isEmpty() && !originalLines.isEmpty()) {
-                // Insert the entire original file
-                blocks.append("0 a\n");
-                blocks.append("@0| \n");
-                for (var line : originalLines) {
-                    blocks.append(escapeBodyLine(line)).append("\n");
+            for (AbstractDelta<String> delta : patch.getDeltas()) {
+                var type = delta.getType();
+                Chunk<String> src = delta.getSource();
+                Chunk<String> tgt = delta.getTarget();
+
+                switch (type) {
+                    case CHANGE -> {
+                        int begin = Math.max(1, src.getPosition() + 1);
+                        int end = src.getPosition() + src.size();
+
+                        String beginAddr = Integer.toString(begin);
+                        String endAddr = Integer.toString(end);
+
+                        String beginText = (begin - 1) < currentLines.size() && begin >= 1
+                                ? currentLines.get(begin - 1)
+                                : "";
+                        String endText = (end - 1) < currentLines.size() && end >= 1
+                                ? currentLines.get(end - 1)
+                                : "";
+
+                        var beginAnchor = new LineEdit.Anchor(beginAddr, beginText);
+                        var endAnchor = new LineEdit.Anchor(endAddr, endText);
+
+                        results.add(new LineEdit.EditFile(
+                                pf.toString(),
+                                begin,
+                                end,
+                                String.join("\n", tgt.getLines()),
+                                beginAnchor,
+                                endAnchor));
+                    }
+                    case DELETE -> {
+                        int begin = Math.max(1, src.getPosition() + 1);
+                        int end = src.getPosition() + src.size();
+
+                        String beginAddr = Integer.toString(begin);
+                        String endAddr = Integer.toString(end);
+
+                        String beginText = (begin - 1) < currentLines.size() && begin >= 1
+                                ? currentLines.get(begin - 1)
+                                : "";
+                        String endText = (end - 1) < currentLines.size() && end >= 1
+                                ? currentLines.get(end - 1)
+                                : "";
+
+                        var beginAnchor = new LineEdit.Anchor(beginAddr, beginText);
+                        var endAnchor = new LineEdit.Anchor(endAddr, endText);
+
+                        results.add(new LineEdit.EditFile(
+                                pf.toString(),
+                                begin,
+                                end,
+                                "",
+                                beginAnchor,
+                                endAnchor));
+                    }
+                    case INSERT -> {
+                        int pos = src.getPosition(); // insertion position relative to current content
+                        int curSize = currentLines.size();
+
+                        String addr;
+                        String anchorText;
+                        int begin;
+                        if (pos == 0) {
+                            addr = "0";
+                            anchorText = "";
+                            begin = 1; // will render as 0 a with anchor @0|
+                        } else if (pos >= curSize) {
+                            addr = "$";
+                            anchorText = "";
+                            begin = Integer.MAX_VALUE; // render as $ a
+                        } else {
+                            // insert before line (pos+1), i.e., after line pos
+                            addr = Integer.toString(pos);
+                            anchorText = currentLines.get(pos - 1);
+                            begin = pos + 1;
+                        }
+
+                        var anchor = new LineEdit.Anchor(addr, anchorText);
+                        results.add(new LineEdit.EditFile(
+                                pf.toString(),
+                                begin,
+                                begin - 1, // insertion sentinel
+                                String.join("\n", tgt.getLines()),
+                                anchor,
+                                null));
+                    }
+                    default -> {
+                        // ignore EQUAL or unknown
+                    }
                 }
-                blocks.append(".\n");
-            } else if (!currentLines.isEmpty() && originalLines.isEmpty()) {
-                // Delete everything
-                blocks.append("1,$ d\n");
-                blocks.append("@1| ").append(currentLines.getFirst()).append("\n");
-                blocks.append("@$| ").append(currentLines.getLast()).append("\n");
-            } else {
-                // Replace entire file content
-                blocks.append("1,$ c\n");
-                blocks.append("@1| ").append(currentLines.getFirst()).append("\n");
-                blocks.append("@$| ").append(currentLines.getLast()).append("\n");
-                for (var line : originalLines) {
-                    blocks.append(escapeBodyLine(line)).append("\n");
-                }
-                blocks.append(".\n");
             }
-
-            blocks.append("BRK_EDIT_EX_END\n\n");
         }
 
-        if (blocks.isEmpty()) {
+        // Order edits last-edits-first per file and maintain DeleteFile in original order after edits
+        var editFiles = new ArrayList<LineEdit.EditFile>();
+        var deletes = new ArrayList<LineEdit.DeleteFile>();
+        for (var e : results) {
+            if (e instanceof LineEdit.EditFile ef) editFiles.add(ef);
+            else if (e instanceof LineEdit.DeleteFile df) deletes.add(df);
+        }
+
+        editFiles.sort((a, b) -> {
+            int c = a.file().compareTo(b.file());
+            if (c != 0) return c;
+            // Treat Integer.MAX_VALUE (for $ a) as larger than any real line numbers
+            int ab = (a.beginLine() == Integer.MAX_VALUE) ? Integer.MAX_VALUE : a.beginLine();
+            int bb = (b.beginLine() == Integer.MAX_VALUE) ? Integer.MAX_VALUE : b.beginLine();
+            c = Integer.compare(bb, ab);
+            if (c != 0) return c;
+            return Integer.compare(b.endLine(), a.endLine());
+        });
+
+        var combined = new ArrayList<LineEdit>(editFiles.size() + deletes.size());
+        combined.addAll(editFiles);
+        combined.addAll(deletes);
+        return List.copyOf(combined);
+    }
+
+    // Compose a reverse BRK_EDIT_EX/BRK_EDIT_RM message from generated reverse edits.
+    @VisibleForTesting
+    String generateReverseEditsMessage(EditState ws) {
+        var edits = generateReverseEdits(ws);
+        if (edits.isEmpty()) {
             return "";
+        }
+
+        var byFile = new LinkedHashMap<String, List<LineEdit>>();
+        for (var e : edits) {
+            String key = e.file();
+            byFile.computeIfAbsent(key, k -> new ArrayList<>()).add(e);
+        }
+
+        var sb = new StringBuilder();
+        for (var entry : byFile.entrySet()) {
+            var list = entry.getValue();
+
+            // Split out DeleteFile entries; render them separately
+            var deletes = list.stream()
+                    .filter(e -> e instanceof LineEdit.DeleteFile)
+                    .map(e -> (LineEdit.DeleteFile) e)
+                    .toList();
+            var editsOnly = list.stream()
+                    .filter(e -> e instanceof LineEdit.EditFile)
+                    .map(e -> (LineEdit.EditFile) e)
+                    .toList();
+
+            for (var df : deletes) {
+                sb.append("BRK_EDIT_RM ").append(df.file()).append("\n\n");
+            }
+
+            if (!editsOnly.isEmpty()) {
+                sb.append(LineEdit.repr(editsOnly)).append("\n\n");
+            }
         }
 
         return """
 I have made edits using the BRK_EDIT_EX format. I am showing the REVERSE edits, to go back to the pre-edit state, because you can see the post-edit state in the current Workspace. This allows you to reference any original code and replace or repair it if it is necessary to fix the build or lint errors.
 I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
 
-%s""".stripIndent().formatted(blocks.toString().stripTrailing());
+%s""".stripIndent().formatted(sb.toString().stripTrailing());
     }
 
-    private static String escapeBodyLine(String line) {
-        if (line.equals(".")) return "\\.";
-        if (line.equals("\\")) return "\\\\";
-        return line;
-    }
 
-    record LoopContext(ConversationState conversationState, EditState editState, TurnState turnState, String userGoal) {}
+    record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}
 
     sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
         LoopContext loopContext();
@@ -972,15 +1094,11 @@ I will continue to make NEW edits with normal, forwards BRK_EDIT_EX commands.
     }
 
     private LoopContext endTurn(LoopContext currentLoopContext, @Nullable UserMessage nextRequest) {
-        // We no longer wait for summaries; directly fold sandboxed messages into task history.
-        var newTaskMessages = new ArrayList<ChatMessage>(currentLoopContext.conversationState().taskMessages());
-        newTaskMessages.addAll(currentLoopContext.turnState().messages());
-
-        var resultingNextRequest = (nextRequest != null) ? nextRequest : currentLoopContext.conversationState().nextRequest();
+        var cs = currentLoopContext.conversationState();
+        var newTaskMessages = new ArrayList<ChatMessage>(cs.taskMessages());
+        var resultingNextRequest = (nextRequest != null) ? nextRequest : cs.nextRequest();
         var newConversation = new ConversationState(newTaskMessages, resultingNextRequest);
-        var newTurnState = new TurnState(new ArrayList<>(), new ArrayList<>());
-
-        return new LoopContext(newConversation, currentLoopContext.editState(), newTurnState, currentLoopContext.userGoal());
+        return new LoopContext(newConversation, currentLoopContext.editState(), currentLoopContext.userGoal());
     }
 
     private static class Metrics {

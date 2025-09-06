@@ -10,9 +10,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.analyzer.LintResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.Environment;
@@ -90,7 +88,7 @@ class CodeAgentTest {
                 new HashSet<ProjectFile>(),
                 new HashMap<ProjectFile, String>()
         );
-        return new CodeAgent.LoopContext(conversationState, workspaceState, new CodeAgent.TurnState(new ArrayList<>(), new ArrayList<>()), goal);
+        return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
     }
 
     private CodeAgent.LoopContext createBasicLoopContext(String goal) {
@@ -341,7 +339,6 @@ class CodeAgentTest {
                         retryStep.loopContext().editState().lastBuildError(),
                         retryStep.loopContext().editState().changedFiles(),
                         retryStep.loopContext().editState().originalFileContents()),
-                retryStep.loopContext().turnState(),
                 retryStep.loopContext().userGoal());
 
         var resultSuccess = codeAgent.verifyPhase(contextForSecondRun, null);
@@ -475,34 +472,63 @@ class CodeAgentTest {
                  "Should not include last_good_edit when no edits were successfully applied");
      }
  
-     // RE-1: direct test of generateReverseEditsMessage
-     @Test
-     void testGenerateReverseEditsMessage_wholeFileReplace() throws IOException {
-         var pf = contextManager.toFile("file.txt");
-         // current content on disk
-         pf.write("cur-first\ncur-middle\ncur-last");
-         // original content saved before edits
-         var original = "orig-1\norig-2";
-         var changedFiles = new HashSet<ProjectFile>();
-         changedFiles.add(pf);
-         var originalMap = new HashMap<ProjectFile, String>();
-         originalMap.put(pf, original);
- 
-         var ws = new CodeAgent.EditState(
-                 0, 0, 0, 0, "",
-                 changedFiles,
-                 originalMap);
- 
-         var msg = codeAgent.generateReverseEditsMessage(ws);
- 
-         assertNotNull(msg);
-         assertFalse(msg.isBlank(), "Expected non-blank reverse edits message");
-         assertTrue(msg.contains("BRK_EDIT_EX " + pf.toString()), "Must contain BRK_EDIT_EX for file");
-         assertTrue(msg.contains("1,$ c"), "Must be a whole-file change");
-         assertTrue(msg.contains("@1| cur-first"), "Must include begin anchor for current content");
-         assertTrue(msg.contains("@$| cur-last"), "Must include end anchor for current content");
-         assertTrue(msg.contains("orig-1"), "Body should include original content");
-         assertTrue(msg.contains("orig-2"), "Body should include original content");
-         assertTrue(msg.strip().endsWith("BRK_EDIT_EX_END"), "Should end with closing fence");
-     }
+     // RE-1: reverse edits for newly created file -> DeleteFile
+    @Test
+    void testGenerateReverseEdits_newFileProducesDelete() throws IOException {
+        var pf = contextManager.toFile("newfile.txt");
+        pf.write("some content that was created");
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(pf);
+        var originalMap = new HashMap<ProjectFile, String>(); // no entry => new file
+
+        var ws = new CodeAgent.EditState(
+                0, 0, 0, 0, "",
+                changedFiles,
+                originalMap);
+
+        var edits = codeAgent.generateReverseEdits(ws);
+        assertNotNull(edits);
+        assertFalse(edits.isEmpty(), "Expected a DeleteFile reverse edit for new file");
+        var deletes = edits.stream().filter(e -> e instanceof LineEdit.DeleteFile).map(e -> (LineEdit.DeleteFile) e).toList();
+        assertEquals(1, deletes.size(), "Should produce one DeleteFile entry");
+        assertEquals(pf.toString(), deletes.getFirst().file());
+    }
+
+    // RE-2: two separated changes -> two EditFile entries
+    @Test
+    void testGenerateReverseEdits_twoSeparateChanges() throws IOException {
+        var pf = contextManager.toFile("file.txt");
+
+        // current (on disk)
+        pf.write(String.join("\n", List.of("A", "B2", "C", "D2", "E")));
+
+        // original (before edits)
+        var original = String.join("\n", List.of("A", "B", "C", "D", "E"));
+
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(pf);
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(pf, original);
+
+        var ws = new CodeAgent.EditState(
+                0, 0, 0, 0, "",
+                changedFiles,
+                originalMap);
+
+        var edits = codeAgent.generateReverseEdits(ws);
+        var ef = edits.stream()
+                .filter(e -> e instanceof LineEdit.EditFile && e.file().equals(pf.toString()))
+                .map(e -> (LineEdit.EditFile) e)
+                .toList();
+
+        assertEquals(2, ef.size(), "Expected two change edits (for B2->B and D2->D)");
+        var beginLines = ef.stream().map(LineEdit.EditFile::beginLine).collect(java.util.stream.Collectors.toSet());
+        assertTrue(beginLines.contains(2), "One change should be at line 2");
+        assertTrue(beginLines.contains(4), "One change should be at line 4");
+
+        // Verify content bodies are the originals for those positions
+        var bodies = ef.stream().collect(java.util.stream.Collectors.toMap(LineEdit.EditFile::beginLine, LineEdit.EditFile::content));
+        assertEquals("B", bodies.get(2));
+        assertEquals("D", bodies.get(4));
+    }
  }

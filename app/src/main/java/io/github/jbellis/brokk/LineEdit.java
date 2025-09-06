@@ -3,6 +3,9 @@ package io.github.jbellis.brokk;
 import io.github.jbellis.brokk.prompts.LineEditorParser;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -115,6 +118,59 @@ public sealed interface LineEdit permits LineEdit.DeleteFile, LineEdit.EditFile 
             }
         }
         return toString();
+    }
+
+    /**
+     * Render a BRK_EDIT_EX block for a collection of EditFile operations for a single path.
+     * Edits are sorted in reverse order by beginLine before rendering.
+     */
+    static String repr(Collection<LineEdit.EditFile> edits) {
+        assert !edits.isEmpty() : "edits must be non-empty";
+        var list = new ArrayList<>(edits);
+        // ensure all for the same file
+        var path = list.getFirst().file();
+        for (var e : list) assert path.equals(e.file()) : "all edits must target the same file";
+        // reverse order by beginLine
+        list.sort(Comparator
+                .comparingInt((LineEdit.EditFile e) -> e.beginLine() == Integer.MAX_VALUE ? Integer.MAX_VALUE : e.beginLine())
+                .reversed());
+
+        var sb = new StringBuilder();
+        sb.append("BRK_EDIT_EX ").append(path).append('\n');
+        for (var ef : list) {
+            boolean isInsertion = ef.endLine() < ef.beginLine();
+            if (isInsertion) {
+                var addr = ef.beginAnchor().address();
+                sb.append(addr).append(" a\n");
+                sb.append("@").append(addr).append("| ").append(ef.beginAnchor().content()).append('\n');
+                if (!ef.content().isEmpty()) {
+                    renderBody(sb, ef.content().lines().toList());
+                } else {
+                    // even empty body needs a terminator
+                    sb.append(".\n");
+                }
+            } else {
+                boolean isDelete = ef.content().isEmpty();
+                var beginAddr = ef.beginAnchor().address();
+                var endAddr = (ef.endAnchor() == null) ? ef.beginAnchor().address() : ef.endAnchor().address();
+
+                if (ef.beginLine() == ef.endLine()) {
+                    sb.append(beginAddr).append(isDelete ? " d\n" : " c\n");
+                } else {
+                    sb.append(beginAddr).append(",").append(endAddr).append(isDelete ? " d\n" : " c\n");
+                }
+
+                sb.append("@").append(beginAddr).append("| ").append(ef.beginAnchor().content()).append('\n');
+                if (ef.endAnchor() != null) {
+                    sb.append("@").append(endAddr).append("| ").append(ef.endAnchor().content()).append('\n');
+                }
+                if (!isDelete) {
+                    renderBody(sb, ef.content().lines().toList());
+                }
+            }
+        }
+        sb.append("BRK_EDIT_EX_END");
+        return sb.toString();
     }
 
     /** Path to the file being edited/deleted, relative to the project root. */
