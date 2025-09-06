@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.git;
 
+import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
+
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -47,6 +49,9 @@ public class GitCommitTab extends JPanel {
     private JButton commitButton;
     private JButton stashButton;
     private JPanel buttonPanel;
+
+    private JTabbedPane historyTabbedPane;
+    private JSplitPane mainSplitPane;
 
     @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
@@ -164,15 +169,14 @@ public class GitCommitTab extends JPanel {
 
         // Add action listener for the view history item
         viewHistoryItem.addActionListener(e -> {
-            // int row = uncommittedFilesTable.getSelectedRow(); // Using rightClickedFile instead
             if (rightClickedFile != null) {
-                chrome.addFileHistoryTab(rightClickedFile);
+                addHistoryTabForFile(rightClickedFile);
             } else { // Fallback to selection if rightClickedFile is somehow null
                 int row = uncommittedFilesTable.getSelectedRow();
                 if (row >= 0) {
                     var projectFile =
                             (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-                    chrome.addFileHistoryTab(projectFile);
+                    addHistoryTabForFile(projectFile);
                 }
             }
             rightClickedFile = null; // Clear after use
@@ -275,7 +279,15 @@ public class GitCommitTab extends JPanel {
         titledPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
         titledPanel.add(contentPanel, BorderLayout.NORTH);
 
-        add(titledPanel, BorderLayout.CENTER);
+        historyTabbedPane = new JTabbedPane();
+        historyTabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
+        historyTabbedPane.setVisible(false); // Initially hidden
+
+        mainSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, titledPanel, historyTabbedPane);
+        mainSplitPane.setResizeWeight(0.6); // Give more space to the top part initially
+        mainSplitPane.setDividerSize(0); // Hide divider when history is not visible
+
+        add(mainSplitPane, BorderLayout.CENTER);
 
         // Ensure initial sizing is only as large as the table contents
         shrinkTableToContents();
@@ -798,5 +810,63 @@ public class GitCommitTab extends JPanel {
         fileStatusPane.setPreferredSize(new Dimension(width, height));
         fileStatusPane.revalidate();
         fileStatusPane.repaint();
+    }
+
+    private void addHistoryTabForFile(ProjectFile file) {
+        // Check if a tab for this file already exists
+        for (int i = 0; i < historyTabbedPane.getTabCount(); i++) {
+            var tabComponent = historyTabbedPane.getComponentAt(i);
+            if (tabComponent instanceof GitHistoryTab historyTab) {
+                var tabPath = historyTab.getFilePath();
+                var absPath = file.absPath().toString();
+                var name = file.getFileName();
+                if (tabPath.equals(name) || absPath.endsWith(tabPath) || tabPath.endsWith(name)) {
+                    historyTabbedPane.setSelectedIndex(i);
+                    return;
+                }
+            }
+        }
+
+        // If we are here, no tab for this file exists. Create one.
+        var historyTab = new GitHistoryTab(chrome, contextManager, file);
+        historyTabbedPane.addTab(file.getFileName(), historyTab);
+        int tabIndex = historyTabbedPane.indexOfComponent(historyTab);
+        historyTabbedPane.setTabComponentAt(tabIndex, createTabComponent(file.getFileName(), historyTab));
+        historyTabbedPane.setSelectedComponent(historyTab);
+
+        // Make the history pane visible if it's not already
+        if (!historyTabbedPane.isVisible()) {
+            historyTabbedPane.setVisible(true);
+            mainSplitPane.setDividerSize(5); // Show divider
+            mainSplitPane.resetToPreferredSizes();
+        }
+    }
+
+    private Component createTabComponent(String title, Component tabContent) {
+        var tabComponent = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        tabComponent.setOpaque(false);
+        var titleLabel = new JLabel(title);
+        titleLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5));
+        tabComponent.add(titleLabel);
+
+        var closeButton = new JButton("x");
+        closeButton.setBorder(BorderFactory.createEmptyBorder(0, 4, V_GLUE, 4));
+        closeButton.setContentAreaFilled(false);
+        closeButton.setBorderPainted(false);
+        closeButton.setFocusPainted(false);
+        closeButton.setOpaque(false);
+        closeButton.setRolloverEnabled(true);
+        closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        closeButton.setToolTipText("Close this tab");
+        closeButton.addActionListener(e -> {
+            historyTabbedPane.remove(tabContent);
+            if (historyTabbedPane.getTabCount() == 0) {
+                historyTabbedPane.setVisible(false);
+                mainSplitPane.setDividerSize(0);
+            }
+        });
+        tabComponent.add(closeButton);
+
+        return tabComponent;
     }
 }
