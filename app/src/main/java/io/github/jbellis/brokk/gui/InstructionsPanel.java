@@ -35,6 +35,7 @@ import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -1117,7 +1118,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         try {
             chrome.showOutputSpinner("Executing command...");
-            chrome.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+            String shellLang = ExecutorConfig.getShellLanguageFromProject(chrome.getProject());
+            chrome.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
             long timeoutSecs;
             if (chrome.getProject() instanceof MainProject mainProject) {
                 timeoutSecs = mainProject.getRunCommandTimeoutSeconds();
@@ -1128,7 +1130,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     input,
                     contextManager.getRoot(),
                     line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM),
-                    java.time.Duration.ofSeconds(timeoutSecs));
+                    java.time.Duration.ofSeconds(timeoutSecs),
+                    chrome.getProject());
             chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
         } catch (Environment.SubprocessException e) {

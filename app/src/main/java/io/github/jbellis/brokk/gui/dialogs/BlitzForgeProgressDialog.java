@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.TokenAware;
 import java.awt.*;
@@ -521,7 +522,9 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     mainIo.llmOutput(
                                             "\nRunning verification command: " + verificationCommand,
                                             ChatMessageType.CUSTOM);
-                                    mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+                                    String shellLang =
+                                            ExecutorConfig.getShellLanguageFromProject(contextManager.getProject());
+                                    mainIo.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
                                     Environment.instance.runShellCommand(
                                             verificationCommand,
                                             contextManager.getProject().getRoot(),
