@@ -490,6 +490,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
     /** Update the set of file indices that are dirty (have unsaved changes). Must be called on the EDT. */
     public void setDirtyFiles(Set<Integer> indices) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Compute delta between previous and new sets to avoid collapsing the tree
         var oldDirty = new HashSet<>(dirtyIndices);
         var newDirty = new HashSet<>(indices);
@@ -620,7 +621,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
 
         private static Icon getDirtyStatusIcon(DiffStatus status, @Nullable GuiTheme theme) {
-            // For dirty files, keep the circle and add a small left arrow indicator
+            // For dirty files, keep the circle and add a small asterisk indicator to the left
             boolean isDark = theme == null || theme.isDarkTheme();
             Color color =
                     switch (status) {
@@ -629,7 +630,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                         case MODIFIED -> ThemeColors.getColor(isDark, "git_status_modified");
                         case UNCHANGED -> ThemeColors.getColor(isDark, "git_status_unknown");
                     };
-            return createStatusIconWithLeftArrow(color);
+            return createDirtyStatusIcon(color);
         }
 
         private static String getStatusText(DiffStatus status) {
@@ -666,7 +667,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
             };
         }
 
-        private static Icon createStatusIconWithLeftArrow(Color color) {
+        private static Icon createDirtyStatusIcon(Color color) {
             return new Icon() {
                 @Override
                 public void paintIcon(Component c, Graphics g, int x, int y) {

@@ -19,10 +19,10 @@ public final class DeltaHighlighter {
     private DeltaHighlighter() {} // Utility class
 
     public static void highlight(FilePanel panel, AbstractDelta<String> delta, boolean originalSide) {
-
         @Nullable BufferDocumentIF bufferDocument = panel.getBufferDocument();
         if (bufferDocument == null) {
             logger.trace(
+                    "Skipping highlight: bufferDocument is null for {} side", originalSide ? "original" : "revised");
             return;
         }
 
@@ -118,6 +118,13 @@ public final class DeltaHighlighter {
 
         // Apply the highlight
         try {
+            logger.trace(
+                    "Adding highlight: chunk pos={}, size={}, fromOffset={}, toOffset={}, side={}",
+                    chunk.getPosition(),
+                    chunk.size(),
+                    fromOffset,
+                    toOffset,
+                    originalSide ? "original" : "revised");
             panel.getHighlighter().addHighlight(JMHighlighter.LAYER0, fromOffset, toOffset, painter);
         } catch (BadLocationException ex) {
             throw new RuntimeException(

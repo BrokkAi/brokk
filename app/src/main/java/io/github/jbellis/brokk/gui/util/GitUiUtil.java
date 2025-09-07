@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.util.ArrayList;
@@ -601,7 +602,7 @@ public final class GitUiUtil {
                     }
 
                     // No existing window found, create new one
-                    var builder = new BrokkDiffPanel.Builder(chrome.getTheme() contextManager);
+                    var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }

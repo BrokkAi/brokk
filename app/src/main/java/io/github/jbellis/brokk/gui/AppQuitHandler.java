@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import java.awt.Container;
 import java.awt.Desktop;
 import java.awt.Frame;
 import java.awt.HeadlessException;
@@ -80,13 +81,13 @@ public final class AppQuitHandler {
 
     /** Recursively find the first BrokkDiffPanel in the component hierarchy. */
     @Nullable
-    private static BrokkDiffPanel findBrokkDiffPanel(java.awt.Container root) {
+    private static BrokkDiffPanel findBrokkDiffPanel(Container root) {
         for (var comp : root.getComponents()) {
             if (comp == null) continue;
             if (comp instanceof BrokkDiffPanel panel) {
                 return panel;
             }
-            if (comp instanceof java.awt.Container container) {
+            if (comp instanceof Container container) {
                 var found = findBrokkDiffPanel(container);
                 if (found != null) {
                     return found;

@@ -1,13 +1,11 @@
 package io.github.jbellis.brokk.util;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -176,7 +174,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     }
 
     /** Returns all cached values, excluding reserved (not yet loaded) entries. */
-    public Collection<V> nonNullValues() {
+    public java.util.Collection<V> nonNullValues() {
         readLock.lock();
         try {
             // Since we no longer store nulls, all cache values are non-null
@@ -339,28 +337,13 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     /**
      * Helper method to dispose items outside of locks to prevent blocking. This allows other cache operations to
      * proceed while disposal is happening.
-     *
-     * <p>Disposal of Swing-related resources must happen on the Event Dispatch Thread (EDT). If called off-EDT, we
-     * enqueue the dispose() call onto the EDT to ensure Swing safety.
      */
-    private void disposeDeferred(Collection<V> items) {
+    private void disposeDeferred(java.util.Collection<V> items) {
         for (var item : items) {
             try {
-                if (SwingUtilities.isEventDispatchThread()) {
-                    // Already on EDT: call directly
-                    item.dispose();
-                } else {
-                    // Schedule on EDT. We purposely use invokeLater to avoid blocking the caller.
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            item.dispose();
-                        } catch (Exception e) {
-                            logger.warn("Exception during disposal of cache item (on EDT)", e);
-                        }
-                    });
-                }
+                item.dispose();
             } catch (Exception e) {
-                logger.warn("Exception scheduling disposal of cache item", e);
+                logger.warn("Exception during disposal of cache item", e);
             }
         }
     }
