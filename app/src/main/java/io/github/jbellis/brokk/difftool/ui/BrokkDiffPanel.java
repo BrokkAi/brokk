@@ -6,6 +6,10 @@ import com.github.difflib.algorithm.DiffAlgorithmListener;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
+import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -689,28 +693,122 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return false;
     }
 
-    /** Saves every dirty document across all BufferDiffPanels. */
+    /** Saves every dirty document across all BufferDiffPanels, producing a single undoable history entry. */
     public void saveAll() {
         try {
             // Disable save button temporarily
             btnSaveAll.setEnabled(false);
 
-            var visited = new java.util.HashSet<BufferDiffPanel>();
+            // Collect unique panels to process (current + cached)
+            var visited = new java.util.LinkedHashSet<BufferDiffPanel>();
             if (bufferDiffPanel != null) {
                 visited.add(bufferDiffPanel);
-                bufferDiffPanel.doSave();
-                refreshTabTitle(bufferDiffPanel);
             }
-            // save each panel
             for (var p : panelCache.nonNullValues()) {
-                if (visited.add(p)) {
-                    p.doSave();
-                    refreshTabTitle(p);
+                visited.add(p);
+            }
+
+            // Filter to only panels with unsaved changes and at least one editable side
+            var panelsToSave = visited.stream()
+                    .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
+                    .toList();
+
+            if (panelsToSave.isEmpty()) {
+                // Nothing to do
+                SwingUtilities.invokeLater(this::updateNavigationButtons);
+                return;
+            }
+
+            // Step 1: Collect changes (on EDT) before writing to disk
+            var allChanges = new java.util.ArrayList<BufferDiffPanel.AggregatedChange>();
+            for (var p : panelsToSave) {
+                allChanges.addAll(p.collectChangesForAggregation());
+            }
+
+            // Deduplicate by filename while preserving order
+            var mergedByFilename = new java.util.LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+            for (var ch : allChanges) {
+                mergedByFilename.putIfAbsent(ch.filename(), ch);
+            }
+
+            if (mergedByFilename.isEmpty()) {
+                SwingUtilities.invokeLater(this::updateNavigationButtons);
+                return;
+            }
+
+            // Step 2: Write all changed documents while file change notifications are paused
+            contextManager.withFileChangeNotificationsPaused(() -> {
+                for (var p : panelsToSave) {
+                    p.writeChangedDocuments();
+                }
+                return null;
+            });
+
+            // Step 3: Build a single TaskResult containing all diffs
+            var messages = new java.util.ArrayList<ChatMessage>();
+            var changedFiles = new java.util.LinkedHashSet<ProjectFile>();
+
+            var fileCount = mergedByFilename.size();
+            // Build a friendlier action title: include filenames when 1-2 files, otherwise count
+            var topNames = mergedByFilename.values().stream()
+                    .limit(2)
+                    .map(ch -> {
+                        var pf = ch.projectFile();
+                        return (pf != null)
+                                ? pf.toString()
+                                : java.nio.file.Paths.get(ch.filename()).getFileName().toString();
+                    })
+                    .toList();
+            String actionDescription;
+            if (fileCount == 1) {
+                actionDescription = "Saved changes to " + topNames.get(0);
+            } else if (fileCount == 2) {
+                actionDescription = "Saved changes to " + topNames.get(0) + " and " + topNames.get(1);
+            } else {
+                actionDescription = "Saved changes to " + fileCount + " files";
+            }
+            messages.add(Messages.customSystem(actionDescription));
+
+            // Per-file diffs
+            for (var entry : mergedByFilename.values()) {
+                var filename = entry.filename();
+                var originalLines = entry.originalContent().lines().collect(java.util.stream.Collectors.toList());
+                var currentLines = entry.currentContent().lines().collect(java.util.stream.Collectors.toList());
+                var patch = DiffUtils.diff(originalLines, currentLines, (DiffAlgorithmListener) null);
+                var unified = UnifiedDiffUtils.generateUnifiedDiff(filename, filename, originalLines, patch, 3);
+                var diffText = String.join("\n", unified);
+
+                var pf = entry.projectFile();
+                var header = "### " + (pf != null ? pf.toString() : filename);
+                messages.add(Messages.customSystem(header));
+                messages.add(Messages.customSystem("```" + diffText + "```"));
+
+                if (pf != null) {
+                    changedFiles.add(pf);
+                } else {
+                    // Outside-project file: keep it in the transcript; not tracked in changedFiles
+                    contextManager.getIo().systemOutput(
+                            "Saved file outside project scope: " + filename + " (not added to workspace history)");
                 }
             }
-            repaint();
 
-            // Re-enable buttons after save operation
+            var result = new TaskResult(
+                    contextManager,
+                    actionDescription,
+                    messages,
+                    java.util.Set.copyOf(changedFiles),
+                    TaskResult.StopReason.SUCCESS);
+
+            // Add a single history entry for the whole batch
+            contextManager.addToHistory(result, false);
+
+            // Step 4: Finalize panels and refresh UI
+            for (var p : panelsToSave) {
+                p.finalizeAfterSaveAggregation();
+                refreshTabTitle(p);
+            }
+
+            repaint();
             SwingUtilities.invokeLater(this::updateNavigationButtons);
         } catch (Exception e) {
             logger.error("Error saving files", e);
