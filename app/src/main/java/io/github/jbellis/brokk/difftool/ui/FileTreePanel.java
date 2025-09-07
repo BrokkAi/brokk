@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.swing.*;
@@ -489,10 +488,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Update the set of file indices that are dirty (have unsaved changes).
-     * Must be called on the EDT.
-     */
+    /** Update the set of file indices that are dirty (have unsaved changes). Must be called on the EDT. */
     public void setDirtyFiles(Set<Integer> indices) {
         // Compute delta between previous and new sets to avoid collapsing the tree
         var oldDirty = new HashSet<>(dirtyIndices);
@@ -626,12 +622,13 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         private static Icon getDirtyStatusIcon(DiffStatus status, @Nullable GuiTheme theme) {
             // For dirty files, keep the circle and add a small left arrow indicator
             boolean isDark = theme == null || theme.isDarkTheme();
-            Color color = switch (status) {
-                case ADDED -> ThemeColors.getColor(isDark, "git_status_added");
-                case DELETED -> ThemeColors.getColor(isDark, "git_status_deleted");
-                case MODIFIED -> ThemeColors.getColor(isDark, "git_status_modified");
-                case UNCHANGED -> ThemeColors.getColor(isDark, "git_status_unknown");
-            };
+            Color color =
+                    switch (status) {
+                        case ADDED -> ThemeColors.getColor(isDark, "git_status_added");
+                        case DELETED -> ThemeColors.getColor(isDark, "git_status_deleted");
+                        case MODIFIED -> ThemeColors.getColor(isDark, "git_status_modified");
+                        case UNCHANGED -> ThemeColors.getColor(isDark, "git_status_unknown");
+                    };
             return createStatusIconWithLeftArrow(color);
         }
 
@@ -683,12 +680,12 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     g2.drawOval(x + 4, y + 4, 8, 8);
 
                     // Draw a small red asterisk further to the left of the circle
-            // Move it even further left and make it smaller
-            int cx = x + 1;
-            int cy = y + 8;
-            int arm = 1; // half-length of each arm
+                    // Move it even further left and make it smaller
+                    int cx = x + 1;
+                    int cy = y + 8;
+                    int arm = 1; // half-length of each arm
 
-            g2.setColor(Color.RED);
+                    g2.setColor(Color.RED);
                     // Horizontal
                     g2.drawLine(cx - arm, cy, cx + arm, cy);
                     // Vertical

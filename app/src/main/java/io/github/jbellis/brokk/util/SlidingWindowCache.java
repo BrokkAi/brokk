@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.util;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -175,7 +176,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     }
 
     /** Returns all cached values, excluding reserved (not yet loaded) entries. */
-    public java.util.Collection<V> nonNullValues() {
+    public Collection<V> nonNullValues() {
         readLock.lock();
         try {
             // Since we no longer store nulls, all cache values are non-null
@@ -342,7 +343,7 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
      * <p>Disposal of Swing-related resources must happen on the Event Dispatch Thread (EDT). If called off-EDT, we
      * enqueue the dispose() call onto the EDT to ensure Swing safety.
      */
-    private void disposeDeferred(java.util.Collection<V> items) {
+    private void disposeDeferred(Collection<V> items) {
         for (var item : items) {
             try {
                 if (SwingUtilities.isEventDispatchThread()) {

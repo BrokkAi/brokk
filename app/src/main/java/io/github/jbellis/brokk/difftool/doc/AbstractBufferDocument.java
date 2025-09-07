@@ -443,7 +443,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
             newChanged = (newDigest != digest);
         }
 
-
         if (newChanged || changed) {
             changed = true;
             fireDocumentChanged(jmde);

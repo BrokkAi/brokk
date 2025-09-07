@@ -246,24 +246,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             // DEBUG: Log diff calculation results
             var filename = diffNode.getName();
             if (patch != null && !patch.getDeltas().isEmpty()) {
-                logger.trace(
-                        "DIFF DEBUG [{}]: Found {} deltas to highlight",
-                        filename,
-                        patch.getDeltas().size());
                 for (int i = 0; i < patch.getDeltas().size(); i++) {
                     var delta = patch.getDeltas().get(i);
-                    logger.trace(
-                            "DIFF DEBUG [{}]: Delta {}: {} at source lines {}-{}, target lines {}-{}",
-                            filename,
-                            i,
-                            delta.getType(),
-                            delta.getSource().getPosition(),
-                            delta.getSource().getPosition() + delta.getSource().size() - 1,
-                            delta.getTarget().getPosition(),
-                            delta.getTarget().getPosition() + delta.getTarget().size() - 1);
                 }
             } else {
-                logger.trace("DIFF DEBUG [{}]: No deltas found - files are identical or patch is null", filename);
             }
 
             // Try to preserve selected delta position, or find best alternative
@@ -313,12 +299,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     /** Tells each FilePanel to re-apply highlights, then repaint the parent panel. */
     private void reDisplay() {
         var filename = diffNode != null ? diffNode.getName() : "unknown";
-        logger.trace("DIFF DEBUG [{}]: reDisplay() called for {} file panels", filename, filePanels.size());
         for (var entry : filePanels.entrySet()) {
-            logger.trace("DIFF DEBUG [{}]: Calling reDisplay() on panel side: {}", filename, entry.getKey());
             entry.getValue().reDisplay();
         }
-        logger.trace("DIFF DEBUG [{}]: Calling repaint() on main panel", filename);
         mainPanel.repaint();
     }
 
@@ -800,7 +783,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /**
      * Determines whether auto-scroll should be skipped for this diff. Auto-scroll is skipped for: 1. File
-     * additions/deletions (one side ≤ 2 lines) 2. Massive changes (single large delta from beginning) 3. Pure
+     * additions/deletions (one side <= 2 lines) 2. Massive changes (single large delta from beginning) 3. Pure
      * INSERT/DELETE deltas with very asymmetric content (< 5 vs > 20 lines)
      *
      * @return true if auto-scroll should be skipped
@@ -1470,11 +1453,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return fileDataMap;
     }
 
-
-
-
-
-
     private record FileData(String currentContent, @Nullable ProjectFile projectFile) {}
 
     @Nullable
@@ -1497,14 +1475,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return null;
     }
 
-
-
     /** Clears all diff change tracking state. Should be called when loading a new diff or disposing the panel. */
     public void clearDiffChangeTracking() {
         pendingDiffChanges.clear();
         contentBeforeChanges.clear();
     }
-
 
     /**
      * Updates the baseline content after save to track future changes (like PreviewTextPanel). This allows multiple
@@ -1524,8 +1499,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             contentBeforeChanges.put(entry.getKey(), entry.getValue().currentContent());
         }
     }
-
-
 
     /**
      * Creates a ProjectFile from a file path without accessing Swing documents. This is safe to call from background
@@ -1608,8 +1581,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             int changeCount) {}
 
     /**
-     * Collect all changes for this panel into AggregatedChange records.
-     * Must be called on the EDT before writing files, so baselines from disk are pre-save.
+     * Collect all changes for this panel into AggregatedChange records. Must be called on the EDT before writing files,
+     * so baselines from disk are pre-save.
      */
     public java.util.List<AggregatedChange> collectChangesForAggregation() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
@@ -1648,11 +1621,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
             int changeCount = pendingDiffChanges.getOrDefault(filename, 1);
             changes.add(new AggregatedChange(
-                    filename,
-                    fileData.projectFile(),
-                    originalContent,
-                    fileData.currentContent(),
-                    changeCount));
+                    filename, fileData.projectFile(), originalContent, fileData.currentContent(), changeCount));
         }
 
         return changes;
@@ -1699,24 +1668,23 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /** Produce a compact summary of why this panel is considered unsaved/dirty. */
     public String getUnsavedDebugSummary() {
-        var sb = new StringBuilder();
-        sb.append("{pendingDiffChanges=").append(pendingDiffChanges.size());
+        var parts = new ArrayList<String>();
+        parts.add("pendingDiffChanges=" + pendingDiffChanges.size());
         try {
             // Enumerate per-side document dirty flags
             var left = getFilePanel(PanelSide.LEFT);
             var right = getFilePanel(PanelSide.RIGHT);
             if (left != null && left.getBufferDocument() != null) {
-                sb.append(", left.changed=").append(left.getBufferDocument().isChanged());
-                sb.append(", left.readonly=").append(left.getBufferDocument().isReadonly());
+                parts.add("left.changed=" + left.getBufferDocument().isChanged());
+                parts.add("left.readonly=" + left.getBufferDocument().isReadonly());
             }
             if (right != null && right.getBufferDocument() != null) {
-                sb.append(", right.changed=").append(right.getBufferDocument().isChanged());
-                sb.append(", right.readonly=").append(right.getBufferDocument().isReadonly());
+                parts.add("right.changed=" + right.getBufferDocument().isChanged());
+                parts.add("right.readonly=" + right.getBufferDocument().isReadonly());
             }
         } catch (Exception ignore) {
             // best-effort summary
         }
-        sb.append("}");
-        return sb.toString();
+        return "{" + String.join(", ", parts) + "}";
     }
 }

@@ -27,7 +27,6 @@ public final class AppQuitHandler {
     public static void install() {
         try {
             if (!Desktop.isDesktopSupported()) {
-                logger.debug("Desktop API not supported; skipping QuitHandler install");
                 return;
             }
             Desktop desktop = Desktop.getDesktop();
@@ -35,7 +34,6 @@ public final class AppQuitHandler {
             desktop.setQuitHandler(new QuitHandler() {
                 @Override
                 public void handleQuitRequestWith(QuitEvent e, QuitResponse response) {
-                    logger.debug("Application quit requested via Desktop QuitHandler");
                     try {
                         // Check if we're already on the EDT - quit events often are
                         final AtomicBoolean allowQuit = new AtomicBoolean(true);
@@ -49,10 +47,8 @@ public final class AppQuitHandler {
                         }
 
                         if (allowQuit.get()) {
-                            logger.debug("All panels allowed quit; performing quit");
                             response.performQuit();
                         } else {
-                            logger.debug("Quit cancelled by user (at least one panel vetoed)");
                             response.cancelQuit();
                         }
 
@@ -70,7 +66,6 @@ public final class AppQuitHandler {
                     }
                 }
             });
-            logger.debug("AppQuitHandler installed");
         } catch (UnsupportedOperationException e) {
             logger.warn("QuitHandler not supported on this platform/runtime: {}", e.getMessage());
         } catch (Exception e) {

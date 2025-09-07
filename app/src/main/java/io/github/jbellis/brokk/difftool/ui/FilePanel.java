@@ -375,20 +375,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Access the shared patch from the parent BufferDiffPanel
         var patch = diffPanel.getPatch();
         if (patch == null) {
-            logger.trace("DIFF DEBUG [{}]: paintRevisionHighlights - patch is null", name);
             return;
         }
 
         boolean isOriginal = BufferDocumentIF.ORIGINAL.equals(name);
-        logger.trace(
-                "DIFF DEBUG [{}]: paintRevisionHighlights - panel side: {}, deltas: {}",
-                name,
-                isOriginal ? "ORIGINAL" : "REVISED",
-                patch.getDeltas().size());
 
         // Skip viewport optimization when navigating to ensure highlights appear
         boolean isNavigating = isNavigatingToDiff.get();
-        logger.trace("DIFF DEBUG [{}]: isNavigatingToDiff = {}", name, isNavigating);
         if (isNavigating) {
             paintAllDeltas(patch, isOriginal);
             return;
@@ -408,17 +401,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
 
         // TEMPORARY FIX: Always paint all deltas to debug viewport optimization issue
-        logger.trace("DIFF DEBUG [{}]: Temporarily disabling viewport optimization - painting all deltas", name);
         paintAllDeltas(patch, isOriginal);
     }
 
     /** Fallback method to paint all deltas (original behavior). */
     private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch, boolean isOriginal) {
-        logger.trace(
-                "DIFF DEBUG [{}]: paintAllDeltas - highlighting {} deltas for {} panel",
-                name,
-                patch.getDeltas().size(),
-                isOriginal ? "ORIGINAL" : "REVISED");
         patch.getDeltas().forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
     }
 
