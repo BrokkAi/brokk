@@ -331,17 +331,17 @@ public class EditBlockConflictsParser extends EditBlockParser {
     @Override
     public String repr(EditBlock.SearchReplaceBlock block) {
         StringBuilder sb = new StringBuilder();
-        sb.append("<<<<<<< SEARCH %s\n".formatted(block.filename()));
+        sb.append("<<<<<<< SEARCH %s\n".formatted(block.rawFileName()));
         sb.append(block.beforeText());
         if (!block.beforeText().endsWith("\n")) {
             sb.append("\n");
         }
-        sb.append("======= %s\n".formatted(block.filename()));
+        sb.append("======= %s\n".formatted(block.rawFileName()));
         sb.append(block.afterText());
         if (!block.afterText().endsWith("\n")) {
             sb.append("\n");
         }
-        sb.append(">>>>>>> REPLACE %s\n".formatted(block.filename()));
+        sb.append(">>>>>>> REPLACE %s\n".formatted(block.rawFileName()));
 
         return sb.toString();
     }

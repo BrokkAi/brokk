@@ -1,13 +1,15 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.*;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import io.github.jbellis.brokk.gui.components.WrapLayout;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.Environment;
@@ -41,7 +43,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel;
 
     private JTable issueTable;
     private DefaultTableModel issueTableModel;
@@ -99,12 +100,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private final IssueService issueService;
     private final Set<Future<?>> activeFutures = ConcurrentHashMap.newKeySet();
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager, IssueService issueService) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.issueService = issueService;
-        this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
         this.httpClient = initializeHttpClient();
 
@@ -487,7 +487,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Initialize context menu and items
         issueContextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(issueContextMenu);
+        chrome.getTheme().registerPopupMenu(issueContextMenu);
 
         issueContextMenu.add(new JMenuItem(copyDescriptionAction));
         issueContextMenu.add(new JMenuItem(openInBrowserAction));
@@ -561,7 +561,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             cancelActiveFutures();
             // Ask GitPanel to recreate this tab.
             // GitPanel is final and assigned in constructor, so it won't be null here.
-            gitPanel.recreateIssuesTab();
+            chrome.recreateIssuesPanel();
         });
     }
 
@@ -622,8 +622,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         });
     }
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
-        this(chrome, contextManager, gitPanel, createDefaultIssueService(contextManager));
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager) {
+        this(chrome, contextManager, createDefaultIssueService(contextManager));
     }
 
     private static IssueService createDefaultIssueService(ContextManager contextManager) {
@@ -933,8 +933,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 for (var header : displayedIssues) {
                     String updated = header.updated() == null
                             ? ""
-                            : io.github.jbellis.brokk.gui.GitUiUtil.formatRelativeDate(
-                                    header.updated().toInstant(), today);
+                            : GitUiUtil.formatRelativeDate(header.updated().toInstant(), today);
                     issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
                 }
             }

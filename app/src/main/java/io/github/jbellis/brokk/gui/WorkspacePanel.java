@@ -349,8 +349,7 @@ public class WorkspacePanel extends JPanel {
                             var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
                             panel.showFragmentPreview(fragment);
                         }
-                        case VIEW_HISTORY ->
-                            requireNonNull(panel.chrome.getGitPanel()).addFileHistoryTab(file);
+                        case VIEW_HISTORY -> requireNonNull(panel.chrome).addFileHistoryTab(file);
                         default ->
                             throw new UnsupportedOperationException(
                                     "File action not implemented: " + WorkspaceAction.this);
@@ -1978,13 +1977,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Add as string fragment (possibly converted from HTML)
-            Future<String> summaryFuture = contextManager.submitSummarizePastedText(content);
-            String finalContent = content;
-            contextManager.pushContext(ctx -> {
-                var fragment = new ContextFragment.PasteTextFragment(
-                        contextManager, finalContent, summaryFuture); // Pass contextManager
-                return ctx.addVirtualFragment(fragment);
-            });
+            contextManager.addPastedTextFragment(content);
 
             // Inform the user about what happened
             if (stacktrace == null) {

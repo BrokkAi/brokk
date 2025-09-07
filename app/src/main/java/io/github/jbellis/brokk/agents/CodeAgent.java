@@ -29,12 +29,11 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -444,52 +443,6 @@ public class CodeAgent {
     }
 
     /**
-     * Pre-creates empty files for SearchReplaceBlocks representing new files (those with empty beforeText). This
-     * ensures files exist on disk before they are added to the context, preventing race conditions with UI updates.
-     *
-     * @param blocks Collection of SearchReplaceBlocks potentially containing new file creations
-     */
-    @VisibleForTesting
-    public List<ProjectFile> preCreateNewFiles(Collection<EditBlock.SearchReplaceBlock> blocks) {
-        List<ProjectFile> newFiles = new ArrayList<>();
-        for (EditBlock.SearchReplaceBlock block : blocks) {
-            // Skip blocks that aren't for new files (new files have empty beforeText)
-            if (block.filename() == null || !block.beforeText().trim().isEmpty()) {
-                continue;
-            }
-
-            // We're creating a new file so resolveProjectFile is complexity we don't need, just use the filename
-            ProjectFile file = contextManager.toFile(block.filename());
-            newFiles.add(file);
-
-            // Create the empty file if it doesn't exist yet
-            if (!file.exists()) {
-                try {
-                    file.write(""); // Using ProjectFile.write handles directory creation internally
-                    logger.debug("Pre-created empty file: {}", file);
-                } catch (IOException e) {
-                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
-                }
-            }
-        }
-
-        // add new files to git and the Workspace
-        if (!newFiles.isEmpty()) {
-            try {
-                contextManager.getRepo().add(newFiles);
-                // the file watcher that normally does this automatically is paused during task execution.
-                // clear the cache manually so BuildAgent's call to CM::getTestFiles sees the new files as part of the
-                // project.
-                contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
-                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
-            }
-            contextManager.editFiles(newFiles);
-        }
-        return newFiles;
-    }
-
-    /**
      * Prepares messages for storage in a TaskEntry. This involves filtering raw LLM I/O to keep USER, CUSTOM, and AI
      * messages. AI messages containing SEARCH/REPLACE blocks will have their raw text preserved, rather than converting
      * blocks to HTML placeholders or summarizing block-only messages.
@@ -655,13 +608,24 @@ public class CodeAgent {
             List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
         // Identify files referenced by blocks that are not already editable
+        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
         var filesToAdd = blocksToApply.stream()
-                .map(EditBlock.SearchReplaceBlock::filename)
-                .filter(Objects::nonNull)
+                .filter(editBlock -> Objects.nonNull(editBlock.rawFileName()))
                 .distinct()
-                .map(contextManager::toFile) // Convert filename string to ProjectFile
+                .map(editBlock -> {
+                    final var f = editBlock.rawFileName();
+                    try {
+                        return contextManager.toFile(f);
+                    } catch (IllegalArgumentException e) {
+                        invalidFileBlocks.add(
+                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
                 .filter(file -> !contextManager.getEditableFiles().contains(file))
                 .toList();
+
         // Check for conflicts with read-only files
         var readOnlyFiles = filesToAdd.stream()
                 .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
@@ -677,10 +641,6 @@ public class CodeAgent {
             throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
         }
 
-        // Pre-create empty files for any new files from the current LLM response segment
-        // (and add to git + workspace). This prevents UI race conditions.
-        preCreateNewFiles(blocksToApply);
-
         EditBlock.EditResult editResult;
         try {
             editResult = EditBlock.applyEditBlocks(contextManager, io, blocksToApply);
@@ -691,6 +651,7 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
+        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 
@@ -717,6 +678,7 @@ public class CodeAgent {
         String latestBuildError;
         try {
             latestBuildError = performBuildVerification();
+            latestBuildError = sanitizeBuildOutput(latestBuildError);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
@@ -793,7 +755,7 @@ public class CodeAgent {
                             .formatted(
                                     failedBlocks.size(),
                                     failedBlocks.stream()
-                                            .map(b -> b.block().filename())
+                                            .map(b -> b.block().rawFileName())
                                             .collect(Collectors.joining(",")));
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, msg);
                     return new Step.Fatal(details);
@@ -919,6 +881,46 @@ public class CodeAgent {
             // Add the combined error and output to the history for the next request
             return e.getMessage() + "\n\n" + e.getOutput();
         }
+    }
+
+    /**
+     * Sanitize build output by relativizing absolute paths that begin with the project root.
+     *
+     * <p>Behavior: - Handles both Unix-style and Windows-style absolute paths. - Converts the project root path to both
+     * forward- and back-slash forms and appends a trailing separator, so that only paths that are clearly children of
+     * the project root are matched. - Replacement is case-insensitive to accommodate tooling differences. - The root
+     * markers are only removed when they appear as a directory prefix of a larger path (root + separator) and when
+     * preceded by a non-path character boundary. This prevents accidental removal when the root string appears as part
+     * of some other token, and avoids removing the root itself when it stands alone.
+     *
+     * <p>Examples: - Unix: /home/user/repo/src/Main.java -> src/Main.java - Windows: C:\repo\pkg\mod.py -> pkg\mod.py
+     */
+    private String sanitizeBuildOutput(String text) {
+        var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
+        var rootAbs = root.toString();
+
+        // Build forward- and back-slash variants with a trailing separator
+        var rootFwd = rootAbs.replace('\\', '/');
+        if (!rootFwd.endsWith("/")) {
+            rootFwd = rootFwd + "/";
+        }
+        var rootBwd = rootAbs.replace('/', '\\');
+        if (!rootBwd.endsWith("\\")) {
+            rootBwd = rootBwd + "\\";
+        }
+
+        // Case-insensitive replacement and boundary-checked:
+        // - (?<![A-Za-z0-9._-]) ensures the match is not preceded by a typical path/token character.
+        // - The trailing separator in rootFwd/rootBwd ensures we only match a directory prefix of a larger path.
+        // - (?=\S) ensures there is at least one non-whitespace character following the prefix (i.e., a larger path).
+        var sanitized = text;
+        var forwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootFwd) + "(?=\\S)");
+        var backwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootBwd) + "(?=\\S)");
+
+        sanitized = forwardPattern.matcher(sanitized).replaceAll("");
+        sanitized = backwardPattern.matcher(sanitized).replaceAll("");
+
+        return sanitized;
     }
 
     record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}

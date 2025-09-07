@@ -21,11 +21,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
@@ -51,6 +53,19 @@ public abstract class TreeSitterAnalyzer
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
+    // Common separators across languages to denote hierarchy or member access.
+    // Includes: '.' (Java/others), '$' (Java nested classes), '::' (C++/C#/Ruby), '->' (PHP), etc.
+    private static final Set<String> COMMON_HIERARCHY_SEPARATORS = Set.of(".", "$", "::", "->");
+
+    private static boolean containsAnyHierarchySeparator(String s) {
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            if (s.contains(sep)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /* ---------- instance state ---------- */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
     private final ThreadLocal<TSQuery> query;
@@ -60,6 +75,8 @@ public abstract class TreeSitterAnalyzer
             new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
+    private final ConcurrentSkipListMap<String, List<CodeUnit>> symbolIndex =
+            new ConcurrentSkipListMap<>(String.CASE_INSENSITIVE_ORDER);
     // SHA-1 hash of each analysed file, used to detect modifications
     private final Map<ProjectFile, String> fileHashes = new ConcurrentHashMap<>();
     private final Map<ProjectFile, TSTree> parsedTreeCache =
@@ -175,6 +192,7 @@ public abstract class TreeSitterAnalyzer
             Map<CodeUnit, List<CodeUnit>> children,
             Map<CodeUnit, List<String>> signatures,
             Map<CodeUnit, List<Range>> sourceRanges,
+            Map<String, List<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements // Added for module-level imports
             ) {}
 
@@ -253,53 +271,12 @@ public abstract class TreeSitterAnalyzer
                         if (!analysisResult.topLevelCUs().isEmpty()
                                 || !analysisResult.signatures().isEmpty()
                                 || !analysisResult.sourceRanges().isEmpty()) {
-                            topLevelDeclarations.put(
-                                    pf, analysisResult.topLevelCUs()); // Already unmodifiable from result
-
-                            analysisResult
-                                    .children()
-                                    .forEach((parentCU, newChildCUs) -> childrenByParent.compute(
-                                            parentCU, (CodeUnit p, @Nullable List<CodeUnit> existing) -> {
-                                                if (existing == null) {
-                                                    return newChildCUs; // Already unmodifiable
-                                                }
-                                                // Use Set for efficient merging and deduplication
-                                                var combined = new LinkedHashSet<>(existing);
-                                                if (!combined.addAll(newChildCUs)) {
-                                                    return existing; // No change, return original list
-                                                }
-                                                return Collections.unmodifiableList(new ArrayList<>(combined));
-                                            }));
-
-                            analysisResult
-                                    .signatures()
-                                    .forEach((cu, newSignaturesList) ->
-                                            signatures.compute(cu, (CodeUnit key, @Nullable List<String> existing) -> {
-                                                if (existing == null) {
-                                                    return newSignaturesList; // Already unmodifiable from result
-                                                }
-                                                // Use LinkedHashSet to preserve order and deduplicate
-                                                var combined = new LinkedHashSet<>(existing);
-                                                if (!combined.addAll(newSignaturesList)) {
-                                                    return existing; // No change, return original list
-                                                }
-                                                return Collections.unmodifiableList(new ArrayList<>(combined));
-                                            }));
-
-                            analysisResult
-                                    .sourceRanges()
-                                    .forEach((cu, newRangesList) -> sourceRanges.compute(
-                                            cu, (CodeUnit key, @Nullable List<Range> existingRangesList) -> {
-                                                if (existingRangesList == null) {
-                                                    return newRangesList; // Already unmodifiable
-                                                }
-                                                List<Range> combined = new ArrayList<>(existingRangesList);
-                                                combined.addAll(newRangesList);
-                                                return Collections.unmodifiableList(combined);
-                                            }));
+                            // Use the centralized ingestion logic so that the symbol index and codeUnitsBySymbol
+                            // are populated consistently for initial project analysis as well as updates.
+                            ingestAnalysisResult(pf, analysisResult);
 
                             log.trace(
-                                    "Processed file {}: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
+                                    "Processed file {} via ingestAnalysisResult: {} top-level CUs, {} signatures, {} parent-child relationships, {} source range entries.",
                                     pf,
                                     analysisResult.topLevelCUs().size(),
                                     analysisResult.signatures().size(),
@@ -423,6 +400,11 @@ public abstract class TreeSitterAnalyzer
     @Override
     public List<CodeUnit> searchDefinitionsImpl(
             String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
+        // an explicit search for everything should return everything, not just classes
+        if (originalPattern.equals(".*")) {
+            return uniqueCodeUnitList();
+        }
+
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
             return uniqueCodeUnitList().stream()
@@ -434,6 +416,93 @@ public abstract class TreeSitterAnalyzer
                     .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
                     .toList();
         }
+    }
+
+    @Override
+    public List<CodeUnit> autocompleteDefinitions(String query) {
+        if (query.isEmpty()) {
+            return List.of();
+        }
+
+        var results = new LinkedHashSet<CodeUnit>();
+        final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
+        // Normalize hierarchical separators so '.' and '$' are treated equivalently for matching.
+        final String normalizedQuery = lowerCaseQuery.replace('$', '.');
+
+        // Determine if this is a CamelCase-style query (all uppercase letters, length > 1)
+        boolean isAllUpper = query.length() > 1 && query.chars().allMatch(Character::isUpperCase);
+        Pattern camelCasePattern = null;
+        if (isAllUpper) {
+            // Case-insensitive camel-hump matching so symbols that may be stored in different case forms still match.
+            camelCasePattern = Pattern.compile(
+                    query.chars().mapToObj(c -> String.valueOf((char) c)).collect(Collectors.joining("[a-z0-9_]*")),
+                    Pattern.CASE_INSENSITIVE);
+        }
+
+        // If the query looks like a simple non-hierarchical prefix (no dots/dollars, not a camel all-upper pattern),
+        // leverage the NavigableSet view from the symbolIndex for an efficient prefix scan.
+        boolean usePrefixOptimization =
+                !containsAnyHierarchySeparator(lowerCaseQuery) && !isAllUpper && query.length() >= 2;
+
+        NavigableSet<String> keys = symbolIndex.navigableKeySet();
+
+        if (usePrefixOptimization) {
+            try {
+                for (String symbol : keys.tailSet(query)) {
+                    String symbolLower = symbol.toLowerCase(Locale.ROOT);
+                    if (!symbolLower.startsWith(lowerCaseQuery)) break;
+                    results.addAll(symbolIndex.getOrDefault(symbol, List.of()));
+                }
+            } catch (IllegalArgumentException e) {
+                // Defensive fallback; fall through to the generic scan below if tailSet fails for some reason.
+            }
+        }
+
+        // Generic over-approximate scan: accept any symbol that contains the query (case-insensitive), or matches
+        // the camel-case heuristic. Skip symbols already handled by the prefix optimization to avoid redundant work.
+        for (String symbol : keys) {
+            String symbolLower = symbol.toLowerCase(Locale.ROOT);
+            String normalizedSymbol = symbolLower.replace('$', '.');
+
+            if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
+                // already collected by prefix scan
+                continue;
+            }
+
+            boolean matches = false;
+
+            if (symbolLower.contains(lowerCaseQuery) || normalizedSymbol.contains(normalizedQuery)) {
+                matches = true;
+            } else if (isAllUpper
+                    && camelCasePattern != null
+                    && camelCasePattern.matcher(symbol).find()) {
+                matches = true;
+            }
+
+            if (matches) {
+                results.addAll(symbolIndex.getOrDefault(symbol, List.of()));
+            }
+        }
+
+        // ALSO: make sure to match against CodeUnit fully-qualified names (FQNs).
+        // Some queries are hierarchical and mix '.'/'$' and might not be present as keys in the symbol index.
+        // Normalize FQNs by mapping '$' -> '.' and do a case-insensitive contains check.
+        for (CodeUnit cu : uniqueCodeUnitList()) {
+            String fq = cu.fqName().toLowerCase(Locale.ROOT).replace('$', '.');
+            if (fq.contains(normalizedQuery)) {
+                results.add(cu);
+            }
+        }
+
+        // Fallback for very short queries (single letter): ensure we include declarations whose FQNs contain the query.
+        if (query.length() == 1) {
+            String lc = lowerCaseQuery;
+            uniqueCodeUnitList().stream()
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lc))
+                    .forEach(results::add);
+        }
+
+        return new ArrayList<>(results);
     }
 
     /**
@@ -775,6 +844,7 @@ public abstract class TreeSitterAnalyzer
         Map<CodeUnit, List<CodeUnit>> localChildren = new HashMap<>();
         Map<CodeUnit, List<String>> localSignatures = new HashMap<>();
         Map<CodeUnit, List<Range>> localSourceRanges = new HashMap<>();
+        Map<String, List<CodeUnit>> localCodeUnitsBySymbol = new HashMap<>();
         Map<String, CodeUnit> localCuByFqName = new HashMap<>(); // For parent lookup within the file
         List<String> localImportStatements = new ArrayList<>(); // For collecting import lines
 
@@ -784,7 +854,7 @@ public abstract class TreeSitterAnalyzer
         TSNode rootNode = tree.getRootNode();
         if (rootNode.isNull()) {
             log.warn("Parsing failed or produced null root node for {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), List.of());
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), Map.of(), Map.of(), List.of());
         }
         // Log root node type
         String rootNodeType = rootNode.getType();
@@ -1028,6 +1098,15 @@ public abstract class TreeSitterAnalyzer
                 continue;
             }
 
+            localCodeUnitsBySymbol
+                    .computeIfAbsent(cu.identifier(), k -> new ArrayList<>())
+                    .add(cu);
+            if (!cu.shortName().equals(cu.identifier())) {
+                localCodeUnitsBySymbol
+                        .computeIfAbsent(cu.shortName(), k -> new ArrayList<>())
+                        .add(cu);
+            }
+
             String signature =
                     buildSignatureString(node, simpleName, fileBytes, primaryCaptureName, modifierKeywords, file);
             log.trace(
@@ -1199,6 +1278,7 @@ public abstract class TreeSitterAnalyzer
                 finalLocalChildren,
                 localSignatures,
                 finalLocalSourceRanges,
+                localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements));
     }
 
@@ -2009,6 +2089,21 @@ public abstract class TreeSitterAnalyzer
 
                 Predicate<CodeUnit> fromFile = cu -> cu.source().equals(file);
 
+                var symbolsToPurge = new HashSet<String>();
+                var symbolsToUpdate = new HashMap<String, List<CodeUnit>>();
+                for (var entry : symbolIndex.entrySet()) {
+                    var symbol = entry.getKey();
+                    var cus = entry.getValue();
+                    var remaining = cus.stream().filter(fromFile.negate()).toList();
+                    if (remaining.isEmpty()) {
+                        symbolsToPurge.add(symbol);
+                    } else if (remaining.size() < cus.size()) {
+                        symbolsToUpdate.put(symbol, remaining);
+                    }
+                }
+                symbolsToUpdate.forEach(symbolIndex::put);
+                symbolsToPurge.forEach(symbolIndex::remove);
+
                 childrenByParent.keySet().removeIf(fromFile);
                 signatures.keySet().removeIf(fromFile);
                 sourceRanges.keySet().removeIf(fromFile);
@@ -2096,6 +2191,17 @@ public abstract class TreeSitterAnalyzer
         }
 
         topLevelDeclarations.put(pf, analysisResult.topLevelCUs());
+
+        analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
+            symbolIndex.compute(symbol, (String s, @Nullable List<CodeUnit> existing) -> {
+                if (existing == null) {
+                    return List.copyOf(cus);
+                }
+                var merged = new ArrayList<>(existing);
+                cus.stream().filter(c -> !merged.contains(c)).forEach(merged::add);
+                return List.copyOf(merged);
+            });
+        });
 
         analysisResult
                 .children()

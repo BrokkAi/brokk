@@ -68,15 +68,29 @@ public class EditBlock {
 
     // -- Exceptions for file resolution --
 
+    /** Any symbol resolution related failure caused by the filename given by an LLM. */
+    public static sealed class SymbolResolutionException extends Exception {
+        public SymbolResolutionException(String message) {
+            super(message);
+        }
+    }
+
     /** Thrown when a filename provided by the LLM cannot be uniquely resolved. */
-    public static class SymbolNotFoundException extends Exception {
+    public static final class SymbolNotFoundException extends SymbolResolutionException {
         public SymbolNotFoundException(String message) {
             super(message);
         }
     }
 
+    /** Thrown when a filename provided by the LLM is not a valid file name, thus cannot be resolved. */
+    public static final class SymbolInvalidException extends SymbolResolutionException {
+        public SymbolInvalidException(String message) {
+            super(message);
+        }
+    }
+
     /** Thrown when a filename provided by the LLM matches multiple files. */
-    public static class SymbolAmbiguousException extends Exception {
+    public static final class SymbolAmbiguousException extends SymbolResolutionException {
         public SymbolAmbiguousException(String message) {
             super(message);
         }
@@ -93,22 +107,33 @@ public class EditBlock {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
+        List<ProjectFile> newFiles = new ArrayList<>();
 
         // Track original file contents before any changes
         Map<ProjectFile, String> changedFiles = new HashMap<>();
 
         for (SearchReplaceBlock block : blocks) {
-            // 1. Resolve the filename
+            // 1. Resolve the rawFileName
             ProjectFile file;
+            final String rawFileName = block.rawFileName();
             try {
-                if (block.filename() == null || block.filename().isBlank()) {
-                    throw new SymbolNotFoundException("Block is missing filename");
-                }
-                file = resolveProjectFile(contextManager, block.filename());
-            } catch (SymbolNotFoundException | SymbolAmbiguousException e) {
-                logger.debug("File resolution failed for block [{}]: {}", block.filename(), e.getMessage());
+                file = resolveProjectFile(contextManager, rawFileName);
+            } catch (SymbolAmbiguousException | SymbolInvalidException e) {
+                logger.debug("File resolution failed for block [{}]: {}", rawFileName, e.getMessage());
                 failed.add(new FailedBlock(block, EditBlockFailureReason.FILE_NOT_FOUND));
                 continue; // Skip to the next block
+            } catch (SymbolNotFoundException e) {
+                if (rawFileName == null) continue; // should have thrown SymbolInvalidException if this was null.
+
+                // create new file for the edit block to work on
+                file = contextManager.toFile(rawFileName);
+                try {
+                    file.write(""); // Using ProjectFile.write handles directory creation internally
+                    newFiles.add(file);
+                    logger.debug("Pre-created empty file: {}", file);
+                } catch (IOException ioException) {
+                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
+                }
             }
 
             // 2. Apply the edit using replaceInFile
@@ -172,15 +197,29 @@ public class EditBlock {
             }
         }
 
+        // add new files to git and the Workspace
+        if (!newFiles.isEmpty()) {
+            try {
+                contextManager.getRepo().add(newFiles);
+                // the file watcher that normally does this automatically is paused during task execution.
+                // clear the cache manually so BuildAgent's call to CM::getTestFiles sees the new files as part of the
+                // project.
+                contextManager.getRepo().invalidateCaches();
+            } catch (GitAPIException e) {
+                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
+            }
+            contextManager.editFiles(newFiles);
+        }
+
         changedFiles.keySet().retainAll(succeeded.values());
         return new EditResult(changedFiles, failed);
     }
 
     /**
-     * Simple record storing the parts of a search-replace block. If {@code filename} is non-null, then this block
-     * corresponds to a filename’s search/replace
+     * Simple record storing the parts of a search-replace block. If {@code rawFileName} is non-null, then this block
+     * corresponds to a rawFileName’s search/replace. Note, {@code rawFileName} has not been checked for validity.
      */
-    public record SearchReplaceBlock(@Nullable String filename, String beforeText, String afterText) {}
+    public record SearchReplaceBlock(@Nullable String rawFileName, String beforeText, String afterText) {}
 
     public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {}
 
@@ -547,13 +586,21 @@ public class EditBlock {
      * @return The resolved ProjectFile.
      * @throws SymbolNotFoundException if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
+     * @throws SymbolInvalidException if the file name is not a valid path (possibly absolute) or is null.
      */
     static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
-            throws SymbolNotFoundException, SymbolAmbiguousException {
-        if (filename == null || filename.isBlank()) { // Handle null or blank filename early
-            throw new SymbolNotFoundException("Filename cannot be null or blank.");
+            throws SymbolNotFoundException, SymbolAmbiguousException, SymbolInvalidException {
+        if (filename == null || filename.isBlank()) { // Handle null or blank rawFileName early
+            throw new SymbolInvalidException("Filename cannot be null or blank.");
         }
-        var file = cm.toFile(filename);
+        ProjectFile file;
+        try {
+            file = cm.toFile(filename);
+        } catch (IllegalArgumentException e) {
+            // This can happen if the LLM provides an absolute path
+            throw new SymbolInvalidException(
+                    "Filename '%s' is invalid, possibly an absolute path.".formatted(filename));
+        }
 
         // 1. Exact match (common case)
         if (file.exists()) {

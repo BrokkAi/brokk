@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -37,7 +38,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private boolean blockClearAndReset = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
-    private @Nullable IContextManager currentContextManager;
+    private @Nullable ContextManager currentContextManager;
 
     @Override
     public boolean getScrollableTracksViewportHeight() {
@@ -249,7 +250,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
-    public void withContextForLookups(@Nullable IContextManager contextManager, @Nullable Chrome chrome) {
+    public void withContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
         // Unregister from previous context manager if it exists
         if (currentContextManager != null) {
             currentContextManager.removeAnalyzerCallback(this);

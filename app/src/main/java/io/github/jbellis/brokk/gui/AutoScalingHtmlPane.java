@@ -7,7 +7,7 @@ import javax.swing.text.html.*;
 public class AutoScalingHtmlPane {
 
     /** Plug-in editor kit */
-    static class ScalingHTMLEditorKit extends HTMLEditorKit {
+    public static class ScalingHTMLEditorKit extends HTMLEditorKit {
         // we keep the default parser, just swap the factory
         @Override
         public ViewFactory getViewFactory() {

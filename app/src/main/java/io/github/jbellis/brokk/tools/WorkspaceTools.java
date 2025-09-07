@@ -110,13 +110,17 @@ public class WorkspaceTools {
                 errors.add("Null or blank path provided.");
                 continue;
             }
-            var file = contextManager.toFile(path);
-            if (!file.exists()) {
-                errors.add("File at `%s` does not exist (remember, don't use this method to create new files)"
-                        .formatted(path));
-                continue;
+            try {
+                var file = contextManager.toFile(path);
+                if (!file.exists()) {
+                    errors.add("File at `%s` does not exist (remember, don't use this method to create new files)"
+                            .formatted(path));
+                    continue;
+                }
+                projectFiles.add(file);
+            } catch (IllegalArgumentException e) {
+                errors.add("Invalid path: " + path);
             }
-            projectFiles.add(file);
         }
 
         contextManager.editFiles(projectFiles);

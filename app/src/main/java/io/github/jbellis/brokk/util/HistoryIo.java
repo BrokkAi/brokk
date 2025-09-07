@@ -12,7 +12,9 @@ import io.github.jbellis.brokk.context.ContentDtos.DiffContentMetadataDto;
 import io.github.jbellis.brokk.context.ContentDtos.FullContentMetadataDto;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
 import io.github.jbellis.brokk.util.migrationv3.HistoryV3Migrator;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InvalidObjectException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -48,9 +50,9 @@ public final class HistoryIo {
 
     private HistoryIo() {}
 
-    public static @Nullable ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
+    public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
-            return null;
+            throw new FileNotFoundException(zip.toString());
         }
 
         boolean isV1 = false;
@@ -68,13 +70,11 @@ public final class HistoryIo {
         } else if (isV1) {
             HistoryV3Migrator.migrate(zip, mgr);
             return readZipV3(zip, mgr);
-        } else {
-            logger.warn("History zip file {} is not in a recognized format. Ignoring.", zip);
-            return null;
         }
+        throw new InvalidObjectException("History zip file {} is not in a recognized format");
     }
 
-    private static @Nullable ContextHistory readZipV3(Path zip, IContextManager mgr) throws IOException {
+    private static ContextHistory readZipV3(Path zip, IContextManager mgr) throws IOException {
         AllFragmentsDto allFragmentsDto = null;
         var compactContextDtoLines = new ArrayList<String>();
         var imageBytesMap = new HashMap<String, byte[]>();
@@ -133,7 +133,7 @@ public final class HistoryIo {
         }
 
         if (allFragmentsDto == null) {
-            return null;
+            throw new InvalidObjectException("No fragments found");
         }
 
         var contentReader = new ContentReader(contentBytesMap);
@@ -178,7 +178,7 @@ public final class HistoryIo {
         }
 
         if (contexts.isEmpty()) {
-            return null;
+            throw new InvalidObjectException("No contexts found");
         }
 
         var gitStates = new HashMap<UUID, ContextHistory.GitState>();

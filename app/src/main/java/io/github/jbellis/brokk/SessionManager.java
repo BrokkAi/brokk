@@ -16,9 +16,11 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -149,7 +151,7 @@ public class SessionManager implements AutoCloseable {
      */
     public void moveSessionToUnreadable(UUID sessionId) {
         sessionsCache.remove(sessionId);
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+        var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             Path unreadableDir = sessionsDir.resolve("unreadable");
             try {
@@ -161,6 +163,66 @@ public class SessionManager implements AutoCloseable {
                 logger.error("Error moving history zip for session {} to unreadable: {}", sessionId, e.getMessage());
             }
         });
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /** Detailed report of sessions quarantined during a scan. */
+    public record QuarantineReport(
+            Set<UUID> quarantinedSessionIds, List<String> quarantinedFilesWithoutUuid, int movedCount) {}
+
+    /**
+     * Scans the sessions directory for all .zip files, treating any with invalid UUID filenames or missing/invalid
+     * manifest.json as unreadable and moving them to the 'unreadable' subfolder. Also attempts to load each valid-UUID
+     * session's history to exercise migrations. Returns a report detailing what was quarantined.
+     *
+     * <p>This runs synchronously; intended to be invoked from a background task.
+     */
+    public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
+        int moved = 0;
+        var quarantinedIds = new HashSet<UUID>();
+        var quarantinedNoUuid = new ArrayList<String>();
+
+        try (var stream = Files.list(sessionsDir)) {
+            for (Path zipPath :
+                    stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
+                var maybeUuid = parseUuidFromFilename(zipPath);
+                if (maybeUuid.isEmpty()) {
+                    // Non-UUID filenames are unreadable by definition.
+                    moveZipToUnreadable(zipPath);
+                    quarantinedNoUuid.add(zipPath.getFileName().toString());
+                    moved++;
+                    continue;
+                }
+
+                var sessionId = maybeUuid.get();
+                var info = readSessionInfoFromZip(zipPath);
+                if (info.isEmpty()) {
+                    moveSessionToUnreadable(sessionId);
+                    quarantinedIds.add(sessionId);
+                    moved++;
+                    continue;
+                }
+
+                // Exercise migrations and quarantine if history read fails.
+                try {
+                    loadHistoryOrQuarantine(sessionId, contextManager);
+                } catch (IOException e) {
+                    quarantinedIds.add(sessionId);
+                    moved++;
+                    continue;
+                }
+
+                sessionsCache.putIfAbsent(sessionId, info.get());
+            }
+        } catch (IOException e) {
+            logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
+        }
+
+        return new QuarantineReport(Set.copyOf(quarantinedIds), List.copyOf(quarantinedNoUuid), moved);
     }
 
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
@@ -208,6 +270,19 @@ public class SessionManager implements AutoCloseable {
         return sessionsDir.resolve(sessionId.toString() + ".zip");
     }
 
+    private Optional<UUID> parseUuidFromFilename(Path zipPath) {
+        var fileName = zipPath.getFileName().toString();
+        if (!fileName.endsWith(".zip")) {
+            return Optional.empty();
+        }
+        var idPart = fileName.substring(0, fileName.length() - 4);
+        try {
+            return Optional.of(UUID.fromString(idPart));
+        } catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
     private Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
         if (!Files.exists(zipPath)) return Optional.empty();
         try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
@@ -230,6 +305,35 @@ public class SessionManager implements AutoCloseable {
             Files.writeString(manifestPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             logger.error("Error writing manifest.json to {}: {}", zipPath.getFileName(), e.getMessage());
+            throw e;
+        }
+    }
+
+    private void moveZipToUnreadable(Path zipPath) {
+        var future = sessionExecutorByKey.submit(zipPath.toString(), () -> {
+            Path unreadableDir = sessionsDir.resolve("unreadable");
+            try {
+                Files.createDirectories(unreadableDir);
+                Path targetPath = unreadableDir.resolve(zipPath.getFileName());
+                Files.move(zipPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
+                logger.info("Moved unreadable session zip {} to {}", zipPath.getFileName(), unreadableDir);
+            } catch (IOException e) {
+                logger.error("Error moving unreadable history zip {}: {}", zipPath.getFileName(), e.getMessage());
+            }
+        });
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    private ContextHistory loadHistoryOrQuarantine(UUID sessionId, IContextManager contextManager) throws IOException {
+        try {
+            return loadHistoryInternal(sessionId, contextManager);
+        } catch (IOException e) {
+            moveSessionToUnreadable(sessionId);
             throw e;
         }
     }
@@ -297,55 +401,8 @@ public class SessionManager implements AutoCloseable {
 
     @Nullable
     public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
-        var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try {
-                var sessionHistoryPath = getSessionHistoryPath(sessionId);
-                ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
-                if (ch == null) {
-                    return null;
-                }
-                // Resetting nextId based on loaded fragments.
-                // Only consider numeric IDs for dynamic fragments.
-                // Hashes will not parse to int and will be skipped by this logic.
-                int maxNumericId = 0;
-                for (Context ctx : ch.getHistory()) {
-                    for (ContextFragment fragment : ctx.allFragments().toList()) {
-                        try {
-                            maxNumericId = Math.max(maxNumericId, Integer.parseInt(fragment.id()));
-                        } catch (NumberFormatException e) {
-                            // Ignore non-numeric IDs (hashes)
-                        }
-                    }
-                    for (TaskEntry taskEntry : ctx.getTaskHistory()) {
-                        if (taskEntry.log() != null) {
-                            try {
-                                // TaskFragment IDs are hashes, so this typically won't contribute to maxNumericId.
-                                // If some TaskFragments had numeric IDs historically, this would catch them.
-                                maxNumericId = Math.max(
-                                        maxNumericId,
-                                        Integer.parseInt(taskEntry.log().id()));
-                            } catch (NumberFormatException e) {
-                                // Ignore non-numeric IDs
-                            }
-                        }
-                    }
-                }
-                // ContextFragment.nextId is an AtomicInteger, its value is the *next* ID to be assigned.
-                // If maxNumericId found is, say, 10, nextId should be set to 10 so that getAndIncrement() yields 11.
-                // If setNextId ensures nextId will be value+1, then passing maxNumericId is correct.
-                // Current ContextFragment.setNextId: if (value >= nextId.get()) { nextId.set(value); }
-                // Then nextId.getAndIncrement() will use `value` and then increment it.
-                // So we should set it to maxNumericId found.
-                if (maxNumericId > 0) { // Only set if we found any numeric IDs
-                    ContextFragment.setMinimumId(maxNumericId + 1);
-                    logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
-                }
-                return ch;
-            } catch (IOException e) {
-                logger.error("Error loading context history for session {}", sessionId, e);
-                return null;
-            }
-        });
+        var future = sessionExecutorByKey.submit(
+                sessionId.toString(), () -> loadHistoryOrQuarantine(sessionId, contextManager));
 
         try {
             return future.get();
@@ -354,8 +411,51 @@ public class SessionManager implements AutoCloseable {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
+            // tryLoadHistoryOrQuarantine already quarantines on failure.
             return null;
         }
+    }
+
+    private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
+        var sessionHistoryPath = getSessionHistoryPath(sessionId);
+        ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
+
+        // Resetting nextId based on loaded fragments.
+        // Only consider numeric IDs for dynamic fragments.
+        // Hashes will not parse to int and will be skipped by this logic.
+        int maxNumericId = 0;
+        for (Context ctx : ch.getHistory()) {
+            for (ContextFragment fragment : ctx.allFragments().toList()) {
+                try {
+                    maxNumericId = Math.max(maxNumericId, Integer.parseInt(fragment.id()));
+                } catch (NumberFormatException e) {
+                    // Ignore non-numeric IDs (hashes)
+                }
+            }
+            for (TaskEntry taskEntry : ctx.getTaskHistory()) {
+                if (taskEntry.log() != null) {
+                    try {
+                        // TaskFragment IDs are hashes, so this typically won't contribute to maxNumericId.
+                        // If some TaskFragments had numeric IDs historically, this would catch them.
+                        maxNumericId = Math.max(
+                                maxNumericId, Integer.parseInt(taskEntry.log().id()));
+                    } catch (NumberFormatException e) {
+                        // Ignore non-numeric IDs
+                    }
+                }
+            }
+        }
+        // ContextFragment.nextId is an AtomicInteger, its value is the *next* ID to be assigned.
+        // If maxNumericId found is, say, 10, nextId should be set to 10 so that getAndIncrement() yields 11.
+        // If setNextId ensures nextId will be value+1, then passing maxNumericId is correct.
+        // Current ContextFragment.setNextId: if (value >= nextId.get()) { nextId.set(value); }
+        // Then nextId.getAndIncrement() will use `value` and then increment it.
+        // So we should set it to maxNumericId found.
+        if (maxNumericId > 0) { // Only set if we found any numeric IDs
+            ContextFragment.setMinimumId(maxNumericId + 1);
+            logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
+        }
+        return ch;
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {

@@ -380,7 +380,7 @@ public class EditBlockParser {
                """
                 .formatted(
                         DEFAULT_FENCE.get(0),
-                        block.filename(),
+                        block.rawFileName(),
                         beforeText,
                         beforeText.endsWith("\n") ? "" : "\n",
                         afterText,

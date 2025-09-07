@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.Environment;
@@ -31,6 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
@@ -45,8 +47,6 @@ public final class MainProject extends AbstractProject {
     private final Properties projectProps;
     private final Path styleGuidePath;
     private final Path reviewGuidePath;
-    private final Path mainWorkspacePropertiesPath;
-    private final Properties mainWorkspaceProps;
     private final SessionManager sessionManager;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
@@ -83,8 +83,6 @@ public final class MainProject extends AbstractProject {
     private static final long DEFAULT_RUN_COMMAND_TIMEOUT_SECONDS = Environment.DEFAULT_TIMEOUT.toSeconds();
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
-    /* Blitz-history workspace property key */
-    private static final String BLITZ_HISTORY_KEY = "blitzHistory";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -148,8 +146,6 @@ public final class MainProject extends AbstractProject {
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("review.md");
         var sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
         this.sessionManager = new SessionManager(sessionsDir);
-        this.mainWorkspacePropertiesPath = this.root.resolve(".brokk").resolve("workspace.properties");
-        this.mainWorkspaceProps = new Properties();
 
         this.projectProps = new Properties();
 
@@ -164,73 +160,58 @@ public final class MainProject extends AbstractProject {
             projectProps.clear();
         }
 
-        try {
-            if (Files.exists(mainWorkspacePropertiesPath)) {
-                try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
-                    mainWorkspaceProps.load(reader);
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Error loading workspace properties from {}: {}", mainWorkspacePropertiesPath, e.getMessage());
-            mainWorkspaceProps.clear();
-        }
-
-        // Migrate Architect options from projectProps to workspaceProps
+        // Migrate Architect options from projectProps to workspace properties (centralized in AbstractProject)
+        boolean needsProjectSave = false;
         boolean migratedArchitectSettings = false;
         if (projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
-            if (!mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)
-                    || !mainWorkspaceProps
+            if (!workspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)
+                    || !workspaceProps
                             .getProperty(ARCHITECT_OPTIONS_JSON_KEY)
                             .equals(projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY))) {
-                mainWorkspaceProps.setProperty(
+                workspaceProps.setProperty(
                         ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
                 migratedArchitectSettings = true;
             }
             projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY);
+            needsProjectSave = true;
             // Ensure projectProps is saved if a key is removed, even if not transferred (e.g. already in workspace)
-            // This flag will trigger saveProjectProperties if any key was removed.
             // migratedArchitectSettings specifically tracks if data was written to workspaceProps.
-            if (!migratedArchitectSettings && mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
+            if (!migratedArchitectSettings && workspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
                 // Key was in projectProps, removed, but already existed (maybe identically) in workspaceProps.
                 // We still need to save projectProps due to removal.
-                // Let's use a broader flag for saving projectProps.
             }
         }
         // boolean projectPropsChangedByMigration = projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY); // This
         // variable is not used
 
         if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
-            if (!mainWorkspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)
-                    || !mainWorkspaceProps
+            if (!workspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)
+                    || !workspaceProps
                             .getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY)
                             .equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
-                mainWorkspaceProps.setProperty(
+                workspaceProps.setProperty(
                         ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
                 migratedArchitectSettings = true;
             }
             projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
+            needsProjectSave = true;
             // projectPropsChangedByMigration = projectPropsChangedByMigration ||
             // projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
         }
 
-        // Determine if projectProps needs saving due to removal of architect keys.
-        boolean removedKey1 = projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY) != null;
-        boolean removedKey2 = projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY) != null;
-        boolean needsProjectSave = removedKey1 || removedKey2;
-
-        // Migrate Live Dependencies from projectProps to workspaceProps
+        // Migrate Live Dependencies from projectProps to workspace properties
         boolean migratedLiveDeps = false;
         if (projectProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-            if (!mainWorkspaceProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
-                mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
+            if (!workspaceProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
+                workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
                 migratedLiveDeps = true;
             }
             projectProps.remove(LIVE_DEPENDENCIES_KEY);
             needsProjectSave = true;
         }
 
-        if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspaceProps
-            persistWorkspacePropertiesFile();
+        if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspace properties
+            saveWorkspaceProperties();
             if (migratedArchitectSettings) {
                 logger.info(
                         "Migrated Architect options from project.properties to workspace.properties for {}",
@@ -705,27 +686,6 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    private void persistWorkspacePropertiesFile() {
-        try {
-            Files.createDirectories(mainWorkspacePropertiesPath.getParent());
-            Properties existingProps = new Properties();
-            if (Files.exists(mainWorkspacePropertiesPath)) {
-                try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
-                    existingProps.load(reader);
-                } catch (IOException e) {
-                    /* ignore loading error, will attempt to save anyway */
-                }
-            }
-            if (Objects.equals(existingProps, mainWorkspaceProps)) {
-                return;
-            }
-            AtomicWrites.atomicSaveProperties(
-                    mainWorkspacePropertiesPath, mainWorkspaceProps, "Brokk workspace configuration");
-        } catch (IOException e) {
-            logger.error("Error saving workspace properties to {}: {}", mainWorkspacePropertiesPath, e.getMessage());
-        }
-    }
-
     @Override
     public boolean isGitHubRepo() {
         if (!hasGit()) return false; // hasGit from AbstractProject
@@ -903,7 +863,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        String json = mainWorkspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
+        String json = workspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
                 return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
@@ -917,16 +877,16 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public boolean getArchitectRunInWorktree() {
-        return Boolean.parseBoolean(mainWorkspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
+        return Boolean.parseBoolean(workspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
     }
 
     @Override
     public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         try {
             String json = objectMapper.writeValueAsString(options);
-            mainWorkspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
-            mainWorkspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
-            persistWorkspacePropertiesFile();
+            workspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
+            workspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
+            saveWorkspaceProperties();
             logger.debug("Saved Architect options and worktree preference to workspace properties.");
         } catch (JsonProcessingException e) {
             logger.error(
@@ -938,7 +898,7 @@ public final class MainProject extends AbstractProject {
     @Override
     public Set<ProjectFile> getLiveDependencies() {
         var allDeps = getAllOnDiskDependencies();
-        var liveDepsNames = mainWorkspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
+        var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
         if (liveDepsNames == null || liveDepsNames.isBlank()) {
             return allDeps;
         }
@@ -966,12 +926,13 @@ public final class MainProject extends AbstractProject {
         var names = dependencyTopLevelDirs.stream()
                 .map(p -> p.getFileName().toString())
                 .collect(Collectors.joining(","));
-        mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
-        persistWorkspacePropertiesFile();
+        workspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
+        saveWorkspaceProperties();
+        invalidateAllFiles();
     }
 
     public Optional<GitRepo.MergeMode> getLastMergeMode() {
-        String modeName = mainWorkspaceProps.getProperty(LAST_MERGE_MODE_KEY);
+        String modeName = workspaceProps.getProperty(LAST_MERGE_MODE_KEY);
         if (modeName == null) {
             return Optional.empty();
         }
@@ -984,17 +945,17 @@ public final class MainProject extends AbstractProject {
     }
 
     public void setLastMergeMode(GitRepo.MergeMode mode) {
-        mainWorkspaceProps.setProperty(LAST_MERGE_MODE_KEY, mode.name());
-        persistWorkspacePropertiesFile();
+        workspaceProps.setProperty(LAST_MERGE_MODE_KEY, mode.name());
+        saveWorkspaceProperties();
     }
 
     public boolean isMigrationsToSessionsV3Complete() {
-        return Boolean.parseBoolean(mainWorkspaceProps.getProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, "false"));
+        return Boolean.parseBoolean(workspaceProps.getProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, "false"));
     }
 
     public void setMigrationsToSessionsV3Complete(boolean complete) {
-        mainWorkspaceProps.setProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, String.valueOf(complete));
-        persistWorkspacePropertiesFile();
+        workspaceProps.setProperty(MIGRATIONS_TO_SESSIONS_V3_COMPLETE_KEY, String.valueOf(complete));
+        saveWorkspaceProperties();
     }
 
     public static String getGitHubToken() {
@@ -1010,6 +971,29 @@ public final class MainProject extends AbstractProject {
     public static void setTheme(String theme) {
         var props = loadGlobalProperties();
         props.setProperty("theme", theme);
+        saveGlobalProperties(props);
+    }
+
+    // UI Scale global preference
+    // Values:
+    //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
+    //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
+    private static final String UI_SCALE_KEY = "uiScale";
+
+    public static String getUiScalePref() {
+        var props = loadGlobalProperties();
+        return props.getProperty(UI_SCALE_KEY, "auto");
+    }
+
+    public static void setUiScalePrefAuto() {
+        var props = loadGlobalProperties();
+        props.setProperty(UI_SCALE_KEY, "auto");
+        saveGlobalProperties(props);
+    }
+
+    public static void setUiScalePrefCustom(double scale) {
+        var props = loadGlobalProperties();
+        props.setProperty(UI_SCALE_KEY, Double.toString(scale));
         saveGlobalProperties(props);
     }
 
@@ -1555,43 +1539,32 @@ public final class MainProject extends AbstractProject {
     -------------------------------------------------------- */
     @Override
     public List<List<String>> loadBlitzHistory() {
-        try {
-            String json = mainWorkspaceProps.getProperty(BLITZ_HISTORY_KEY);
-            if (json != null && !json.isEmpty()) {
-                var tf = objectMapper.getTypeFactory();
-                var type = tf.constructCollectionType(List.class, tf.constructCollectionType(List.class, String.class));
-                return objectMapper.readValue(json, type);
-            }
-        } catch (Exception e) {
-            logger.error("Error loading Blitz history: {}", e.getMessage(), e);
-        }
-        return new ArrayList<>();
+        return super.loadBlitzHistory();
     }
 
     @Override
     public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
-        if (parallel.trim().isEmpty() && post.trim().isEmpty()) {
-            return loadBlitzHistory();
-        }
-        var history = new ArrayList<>(loadBlitzHistory());
-        history.removeIf(
-                p -> p.size() >= 2 && p.get(0).equals(parallel) && p.get(1).equals(post));
-        history.add(0, List.of(parallel, post));
-        if (history.size() > maxItems) {
-            history = new ArrayList<>(history.subList(0, maxItems));
-        }
-        try {
-            String json = objectMapper.writeValueAsString(history);
-            mainWorkspaceProps.setProperty(BLITZ_HISTORY_KEY, json);
-            persistWorkspacePropertiesFile();
-        } catch (Exception e) {
-            logger.error("Error saving Blitz history: {}", e.getMessage());
-        }
-        return history;
+        return super.addToBlitzHistory(parallel, post, maxItems);
     }
 
     @Override
     public SessionManager getSessionManager() {
         return sessionManager;
+    }
+
+    @Override
+    public void sessionsListChanged() {
+        var mainChrome = Brokk.findOpenProjectWindow(getRoot());
+        var worktreeChromes = Brokk.getWorktreeChromes(this);
+
+        var allChromes = new ArrayList<Chrome>();
+        if (mainChrome != null) {
+            allChromes.add(mainChrome);
+        }
+        allChromes.addAll(worktreeChromes);
+
+        for (var chrome : allChromes) {
+            SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+        }
     }
 }

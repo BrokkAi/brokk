@@ -9,6 +9,7 @@ import {tokenizeFilename} from './tokenizer/filename';
 import {tokenizeTail} from './tokenizer/tail-tokenizer';
 import {makeSafeFx} from './util';
 import {makeTokenizeHeader} from './tokenizer/header';
+import {tokenizeGitDiff} from './tokenizer/git-diff-parser';
 
 // ---------------------------------------------------------------------------
 // 1.  Orchestrator for edit block parsing
@@ -57,8 +58,16 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
         const next = eatEndLineAndCheckEof(code, afterOpen);
         if (next) return next;
 
-        //Filename is optional, so we need to check for the header first
+        // Check for git diff format first (starts with [)
+        if (code === codes.leftSquareBracket) {
+            return effects.attempt(
+                { tokenize: tokenizeGitDiff, concrete: true },
+                afterGitDiff,
+                fx.nok
+            )(code);
+        }
 
+        //Filename is optional, so we need to check for the header first
         return effects.check(
             { tokenize: tokenizeHeader, concrete: true },
             parseHeader,
@@ -101,6 +110,42 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
             fx.nok
         )(code);
     }
+
+    function afterGitDiff(code: Code): State {
+        const next = eatEndLineAndCheckEof(code, afterGitDiff);
+        if (next) return next;
+
+        // For git diff format, the content ends with ] - we need to consume it
+        if (code === codes.rightSquareBracket) {
+            fx.enter("chunk");
+            fx.consume(code);
+            fx.exit("chunk");
+            return afterGitDiffBracket;
+        }
+
+        return effects.attempt(
+            { tokenize: tokenizeFenceClose, concrete: true },
+            done,
+            fx.nok
+        )(code);
+    }
+
+    function afterGitDiffBracket(code: Code): State {
+        const next = eatEndLineAndCheckEof(code, afterGitDiffBracket);
+        if (next) return next;
+
+        // Check if immediately followed by closing backticks (inline format)
+        if (code === codes.graveAccent) {
+            return effects.attempt(
+                { tokenize: tokenizeFenceClose, concrete: true },
+                done, // After successful fence close, we're done
+                done  // If fence close fails, we're still done (malformed but we'll accept it)
+            )(code);
+        }
+
+        return done(code);
+    }
+
 
     function afterBody(code: Code): State {
         const next = eatEndLineAndCheckEof(code, afterBody)

@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.util;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
@@ -10,6 +10,8 @@ import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.util.ArrayList;
 import java.util.List;
@@ -128,7 +130,7 @@ public final class GitUiUtil {
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
+                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(new BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
                             .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString()))
                             .build();
@@ -340,7 +342,7 @@ public final class GitUiUtil {
                     }
 
                     // No existing window found, create new one
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
+                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(leftSource)
                             .rightSource(rightSource)
                             .build();
@@ -498,7 +500,7 @@ public final class GitUiUtil {
                     }
 
                     // No existing window found, create new one
-                    var builder = new BrokkDiffPanel.Builder(chrome.themeManager, cm);
+                    var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
@@ -526,7 +528,7 @@ public final class GitUiUtil {
                     return;
                 }
 
-                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, cm);
+                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
                 var parentId = commitInfo.id() + "^";
 
                 // Track target file index
@@ -599,7 +601,7 @@ public final class GitUiUtil {
                     }
 
                     // No existing window found, create new one
-                    var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
+                    var builder = new BrokkDiffPanel.Builder(chrome.getTheme() contextManager);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
@@ -666,10 +668,7 @@ public final class GitUiUtil {
                     chrome.systemOutput(String.format(
                             "Successfully rolled back %d file(s) to commit %s", files.size(), shortCommitId));
                     // Refresh Git panels to show the changed files
-                    var gitPanel = chrome.getGitPanel();
-                    if (gitPanel != null) {
-                        gitPanel.updateCommitPanel();
-                    }
+                    chrome.updateCommitPanel();
                 });
             } catch (Exception e) {
                 logger.error("Error rolling back files", e);
