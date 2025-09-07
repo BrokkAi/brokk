@@ -400,7 +400,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
         }
 
-        // TEMPORARY FIX: Always paint all deltas to debug viewport optimization issue
+        // TODO: Re-enable viewport optimization once bug diff-viewport-visibility is resolved
         paintAllDeltas(patch, isOriginal);
     }
 

@@ -243,15 +243,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
             diffNode.diff();
             this.patch = diffNode.getPatch();
 
-            // DEBUG: Log diff calculation results
-            var filename = diffNode.getName();
-            if (patch != null && !patch.getDeltas().isEmpty()) {
-                for (int i = 0; i < patch.getDeltas().size(); i++) {
-                    var delta = patch.getDeltas().get(i);
-                }
-            } else {
-            }
-
             // Try to preserve selected delta position, or find best alternative
             var previousDelta = selectedDelta;
             if (patch != null && !patch.getDeltas().isEmpty()) {
@@ -298,7 +289,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
     /** Tells each FilePanel to re-apply highlights, then repaint the parent panel. */
     private void reDisplay() {
-        var filename = diffNode != null ? diffNode.getName() : "unknown";
         for (var entry : filePanels.entrySet()) {
             entry.getValue().reDisplay();
         }

@@ -22,7 +22,6 @@ public final class DeltaHighlighter {
 
         @Nullable BufferDocumentIF bufferDocument = panel.getBufferDocument();
         if (bufferDocument == null) {
-            logger.trace(
             return;
         }
 

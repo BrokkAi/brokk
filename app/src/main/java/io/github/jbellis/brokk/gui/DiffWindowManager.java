@@ -7,8 +7,6 @@ import java.awt.Frame;
 import java.awt.Window;
 import java.util.List;
 import javax.swing.SwingUtilities;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -16,7 +14,6 @@ import org.jetbrains.annotations.Nullable;
  * find existing panels and raise their windows to the front.
  */
 public final class DiffWindowManager {
-    private static final Logger logger = LogManager.getLogger(DiffWindowManager.class);
 
     private DiffWindowManager() {}
 
@@ -39,12 +36,9 @@ public final class DiffWindowManager {
 
             var brokkPanel = findBrokkDiffPanel(frame);
             if (brokkPanel != null) {
-
                 if (brokkPanel.matchesContent(leftSources, rightSources)) {
                     return brokkPanel;
-                } else {
                 }
-            } else {
             }
         }
 
