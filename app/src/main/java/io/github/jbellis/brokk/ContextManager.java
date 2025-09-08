@@ -2229,7 +2229,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager().deleteSession(sessionIdToDelete);
             logger.info("Deleted session {}", sessionIdToDelete);
             if (sessionIdToDelete.equals(currentSessionId)) {
-                createOrReuseSession(DEFAULT_SESSION_NAME);
+                var sessionToSwitchTo = project.getSessionManager().listSessions().stream()
+                        .max(Comparator.comparingLong(SessionInfo::created))
+                        .map(SessionInfo::id)
+                        .orElse(null);
+
+                if (sessionToSwitchTo != null
+                        && project.getSessionManager().loadHistory(sessionToSwitchTo, this) != null) {
+                    switchToSession(sessionToSwitchTo);
+                } else {
+                    createOrReuseSession(DEFAULT_SESSION_NAME);
+                }
             }
         });
 
