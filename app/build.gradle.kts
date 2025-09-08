@@ -108,7 +108,6 @@ dependencies {
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
     testRuntimeOnly(libs.bundles.junit.runtime)
-    testCompileOnly(libs.bundles.joern)
 
     // Error Prone and NullAway for null safety checking
     "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
