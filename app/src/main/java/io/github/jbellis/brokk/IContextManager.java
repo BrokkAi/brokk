@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
+import java.io.File;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
@@ -89,8 +90,34 @@ public interface IContextManager {
 
     default void removeAnalyzerCallback(AnalyzerCallback callback) {}
 
+    /**
+     * Given a relative path, uses the current project root to construct a valid {@link ProjectFile}. If the path is
+     * suffixed by a leading '/', this is stripped and attempted to be interpreted as a relative path.
+     *
+     * @param relName a relative path.
+     * @return a {@link ProjectFile} instance, if valid.
+     * @throws IllegalArgumentException if the path is not relative or normalized.
+     */
     default ProjectFile toFile(String relName) {
-        throw new UnsupportedOperationException();
+        var trimmed = relName.trim();
+        var project = getProject();
+
+        // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
+        // project-relative path by stripping the leading slash. If that file exists, return it.
+        if (trimmed.startsWith(File.separator)) {
+            var candidateRel = trimmed.substring(File.separator.length()).trim();
+            var candidate = new ProjectFile(project.getRoot(), candidateRel);
+            if (candidate.exists()) {
+                return candidate;
+            }
+            // The path looked absolute (or root-anchored) but does not exist relative to the project.
+            // Treat this as invalid to avoid resolving to a location outside the project root.
+            throw new IllegalArgumentException(
+                    "Filename '%s' is absolute-like and does not exist relative to the project root"
+                            .formatted(relName));
+        }
+
+        return new ProjectFile(project.getRoot(), trimmed);
     }
 
     default Set<ProjectFile> getEditableFiles() {
@@ -139,7 +166,7 @@ public interface IContextManager {
     default void editFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
-        return new IProject() {};
+        throw new UnsupportedOperationException();
     }
 
     default IConsoleIO getIo() {

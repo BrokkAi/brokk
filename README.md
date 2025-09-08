@@ -25,6 +25,27 @@ Brokk documentation is at https://brokk.ai/documentation/.
 Brokk uses Gradle with Scala support. To build Brokk,
 1. Ensure you have JDK 21 or newer
 2. Run Gradle commands directly: `./gradlew <command>`
-3. Available commands: `run`, `clean`, `test`, `build`, `shadowJar`, `tidy`, etc.
+3. Available commands: `run`, `test`, `build`, `shadowJar`, `tidy`, etc.
+
+## Troubleshooting
+1. You may get an `npm` error after clean:
+```
+ ./gradlew clean build
+Configuration on demand is an incubating feature.
+
+> Task :app:frontendBuild FAILED
+
+> brokk-mop-frontend@0.1.0 build
+> vite build -c vite.worker.config.mjs && vite build
+
+node:internal/modules/esm/resolve:275
+    throw new ERR_MODULE_NOT_FOUND(
+          ^
+```
+To fix it run:
+```bash
+cd frontend-mop/
+npm ci
+```
 
 There are documents on specific aspects of the code in [development.md](https://github.com/BrokkAi/brokk/tree/master/app/src/main/development.md).

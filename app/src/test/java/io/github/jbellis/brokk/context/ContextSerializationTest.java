@@ -123,8 +123,7 @@ public class ContextSerializationTest {
     @Test
     void testReadNonExistentZip() throws IOException {
         Path zipFile = tempDir.resolve("non_existent.zip");
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
-        assertNull(loadedHistory);
+        assertThrows(IOException.class, () -> HistoryIo.readZip(zipFile, mockContextManager));
     }
 
     @Test

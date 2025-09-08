@@ -167,6 +167,15 @@ public class MultiAnalyzer
     }
 
     @Override
+    public List<CodeUnit> autocompleteDefinitions(String query) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.autocompleteDefinitions(query).stream())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public Set<String> getSymbols(Set<CodeUnit> sources) {
         return delegates.values().stream()
                 .flatMap(analyzer -> {

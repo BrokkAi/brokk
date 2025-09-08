@@ -623,8 +623,13 @@ Both approaches:
 
 
     function showEditMd() {
+        const diffContent = `# Diff of changes
+
+\`\`\`[--- app/src/main/java/io/github/jbellis/brokk/gui/dialogs/analyzer/JavaAnalyzerSettingsPanel.java, +++ app/src/main/java/io/github/jbellis/brokk/gui/dialogs/analyzer/JavaAnalyzerSettingsPanel.java, @@ -31,7 +31,6 @@,  ,      public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {,          super(new BorderLayout(), language, projectRoot, io);, -        logger.debug("JavaAnalyzerConfigPanel initialised");,  ,          // Create a panel with GridBagLayout for the actual content,          var contentPanel = new JPanel(new GridBagLayout());]\`\`\``;
+
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false, reasoning: false})
+        simulateEvent('chunk', {text: diffContent, msgType: 'SYSTEM', streaming: false, reasoning: false})
         //simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, reasoning: false})
     }
 

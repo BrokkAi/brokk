@@ -222,4 +222,9 @@ public final class WorktreeProject extends AbstractProject {
     public SessionManager getSessionManager() {
         return parent.getSessionManager();
     }
+
+    @Override
+    public void sessionsListChanged() {
+        parent.sessionsListChanged();
+    }
 }

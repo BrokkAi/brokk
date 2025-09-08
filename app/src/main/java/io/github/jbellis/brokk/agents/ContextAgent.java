@@ -216,7 +216,8 @@ public class ContextAgent {
         RecommendationResult firstPassResult = RecommendationResult.FAILED_SINGLE_PASS;
         try {
             if (analyzer.isEmpty()) {
-                firstPassResult = executeWithFileContents(allFiles, workspaceRepresentation, allowSkipPruning);
+                firstPassResult =
+                        executeWithFileContents(allFiles, existingFiles, workspaceRepresentation, allowSkipPruning);
             } else {
                 firstPassResult =
                         executeWithSummaries(allFiles, existingFiles, workspaceRepresentation, allowSkipPruning);
@@ -234,7 +235,7 @@ public class ContextAgent {
         if (!deepScan) {
             var recs = askLlmQuickRecommendContext(
                     allFiles.stream().map(ProjectFile::toString).toList(), Map.of(), Map.of(), workspaceRepresentation);
-            return createResult(recs);
+            return createResult(recs, existingFiles);
         }
 
         // Initialize cumulative usage with any tokens spent on the failed first pass.
@@ -242,8 +243,10 @@ public class ContextAgent {
 
         // Fallback 1: Prune based on filenames only
         debug("Falling back to filename-based pruning.");
-        var filenameResult = createResult(askLlmDeepPruneFilenamesWithChunking(
-                allFiles.stream().map(ProjectFile::toString).toList(), workspaceRepresentation));
+        var filenameResult = createResult(
+                askLlmDeepPruneFilenamesWithChunking(
+                        allFiles.stream().map(ProjectFile::toString).toList(), workspaceRepresentation),
+                existingFiles);
         cumulativeUsage = addTokenUsage(cumulativeUsage, filenameResult.tokenUsage());
 
         if (!filenameResult.success) {
@@ -264,15 +267,17 @@ public class ContextAgent {
         RecommendationResult finalResult;
         try {
             if (analyzer.isEmpty()) {
-                finalResult = executeWithFileContents(prunedFiles, workspaceRepresentation, false);
+                finalResult = executeWithFileContents(prunedFiles, existingFiles, workspaceRepresentation, false);
             } else {
                 finalResult = executeWithSummaries(prunedFiles, existingFiles, workspaceRepresentation, false);
             }
         } catch (ContextTooLargeException e) {
             // The set is still too large; prune once more on filenames only
             debug("Second pass still too large; performing a second filename-based prune.");
-            var secondFilenameResult = createResult(askLlmDeepPruneFilenamesWithChunking(
-                    prunedFiles.stream().map(ProjectFile::toString).toList(), workspaceRepresentation));
+            var secondFilenameResult = createResult(
+                    askLlmDeepPruneFilenamesWithChunking(
+                            prunedFiles.stream().map(ProjectFile::toString).toList(), workspaceRepresentation),
+                    existingFiles);
             cumulativeUsage = addTokenUsage(cumulativeUsage, secondFilenameResult.tokenUsage());
 
             if (!secondFilenameResult.success) {
@@ -289,7 +294,7 @@ public class ContextAgent {
                     .toList();
             try {
                 if (analyzer.isEmpty()) {
-                    finalResult = executeWithFileContents(prunedFiles2, workspaceRepresentation, false);
+                    finalResult = executeWithFileContents(prunedFiles2, existingFiles, workspaceRepresentation, false);
                 } else {
                     finalResult = executeWithSummaries(prunedFiles2, existingFiles, workspaceRepresentation, false);
                 }
@@ -365,7 +370,8 @@ public class ContextAgent {
         boolean withinLimit = deepScan || rawSummaries.size() <= QUICK_TOPK;
         if (rawSummaries.isEmpty() || (allowSkipPruning && summaryTokens <= skipPruningBudget && withinLimit)) {
             var codeUnits = rawSummaries.keySet().stream().toList();
-            return createResult(new LlmRecommendation(List.of(), codeUnits, "All summaries are under budget"));
+            return createResult(
+                    new LlmRecommendation(List.of(), codeUnits, "All summaries are under budget"), existingFiles);
         }
 
         if (summaryTokens > budgetPruning) {
@@ -374,19 +380,38 @@ public class ContextAgent {
 
         // Ask LLM to pick relevant summaries/files if all summaries fit the Pruning budget
         var llmRecommendation = askLlmToRecommendContext(List.of(), rawSummaries, Map.of(), workspaceRepresentation);
-        return createResult(llmRecommendation);
+        return createResult(llmRecommendation, existingFiles);
     }
 
     private static boolean isCodeInWorkspace(Context ctx) {
         return ctx.allFragments().flatMap(f -> f.sources().stream()).findAny().isPresent();
     }
 
-    private RecommendationResult createResult(LlmRecommendation llmRecommendation) {
-        var recommendedFiles = llmRecommendation.recommendedFiles();
-        // LLM might recommend both a file and a summary of a class in that file. r/m any such redundant classes
+    private RecommendationResult createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
+        // Filter out files already in the workspace
+        var originalFiles = llmRecommendation.recommendedFiles();
+        var filteredFiles =
+                originalFiles.stream().filter(f -> !existingFiles.contains(f)).toList();
+        if (filteredFiles.size() != originalFiles.size()) {
+            debug(
+                    "Post-filtered LLM recommended files from {} to {} by excluding files already in the workspace",
+                    originalFiles.size(),
+                    filteredFiles.size());
+        }
+
+        // LLM might recommend both a file and a summary of a class in that file; remove any redundant classes.
+        // Also remove classes whose source is already in the workspace.
+        var originalClassCount = llmRecommendation.recommendedClasses().size();
         var recommendedClasses = llmRecommendation.recommendedClasses().stream()
-                .filter(cu -> !llmRecommendation.recommendedFiles.contains(cu.source()))
+                .filter(cu -> !filteredFiles.contains(cu.source()))
+                .filter(cu -> !existingFiles.contains(cu.source()))
                 .toList();
+        if (recommendedClasses.size() != originalClassCount) {
+            debug(
+                    "Post-filtered LLM recommended classes from {} to {} by excluding classes whose source files are already present or recommended",
+                    originalClassCount,
+                    recommendedClasses.size());
+        }
 
         var reasoning = llmRecommendation.reasoning();
 
@@ -395,7 +420,7 @@ public class ContextAgent {
 
         // Calculate combined token size
         int recommendedSummaryTokens = Messages.getApproximateTokens(String.join("\n", recommendedSummaries.values()));
-        var recommendedContentsMap = readFileContents(recommendedFiles);
+        var recommendedContentsMap = readFileContents(filteredFiles);
         int recommendedContentTokens =
                 Messages.getApproximateTokens(String.join("\n", recommendedContentsMap.values()));
         int totalRecommendedTokens = recommendedSummaryTokens + recommendedContentTokens;
@@ -404,13 +429,13 @@ public class ContextAgent {
                 "LLM recommended {} classes ({} tokens) and {} files ({} tokens). Total: {} tokens",
                 recommendedSummaries.size(),
                 recommendedSummaryTokens,
-                recommendedFiles.size(),
+                filteredFiles.size(),
                 recommendedContentTokens,
                 totalRecommendedTokens);
 
         // Create fragments
         var skeletonFragments = skeletonPerSummary(cm, recommendedSummaries);
-        var pathFragments = recommendedFiles.stream()
+        var pathFragments = filteredFiles.stream()
                 .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f, cm))
                 .toList();
         var combinedFragments = Stream.concat(skeletonFragments.stream(), pathFragments.stream())
@@ -975,6 +1000,7 @@ public class ContextAgent {
 
     private RecommendationResult executeWithFileContents(
             List<ProjectFile> filesToConsider,
+            Set<ProjectFile> existingFiles,
             Collection<ChatMessage> workspaceRepresentation,
             boolean allowSkipPruning)
             throws InterruptedException, ContextTooLargeException {
@@ -993,7 +1019,8 @@ public class ContextAgent {
         boolean withinLimit = deepScan || filesToConsider.size() <= QUICK_TOPK; // Use QUICK_TOPK here
         if (allowSkipPruning && contentTokens <= skipPruningBudget && withinLimit) {
             return createResult(
-                    new LlmRecommendation(filesToConsider, List.of(), "All file contents are within token budget"));
+                    new LlmRecommendation(filesToConsider, List.of(), "All file contents are within token budget"),
+                    existingFiles);
         }
 
         if (contentTokens > budgetPruning) {
@@ -1003,7 +1030,7 @@ public class ContextAgent {
         // Rule 2: Ask LLM to pick relevant files if all content fits the Pruning budget
         LlmRecommendation llmRecommendation =
                 askLlmToRecommendContext(List.of(), Map.of(), contentsMap, workspaceRepresentation);
-        return createResult(llmRecommendation);
+        return createResult(llmRecommendation, existingFiles);
     }
 
     private Map<ProjectFile, String> readFileContents(Collection<ProjectFile> files) {

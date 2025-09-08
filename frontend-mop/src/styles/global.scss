@@ -1,5 +1,5 @@
-@import './theme-colors.generated.scss';
-@import './markdown.scss';
+@use './theme-colors.generated' as *;
+@use './markdown';
 
 body {
   background: white;

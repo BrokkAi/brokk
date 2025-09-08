@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.gui.mop.webview;
 import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
@@ -33,7 +33,7 @@ public final class MOPWebViewHost extends JPanel {
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile boolean darkTheme = true; // Default to dark theme
-    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
 
     // Bridge readiness tracking
@@ -496,7 +496,7 @@ public final class MOPWebViewHost extends JPanel {
         flushBufferedCommands();
     }
 
-    public void setContextManager(@Nullable IContextManager contextManager) {
+    public void setContextManager(@Nullable ContextManager contextManager) {
         this.contextManager = contextManager;
         var bridge = bridgeRef.get();
         if (bridge != null) {

@@ -5,8 +5,9 @@ import { fencedEditBlock } from './fenced-construct';
 
 /**
  * Micromark extension to detect edit blocks in Markdown text.
- * Recognizes both unfenced edit blocks starting with "<<<<<<< SEARCH [filename]"
- * and fenced edit blocks starting with "```".
+ * Recognizes:
+ * - Unfenced edit blocks starting with "<<<<<<< SEARCH [filename]"
+ * - Fenced edit blocks starting with "```" (supports both multi-line and inline formats)
  */
 export function gfmEditBlock(): Extension {
     return {

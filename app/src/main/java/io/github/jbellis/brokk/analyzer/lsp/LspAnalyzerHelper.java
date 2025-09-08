@@ -123,32 +123,66 @@ public final class LspAnalyzerHelper {
     @NotNull
     public static String getSourceForRange(@NotNull String fileContent, @NotNull Range range) {
         final String[] lines = fileContent.split("\\R", -1); // Split by any line break
-        if (lines.length > 0) {
-            final int startLine = range.getStart().getLine();
-            final int endLine = range.getEnd().getLine();
-            final int startChar = range.getStart().getCharacter();
-            final int endChar = range.getEnd().getCharacter();
-
-            if (startLine == endLine) {
-                return lines[startLine].substring(startChar, endChar);
-            }
-
-            final StringBuilder sb = new StringBuilder();
-            sb.append(lines[startLine].substring(startChar)).append(System.lineSeparator());
-
-            for (int i = startLine + 1; i < endLine; i++) {
-                sb.append(lines[i]).append(System.lineSeparator());
-            }
-
-            if (endChar > 0) {
-                sb.append(lines[endLine], 0, endChar);
-            }
-
-            return sb.toString();
-        } else {
+        if (lines.length == 0) {
             logger.error("Empty file content given, cannot extract source for range {}", range);
             return fileContent;
         }
+
+        final int origStartLine = range.getStart().getLine();
+        final int origEndLine = range.getEnd().getLine();
+        final int origStartChar = range.getStart().getCharacter();
+        final int origEndChar = range.getEnd().getCharacter();
+
+        // Clamp line indices to valid bounds
+        int startLine = Math.max(0, Math.min(origStartLine, lines.length - 1));
+        int endLine = Math.max(startLine, Math.min(origEndLine, lines.length - 1));
+
+        // Clamp character indices to valid bounds per their respective lines
+        int startLineLen = lines[startLine].length();
+        int endLineLen = lines[endLine].length();
+
+        int startChar = Math.max(0, Math.min(origStartChar, startLineLen));
+        int endChar = Math.max(0, Math.min(origEndChar, endLineLen));
+
+        // Ensure in single-line case that endChar >= startChar
+        if (startLine == endLine && endChar < startChar) {
+            endChar = startChar;
+        }
+
+        // Log if any adjustments occurred
+        boolean adjusted = (origStartLine != startLine)
+                || (origEndLine != endLine)
+                || (origStartChar != startChar)
+                || (origEndChar != endChar);
+        if (adjusted) {
+            logger.warn(
+                    "Adjusted out-of-bounds LSP Range while extracting source: original={} adjusted=[{}:{} - {}:{}] totalLines={} startLen={} endLen={}",
+                    range,
+                    startLine,
+                    startChar,
+                    endLine,
+                    endChar,
+                    lines.length,
+                    startLineLen,
+                    endLineLen);
+        }
+
+        if (startLine == endLine) {
+            return lines[startLine].substring(startChar, endChar);
+        }
+
+        final StringBuilder sb = new StringBuilder();
+        sb.append(lines[startLine].substring(startChar)).append(System.lineSeparator());
+
+        for (int i = startLine + 1; i < endLine; i++) {
+            sb.append(lines[i]).append(System.lineSeparator());
+        }
+
+        if (endChar > 0) {
+            sb.append(lines[endLine], 0, endChar);
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -161,6 +195,9 @@ public final class LspAnalyzerHelper {
             @NotNull WorkspaceSymbol workspaceSymbol, @NotNull LspServer sharedServer) {
         if (workspaceSymbol.getLocation().isRight()) {
             // We need a full Location with a Range, not just a URI.
+            logger.warn(
+                    "Cannot resolve DocumentSymbol for '{}' because location has no Range (URI only).",
+                    workspaceSymbol.getName());
             return CompletableFuture.completedFuture(Optional.empty());
         }
         final Location location = workspaceSymbol.getLocation().getLeft();
@@ -371,14 +408,19 @@ public final class LspAnalyzerHelper {
      */
     public static @NotNull Optional<DocumentSymbol> findSymbolInTree(List<DocumentSymbol> symbols, Position position) {
         for (DocumentSymbol symbol : symbols) {
+            // Prefer exact match on the name token first
             if (isPositionInRange(symbol.getSelectionRange(), position)) {
                 return Optional.of(symbol);
             }
-            if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                final Optional<DocumentSymbol> found = findSymbolInTree(symbol.getChildren(), position);
-                if (found.isPresent()) {
-                    return found;
+            // If within the symbol's body, search children first; if none match, return this container.
+            if (isPositionInRange(symbol.getRange(), position)) {
+                if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                    final Optional<DocumentSymbol> found = findSymbolInTree(symbol.getChildren(), position);
+                    if (found.isPresent()) {
+                        return found;
+                    }
                 }
+                return Optional.of(symbol);
             }
         }
         return Optional.empty();
@@ -410,36 +452,34 @@ public final class LspAnalyzerHelper {
      */
     private static Optional<Range> findRangeInTree(List<DocumentSymbol> symbols, Position position) {
         for (DocumentSymbol symbol : symbols) {
-            // Check if the symbol's name range contains the position
+            // Exact match on identifier token
             if (isPositionInRange(symbol.getSelectionRange(), position)) {
-                return Optional.of(symbol.getRange()); // Return the full block range
+                return Optional.of(symbol.getRange());
             }
-            // Recurse into children
-            if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
-                Optional<Range> found = findRangeInTree(symbol.getChildren(), position);
-                if (found.isPresent()) {
-                    return found;
+            // If position lies within the symbol body, prefer children if any; otherwise return the container's range
+            if (isPositionInRange(symbol.getRange(), position)) {
+                if (symbol.getChildren() != null && !symbol.getChildren().isEmpty()) {
+                    Optional<Range> found = findRangeInTree(symbol.getChildren(), position);
+                    if (found.isPresent()) {
+                        return found;
+                    }
                 }
+                return Optional.of(symbol.getRange());
             }
         }
         return Optional.empty();
     }
 
     public static boolean isPositionInRange(Range range, Position position) {
-        if (position.getLine() == range.getStart().getLine()
-                && position.getCharacter() <= range.getEnd().getCharacter()) {
-            return true;
-        }
-        if (position.getLine() < range.getStart().getLine()
-                || position.getLine() > range.getEnd().getLine()) {
-            return false;
-        } else if (position.getLine() == range.getStart().getLine()
-                && position.getCharacter() < range.getStart().getCharacter()) {
-            return false;
-        } else {
-            return position.getLine() != range.getEnd().getLine()
-                    || position.getCharacter() <= range.getEnd().getCharacter();
-        }
+        final Position start = range.getStart();
+        final Position end = range.getEnd();
+
+        final boolean afterStart = (position.getLine() > start.getLine())
+                || (position.getLine() == start.getLine() && position.getCharacter() >= start.getCharacter());
+        final boolean beforeEnd = (position.getLine() < end.getLine())
+                || (position.getLine() == end.getLine() && position.getCharacter() <= end.getCharacter());
+
+        return afterStart && beforeEnd;
     }
 
     /**

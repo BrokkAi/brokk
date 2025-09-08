@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.git;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
@@ -6,7 +6,11 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitRepo.MergeMode;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
+import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -259,7 +263,7 @@ public class GitLogTab extends JPanel {
 
         // Local branch context menu
         JPopupMenu branchContextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(branchContextMenu);
+        chrome.getTheme().registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
         JMenuItem mergeItem = new JMenuItem("Merge into HEAD");
@@ -370,7 +374,7 @@ public class GitLogTab extends JPanel {
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
         SwingUtilities.invokeLater(() -> {
-            chrome.themeManager.registerPopupMenu(remoteBranchContextMenu);
+            chrome.getTheme().registerPopupMenu(remoteBranchContextMenu);
         });
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
@@ -439,7 +443,7 @@ public class GitLogTab extends JPanel {
 
         // Tags context menu
         JPopupMenu tagContextMenu = new JPopupMenu();
-        chrome.themeManager.registerPopupMenu(tagContextMenu);
+        chrome.getTheme().registerPopupMenu(tagContextMenu);
         JMenuItem tagNewBranchItem = new JMenuItem("New Branch From This");
         tagContextMenu.add(tagNewBranchItem);
 

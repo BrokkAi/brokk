@@ -30,6 +30,7 @@ declare global {
       jsLog: (level: string, message: string) => void;
       searchStateChanged: (total: number, current: number) => void;
       onSymbolClick: (symbolName: string, symbolExists: boolean, symbolFqn: string | null, x: number, y: number) => void;
+      captureText:(text: string) => void;
       lookupSymbolsAsync?: (symbolNamesJson: string, seq: number | null, contextId: string) => void;
     };
   }

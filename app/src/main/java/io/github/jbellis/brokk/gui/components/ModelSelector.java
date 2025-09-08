@@ -3,23 +3,19 @@ package io.github.jbellis.brokk.gui.components;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import java.awt.Component;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
-import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
@@ -56,7 +52,7 @@ public class ModelSelector {
                 for (var listener : selectionListeners) {
                     listener.accept(fm.config());
                 }
-            } else if (sel instanceof String s && "Custom...".equals(s)) {
+            } else if (sel instanceof String s && "Manage...".equals(s)) {
                 openCustomDialog();
             }
         });
@@ -125,7 +121,7 @@ public class ModelSelector {
                 } else {
                     favorites.forEach(combo::addItem);
                 }
-                combo.addItem("Custom...");
+                combo.addItem("Manage...");
                 if (lastSelected != null) {
                     // Try to re-select the last favorite if present
                     for (int i = 0; i < combo.getItemCount(); i++) {
@@ -156,6 +152,7 @@ public class ModelSelector {
         @Nullable Service.FavoriteModel priorSelection = lastSelected;
 
         try {
+            // Preserve previous "no models available" warning behavior
             String[] availableModelNames =
                     service.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
             if (availableModelNames.length == 0) {
@@ -168,100 +165,35 @@ public class ModelSelector {
                 return;
             }
 
-            var modelCombo = new JComboBox<>(availableModelNames);
-            var reasoningCombo = new JComboBox<>(Service.ReasoningLevel.values());
-            var processingCombo = new JComboBox<>(Service.ProcessingTier.values());
+            // Snapshot favorites before opening settings
+            var before = MainProject.loadFavoriteModels();
 
-            String initialModel = (String) modelCombo.getSelectedItem();
-            boolean supportsReasoning = initialModel != null && service.supportsReasoningEffort(initialModel);
-            boolean supportsProcessing = initialModel != null && service.supportsProcessingTier(initialModel);
-            reasoningCombo.setEnabled(supportsReasoning);
-            processingCombo.setEnabled(supportsProcessing);
+            // Open the full Settings dialog to the Favorite Models tab
+            SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE);
 
-            modelCombo.addActionListener(e -> {
-                var selModel = (String) modelCombo.getSelectedItem();
-                if (selModel == null) return;
-                reasoningCombo.setEnabled(service.supportsReasoningEffort(selModel));
-                processingCombo.setEnabled(service.supportsProcessingTier(selModel));
-            });
+            // After the modal dialog closes, reload favorites and detect any new favorite
+            var after = MainProject.loadFavoriteModels();
+            var maybeNew = after.stream()
+                    .filter(a -> before.stream().noneMatch(b -> b.equals(a)))
+                    .findFirst();
 
-            var panel = new JPanel(new GridBagLayout());
-            var gbc = new GridBagConstraints();
-            gbc.insets = new Insets(2, 5, 2, 5);
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.gridx = 0;
-            gbc.gridy = 0;
-            panel.add(new JLabel("Model:"), gbc);
-            gbc.gridx = 1;
-            panel.add(modelCombo, gbc);
-            gbc.gridx = 0;
-            gbc.gridy++;
-            panel.add(new JLabel("Reasoning:"), gbc);
-            gbc.gridx = 1;
-            panel.add(reasoningCombo, gbc);
-            gbc.gridx = 0;
-            gbc.gridy++;
-            panel.add(new JLabel("Processing Tier:"), gbc);
-            gbc.gridx = 1;
-            panel.add(processingCombo, gbc);
-
-            int result = JOptionPane.showConfirmDialog(
-                    chrome.getFrame(),
-                    panel,
-                    "Configure Custom Model",
-                    JOptionPane.OK_CANCEL_OPTION,
-                    JOptionPane.PLAIN_MESSAGE);
-            if (result != JOptionPane.OK_OPTION) {
-                revertSelection(priorSelection);
-                return;
-            }
-
-            var selectedModel = (String) modelCombo.getSelectedItem();
-            var selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
-            var selectedTier = (Service.ProcessingTier) processingCombo.getSelectedItem();
-
-            if (!reasoningCombo.isEnabled()) {
-                selectedReasoning = Service.ReasoningLevel.DEFAULT;
-            }
-            if (!processingCombo.isEnabled()) {
-                selectedTier = Service.ProcessingTier.DEFAULT;
-            }
-            if (selectedModel == null) {
-                revertSelection(priorSelection);
-                return;
-            }
-
-            if (selectedReasoning == null) selectedReasoning = Service.ReasoningLevel.DEFAULT;
-            if (selectedTier == null) selectedTier = Service.ProcessingTier.DEFAULT;
-
-            String alias = selectedModel;
-            if (selectedReasoning != Service.ReasoningLevel.DEFAULT) {
-                alias = alias + " " + selectedReasoning.name().toLowerCase(Locale.ROOT);
-            }
-            if (selectedTier != Service.ProcessingTier.DEFAULT) {
-                alias = alias + " [" + selectedTier.name().toLowerCase(Locale.ROOT) + "]";
-            }
-
-            var favorites = new ArrayList<>(MainProject.loadFavoriteModels());
-            var newFav = new Service.FavoriteModel(
-                    alias, new Service.ModelConfig(selectedModel, selectedReasoning, selectedTier));
-            favorites.add(newFav);
-            MainProject.saveFavoriteModels(favorites);
-
-            // refresh and select the newly created favorite by alias
-            lastSelected = newFav;
-            refresh();
-
-            final String aliasFinal = alias;
-            SwingUtilities.invokeLater(() -> {
-                for (int i = 0; i < combo.getItemCount(); i++) {
-                    Object item = combo.getItemAt(i);
-                    if (item instanceof Service.FavoriteModel fm && fm.alias().equals(aliasFinal)) {
-                        combo.setSelectedIndex(i);
-                        return;
+            if (maybeNew.isPresent()) {
+                lastSelected = maybeNew.get();
+                refresh();
+                // Ensure combo box selection happens on EDT after refresh populates it
+                SwingUtilities.invokeLater(() -> {
+                    for (int i = 0; i < combo.getItemCount(); i++) {
+                        Object item = combo.getItemAt(i);
+                        if (item instanceof Service.FavoriteModel fm && fm.equals(lastSelected)) {
+                            combo.setSelectedIndex(i);
+                            return;
+                        }
                     }
-                }
-            });
+                });
+            } else {
+                // No new favorite created: restore prior selection (or default)
+                revertSelection(priorSelection);
+            }
         } finally {
             dialogOpen = false;
         }
