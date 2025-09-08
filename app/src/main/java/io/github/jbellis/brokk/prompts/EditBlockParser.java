@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.util.*;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 public class EditBlockParser {
     public static EditBlockParser instance = new EditBlockParser();
@@ -179,31 +180,16 @@ public class EditBlockParser {
                 .stripIndent();
     }
 
-    /** Parses the given content into ParseResult */
-    public EditBlock.ParseResult parseEditBlocks(String content, Set<ProjectFile> projectFiles) {
-        var all = parse(content, projectFiles);
-        var editBlocks = all.blocks().stream()
-                .map(EditBlock.OutputBlock::block)
-                .filter(Objects::nonNull)
-                .toList();
-        // if we found no edit blocks, but it looks like there are edit block fences, promote to an error
-        var error = all.parseError();
-        if (editBlocks.isEmpty()
-                && error == null
-                && Stream.of("<<<<<", "=====", ">>>>>").anyMatch(content::contains)) {
-            error = "It looks like you tried to include an edit block, but I couldn't parse it.";
-        }
-        return new EditBlock.ParseResult(editBlocks, error);
+    /** Single internal scanner used by both parseEditBlocks and redact */
+    @VisibleForTesting
+    public interface BlockScanHandler {
+        void onPlainText(String text);
+        void onBlock(EditBlock.SearchReplaceBlock block);
+        void onError(String message, String rawFragment);
     }
 
-    /**
-     * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks). Supports a
-     * "forgiving" divider approach if we do not see a standard "filename =======" line but do see exactly one line of
-     * "=======" in the lines between SEARCH and REPLACE. Malformed blocks do not prevent parsing subsequent blocks.
-     */
-    public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {
-        var blocks = new ArrayList<EditBlock.OutputBlock>();
-
+    @VisibleForTesting
+    public void scan(String content, Set<ProjectFile> projectFiles, BlockScanHandler handler) {
         var lines = content.split("\n", -1);
         var plain = new StringBuilder();
 
@@ -213,29 +199,27 @@ public class EditBlockParser {
         while (i < lines.length) {
             var trimmed = lines[i].trim();
 
-            /* ----------------------------------------------------------
-             * 1.  Block variant that begins with:  ```\n<filename>\n<<<<<<< SEARCH
-             * ---------------------------------------------------------- */
+            // 1) Fenced variant: ``` \n <filename> \n <<<<<<< SEARCH
             if (trimmed.equals(DEFAULT_FENCE.get(0))
                     && i + 2 < lines.length
                     && HEAD.matcher(lines[i + 2].trim()).matches()) {
 
-                // Flush any accumulated plain‑text that precedes this block
+                // flush preceding plain text
                 if (!plain.toString().isBlank()) {
-                    blocks.add(EditBlock.OutputBlock.plain(plain.toString()));
+                    handler.onPlainText(plain.toString());
                     plain.setLength(0);
                 }
 
-                // The filename sits on the line immediately after the opening fence
+                int blockStart = i;
                 var filenameLine = lines[i + 1];
                 var candidatePath = stripFilename(filenameLine);
                 currentFilename = candidatePath != null && !candidatePath.isBlank()
                         ? candidatePath
                         : findFileNameNearby(lines, i + 2, projectFiles, currentFilename);
 
-                // Advance to the <<<<<<< SEARCH marker
-                i = i + 2; // now at HEAD line
-                i++; // move past HEAD
+                // advance to HEAD line and beyond
+                i = i + 2;
+                i++;
 
                 var beforeLines = new ArrayList<String>();
                 while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
@@ -243,7 +227,11 @@ public class EditBlockParser {
                     i++;
                 }
                 if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks, "Expected ======= divider after <<<<<<< SEARCH");
+                    var raw = joinRange(lines, blockStart, lines.length);
+                    handler.onError("Expected ======= divider after <<<<<<< SEARCH", raw);
+                    // treat as plain text
+                    plain.append(raw);
+                    break;
                 }
 
                 i++; // skip ======= divider
@@ -256,7 +244,10 @@ public class EditBlockParser {
                     i++;
                 }
                 if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks, "Expected >>>>>>> REPLACE or =======");
+                    var raw = joinRange(lines, blockStart, lines.length);
+                    handler.onError("Expected >>>>>>> REPLACE or =======", raw);
+                    plain.append(raw);
+                    break;
                 }
 
                 var beforeJoined =
@@ -267,79 +258,80 @@ public class EditBlockParser {
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                 if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
 
-                blocks.add(EditBlock.OutputBlock.edit(
-                        new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined)));
+                handler.onBlock(new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined));
 
-                // Consume the >>>>>>> REPLACE marker (if present)
+                // consume >>>>>>> REPLACE if present
                 if (UPDATED.matcher(lines[i].trim()).matches()) {
                     i++;
                 }
-                // Consume the closing ``` fence (if present)
-                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
-                    i++;
-                }
-                continue; // restart main loop
-            }
-
-            /* ----------------------------------------------------------
-             * 2.  Legacy / fence‑less variant that starts directly with <<<<<<< SEARCH
-             * ---------------------------------------------------------- */
-            if (HEAD.matcher(trimmed).matches()) {
-                if (!plain.toString().isBlank()) {
-                    blocks.add(EditBlock.OutputBlock.plain(plain.toString()));
-                    plain.setLength(0);
-                }
-
-                currentFilename = findFileNameNearby(lines, i, projectFiles, currentFilename);
-
-                i++; // move past <<<<<<< SEARCH
-                var beforeLines = new ArrayList<String>();
-                while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
-                    beforeLines.add(lines[i]);
-                    i++;
-                }
-                if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks, "Expected ======= divider after <<<<<<< SEARCH");
-                }
-
-                i++; // skip ======= divider
-
-                var afterLines = new ArrayList<String>();
-                while (i < lines.length
-                        && !UPDATED.matcher(lines[i].trim()).matches()
-                        && !DIVIDER.matcher(lines[i].trim()).matches()) {
-                    afterLines.add(lines[i]);
-                    i++;
-                }
-                if (i >= lines.length) {
-                    return new EditBlock.ExtendedParseResult(blocks, "Expected >>>>>>> REPLACE or =======");
-                }
-
-                var beforeJoined =
-                        stripQuotedWrapping(String.join("\n", beforeLines), Objects.toString(currentFilename, ""));
-                var afterJoined =
-                        stripQuotedWrapping(String.join("\n", afterLines), Objects.toString(currentFilename, ""));
-
-                if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
-                if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
-
-                blocks.add(EditBlock.OutputBlock.edit(
-                        new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined)));
-
-                // Consume the >>>>>>> REPLACE marker (if present)
-                if (UPDATED.matcher(lines[i].trim()).matches()) {
-                    i++;
-                }
-                // Optional closing fence for this form
+                // consume closing fence if present
                 if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
                     i++;
                 }
                 continue;
             }
 
-            /* ----------------------------------------------------------
-             * 3.  Not part of an edit block — accumulate plain text
-             * ---------------------------------------------------------- */
+            // 2) Fence-less variant that starts directly with <<<<<<< SEARCH
+            if (HEAD.matcher(trimmed).matches()) {
+                if (!plain.toString().isBlank()) {
+                    handler.onPlainText(plain.toString());
+                    plain.setLength(0);
+                }
+
+                int blockStart = i;
+                currentFilename = findFileNameNearby(lines, i, projectFiles, currentFilename);
+
+                i++; // move past HEAD
+                var beforeLines = new ArrayList<String>();
+                while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
+                    beforeLines.add(lines[i]);
+                    i++;
+                }
+                if (i >= lines.length) {
+                    var raw = joinRange(lines, blockStart, lines.length);
+                    handler.onError("Expected ======= divider after <<<<<<< SEARCH", raw);
+                    plain.append(raw);
+                    break;
+                }
+
+                i++; // skip ======= divider
+
+                var afterLines = new ArrayList<String>();
+                while (i < lines.length
+                        && !UPDATED.matcher(lines[i].trim()).matches()
+                        && !DIVIDER.matcher(lines[i].trim()).matches()) {
+                    afterLines.add(lines[i]);
+                    i++;
+                }
+                if (i >= lines.length) {
+                    var raw = joinRange(lines, blockStart, lines.length);
+                    handler.onError("Expected >>>>>>> REPLACE or =======", raw);
+                    plain.append(raw);
+                    break;
+                }
+
+                var beforeJoined =
+                        stripQuotedWrapping(String.join("\n", beforeLines), Objects.toString(currentFilename, ""));
+                var afterJoined =
+                        stripQuotedWrapping(String.join("\n", afterLines), Objects.toString(currentFilename, ""));
+
+                if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
+                if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
+
+                handler.onBlock(new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined));
+
+                // consume >>>>>>> REPLACE if present
+                if (UPDATED.matcher(lines[i].trim()).matches()) {
+                    i++;
+                }
+                // optional closing fence for this form
+                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
+                    i++;
+                }
+                continue;
+            }
+
+            // 3) Not part of block — accumulate plain text
             plain.append(lines[i]);
             if (i < lines.length - 1) {
                 plain.append("\n");
@@ -349,10 +341,84 @@ public class EditBlockParser {
 
         // Flush any trailing plain text
         if (!plain.toString().isBlank()) {
-            blocks.add(EditBlock.OutputBlock.plain(plain.toString()));
+            handler.onPlainText(plain.toString());
         }
+    }
 
-        return new EditBlock.ExtendedParseResult(blocks, null);
+    private static String joinRange(String[] lines, int start, int end) {
+        var sb = new StringBuilder();
+        for (int j = start; j < end; j++) {
+            sb.append(lines[j]);
+            if (j < end - 1) sb.append("\n");
+        }
+        return sb.toString();
+    }
+
+    /** Parses the given content into ParseResult (SRBs only) */
+    public EditBlock.ParseResult parse(String content, Set<ProjectFile> projectFiles) {
+        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>();
+        String[] firstError = new String[1]; // null if none
+
+        scan(content, projectFiles, new BlockScanHandler() {
+            @Override
+            public void onPlainText(String text) {
+                // ignore (SRBs only)
+            }
+
+            @Override
+            public void onBlock(EditBlock.SearchReplaceBlock block) {
+                blocks.add(block);
+            }
+
+            @Override
+            public void onError(String message, String rawFragment) {
+                if (firstError[0] == null) firstError[0] = message;
+            }
+        });
+
+        String error = firstError[0];
+        if (blocks.isEmpty() && error == null && Stream.of("<<<<<", "=====", ">>>>>").anyMatch(content::contains)) {
+            error = "It looks like you tried to include an edit block, but I couldn't parse it.";
+        }
+        return new EditBlock.ParseResult(blocks, error);
+    }
+
+    /**
+     * Redacts SEARCH/REPLACE blocks from the provided text, preserving the surrounding plaintext.
+     * If no blocks are found, returns the original text unchanged.
+     */
+    public String redact(String original) {
+        final String placeholder = "[elided SEARCH/REPLACE block]";
+        var out = new StringBuilder();
+        boolean[] hadBlocks = new boolean[] {false};
+        boolean[] prevWasBlock = new boolean[] {false};
+
+        scan(original, Collections.emptySet(), new BlockScanHandler() {
+            @Override
+            public void onPlainText(String text) {
+                out.append(text);
+                prevWasBlock[0] = false;
+            }
+
+            @Override
+            public void onBlock(EditBlock.SearchReplaceBlock block) {
+                if (prevWasBlock[0]) {
+                    out.append('\n');
+                }
+                out.append(placeholder);
+                prevWasBlock[0] = true;
+                hadBlocks[0] = true;
+            }
+
+            @Override
+            public void onError(String message, String rawFragment) {
+                // Treat malformed constructs as plain text
+                out.append(rawFragment);
+                prevWasBlock[0] = false;
+            }
+        });
+
+        return hadBlocks[0] ? out.toString() : original;
     }
 
     public String repr(EditBlock.SearchReplaceBlock block) {

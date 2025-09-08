@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import io.github.jbellis.brokk.EditBlock.OutputBlock;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -10,16 +9,21 @@ import org.junit.jupiter.api.Test;
 class EditBlockParseAllBlocksTest {
     @Test
     void testParseEmptyString() {
-        var result = EditBlockParser.instance.parse("", Set.of()).blocks();
-        assertEquals(0, result.size());
+        var blocksOnly = EditBlockParser.instance.parse("", Set.of()).blocks();
+        assertEquals(0, blocksOnly.size(), "Expected no SRBs for empty input");
+
+        var redacted = EditBlockParser.instance.redact("");
+        assertEquals("", redacted, "Redacting empty input should be a no-op");
     }
 
     @Test
     void testParsePlainTextOnly() {
         String input = "This is just plain text.";
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
-        assertEquals(1, result.size());
-        assertEquals(OutputBlock.plain(input), result.getFirst());
+        var blocksOnly = EditBlockParser.instance.parse(input, Set.of()).blocks();
+        assertEquals(0, blocksOnly.size(), "Expected no SRBs for plain text");
+
+        var redacted = EditBlockParser.instance.redact(input);
+        assertEquals(input, redacted, "Redaction should not change plain text");
     }
 
     @Test
@@ -39,12 +43,16 @@ class EditBlockParseAllBlocksTest {
                 >>>>>>> REPLACE
                 ```
                 """;
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+        var blocks = EditBlockParser.instance.parse(input, Set.of()).blocks();
 
-        assertEquals(1, result.size());
-        assertEquals("build.gradle", result.getFirst().block().rawFileName());
-        assertTrue(result.getFirst().block().beforeText().contains("a:b:1.0"));
-        assertTrue(result.getFirst().block().afterText().contains("a:b:2.0"));
+        assertEquals(1, blocks.size());
+        var block = blocks.getFirst();
+        assertEquals("build.gradle", block.rawFileName());
+        assertTrue(block.beforeText().contains("a:b:1.0"));
+        assertTrue(block.afterText().contains("a:b:2.0"));
+
+        var redacted = EditBlockParser.instance.redact(input);
+        assertTrue(redacted.contains("[elided SEARCH/REPLACE block]"), "Expected elided placeholder in redacted result");
     }
 
     @Test
@@ -66,14 +74,18 @@ class EditBlockParseAllBlocksTest {
         ```
         Some concluding text.
         """;
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+        var blocks = EditBlockParser.instance.parse(input, Set.of()).blocks();
 
-        assertEquals(3, result.size());
-        assertTrue(result.get(0).text().contains("introductory"));
-        assertEquals("build.gradle", result.get(1).block().rawFileName());
-        assertTrue(result.get(1).block().beforeText().contains("a:b:1.0"));
-        assertTrue(result.get(1).block().afterText().contains("a:b:2.0"));
-        assertTrue(result.get(2).text().contains("concluding"));
+        assertEquals(1, blocks.size());
+        var block = blocks.getFirst();
+        assertEquals("build.gradle", block.rawFileName());
+        assertTrue(block.beforeText().contains("a:b:1.0"));
+        assertTrue(block.afterText().contains("a:b:2.0"));
+
+        var redacted = EditBlockParser.instance.redact(input);
+        assertTrue(redacted.contains("Some introductory text."));
+        assertTrue(redacted.contains("[elided SEARCH/REPLACE block]"));
+        assertTrue(redacted.contains("Some concluding text."));
     }
 
     @Test
@@ -100,10 +112,18 @@ class EditBlockParseAllBlocksTest {
                 ```
                 Text epilogue
                 """;
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+        var blocks = EditBlockParser.instance.parse(input, Set.of()).blocks();
+        assertEquals(2, blocks.size(), "Expected two SRBs");
 
-        assertEquals(4, result.size()); // prologue, s/r, s/r, epilogue
-        // TODO flesh out asserts
+        var redacted = EditBlockParser.instance.redact(input);
+        assertTrue(redacted.contains("Text prologue"));
+        assertTrue(redacted.contains("Text epilogue"));
+
+        // Expect two placeholders for two blocks
+        int first = redacted.indexOf("[elided SEARCH/REPLACE block]");
+        assertTrue(first >= 0, "Expected first elided block");
+        int second = redacted.indexOf("[elided SEARCH/REPLACE block]", first + 1);
+        assertTrue(second >= 0, "Expected second elided block");
     }
 
     @Test
@@ -122,13 +142,12 @@ class EditBlockParseAllBlocksTest {
                 ```
                 Some concluding text.
                 """;
-        var editParseResult = EditBlockParser.instance.parseEditBlocks(input, Set.of());
+        var editParseResult = EditBlockParser.instance.parse(input, Set.of());
         assertNotNull(editParseResult.parseError(), "EditBlock parser should report an error");
         assertTrue(editParseResult.blocks().isEmpty(), "EditBlock parser should find no valid blocks");
 
-        // LlmOutputParser should fall back to plain/code parsing
-        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
-        assertEquals(1, result.size());
-        assertNotNull(result.getFirst().text());
+        // redact should be a no-op for malformed blocks
+        var redacted = EditBlockParser.instance.redact(input);
+        assertEquals(input, redacted, "Malformed block should be treated as plain text in redaction");
     }
 }

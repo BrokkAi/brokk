@@ -375,7 +375,7 @@ public class CodeAgent {
 
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
         var parseResult =
-                parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
+                parser.parse(llmText, contextManager.getRepo().getTrackedFiles());
         var newlyParsedBlocks = parseResult.blocks();
         if (metrics != null) {
             metrics.totalEditBlocks += newlyParsedBlocks.size();

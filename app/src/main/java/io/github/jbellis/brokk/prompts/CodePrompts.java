@@ -109,32 +109,14 @@ public abstract class CodePrompts {
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
     public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
-        // Pass an empty set for trackedFiles as it's not needed for redaction.
-        var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
-        // Check if there are actual S/R block objects, not just text parts
-        boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
+        String original = aiMessage.text();
+        String redacted = parser.redact(original);
+        boolean changed = !redacted.equals(original);
 
-        if (!hasSrBlocks) {
-            // No S/R blocks, return message as is (if not blank)
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
+        if (!changed) {
+            return original.isBlank() ? Optional.empty() : Optional.of(aiMessage);
         } else {
-            // Contains S/R blocks, needs redaction
-            var blocks = parsedResult.blocks();
-            var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
-                if (ob.block() == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
-                }
-            }
-            String redactedText = sb.toString();
-            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
+            return redacted.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redacted));
         }
     }
 

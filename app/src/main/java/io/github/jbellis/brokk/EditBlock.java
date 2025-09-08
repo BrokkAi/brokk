@@ -223,26 +223,6 @@ public class EditBlock {
 
     public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {}
 
-    public record ExtendedParseResult(List<OutputBlock> blocks, @Nullable String parseError) {}
-
-    /** Represents a segment of the LLM output, categorized as either plain text or a parsed Edit Block. */
-    public record OutputBlock(@Nullable String text, @Nullable SearchReplaceBlock block) {
-        /** Ensures that exactly one of the fields is non-null. */
-        public OutputBlock {
-            assert (text == null) != (block == null);
-        }
-
-        /** Convenience constructor for plain text blocks. */
-        public static OutputBlock plain(String text) {
-            return new OutputBlock(text, null);
-        }
-
-        /** Convenience constructor for Edit blocks. */
-        public static OutputBlock edit(SearchReplaceBlock block) {
-            return new OutputBlock(null, block);
-        }
-    }
-
     /**
      * Determines if an edit operation constitutes a logical deletion of file content. A deletion occurs if the original
      * content was non-blank and the updated content becomes blank.
