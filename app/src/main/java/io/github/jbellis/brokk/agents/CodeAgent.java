@@ -11,11 +11,13 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.EditBlock.FileOperation;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
+import io.github.jbellis.brokk.prompts.EditBlockParser.PatchParseException;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LogDescription;
@@ -376,11 +378,10 @@ public class CodeAgent {
 
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
-        List<EditBlock.FileOperation> newlyParsed;
+        List<FileOperation> newlyParsed;
         try {
             newlyParsed = parser.parse(llmText);
-        } catch (io.github.jbellis.brokk.prompts.EditBlockParser.PatchParseException pe) {
-            // Treat as parse failure; either ask to continue or remind about format
+        } catch (PatchParseException pe) {
             int updated = ws.consecutiveParseFailures() + 1;
             if (updated > MAX_PARSE_ATTEMPTS) {
                 reportComplete("Parse error limit reached; ending task.");
@@ -389,31 +390,45 @@ public class CodeAgent {
 
             // Remove the bad AI response and re-ask with a short reminder
             cs.taskMessages().removeLast(); // bad AI
-            var lastRequest = (dev.langchain4j.data.message.UserMessage) cs.taskMessages().removeLast();
+            var lastRequest = (UserMessage) cs.taskMessages().removeLast();
             var reminder = "The edit format must be a single apply_patch envelope. Please follow the instructions and examples.";
             var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
-            var nextReq = new dev.langchain4j.data.message.UserMessage(newRequestText);
+            var nextReq = new UserMessage(newRequestText);
 
             report("Failed to parse apply_patch; retrying with format reminder");
             var nextWs = ws.withPendingBlocks(ws.pendingBlocks(), updated);
-            return new Step.Retry(new LoopContext(new ConversationState(cs.taskMessages(), nextReq, cs.turnStartIndex()), nextWs, currentLoopContext.userGoal()));
+            return new Step.Retry(new LoopContext(
+                    new ConversationState(cs.taskMessages(), nextReq, cs.turnStartIndex()),
+                    nextWs,
+                    currentLoopContext.userGoal()));
         }
 
         if (metrics != null) metrics.totalEditBlocks += newlyParsed.size();
 
-        // Handle partial LLM stream cutoff: if we got a clean prefix, ask to continue
+        // If the stream was cut off, ask the model to continue after the last clean op we parsed.
         if (isPartialResponse) {
             int updated = ws.consecutiveParseFailures();
-            var nextReq = new dev.langchain4j.data.message.UserMessage("It looks like the response was cut off. Please continue the apply_patch envelope.");
-            var pending = new ArrayList<>(ws.pendingBlocks());
+            UserMessage nextReq;
+            if (newlyParsed.isEmpty()) {
+                nextReq = new UserMessage(
+                        "It looks like the response was cut off. Please continue the apply_patch envelope.");
+            } else {
+                var last = newlyParsed.getLast();
+                nextReq = new UserMessage(
+                        getContinueFromLastBlockPrompt(last, parser));
+            }
+            var pending = new java.util.ArrayList<>(ws.pendingBlocks());
             pending.addAll(newlyParsed);
             var nextWs = ws.withPendingBlocks(pending, updated);
             report("LLM indicated response was partial; asking to continue");
-            return new Step.Retry(new LoopContext(new ConversationState(cs.taskMessages(), nextReq, cs.turnStartIndex()), nextWs, currentLoopContext.userGoal()));
+            return new Step.Retry(new LoopContext(
+                    new ConversationState(cs.taskMessages(), nextReq, cs.turnStartIndex()),
+                    nextWs,
+                    currentLoopContext.userGoal()));
         }
 
         // success path
-        var pending = new ArrayList<>(ws.pendingBlocks());
+        var pending = new java.util.ArrayList<>(ws.pendingBlocks());
         pending.addAll(newlyParsed);
         var nextWs = ws.withPendingBlocks(pending, 0);
         return new Step.Continue(new LoopContext(cs, nextWs, currentLoopContext.userGoal()));
