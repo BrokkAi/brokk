@@ -1924,6 +1924,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var label = new JLabel(title, SwingConstants.CENTER);
             titleBar.add(label, BorderLayout.CENTER);
             frame.add(titleBar, BorderLayout.NORTH);
+            titleBar.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { // Double click
+                        if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                            // un-maximize the window
+                            frame.setExtendedState(JFrame.NORMAL);
+                        } else {
+                            // maximize the window
+                            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        }
+                    }
+                }
+            });
         }
     }
 
