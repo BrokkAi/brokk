@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import javax.swing.event.UndoableEditListener;
@@ -1562,6 +1563,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return null;
     }
 
+    // Save outcome for this panel (succeeded file names and failures with messages)
+    public static record SaveResult(Set<String> succeeded, Map<String, String> failed) {}
+
     // Aggregation DTO capturing a file change for save-all
     public static record AggregatedChange(
             String filename,
@@ -1617,8 +1621,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return changes;
     }
 
-    /** Writes all changed, non-readonly documents in this panel to disk. */
-    public void writeChangedDocuments() {
+    /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
+    public SaveResult writeChangedDocuments() {
+        var succeeded = new java.util.LinkedHashSet<String>();
+        var failed = new java.util.LinkedHashMap<String, String>();
+
         for (var fp : filePanels.values()) {
             if (!fp.isDocumentChanged()) continue;
             var doc = requireNonNull(fp.getBufferDocument());
@@ -1626,8 +1633,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
 
             try {
                 doc.write();
+                succeeded.add(doc.getName());
             } catch (Exception ex) {
                 logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
+                failed.put(doc.getName(), ex.getMessage());
                 mainPanel
                         .getConsoleIO()
                         .systemNotify(
@@ -1636,12 +1645,34 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
                                 JOptionPane.ERROR_MESSAGE);
             }
         }
+        return new SaveResult(java.util.Set.copyOf(succeeded), java.util.Map.copyOf(failed));
     }
 
-    /** Finalize state after a save-all operation: refresh baselines and dirty flags. */
+    /** Finalize state after a save-all operation: refresh baselines and dirty flags for all files. */
     public void finalizeAfterSaveAggregation() {
         updateBaselineContentAfterSave();
         recalcDirty();
+    }
+
+    /** Finalize selectively after a save-all operation: refresh baselines and dirty flags only for successfully saved files. */
+    public void finalizeAfterSaveAggregation(java.util.Set<String> savedFilenames) {
+        updateBaselineContentAfterSave(savedFilenames);
+        recalcDirty();
+    }
+
+    /** Update baseline only for the specified filenames after a successful save.*/
+    private void updateBaselineContentAfterSave(java.util.Set<String> savedFilenames) {
+        // Capture current content on EDT
+        var currentFileDataMap = captureCurrentFileDataOnEdt();
+
+        for (var filename : savedFilenames) {
+            var fileData = currentFileDataMap.get(filename);
+            if (fileData != null) {
+                contentBeforeChanges.put(filename, fileData.currentContent());
+            }
+            // Clear any tracked diff changes for files that were actually saved
+            pendingDiffChanges.remove(filename);
+        }
     }
 
     /** Mark creation context for debugging purposes. */

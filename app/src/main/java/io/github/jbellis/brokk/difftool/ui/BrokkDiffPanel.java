@@ -33,6 +33,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -731,21 +732,56 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            // Step 2: Write all changed documents while file change notifications are paused
+            // Step 2: Write all changed documents while file change notifications are paused, collecting results
+            var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
             contextManager.withFileChangeNotificationsPaused(() -> {
                 for (var p : panelsToSave) {
-                    p.writeChangedDocuments();
+                    var result = p.writeChangedDocuments();
+                    perPanelResults.put(p, result);
                 }
                 return null;
             });
 
-            // Step 3: Build a single TaskResult containing all diffs
+            // Merge results across panels
+            var successfulFiles = new LinkedHashSet<String>();
+            var failedFiles = new LinkedHashMap<String, String>();
+            for (var entry : perPanelResults.entrySet()) {
+                successfulFiles.addAll(entry.getValue().succeeded());
+                entry.getValue().failed().forEach((k, v) -> failedFiles.putIfAbsent(k, v));
+            }
+
+            // Filter to only successfully saved files
+            var mergedByFilenameSuccessful = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+            for (var e : mergedByFilename.entrySet()) {
+                if (successfulFiles.contains(e.getKey())) {
+                    mergedByFilenameSuccessful.put(e.getKey(), e.getValue());
+                }
+            }
+
+            // If nothing succeeded, summarize failures and abort history/baseline updates
+            if (mergedByFilenameSuccessful.isEmpty()) {
+                if (!failedFiles.isEmpty()) {
+                    var msg = failedFiles.entrySet().stream()
+                            .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
+                            .collect(Collectors.joining("\n"));
+                    contextManager
+                            .getIo()
+                            .systemNotify(
+                                    "No files were saved. Errors:\n" + msg,
+                                    "Save failed",
+                                    JOptionPane.ERROR_MESSAGE);
+                }
+                SwingUtilities.invokeLater(this::updateNavigationButtons);
+                return;
+            }
+
+            // Step 3: Build a single TaskResult containing diffs for successfully saved files
             var messages = new ArrayList<ChatMessage>();
             var changedFiles = new LinkedHashSet<ProjectFile>();
 
-            int fileCount = mergedByFilename.size();
+            int fileCount = mergedByFilenameSuccessful.size();
             // Build a friendlier action title: include filenames when 1-2 files, otherwise count
-            var topNames = mergedByFilename.values().stream()
+            var topNames = mergedByFilenameSuccessful.values().stream()
                     .limit(2)
                     .map(ch -> {
                         var pf = ch.projectFile();
@@ -765,7 +801,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             messages.add(Messages.customSystem(actionDescription));
 
             // Per-file diffs
-            for (var entry : mergedByFilename.values()) {
+            for (var entry : mergedByFilenameSuccessful.values()) {
                 var filename = entry.filename();
                 var originalLines = entry.originalContent().lines().collect(Collectors.toList());
                 var currentLines = entry.currentContent().lines().collect(Collectors.toList());
@@ -800,10 +836,24 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             contextManager.addToHistory(result, false);
             logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
 
-            // Step 4: Finalize panels and refresh UI
+            // Step 4: Finalize panels selectively and refresh UI
             for (var p : panelsToSave) {
-                p.finalizeAfterSaveAggregation();
+                var saved = perPanelResults.getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of())).succeeded();
+                p.finalizeAfterSaveAggregation(saved);
                 refreshTabTitle(p);
+            }
+
+            // If some files failed, notify the user after successful saves
+            if (!failedFiles.isEmpty()) {
+                var msg = failedFiles.entrySet().stream()
+                        .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
+                        .collect(Collectors.joining("\n"));
+                contextManager
+                        .getIo()
+                        .systemNotify(
+                                "Some files could not be saved:\n" + msg,
+                                "Partial save completed",
+                                JOptionPane.WARNING_MESSAGE);
             }
 
             repaint();
@@ -1355,7 +1405,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                         // Apply theme to ensure consistent state and avoid false dirty flags
                         panel.applyTheme(theme);
                         // Clear any transient dirty state caused by mirroring during preload
-                        panel.finalizeAfterSaveAggregation();
+                        resetDocumentDirtyStateAfterTheme(panel);
 
                         // Cache will automatically check window constraints
                         panelCache.put(fileIndex, panel);
