@@ -71,11 +71,11 @@ public class ArchitectOptionsDialog {
             var project = chrome.getProject();
 
             var tmpBool = false;
-            try {
-                IAnalyzer currentAnalyzer = contextManager.getAnalyzerWrapper().get();
+            IAnalyzer currentAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            if (currentAnalyzer != null) {
                 tmpBool = currentAnalyzer.as(UsagesProvider.class).isPresent()
                         && currentAnalyzer.as(CallGraphProvider.class).isPresent();
-            } catch (InterruptedException e) {
+            } else {
                 log.warn("Interrupted while determining analyzer capabilities.");
             }
             final var supportsInterproceduralAnalysis = tmpBool;
