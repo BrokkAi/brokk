@@ -25,17 +25,19 @@ import org.apache.logging.log4j.Logger;
  * LRU eviction based on {@link java.nio.file.attribute.FileTime} of the cached files.
  *
  * <p>Enabled only when the environment variable {@code BRK_CPG_CACHE} is set.
+ *
+ * <p>TODO: Re-purpose as general cache for analyzers that use databases.
  */
-public final class CpgCache {
-    private static final Logger logger = LogManager.getLogger(CpgCache.class);
+public final class AnalyzerStorageCache {
+    private static final Logger logger = LogManager.getLogger(AnalyzerStorageCache.class);
     private static final String ENV_FLAG = "BRK_CPG_CACHE";
     private static final int MAX_ENTRIES = 100;
 
-    private CpgCache() {}
+    private AnalyzerStorageCache() {}
 
     public static IAnalyzer getOrCompute(IProject project, Language language, Supplier<IAnalyzer> builder) {
         // Fast path: cache disabled or language not CPG-based
-        if (!language.isCpg() || System.getenv(ENV_FLAG) == null) {
+        if (System.getenv(ENV_FLAG) == null) {
             return builder.get();
         }
 
@@ -46,7 +48,7 @@ public final class CpgCache {
 
             String key = computeHash(project, language);
             Path cacheFile = cacheDir.resolve(key + ".cpg");
-            Path projCpg = language.getCpgPath(project);
+            Path projCpg = language.getStoragePath(project);
 
             if (Files.exists(cacheFile)) {
                 logger.debug("CPG cache hit for {} ({})", language.name(), key);
@@ -139,7 +141,7 @@ public final class CpgCache {
     private static void evictOldest(Path cacheDir) {
         try (Stream<Path> files = Files.list(cacheDir)
                 .filter(p -> p.getFileName().toString().endsWith(".cpg"))
-                .sorted(Comparator.comparing(CpgCache::lastModifiedTime))) {
+                .sorted(Comparator.comparing(AnalyzerStorageCache::lastModifiedTime))) {
 
             List<Path> all = files.toList();
             if (all.size() <= MAX_ENTRIES) return;

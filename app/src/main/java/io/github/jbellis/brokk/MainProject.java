@@ -738,18 +738,18 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public CpgRefresh getAnalyzerRefresh() {
+    public AnalyzerRefresh getAnalyzerRefresh() {
         String value = projectProps.getProperty("code_intelligence_refresh");
-        if (value == null) return CpgRefresh.UNSET;
+        if (value == null) return AnalyzerRefresh.UNSET;
         try {
-            return CpgRefresh.valueOf(value.toUpperCase(Locale.ROOT));
+            return AnalyzerRefresh.valueOf(value.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            return CpgRefresh.UNSET;
+            return AnalyzerRefresh.UNSET;
         }
     }
 
     @Override
-    public void setAnalyzerRefresh(CpgRefresh value) {
+    public void setAnalyzerRefresh(AnalyzerRefresh value) {
         projectProps.setProperty("code_intelligence_refresh", value.name());
         saveProjectProperties();
     }

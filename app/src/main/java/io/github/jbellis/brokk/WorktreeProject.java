@@ -128,12 +128,12 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public CpgRefresh getAnalyzerRefresh() {
+    public AnalyzerRefresh getAnalyzerRefresh() {
         return parent.getAnalyzerRefresh();
     }
 
     @Override
-    public void setAnalyzerRefresh(CpgRefresh value) {
+    public void setAnalyzerRefresh(AnalyzerRefresh value) {
         parent.setAnalyzerRefresh(value);
     }
 

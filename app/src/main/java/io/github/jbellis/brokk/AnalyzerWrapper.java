@@ -81,7 +81,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     metrics.numberOfCodeUnits());
 
             // configure auto-refresh based on how long the first build took
-            if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
+            if (project.getAnalyzerRefresh() == IProject.AnalyzerRefresh.UNSET) {
                 handleFirstBuildRefreshSettings(
                         metrics.numberOfCodeUnits(), durationMs, project.getAnalyzerLanguages());
             }
@@ -137,7 +137,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
 
         if (!relevantFiles.isEmpty()) {
             // update the analyzer if we're configured to do so
-            if (project.getAnalyzerRefresh() != IProject.CpgRefresh.AUTO) {
+            if (project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.AUTO) {
                 return;
             }
 
@@ -211,14 +211,13 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
 
-        /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
+        /* ── 2.  Determine if any cached storage is stale ───────────────────────────────── */
         logger.debug("Scanning for modified project files");
         boolean needsRebuild = externalRebuildRequested; // explicit user request wins
-        if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
+        if (project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.MANUAL) {
             for (Language lang : project.getAnalyzerLanguages()) {
-                if (!lang.isCpg()) continue; // non‑CPG langs are rebuilt ad‑hoc
-                Path cpgPath = lang.getCpgPath(project);
-                if (!Files.exists(cpgPath)) { // no cache → rebuild
+                Path storagePath = lang.getStoragePath(project);
+                if (!Files.exists(storagePath)) { // no cache → rebuild
                     needsRebuild = true;
                     continue;
                 }
@@ -228,7 +227,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                                 .contains(com.google.common.io.Files.getFileExtension(
                                         pf.absPath().toString())))
                         .toList();
-                if (isStale(lang, cpgPath, tracked)) // cache older than sources
+                if (isStale(lang, storagePath, tracked)) // cache older than sources
                 needsRebuild = true;
             }
         }
@@ -273,7 +272,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
+        if (needsRebuild
+                && project.getAnalyzerRefresh() != IProject.AnalyzerRefresh.MANUAL
+                && !externalRebuildRequested) {
             logger.debug("Scheduling background refresh");
             IAnalyzer finalAnalyzer = analyzer;
             runner.submit("Refreshing Code Intelligence", () -> {
@@ -301,11 +302,11 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     "AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
             // Set a default refresh policy if listener is unexpectedly null
             if (isEmpty || durationMs > 3 * 6000) {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
+                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.MANUAL);
             } else if (durationMs > 5000) {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
+                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.ON_RESTART);
             } else {
-                project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
+                project.setAnalyzerRefresh(IProject.AnalyzerRefresh.AUTO);
             }
             return;
         }
@@ -314,7 +315,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             logger.info("Empty {} analyzer", langNames);
             listener.afterFirstBuild("");
         } else if (durationMs > 3 * 6000) {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
+            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.MANUAL);
             var msg =
                     """
                             Code Intelligence for %s found %d declarations in %,d ms.
@@ -326,7 +327,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else if (durationMs > 5000) {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
+            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.ON_RESTART);
             var msg =
                     """
                             Code Intelligence for %s found %d declarations in %,d ms.
@@ -338,7 +339,7 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else {
-            project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
+            project.setAnalyzerRefresh(IProject.AnalyzerRefresh.AUTO);
             var msg =
                     """
                             Code Intelligence for %s found %d declarations in %,d ms.
@@ -351,10 +352,6 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         }
-    }
-
-    public boolean isCpg() {
-        return project.getAnalyzerLanguages().stream().anyMatch(Language::isCpg);
     }
 
     /** Convenience overload that infers the language set from {@link #project}. */
