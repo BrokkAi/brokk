@@ -9,7 +9,7 @@ import io.github.jbellis.brokk.EditBlock.UpdateFileChunk;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
+
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -124,7 +124,7 @@ public class EditBlockParser {
                 i++;
                 while (i < lines.length && !lines[i].trim().equals("*** End Patch")) i++;
                 if (i < lines.length) i++; // consume End
-                if (out.length() > 0 && out.charAt(out.length()-1) != '\n') out.append('\n');
+                if (!out.isEmpty() && out.charAt(out.length() - 1) != '\n') out.append('\n');
                 out.append(placeholder);
                 elided = true;
                 continue;
@@ -144,7 +144,7 @@ public class EditBlockParser {
 
     /** Parse one or more envelopes found in {@code content}. */
     public List<FileOperation> parse(String content) {
-        if (content == null || content.isBlank()) return List.of();
+        if (content.isBlank()) return List.of();
         var all = new ArrayList<FileOperation>();
         var lines = content.split("\n", -1);
         int i = 0;
@@ -319,7 +319,7 @@ public class EditBlockParser {
         return switch (op) {
             case EditBlock.AddFile add -> {
                 var sb = new StringBuilder();
-                sb.append("*** Add File: ").append(add.path()).append("\n");
+                sb.append("*** Add File: ").append(add.rawPath()).append("\n");
                 if (!add.contents().isEmpty()) {
                     var ls = add.contents().split("\n", -1);
                     for (int i = 0; i < ls.length; i++) {
@@ -330,10 +330,10 @@ public class EditBlockParser {
                 }
                 yield sb.toString().stripTrailing();
             }
-            case EditBlock.DeleteFile del -> "*** Delete File: " + del.path();
+            case EditBlock.DeleteFile del -> "*** Delete File: " + del.rawPath();
             case EditBlock.UpdateFile upd -> {
                 var sb = new StringBuilder();
-                sb.append("*** Update File: ").append(upd.path()).append("\n");
+                sb.append("*** Update File: ").append(upd.rawPath()).append("\n");
                 if (upd.moveTo() != null && !upd.moveTo().isBlank()) {
                     sb.append("*** Move to: ").append(upd.moveTo()).append("\n");
                 }

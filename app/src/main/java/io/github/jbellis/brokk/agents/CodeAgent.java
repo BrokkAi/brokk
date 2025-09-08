@@ -391,7 +391,7 @@ public class CodeAgent {
             cs.taskMessages().removeLast(); // bad AI
             var lastRequest = (dev.langchain4j.data.message.UserMessage) cs.taskMessages().removeLast();
             var reminder = "The edit format must be a single apply_patch envelope. Please follow the instructions and examples.";
-            var newRequestText = io.github.jbellis.brokk.util.Messages.getText(lastRequest) + "\n\n" + reminder;
+            var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
             var nextReq = new dev.langchain4j.data.message.UserMessage(newRequestText);
 
             report("Failed to parse apply_patch; retrying with format reminder");
@@ -507,16 +507,16 @@ public class CodeAgent {
     /** Formats the most recent build error for the LLM retry prompt. */
     private static String formatBuildErrorsForLLM(String latestBuildError) {
         return """
-                The build failed with the following error:
+            The build failed with the following error:
 
-                %s
+            %s
 
-                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
+            Please analyze the error message, review the conversation history for previous attempts, and provide patch operations to fix the error.
 
-                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
-                do your best to explain the problem but DO NOT provide any edits.
-                Otherwise, provide the edits as usual.
-                """
+            IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
+            do your best to explain the problem but DO NOT provide any edits.
+            Otherwise, provide the edits as usual.
+            """
                 .stripIndent()
                 .formatted(latestBuildError);
     }
@@ -529,11 +529,11 @@ public class CodeAgent {
      */
     private static String getContinueFromLastBlockPrompt(EditBlock.FileOperation lastBlock) {
         return """
-                It looks like we got cut off. The last block I successfully parsed was:
+                It looks like we got cut off. The last operation I successfully parsed was:
 
-                <block>
+                ```
                 %s
-                </block>
+                ```
 
                 Please continue from there (WITHOUT repeating that one).
                 """
@@ -701,7 +701,7 @@ public class CodeAgent {
                             .formatted(
                                     failedBlocks.size(),
                                     failedBlocks.stream()
-                                            .map(b -> b.block().rawFileName())
+                                            .map(b -> b.block().rawPath())
                                             .collect(Collectors.joining(",")));
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, msg);
                     return new Step.Fatal(details);
@@ -723,7 +723,7 @@ public class CodeAgent {
                 }
             } else { // All blocks from ws.pendingBlocks() applied successfully
                 if (succeededCount > 0) {
-                    report(succeededCount + " SEARCH/REPLACE blocks applied.");
+                    report(succeededCount + " patches applied.");
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 wsForStep = ws.afterApply(
@@ -992,7 +992,7 @@ public class CodeAgent {
          * Generate a compact apply_patch set of operations that describe this turn's changes,
          * preserving fine-grained chunks. The windows logic mirrors the old SRB summarization.
          */
-        @org.jetbrains.annotations.VisibleForTesting
+        @VisibleForTesting
         List<EditBlock.FileOperation> toFileOperations() {
             var results = new ArrayList<EditBlock.FileOperation>();
             var originals = originalFileContents();
@@ -1021,16 +1021,14 @@ public class CodeAgent {
                     continue;
                 }
 
-                // Build fine-grained UpdateFile by diffing and creating multiple small chunks
                 var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
-                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
+                var revisedLines  = revised.isEmpty()  ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
                 try {
                     com.github.difflib.patch.Patch<String> patch =
                             com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
 
-                    // Windows over source lines to anchor minimal-unique before sections
                     record Window(int start, int end) {
-                        Window expandLeft() { return new Window(Math.max(0, start - 1), end); }
+                        Window expandLeft()  { return new Window(Math.max(0, start - 1), end); }
                         Window expandRight(int max) { return new Window(start, Math.min(max, end + 1)); }
                     }
                     var windows = new ArrayList<Window>();
@@ -1054,14 +1052,13 @@ public class CodeAgent {
                         windows.add(new Window(wStart, wEnd));
                     }
 
-                    // Uniquify by expanding left/right until "before" slice occurs once
                     int lastIdx = Math.max(0, originalLines.size() - 1);
                     windows = windows.stream().map(w -> {
                         Window cur = w;
                         String before = joinLines(originalLines, cur.start, cur.end);
                         while (!before.isEmpty()
-                                && countOccurrences(original, before) > 1
-                                && (cur.start > 0 || cur.end < lastIdx)) {
+                               && countOccurrences(original, before) > 1
+                               && (cur.start > 0 || cur.end < lastIdx)) {
                             if (cur.start > 0) cur = cur.expandLeft();
                             if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
                             before = joinLines(originalLines, cur.start, cur.end);
@@ -1069,7 +1066,6 @@ public class CodeAgent {
                         return cur;
                     }).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
 
-                    // Merge overlapping/adjacent windows
                     windows.sort(Comparator.comparingInt(w -> w.start));
                     var merged = new ArrayList<Window>();
                     for (var w : windows) {
@@ -1085,9 +1081,7 @@ public class CodeAgent {
                         }
                     }
 
-                    // Map windows to UpdateFileChunk(s)
                     var chunks = new ArrayList<EditBlock.UpdateFileChunk>();
-                    // Precompute delta shapes to map source -> target
                     record Shape(int pos, int size, int net) {}
                     var shapes = patch.getDeltas().stream()
                             .map(d -> new Shape(
@@ -1105,7 +1099,6 @@ public class CodeAgent {
                         int revisedStart = w.start + netBeforeStart;
                         int windowLen = w.end - w.start + 1;
 
-                        // net in-window changes
                         int netInWindow = 0;
                         for (var d : patch.getDeltas()) {
                             int p = d.getSource().getPosition();
@@ -1122,15 +1115,39 @@ public class CodeAgent {
 
                         int revisedEnd = revisedStart + windowLen + netInWindow - 1;
                         var before = slice(originalLines, w.start, w.end);
-                        var after = slice(revisedLines, revisedStart, revisedEnd);
+                        var after  = slice(revisedLines,  revisedStart, revisedEnd);
 
+                        // Compute pre/old/new/post by trimming common prefix/suffix
+                        int prefix = 0;
+                        while (prefix < before.size() && prefix < after.size()
+                               && Objects.equals(before.get(prefix), after.get(prefix))) {
+                            prefix++;
+                        }
+                        int suffix = 0;
+                        while (suffix < (before.size() - prefix) && suffix < (after.size() - prefix)
+                               && Objects.equals(
+                                before.get(before.size() - 1 - suffix),
+                                after.get(after.size() - 1 - suffix))) {
+                            suffix++;
+                        }
+
+                        var pre  = before.subList(0, prefix);
+                        var oldL = before.subList(prefix, before.size() - suffix);
+                        var newL = after.subList(prefix,  after.size()  - suffix);
+                        var post = before.subList(before.size() - suffix, before.size());
+
+                        boolean eof = revisedEnd == revisedLines.size() - 1;
                         chunks.add(new EditBlock.UpdateFileChunk(
-                                null, before, after, revisedEnd == revisedLines.size() - 1));
+                                null,
+                                List.copyOf(pre),
+                                List.copyOf(oldL),
+                                List.copyOf(newL),
+                                List.copyOf(post),
+                                eof));
                     }
 
                     results.add(new EditBlock.UpdateFile(file.toString(), null, List.copyOf(chunks)));
                 } catch (Exception e) {
-                    // worst-case fall back to "Add File" with full content, which is acceptable for summary
                     logger.warn("Diff summarization failed for {}; falling back to AddFile", file, e);
                     results.add(new EditBlock.AddFile(file.toString(), revised));
                 }
@@ -1138,6 +1155,7 @@ public class CodeAgent {
 
             return results;
         }
+
 
         private static String joinLines(List<String> lines, int start, int end) {
             if (lines.isEmpty() || start > end) return "";
@@ -1173,32 +1191,6 @@ public class CodeAgent {
             }
             return count;
         }
-    }
-
-    private static int clamp(int v, int lo, int hi) {
-        return Math.max(lo, Math.min(hi, v));
-    }
-
-    private static String joinLines(List<String> lines, int start, int end) {
-        if (lines.isEmpty() || start > end) return "";
-        var slice = String.join("\n", lines.subList(start, end + 1));
-        return slice.isEmpty() ? "" : ensureTerminated(slice);
-    }
-
-    private static int countOccurrences(String text, String needle) {
-        if (needle.isEmpty()) return 0;
-        int count = 0;
-        int idx = 0;
-        while ((idx = text.indexOf(needle, idx)) != -1) {
-            count++;
-            idx = idx + Math.max(1, needle.length());
-        }
-        return count;
-    }
-
-    private static String ensureTerminated(String s) {
-        if (s.isEmpty()) return s;
-        return s.endsWith("\n") ? s : s + "\n";
     }
 
     private static class Metrics {

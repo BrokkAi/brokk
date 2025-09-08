@@ -5,10 +5,14 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import java.io.IOException;
 import java.text.Normalizer;
 import java.util.*;
+import java.util.regex.Pattern;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Apply "apply_patch" operations to the workspace.
@@ -19,17 +23,40 @@ import org.jetbrains.annotations.Nullable;
  */
 public class EditBlock {
     private static final Logger logger = LogManager.getLogger(EditBlock.class);
-    private EditBlock() {}
+
+    private EditBlock() {
+        // utility class
+    }
+
+    /**
+     * Helper that returns the first code block found between triple backticks. Skips any text on the same line as the
+     * opening backticks (like language specifiers) and starts capturing from the next line. Returns an empty string if
+     * no valid block is found.
+     */
+    public static String extractCodeFromTripleBackticks(String text) {
+        // Pattern: ``` followed by optional non-newline chars, then newline, then capture until ```
+        // The (.*) is greedy to ensure embedded ``` within the block are treated as content.
+        var matcher = Pattern.compile(
+                        "```[^\\n]*\\n(.*)```", // Skips language specifier line; (.*) captures content greedily.
+                        Pattern.DOTALL)
+                .matcher(text);
+
+        if (matcher.find()) {
+            // group(1) captures the content between the initial newline (after ```[lang]) and the closing ```
+            return matcher.group(1);
+        }
+        return "";
+    }
 
     // ---------------- Sealed operations ----------------
 
     public sealed interface FileOperation permits AddFile, DeleteFile, UpdateFile {
-        String path();
+        String rawPath();
     }
 
-    public record AddFile(String path, String contents) implements FileOperation {}
-    public record DeleteFile(String path) implements FileOperation {}
-    public record UpdateFile(String path, @Nullable String moveTo, List<UpdateFileChunk> chunks)
+    public record AddFile(String rawPath, String contents) implements FileOperation {}
+    public record DeleteFile(String rawPath) implements FileOperation {}
+    public record UpdateFile(String rawPath, @Nullable String moveTo, List<UpdateFileChunk> chunks)
             implements FileOperation {}
 
     public record UpdateFileChunk(
@@ -73,7 +100,7 @@ public class EditBlock {
             try {
                 switch (op) {
                     case AddFile add -> {
-                        var pf = toProjectFile(contextManager, add.path());
+                        var pf = toProjectFile(contextManager, add.rawPath());
                         var had = pf.exists();
                         var orig = had ? pf.read() : "";
                         pf.write(ensureTrailingNewline(add.contents()));
@@ -82,7 +109,7 @@ public class EditBlock {
                         logger.info("Added/updated {}", pf);
                     }
                     case DeleteFile del -> {
-                        var pf = toProjectFile(contextManager, del.path());
+                        var pf = toProjectFile(contextManager, del.rawPath());
                         if (!pf.exists()) {
                             failed.add(new FailedBlock(del, ParseFailureReason.FILE_NOT_FOUND));
                             logger.warn("Delete target missing: {}", pf);
@@ -95,7 +122,7 @@ public class EditBlock {
                         logger.info("Deleted {}", pf);
                     }
                     case UpdateFile upd -> {
-                        var src = toProjectFile(contextManager, upd.path());
+                        var src = toProjectFile(contextManager, upd.rawPath());
                         if (!src.exists()) {
                             failed.add(new FailedBlock(upd, ParseFailureReason.FILE_NOT_FOUND));
                             logger.warn("Update target missing: {}", src);
@@ -106,10 +133,10 @@ public class EditBlock {
                         try {
                             revised = applyChunks(original, upd.chunks(), src.toString());
                         } catch (NoMatchException e) {
-                            failed.add(new FailedBlock(upd, ParseFailureReason.NO_MATCH, e.getMessage()));
+                            failed.add(new FailedBlock(upd, ParseFailureReason.NO_MATCH, requireNonNull(e.getMessage())));
                             continue;
                         } catch (AmbiguousMatchException e) {
-                            failed.add(new FailedBlock(upd, ParseFailureReason.AMBIGUOUS_MATCH, e.getMessage()));
+                            failed.add(new FailedBlock(upd, ParseFailureReason.AMBIGUOUS_MATCH, requireNonNull(e.getMessage())));
                             continue;
                         }
                         if (upd.moveTo() != null && !upd.moveTo().isBlank()) {
@@ -126,9 +153,11 @@ public class EditBlock {
                     }
                 }
             } catch (IOException ioe) {
-                failed.add(new FailedBlock(op, ParseFailureReason.IO_ERROR, ioe.getMessage()));
-            } catch (IllegalArgumentException iae) {
-                failed.add(new FailedBlock(op, ParseFailureReason.FILE_NOT_FOUND, iae.getMessage()));
+                failed.add(new FailedBlock(op, ParseFailureReason.IO_ERROR, requireNonNull(ioe.getMessage())));
+            } catch (SymbolInvalidException iae) {
+                failed.add(new FailedBlock(op, ParseFailureReason.FILE_NOT_FOUND, requireNonNull(iae.getMessage())));
+            } catch (GitAPIException e) {
+                // ignore
             }
         }
 
@@ -168,8 +197,8 @@ public class EditBlock {
             pattern.addAll(ch.oldLines());
             pattern.addAll(ch.postContext());
 
-            // For pure insertion, match pre+post; insert after pre
             if (ch.oldLines().isEmpty()) {
+                // pure insertion: find the surrounding pre+post window; if both are empty and EOF is marked, append
                 var match = findUnique(lines, pattern, cursor, ch.isEndOfFile());
                 if (match.isEmpty()) throw new NoMatchException("Failed to locate insertion site in " + path);
                 int insertion = match.getAsInt() + ch.preContext().size();
@@ -220,11 +249,16 @@ public class EditBlock {
 
     private static OptionalInt findUnique(List<String> lines, List<String> pattern, int start, boolean eof)
             throws AmbiguousMatchException {
-        if (pattern.isEmpty()) return OptionalInt.of(start);
+        // Empty pattern: treat as a cursor or EOF insertion point
+        if (pattern.isEmpty()) {
+            int idx = eof ? lines.size() : Math.max(0, Math.min(start, lines.size()));
+            return OptionalInt.of(idx);
+        }
         if (pattern.size() > lines.size()) return OptionalInt.empty();
 
-        int searchStart = eof && lines.size() >= pattern.size() ? lines.size() - pattern.size() : start;
+        int searchStart = eof ? lines.size() - pattern.size() : start;
         int last = Math.min(lines.size() - pattern.size(), lines.size() - pattern.size());
+
         // pass 1: exact
         var m = findMatches(lines, pattern, searchStart, last, Mode.EXACT);
         if (m.size() > 1) throw new AmbiguousMatchException("Multiple exact matches found");
@@ -290,7 +324,7 @@ public class EditBlock {
     // ---------------- Path resolution ----------------
 
     private static ProjectFile toProjectFile(IContextManager cm, String path) throws SymbolInvalidException {
-        try { return cm.toFile(Objects.requireNonNull(path)); }
+        try { return cm.toFile(requireNonNull(path)); }
         catch (IllegalArgumentException e) { throw new SymbolInvalidException("Invalid path: " + path); }
     }
 }

@@ -314,31 +314,31 @@ public abstract class CodePrompts {
         <instructions>
         Think about this request for changes to the supplied code.
         If the request is ambiguous, %s.
-
+    
         Once you understand the request you MUST:
-
-        1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
+    
+        1. Decide if you need to propose edits for any code whose source is not available.
            You can create new files without asking!
            But if you need to propose changes to code you can't see,
-           you *MUST* tell the user their full filename names and ask them to *add the files to the chat*;
+           you *MUST* tell the user their full filenames and ask them to *add the files to the chat*;
            end your reply and wait for their approval.
            But if you only need to change individual functions whose code you can see,
            you may do so without having the entire file in the Workspace.
-
+    
         2. Explain the needed changes in a few short sentences.
-
-        3. Describe each change with a *SEARCH/REPLACE* block.
-
-        All changes to files must use this *SEARCH/REPLACE* block format.
-
+    
+        3. Provide a single *** Begin Patch ... *** End Patch envelope using the patch format.
+    
+        All changes to files must use this patch format.
+    
         If a file is read-only or unavailable, ask the user to add it or make it editable.
-
+    
         If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
         """
                         .formatted(
                                 GraphicsEnvironment.isHeadless()
-                                        ? "decide what the most logical interpretation is"
-                                        : "ask questions");
+                                ? "decide what the most logical interpretation is"
+                                : "ask questions");
         return new UserMessage(instructions + parser.instructions(input, file, reminder));
     }
 
@@ -383,8 +383,8 @@ public abstract class CodePrompts {
 
         // Group failed blocks by path
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().path() != null)
-                .collect(Collectors.groupingBy(fb -> fb.block().path()));
+                .filter(fb -> fb.block().rawPath() != null)
+                .collect(Collectors.groupingBy(fb -> fb.block().rawPath()));
 
         int totalFailCount = failedBlocks.size();
         boolean singularFail = (totalFailCount == 1);
