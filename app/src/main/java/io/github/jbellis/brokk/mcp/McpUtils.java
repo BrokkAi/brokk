@@ -5,7 +5,6 @@ import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.net.URL;
-import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
@@ -19,13 +18,7 @@ public class McpUtils {
     private static final Logger logger = LogManager.getLogger(McpUtils.class);
 
     public static List<String> fetchTools(URL url, @Nullable String bearerToken) {
-        // https://github.com/modelcontextprotocol/java-sdk/issues/433#issuecomment-3236669880
-        HttpClient.Builder clientBuilder = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .followRedirects(HttpClient.Redirect.NORMAL);
-
-        var transportBuilder =
-                HttpClientStreamableHttpTransport.builder(url.toString()).clientBuilder(clientBuilder);
+        var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString());
         if (bearerToken != null) {
             transportBuilder.customizeRequest(request -> request.header("Authorization", "Bearer " + bearerToken));
         }
