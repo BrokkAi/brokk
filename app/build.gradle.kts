@@ -59,9 +59,6 @@ dependencies {
     // API interfaces and supporting classes
     implementation(project(":analyzer-api"))
 
-    // Direct implementation dependency on Scala analyzers
-    implementation(project(":joern-analyzers"))
-
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
 
