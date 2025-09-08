@@ -28,6 +28,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
@@ -94,6 +95,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JButton testExecutorButton = new JButton("Test");
     private JButton resetExecutorButton = new JButton("Reset");
     private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
+
+    // System-default executor
+    private static final boolean IS_WINDOWS =
+            System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
+    private static final String DEFAULT_EXECUTOR_PATH = IS_WINDOWS ? "cmd.exe" : "/bin/sh";
+    private static final String DEFAULT_EXECUTOR_ARGS = IS_WINDOWS ? "/c" : "-c";
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
@@ -800,51 +807,56 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.WEST;
         gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Custom Executor:"), gbc);
+        buildPanel.add(new JLabel("Execute with:"), gbc);
+
+        // Path field + dropdown in same row
+        var executorSelectPanel = new JPanel(new GridBagLayout());
+        var gbcInner = new GridBagConstraints();
+        gbcInner.fill = GridBagConstraints.HORIZONTAL;
+        gbcInner.weightx = 1.0;
+        executorSelectPanel.add(executorPathField, gbcInner);
+        gbcInner.weightx = 0;
+        gbcInner.fill = GridBagConstraints.NONE;
+        gbcInner.anchor = GridBagConstraints.WEST;
+        gbcInner.insets = new Insets(0, 5, 0, 0);
+        executorSelectPanel.add(commonExecutorsComboBox, gbcInner);
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(executorPathField, gbc);
+        buildPanel.add(executorSelectPanel, gbc);
 
-        // Executor path controls (reset button and common executors)
-        var executorControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        executorControlPanel.add(resetExecutorButton);
-        executorControlPanel.add(new JLabel("Common:"));
-        executorControlPanel.add(commonExecutorsComboBox);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        buildPanel.add(executorControlPanel, gbc);
-
+        // Default args row
         gbc.gridx = 0;
         gbc.gridy = row;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(new JLabel("Executor Arguments:"), gbc);
+        buildPanel.add(new JLabel("Default parameters:"), gbc);
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(executorArgsField, gbc);
 
-        // Test button and info
-        var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        executorTestPanel.add(testExecutorButton);
+        // Test / Reset buttons + info
         var executorInfoLabel = new JLabel(
-                "<html>Custom executors work in all modes. Approved executors work in sandbox mode. Default args: \"-c\"</html>");
+                "<html>Custom executors work in all modes. Approved executors work in sandbox mode. Default args: \"" + DEFAULT_EXECUTOR_ARGS + "\"</html>");
         executorInfoLabel.setFont(executorInfoLabel
                 .getFont()
                 .deriveFont(Font.ITALIC, executorInfoLabel.getFont().getSize() * 0.9f));
+
+        var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        executorTestPanel.add(testExecutorButton);
+        executorTestPanel.add(Box.createHorizontalStrut(5));
+        executorTestPanel.add(resetExecutorButton);
+        executorTestPanel.add(Box.createHorizontalStrut(10));
         executorTestPanel.add(executorInfoLabel);
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(0, 2, 8, 2);
+        gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(executorTestPanel, gbc);
-        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
         // Removed Build Instructions Area and its ScrollPane
 
@@ -891,17 +903,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.BOTH;
         buildPanel.add(this.excludedScrollPane, gbc);
 
-        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         excludedButtonsPanel.add(this.addExcludedDirButton);
+        excludedButtonsPanel.add(Box.createHorizontalStrut(5));
         excludedButtonsPanel.add(this.removeExcludedDirButton);
         gbc.gridy = row + 1;
         gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.insets = new Insets(2, 0, 2, 2);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(excludedButtonsPanel, gbc);
         row += 2;
-        gbc.insets = new Insets(2, 2, 2, 2);
 
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
@@ -932,7 +943,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.EAST;
+        gbc.anchor = GridBagConstraints.WEST;
         inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
         buildPanel.add(inferBuildDetailsButton, gbc);
 
@@ -1300,8 +1311,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         String executorPath = project.getCommandExecutor();
         String executorArgs = project.getExecutorArgs();
 
-        executorPathField.setText(executorPath != null ? executorPath : "");
-        executorArgsField.setText(executorArgs != null ? executorArgs : "-c");
+        executorPathField.setText(executorPath != null ? executorPath : DEFAULT_EXECUTOR_PATH);
+        executorArgsField.setText(executorArgs != null ? executorArgs : DEFAULT_EXECUTOR_ARGS);
 
         logger.trace("Build panel settings loaded/reloaded with details: {}", details);
     }
@@ -1578,13 +1589,19 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void initializeExecutorUI() {
         // Set up tooltips
         executorPathField.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
-        executorArgsField.setToolTipText("Arguments to pass to executor (default: -c)");
-        executorArgsField.setText("-c"); // Set default value
+        executorArgsField.setToolTipText("Arguments to pass to executor (default: " + DEFAULT_EXECUTOR_ARGS + ")");
+        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS); // Set default value
 
         // Populate common executors dropdown
         var commonExecutors = ExecutorValidator.getCommonExecutors();
         commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
-        commonExecutorsComboBox.setSelectedIndex(-1); // No selection by default
+        // pre-select the system default if present
+        for (int i = 0; i < commonExecutors.length; i++) {
+            if (commonExecutors[i].equalsIgnoreCase(DEFAULT_EXECUTOR_PATH)) {
+                commonExecutorsComboBox.setSelectedIndex(i);
+                break;
+            }
+        }
 
         // Reset button action
         resetExecutorButton.addActionListener(e -> resetExecutor());
@@ -1602,17 +1619,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private void resetExecutor() {
-        // Clear the UI fields
-        executorPathField.setText("");
-        executorArgsField.setText("-c");
+        // Restore defaults
+        executorPathField.setText(DEFAULT_EXECUTOR_PATH);
+        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS);
 
         // Clear the project configuration immediately
         var project = chrome.getProject();
         project.setCommandExecutor(null);
         project.setExecutorArgs(null);
 
-        // Reset common executors selection
-        commonExecutorsComboBox.setSelectedIndex(-1);
+        // Reset combo-box to default option if available
+        for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
+            if (DEFAULT_EXECUTOR_PATH.equalsIgnoreCase(commonExecutorsComboBox.getItemAt(i))) {
+                commonExecutorsComboBox.setSelectedIndex(i);
+                break;
+            }
+        }
     }
 
     private void testExecutor() {
@@ -1630,7 +1652,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Default args if empty
         if (executorArgs.isEmpty()) {
-            executorArgs = "-c";
+            executorArgs = DEFAULT_EXECUTOR_ARGS;
         }
 
         testExecutorButton.setEnabled(false);
