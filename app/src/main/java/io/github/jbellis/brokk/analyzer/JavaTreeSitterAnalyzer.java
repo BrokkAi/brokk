@@ -90,7 +90,19 @@ public class JavaTreeSitterAnalyzer extends TreeSitterAnalyzer {
         // if they are present at all
         final List<String> namespaceParts = new ArrayList<>();
 
-        final var maybeDeclaration = rootNode.getChildCount() > 0 ? rootNode.getChild(0) : null;
+        // The package may not be the first thing in the file, so we should iterate until either we find it, or we are
+        // at a type node.
+        TSNode maybeDeclaration = null;
+        for (int i = 0; i < rootNode.getChildCount(); i++) {
+            final var child = rootNode.getChild(i);
+            if (PACKAGE_DECLARATION.equals(child.getType())) {
+                maybeDeclaration = child;
+                break;
+            } else if (JAVA_SYNTAX_PROFILE.classLikeNodeTypes().contains(child.getType())) {
+                break;
+            }
+        }
+
         if (maybeDeclaration != null && PACKAGE_DECLARATION.equals(maybeDeclaration.getType())) {
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
