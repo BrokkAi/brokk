@@ -15,7 +15,6 @@ import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
@@ -260,8 +259,7 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
         coder.setOutput(io);
 
-        // TODO smart parser selection -- tricky because we need the redaction in UAPD to work
-        var parser = EditBlockConflictsParser.instance;
+        var parser = EditBlockParser.instance;
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, file);

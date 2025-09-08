@@ -101,6 +101,6 @@ public final class TestContextManager implements IContextManager {
 
     @Override
     public EditBlockParser getParserForWorkspace() {
-        return EditBlockParser.getParserFor("");
+        return EditBlockParser.instance;
     }
 }

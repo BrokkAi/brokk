@@ -793,7 +793,7 @@ public abstract class CodePrompts {
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
-        EditBlockParser parser = getParser(ctx);
+        EditBlockParser parser = EditBlockParser.instance;
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
@@ -826,13 +826,5 @@ public abstract class CodePrompts {
         });
 
         return messages;
-    }
-
-    public EditBlockParser getParser(Context ctx) {
-        var allText = ctx.allFragments()
-                .filter(ContextFragment::isText)
-                .map(ContextFragment::text)
-                .collect(Collectors.joining("\n"));
-        return EditBlockParser.getParserFor(allText);
     }
 }

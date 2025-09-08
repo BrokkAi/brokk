@@ -23,7 +23,7 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
+import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.AdaptiveExecutor;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
@@ -424,7 +424,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                             : List.of(
                                     new UserMessage(instructions),
                                     CodePrompts.redactAiMessage(
-                                                    new AiMessage(uiMessageText), EditBlockConflictsParser.instance)
+                                                    new AiMessage(uiMessageText), EditBlockParser.instance)
                                             .orElse(new AiMessage("")));
 
                     List<String> failures = results.stream()

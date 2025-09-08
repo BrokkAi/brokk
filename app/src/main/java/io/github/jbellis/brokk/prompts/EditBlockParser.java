@@ -197,16 +197,6 @@ public class EditBlockParser {
     }
 
     /**
-     * Return vanilla EditBlockParser if `text` doesn't contain anything that looks like one of our markers; if it does,
-     * return EditBlockConflictsParser instead.
-     */
-    public static EditBlockParser getParserFor(String text) {
-        return Stream.of("<<<<<", "=====", ">>>>>").anyMatch(text::contains)
-                ? EditBlockConflictsParser.instance
-                : EditBlockParser.instance;
-    }
-
-    /**
      * Parses the given content into a sequence of OutputBlock records (plain text or edit blocks). Supports a
      * "forgiving" divider approach if we do not see a standard "filename =======" line but do see exactly one line of
      * "=======" in the lines between SEARCH and REPLACE. Malformed blocks do not prevent parsing subsequent blocks.
