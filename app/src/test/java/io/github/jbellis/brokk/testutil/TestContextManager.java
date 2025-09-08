@@ -30,6 +30,15 @@ public final class TestContextManager implements IContextManager {
         this.liveContext = new Context(this, "Test context");
     }
 
+    public TestContextManager(Path dir) {
+        this(dir, new TestConsoleIO());
+    }
+    
+    public TestContextManager(Path dir, Set<String> filenames) {
+        this(dir);
+        filenames.stream().map(f -> new ProjectFile(dir, f)).forEach(editableFiles::add);
+    }
+
     @Override
     public TestProject getProject() {
         return project;

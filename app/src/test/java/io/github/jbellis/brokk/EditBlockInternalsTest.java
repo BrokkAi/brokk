@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.git.InMemoryRepo;
-import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,12 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import org.junit.jupiter.api.Test;
 
 /**
  * Targeted tests for core apply_patch application semantics: matching, EOF behavior,
@@ -27,7 +20,7 @@ class EditBlockInternalsTest {
     
     @Test
     void update_replacement_in_middle(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("f.txt");
         Files.writeString(file, "A\nB\nC\n");
 
@@ -50,7 +43,7 @@ class EditBlockInternalsTest {
 
     @Test
     void insert_at_eof_with_marker(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("g.txt");
         Files.writeString(file, "A\nB\nC\n");
 
@@ -73,7 +66,7 @@ class EditBlockInternalsTest {
 
     @Test
     void replace_last_line_at_eof_with_marker(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("h.txt");
         Files.writeString(file, "A\nB\nC\n");
 
@@ -96,7 +89,7 @@ class EditBlockInternalsTest {
 
     @Test
     void whitespace_insensitive_match(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("w.txt");
         Files.writeString(file, "A\n  B \nC\n");
 
@@ -119,7 +112,7 @@ class EditBlockInternalsTest {
 
     @Test
     void unicode_normalization_match(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("n.txt");
         // EN DASH between foo and bar:
         Files.writeString(file, "foo \u2013 bar\n");
@@ -143,7 +136,7 @@ class EditBlockInternalsTest {
 
     @Test
     void ambiguous_match_detected(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("amb.txt");
         Files.writeString(file, "X\nY\nX\n");
 
@@ -167,7 +160,7 @@ class EditBlockInternalsTest {
 
     @Test
     void anchor_advances_cursor(@TempDir Path dir) throws IOException {
-        var cm = new CM(dir);
+        var cm = new TestContextManager(dir);
         var file = dir.resolve("sec.txt");
         Files.writeString(file, "SECTION 1\nfoo\nSECTION 2\nfoo\n");
 

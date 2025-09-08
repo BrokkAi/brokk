@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.github.difflib.patch.AbstractDelta;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -414,8 +413,7 @@ public class CodeAgent {
                         "It looks like the response was cut off. Please continue the apply_patch envelope.");
             } else {
                 var last = newlyParsed.getLast();
-                nextReq = new UserMessage(
-                        getContinueFromLastBlockPrompt(last, parser));
+                nextReq = new UserMessage(getContinueFromLastBlockPrompt(last));
             }
             var pending = new java.util.ArrayList<>(ws.pendingBlocks());
             pending.addAll(newlyParsed);
@@ -725,7 +723,7 @@ public class CodeAgent {
                         metrics.applyRetries++;
                     }
                     String retryPromptText =
-                            CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount, contextManager);
+                            CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
                     csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.turnStartIndex());
                     wsForStep = ws.afterApply(

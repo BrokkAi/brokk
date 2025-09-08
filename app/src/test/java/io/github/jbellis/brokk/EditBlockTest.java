@@ -13,28 +13,12 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EditBlockTest {
-    static class TestContextManager implements IContextManager {
-        private final Path root;
-        private final Set<ProjectFile> validFiles;
-        private final IGitRepo repo = new InMemoryRepo();
-
-        public TestContextManager(Path root, Set<String> validFiles) {
-            this.root = root;
-            this.validFiles = validFiles.stream()
-                    .map(f -> new ProjectFile(root, Path.of(f)))
-                    .collect(Collectors.toSet());
-        }
-
-        @Override public IProject getProject() { return () -> root; }
-        @Override public Set<ProjectFile> getEditableFiles() { return validFiles; }
-        @Override public IGitRepo getRepo() { return repo; }
-        @Override public IConsoleIO getIo() { return new NoOpConsoleIO(); }
-        @Override public ProjectFile toFile(String path) { return new ProjectFile(root, Path.of(path)); }
-    }
 
     @Test
     void parse_and_apply_add_and_update(@TempDir Path dir) throws IOException {

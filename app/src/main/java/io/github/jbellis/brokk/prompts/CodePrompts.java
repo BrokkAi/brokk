@@ -375,15 +375,13 @@ public abstract class CodePrompts {
     public static String getApplyFailureMessage(
             List<EditBlock.FailedBlock> failedBlocks,
             EditBlockParser parser,
-            int succeededCount,
-            IContextManager cm) {
+            int succeededCount) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
 
         // Group failed blocks by path
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().rawPath() != null)
                 .collect(Collectors.groupingBy(fb -> fb.block().rawPath()));
 
         int totalFailCount = failedBlocks.size();
