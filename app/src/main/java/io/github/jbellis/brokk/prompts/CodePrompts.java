@@ -373,37 +373,35 @@ public abstract class CodePrompts {
 
     /** Generates a message based on parse/apply errors from failed edit blocks */
     public static String getApplyFailureMessage(
-            List<EditBlock.FailedBlock> failedBlocks, EditBlockParser parser, int succeededCount, IContextManager cm) {
+            List<EditBlock.FailedBlock> failedBlocks,
+            EditBlockParser parser,
+            int succeededCount,
+            IContextManager cm) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
 
-        // Group failed blocks by filename
+        // Group failed blocks by path
         var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().rawFileName() != null) // Only include blocks with filenames
-                .collect(Collectors.groupingBy(fb -> fb.block().rawFileName()));
+                .filter(fb -> fb.block().path() != null)
+                .collect(Collectors.groupingBy(fb -> fb.block().path()));
 
         int totalFailCount = failedBlocks.size();
         boolean singularFail = (totalFailCount == 1);
         var pluralizeFail = singularFail ? "" : "s";
 
-        // Instructions for the LLM
         String instructions =
                 """
-                      <instructions>
-                      # %d SEARCH/REPLACE block%s failed to match in %d files!
+                <instructions>
+                # %d apply_patch operation%s failed!
 
-                      Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
-                      If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
-                      Remember that the SEARCH text within a `<block>` must match EXACTLY the lines in the file -- but
-                      I can accommodate whitespace differences, so if you think the only problem is whitespace, you need to look closer.
-                      If the SEARCH text looks correct, double-check the filename too.
-
-                      Provide corrected SEARCH/REPLACE blocks for the failed edits only.
-                      </instructions>
-                      """
-                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail)
-                        .stripIndent();
+                Review the CURRENT state of the relevant file%s (editable Workspace above).
+                If the failed edits listed in `<failed_blocks>` are still needed, correct them
+                based on the current content. Keep chunks small and precise so matches are unambiguous.
+                Provide a corrected apply_patch envelope for the failed edits only.
+                </instructions>
+                """.stripIndent()
+                        .formatted(totalFailCount, pluralizeFail, pluralizeFail);
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -415,21 +413,19 @@ public abstract class CodePrompts {
                                 var commentaryText = f.commentary().isBlank()
                                         ? ""
                                         : """
-                                                       <commentary>
-                                                       %s
-                                                       </commentary>
-                                                       """
-                                                .formatted(f.commentary());
+                                           <commentary>
+                                           %s
+                                           </commentary>
+                                           """.formatted(f.commentary());
                                 return """
                                        <failed_block reason="%s">
                                        <block>
                                        %s
-                                       %s
                                        </block>
+                                       %s
                                        </failed_block>
-                                       """
-                                        .formatted(f.reason(), parser.repr(f.block()), commentaryText)
-                                        .stripIndent();
+                                       """.stripIndent()
+                                        .formatted(f.reason(), parser.repr(f.block()), commentaryText);
                             })
                             .collect(Collectors.joining("\n"));
 
@@ -439,36 +435,28 @@ public abstract class CodePrompts {
                            %s
                            </failed_blocks>
                            </file>
-                           """
-                            .formatted(filename, failedBlocksXml)
-                            .stripIndent();
+                           """.stripIndent().formatted(filename, failedBlocksXml);
                 })
                 .collect(Collectors.joining("\n\n"));
 
-        // Add info about successful blocks, if any
         String successNote = "";
         if (succeededCount > 0) {
             boolean singularSuccess = (succeededCount == 1);
             var pluralizeSuccess = singularSuccess ? "" : "s";
             successNote =
                     """
-                          <note>
-                          The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
-                          </note>
-                          """
-                            .formatted(succeededCount, pluralizeSuccess)
-                            .stripIndent();
+                    <note>
+                    The other %d operation%s applied successfully. Do not re-send them. Fix only the failing ones.
+                    </note>
+                    """.stripIndent().formatted(succeededCount, pluralizeSuccess);
         }
 
-        // Construct the full message for the LLM
         return """
                %s
 
                %s
                %s
-               """
-                .formatted(instructions, fileDetails, successNote)
-                .stripIndent();
+               """.formatted(instructions, fileDetails, successNote).stripIndent();
     }
 
     /**

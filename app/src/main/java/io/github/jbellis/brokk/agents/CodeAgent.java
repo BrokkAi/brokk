@@ -91,7 +91,7 @@ public class CodeAgent {
         int blocksAppliedWithoutBuild = 0;
 
         String buildError = "";
-        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
+        var blocks = new ArrayList<EditBlock.FileOperation>(); // This will be part of WorkspaceState
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
@@ -191,9 +191,9 @@ public class CodeAgent {
                         loopContext.conversationState().taskMessages().size()
                                 - loopContext.conversationState().turnStartIndex();
                 if (msgsThisTurn > 2) {
-                    var srb = loopContext.editState().toSearchReplaceBlocks();
-                    var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                            + srb.stream().map(parser::repr).collect(Collectors.joining("\n"));
+                    var ops = loopContext.editState().toFileOperations();
+                    var summaryText = "Here is the apply_patch envelope:\n\n"
+                            + parser.renderPatch(ops);
                     loopContext = new LoopContext(
                             loopContext.conversationState().replaceCurrentTurnMessages(summaryText),
                             loopContext.editState,
@@ -368,94 +368,54 @@ public class CodeAgent {
             LoopContext currentLoopContext,
             String llmText,
             boolean isPartialResponse,
-            EditBlockParser parser,
+            io.github.jbellis.brokk.prompts.EditBlockParser parser,
             @Nullable Metrics metrics) {
+
         var cs = currentLoopContext.conversationState();
         var ws = currentLoopContext.editState();
 
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
-        var parseResult =
-                parser.parse(llmText, contextManager.getRepo().getTrackedFiles());
-        var newlyParsedBlocks = parseResult.blocks();
-        if (metrics != null) {
-            metrics.totalEditBlocks += newlyParsedBlocks.size();
-        }
 
-        // Handle explicit parse errors from the parser
-        if (parseResult.parseError() != null) {
-            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            if (newlyParsedBlocks.isEmpty()) {
-                // Pure parse failure
-                updatedConsecutiveParseFailures++;
-
-                // The bad response is the last message; the user request that caused it is the one before that.
-                // We will remove both, and create a new request that is the original + a reminder.
-                cs.taskMessages().removeLast(); // bad AI response
-                var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
-
-                var reminder =
-                        "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
-                var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
-                messageForRetry = new UserMessage(newRequestText);
-                consoleLogForRetry = "Failed to parse LLM response; retrying with format reminder";
-            } else {
-                // Partial parse, then an error
-                updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
-                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                consoleLogForRetry =
-                        "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix"
-                                .formatted(newlyParsedBlocks.size());
-            }
-
-            if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+        List<EditBlock.FileOperation> newlyParsed;
+        try {
+            newlyParsed = parser.parse(llmText);
+        } catch (io.github.jbellis.brokk.prompts.EditBlockParser.PatchParseException pe) {
+            // Treat as parse failure; either ask to continue or remind about format
+            int updated = ws.consecutiveParseFailures() + 1;
+            if (updated > MAX_PARSE_ATTEMPTS) {
                 reportComplete("Parse error limit reached; ending task.");
                 return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
             }
 
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
-            // Add any newly parsed blocks before the error to the pending list for the next apply phase
-            var nextPending = new ArrayList<>(ws.pendingBlocks());
-            nextPending.addAll(newlyParsedBlocks);
-            var nextWs = ws.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
-            report(consoleLogForRetry);
-            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+            // Remove the bad AI response and re-ask with a short reminder
+            cs.taskMessages().removeLast(); // bad AI
+            var lastRequest = (dev.langchain4j.data.message.UserMessage) cs.taskMessages().removeLast();
+            var reminder = "The edit format must be a single apply_patch envelope. Please follow the instructions and examples.";
+            var newRequestText = io.github.jbellis.brokk.util.Messages.getText(lastRequest) + "\n\n" + reminder;
+            var nextReq = new dev.langchain4j.data.message.UserMessage(newRequestText);
+
+            report("Failed to parse apply_patch; retrying with format reminder");
+            var nextWs = ws.withPendingBlocks(ws.pendingBlocks(), updated);
+            return new Step.Retry(new LoopContext(new ConversationState(cs.taskMessages(), nextReq, cs.turnStartIndex()), nextWs, currentLoopContext.userGoal()));
         }
 
-        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
-        int updatedConsecutiveParseFailures = 0;
-        var mutablePendingBlocks = new ArrayList<>(ws.pendingBlocks());
-        mutablePendingBlocks.addAll(newlyParsedBlocks);
+        if (metrics != null) metrics.totalEditBlocks += newlyParsed.size();
 
-        // Handle case where LLM response was cut short, even if syntactically valid so far.
+        // Handle partial LLM stream cutoff: if we got a clean prefix, ask to continue
         if (isPartialResponse) {
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            if (newlyParsedBlocks.isEmpty()) {
-                // Treat "partial with no blocks" as a parse failure subject to MAX_PARSE_ATTEMPTS
-                updatedConsecutiveParseFailures = ws.consecutiveParseFailures() + 1;
-                if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                    reportComplete("Parse error limit reached; ending task.");
-                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
-                }
-                messageForRetry = new UserMessage(
-                        "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                consoleLogForRetry =
-                        "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
-            } else {
-                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
-                        .formatted(newlyParsedBlocks.size());
-            }
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
-            var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
-            report(consoleLogForRetry);
-            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+            int updated = ws.consecutiveParseFailures();
+            var nextReq = new dev.langchain4j.data.message.UserMessage("It looks like the response was cut off. Please continue the apply_patch envelope.");
+            var pending = new ArrayList<>(ws.pendingBlocks());
+            pending.addAll(newlyParsed);
+            var nextWs = ws.withPendingBlocks(pending, updated);
+            report("LLM indicated response was partial; asking to continue");
+            return new Step.Retry(new LoopContext(new ConversationState(cs.taskMessages(), nextReq, cs.turnStartIndex()), nextWs, currentLoopContext.userGoal()));
         }
 
-        // No parse error, not a partial response. This is a successful, complete segment.
-        var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
+        // success path
+        var pending = new ArrayList<>(ws.pendingBlocks());
+        pending.addAll(newlyParsed);
+        var nextWs = ws.withPendingBlocks(pending, 0);
         return new Step.Continue(new LoopContext(cs, nextWs, currentLoopContext.userGoal()));
     }
 
@@ -567,7 +527,7 @@ public class CodeAgent {
      * @param lastBlock The last successfully parsed block from the incomplete response.
      * @return A formatted string to be used as a UserMessage.
      */
-    private static String getContinueFromLastBlockPrompt(EditBlock.SearchReplaceBlock lastBlock) {
+    private static String getContinueFromLastBlockPrompt(EditBlock.FileOperation lastBlock) {
         return """
                 It looks like we got cut off. The last block I successfully parsed was:
 
@@ -622,53 +582,19 @@ public class CodeAgent {
     }
 
     private EditBlock.EditResult applyBlocksAndHandleErrors(
-            List<EditBlock.SearchReplaceBlock> blocksToApply, Set<ProjectFile> changedFilesCollector)
+            List<EditBlock.FileOperation> blocksToApply, Set<ProjectFile> changedFilesCollector)
             throws EditStopException, InterruptedException {
-        // Identify files referenced by blocks that are not already editable
-        final var invalidFileBlocks = new HashSet<EditBlock.FailedBlock>();
-        var filesToAdd = blocksToApply.stream()
-                .filter(editBlock -> Objects.nonNull(editBlock.rawFileName()))
-                .distinct()
-                .map(editBlock -> {
-                    final var f = editBlock.rawFileName();
-                    try {
-                        return contextManager.toFile(f);
-                    } catch (IllegalArgumentException e) {
-                        invalidFileBlocks.add(
-                                new EditBlock.FailedBlock(editBlock, EditBlock.EditBlockFailureReason.FILE_NOT_FOUND));
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .filter(file -> !contextManager.getEditableFiles().contains(file))
-                .toList();
 
-        // Check for conflicts with read-only files
-        var readOnlyFiles = filesToAdd.stream()
-                .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
-                .toList();
-        if (!readOnlyFiles.isEmpty()) {
-            var msg =
-                    "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
-                            .formatted(readOnlyFiles.stream()
-                                    .map(ProjectFile::toString)
-                                    .collect(Collectors.joining(",")));
-            reportComplete(msg);
-            var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
-        }
-
+        // Validate files referenced by ops that must exist or be writable are handled by EditBlock.applyEditBlocks.
         EditBlock.EditResult editResult;
         try {
             editResult = EditBlock.applyEditBlocks(contextManager, io, blocksToApply);
         } catch (IOException e) {
             var eMessage = requireNonNull(e.getMessage());
-            // io.toolError is handled by caller if this exception propagates
             throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, eMessage));
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
-        editResult.failedBlocks().addAll(invalidFileBlocks);
         return editResult;
     }
 
@@ -760,7 +686,7 @@ public class CodeAgent {
             Map<ProjectFile, String> nextOriginalFileContents = new HashMap<>(ws.originalFileContents());
             editResult.originalContents().forEach(nextOriginalFileContents::putIfAbsent);
 
-            List<EditBlock.SearchReplaceBlock> nextPendingBlocks =
+            List<EditBlock.FileOperation> nextPendingBlocks =
                     new ArrayList<>(); // Blocks are processed, so clear for next step's ws
 
             if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
@@ -1013,7 +939,7 @@ public class CodeAgent {
 
     record EditState(
             // parsed but not yet applied
-            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            List<EditBlock.FileOperation> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
@@ -1021,8 +947,8 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents) {
-        /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
+
+        EditState withPendingBlocks(List<EditBlock.FileOperation> newPendingBlocks, int newParseFailures) {
             return new EditState(
                     newPendingBlocks,
                     newParseFailures,
@@ -1034,10 +960,6 @@ public class CodeAgent {
                     originalFileContents);
         }
 
-        /**
-         * Returns a new WorkspaceState after a build failure, updating the error message. Also resets the per-turn
-         * baseline (originalFileContents) for the next turn.
-         */
         EditState afterBuildFailure(String newBuildError) {
             return new EditState(
                     pendingBlocks,
@@ -1047,12 +969,11 @@ public class CodeAgent {
                     0,
                     newBuildError,
                     changedFiles,
-                    new HashMap<>()); // Clear per-turn baseline
+                    new HashMap<>()); // reset per-turn baseline
         }
 
-        /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
         EditState afterApply(
-                List<EditBlock.SearchReplaceBlock> newPendingBlocks,
+                List<EditBlock.FileOperation> newPendingBlocks,
                 int newApplyFailures,
                 int newBlocksApplied,
                 Map<ProjectFile, String> newOriginalContents) {
@@ -1068,23 +989,17 @@ public class CodeAgent {
         }
 
         /**
-         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
-         * contents captured at the start of the turn. For files that were created in this turn (no original content),
-         * generate a "new file" block (empty before / full after).
-         *
-         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
-         * history compaction without depending on the diff library package structure at compile time.
+         * Generate a compact apply_patch set of operations that describe this turn's changes,
+         * preserving fine-grained chunks. The windows logic mirrors the old SRB summarization.
          */
-        @VisibleForTesting
-        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
-            var results = new ArrayList<EditBlock.SearchReplaceBlock>();
+        @org.jetbrains.annotations.VisibleForTesting
+        List<EditBlock.FileOperation> toFileOperations() {
+            var results = new ArrayList<EditBlock.FileOperation>();
             var originals = originalFileContents();
 
-            // Include both files we have originals for and new files created in this turn
             var candidates = new HashSet<>(changedFiles());
             candidates.addAll(originals.keySet());
 
-            // Sort for determinism
             var sorted = candidates.stream()
                     .sorted(Comparator.comparing(ProjectFile::toString))
                     .toList();
@@ -1095,49 +1010,40 @@ public class CodeAgent {
                 try {
                     revised = file.read();
                 } catch (IOException ioe) {
-                    logger.warn("Unable to read file {} to generate summary diff; skipping", file, ioe);
+                    logger.warn("Unable to read {} to summarize; skipping", file, ioe);
                     continue;
                 }
+                if (Objects.equals(original, revised)) continue;
 
-                if (Objects.equals(original, revised)) {
-                    continue; // No effective change
-                }
-
-                // New file created this turn
                 if (!originals.containsKey(file)) {
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
+                    // brand new file this turn
+                    results.add(new EditBlock.AddFile(file.toString(), revised));
                     continue;
                 }
 
+                // Build fine-grained UpdateFile by diffing and creating multiple small chunks
                 var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
                 var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
-
                 try {
                     com.github.difflib.patch.Patch<String> patch =
                             com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
 
-                    // 1) Build minimal windows per delta in original line space
+                    // Windows over source lines to anchor minimal-unique before sections
                     record Window(int start, int end) {
-                        Window expandLeft() {
-                            return new Window(Math.max(0, start - 1), end);
-                        }
-
-                        Window expandRight(int max) {
-                            return new Window(start, Math.min(max, end + 1));
-                        }
+                        Window expandLeft() { return new Window(Math.max(0, start - 1), end); }
+                        Window expandRight(int max) { return new Window(start, Math.min(max, end + 1)); }
                     }
                     var windows = new ArrayList<Window>();
-                    for (AbstractDelta<String> delta : patch.getDeltas()) {
-                        var src = delta.getSource();
+                    for (var d : patch.getDeltas()) {
+                        var src = d.getSource();
                         int sPos = src.getPosition();
                         int sSize = src.size();
-
                         int wStart, wEnd;
                         if (sSize > 0) {
                             wStart = sPos;
                             wEnd = sPos + sSize - 1;
                         } else {
-                            // Pure insertion: anchor on previous line when possible, else next
+                            // pure insertion: anchor on previous line (if any)
                             wStart = (sPos == 0) ? 0 : sPos - 1;
                             wEnd = wStart;
                         }
@@ -1148,24 +1054,22 @@ public class CodeAgent {
                         windows.add(new Window(wStart, wEnd));
                     }
 
-                    // 2) Expand each window until its before-text is unique in the original
+                    // Uniquify by expanding left/right until "before" slice occurs once
                     int lastIdx = Math.max(0, originalLines.size() - 1);
-                    windows = windows.stream()
-                            .map(w -> {
-                                Window cur = w;
-                                String before = joinLines(originalLines, cur.start, cur.end);
-                                while (!before.isEmpty()
-                                        && countOccurrences(original, before) > 1
-                                        && (cur.start > 0 || cur.end < lastIdx)) {
-                                    if (cur.start > 0) cur = cur.expandLeft();
-                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
-                                    before = joinLines(originalLines, cur.start, cur.end);
-                                }
-                                return cur;
-                            })
-                            .collect(Collectors.toCollection(ArrayList::new));
+                    windows = windows.stream().map(w -> {
+                        Window cur = w;
+                        String before = joinLines(originalLines, cur.start, cur.end);
+                        while (!before.isEmpty()
+                                && countOccurrences(original, before) > 1
+                                && (cur.start > 0 || cur.end < lastIdx)) {
+                            if (cur.start > 0) cur = cur.expandLeft();
+                            if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
+                            before = joinLines(originalLines, cur.start, cur.end);
+                        }
+                        return cur;
+                    }).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
 
-                    // 3) Merge overlapping/adjacent windows after expansion
+                    // Merge overlapping/adjacent windows
                     windows.sort(Comparator.comparingInt(w -> w.start));
                     var merged = new ArrayList<Window>();
                     for (var w : windows) {
@@ -1173,7 +1077,7 @@ public class CodeAgent {
                             merged.add(w);
                         } else {
                             var last = merged.getLast();
-                            if (w.start <= last.end + 1) { // overlap or adjacent
+                            if (w.start <= last.end + 1) {
                                 merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
                             } else {
                                 merged.add(w);
@@ -1181,10 +1085,12 @@ public class CodeAgent {
                         }
                     }
 
-                    // Precompute net line deltas for mapping original -> revised
-                    record DeltaShape(int pos, int size, int net) {}
+                    // Map windows to UpdateFileChunk(s)
+                    var chunks = new ArrayList<EditBlock.UpdateFileChunk>();
+                    // Precompute delta shapes to map source -> target
+                    record Shape(int pos, int size, int net) {}
                     var shapes = patch.getDeltas().stream()
-                            .map(d -> new DeltaShape(
+                            .map(d -> new Shape(
                                     d.getSource().getPosition(),
                                     d.getSource().size(),
                                     d.getTarget().size() - d.getSource().size()))
@@ -1192,17 +1098,16 @@ public class CodeAgent {
                             .toList();
 
                     for (var w : merged) {
-                        // Map original start to revised start
                         int netBeforeStart = shapes.stream()
-                                .filter(s -> s.pos + s.size <= w.start) // ends before start
+                                .filter(s -> s.pos + s.size <= w.start)
                                 .mapToInt(s -> s.net)
                                 .sum();
                         int revisedStart = w.start + netBeforeStart;
-
                         int windowLen = w.end - w.start + 1;
-                        // Net deltas that intersect the window
+
+                        // net in-window changes
                         int netInWindow = 0;
-                        for (AbstractDelta<String> d : patch.getDeltas()) {
+                        for (var d : patch.getDeltas()) {
                             int p = d.getSource().getPosition();
                             int sz = d.getSource().size();
                             int net = d.getTarget().size() - sz;
@@ -1212,33 +1117,61 @@ public class CodeAgent {
                             } else {
                                 overlaps = p >= w.start && p <= (w.end + 1);
                             }
-                            if (overlaps) {
-                                netInWindow += net;
-                            }
+                            if (overlaps) netInWindow += net;
                         }
+
                         int revisedEnd = revisedStart + windowLen + netInWindow - 1;
+                        var before = slice(originalLines, w.start, w.end);
+                        var after = slice(revisedLines, revisedStart, revisedEnd);
 
-                        String before = joinLines(originalLines, w.start, w.end);
-                        String after = joinLines(
-                                revisedLines,
-                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
-                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
-
-                        // If uniqueness still fails (pathological), fall back to whole-file
-                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
-                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
-                            continue;
-                        }
-
-                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
+                        chunks.add(new EditBlock.UpdateFileChunk(
+                                null, before, after, revisedEnd == revisedLines.size() - 1));
                     }
+
+                    results.add(new EditBlock.UpdateFile(file.toString(), null, List.copyOf(chunks)));
                 } catch (Exception e) {
-                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
-                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                    // worst-case fall back to "Add File" with full content, which is acceptable for summary
+                    logger.warn("Diff summarization failed for {}; falling back to AddFile", file, e);
+                    results.add(new EditBlock.AddFile(file.toString(), revised));
                 }
             }
+
             return results;
+        }
+
+        private static String joinLines(List<String> lines, int start, int end) {
+            if (lines.isEmpty() || start > end) return "";
+            var slice = String.join("\n", lines.subList(start, end + 1));
+            return slice.isEmpty() ? "" : ensureTerminated(slice);
+        }
+
+        private static String ensureTerminated(String s) {
+            if (s.isEmpty()) return s;
+            return s.endsWith("\n") ? s : s + "\n";
+        }
+
+        private static List<String> slice(List<String> lines, int start, int end) {
+            if (lines.isEmpty() || start > end) return List.of();
+            start = Math.max(0, start);
+            end = Math.min(lines.size() - 1, Math.max(start, end));
+            var subset = lines.subList(start, end + 1);
+            // drop trailing empty sentinel if present due to split with -1
+            if (!subset.isEmpty() && subset.getLast().isEmpty()) {
+                subset = subset.subList(0, subset.size() - 1);
+            }
+            return List.copyOf(subset);
+        }
+
+        private static int countOccurrences(String text, String needle) {
+            if (needle.isEmpty()) return 0;
+            int count = 0, from = 0;
+            while (true) {
+                int idx = text.indexOf(needle, from);
+                if (idx < 0) break;
+                count++;
+                from = idx + Math.max(1, needle.length());
+            }
+            return count;
         }
     }
 

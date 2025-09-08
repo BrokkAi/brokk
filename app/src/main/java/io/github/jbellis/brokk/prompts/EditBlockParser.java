@@ -1,446 +1,352 @@
 package io.github.jbellis.brokk.prompts;
 
-import static io.github.jbellis.brokk.prompts.EditBlockUtils.*;
-
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.EditBlock;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
-import java.util.*;
-import java.util.stream.Stream;
+import io.github.jbellis.brokk.EditBlock.FileOperation;
+import io.github.jbellis.brokk.EditBlock.UpdateFileChunk;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
+/**
+ * Parser / renderer for the "apply_patch" format.
+ *
+ * parse(String) -> List<FileOperation>
+ * renderPatch(List<FileOperation>) -> envelope string
+ * repr(FileOperation) -> single-op pretty print (no envelope)
+ * redact(String) -> elide any apply_patch envelope(s) from free text
+ */
 public class EditBlockParser {
     public static EditBlockParser instance = new EditBlockParser();
-
     protected EditBlockParser() {}
 
     public List<ChatMessage> exampleMessages() {
         return List.of(
                 new UserMessage("Change get_factorial() to use math.factorial"),
-                new AiMessage(
-                        """
-            To make this change we need to modify `mathweb/flask/app.py` to:
-
-            1. Import the math package.
-            2. Remove the existing factorial() function.
-            3. Update get_factorial() to call math.factorial instead.
-
-            Here are the *SEARCH/REPLACE* blocks:
-
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-            from flask import Flask
-            =======
-            import math
-            from flask import Flask
-            >>>>>>> REPLACE
-            ```
-
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-            def factorial(n):
-                "compute factorial"
-
-                if n == 0:
-                    return 1
-                else:
-                    return n * factorial(n-1)
-            =======
-            >>>>>>> REPLACE
-            ```
-
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-                return str(factorial(n))
-            =======
-                return str(math.factorial(n))
-            >>>>>>> REPLACE
-            ```
-            """
-                                .stripIndent()),
-                new UserMessage("Refactor hello() into its own file."),
-                new AiMessage(
-                        """
-            To make this change we need to modify `main.py` and make a new file `hello.py`:
-
-            1. Make a new hello.py file with hello() in it.
-            2. Remove hello() from main.py and replace it with an import.
-
-            Here are the *SEARCH/REPLACE* blocks:
-
-            ```
-            hello.py
-            <<<<<<< SEARCH
-            =======
-            def hello():
-                "print a greeting"
-
-                print("hello")
-            >>>>>>> REPLACE
-            ```
-
-            ```
-            main.py
-            <<<<<<< SEARCH
-            def hello():
-                "print a greeting"
-
-                print("hello")
-            =======
-            from hello import hello
-            >>>>>>> REPLACE
-            ```
-            """
-                                .stripIndent()));
+                new AiMessage("""
+                *** Begin Patch
+                *** Update File: mathweb/flask/app.py
+                @@ imports
+                 from flask import Flask
+                +import math
+                @@ call site
+                 def get_factorial(n):
+                -    return str(factorial(n))
+                +    return str(math.factorial(n))
+                *** End Patch
+                """.stripIndent()),
+                new UserMessage("Refactor hello() into its own file"),
+                new AiMessage("""
+                *** Begin Patch
+                *** Add File: hello.py
+                +def hello():
+                +    "print a greeting"
+                +
+                +    print("hello")
+                *** Update File: main.py
+                @@
+                -def hello():
+                -    "print a greeting"
+                -
+                -    print("hello")
+                +from hello import hello
+                *** End Patch
+                """.stripIndent())
+        );
     }
 
-    protected final String instructions(String input, @Nullable ProjectFile file, String reminder) {
+    protected final String instructions(String input, @Nullable Object ignored, String reminder) {
         return """
         <rules>
         %s
 
-        Every *SEARCH* block must *EXACTLY MATCH* the existing filename content, character for character,
-        including all comments, docstrings, indentation, etc.
-        If the file contains code or other data wrapped in json/xml/quotes or other containers,
-        you need to propose edits to the literal contents, including that container markup.
+        Return a single apply_patch envelope:
 
-        *SEARCH* and *REPLACE* blocks must both contain ONLY the lines to be matched or edited.
-        This means no +/- diff markers in particular!
+        *** Begin Patch
+        [one or more file operations]
+        *** End Patch
 
-        *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH text matches multiple occurrences.
-        Include enough lines to uniquely match each set of lines that need to change.
+        - *** Add File: path
+          +line1
+          +line2
 
-        Keep *SEARCH/REPLACE* blocks concise.
-        Break large changes into a series of smaller blocks that each change a small portion.
-        Include just the changing lines, plus a few surrounding lines if needed for uniqueness.
-        You should not need to include the entire function or block to change a line or two.
+        - *** Delete File: path
 
-        Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
+        - *** Update File: path
+          [*** Move to: newPath]
+          one or more chunks, each:
+          @@ [optional anchor]
+           [unchanged pre-context lines, ' ' prefix]
+          -[old removed lines]
+          +[new added lines]
+           [unchanged post-context lines, ' ' prefix]
+          [*** End of File]
 
-        If you want to move code within a filename, use 2 blocks: one to delete from the old location,
-        and one to insert in the new location.
-
-        Pay attention to which filenames the user wants you to edit, especially if they are asking
-        you to create a new filename.
-
-        Important! To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
-        block with nothing in between the search and divider marker lines, and the new file's full contents between
-        the divider and replace marker lines. Rule of thumb: replace the entire file if you will need to
-        change more than half of it.
-
-        If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-        to make SEARCH/REPLACE blocks for the code changes you just proposed.
-        The user will say when they've applied your edits.
-        If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-
-        NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
-        use vanilla ascii single and double quotes.
-
-        # General
-        Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-
-        Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
-
+        Keep chunks small, unique, and stable. Ensure a trailing newline.
         %s
         </rules>
 
-        <goal%s>
+        <goal>
         %s
         </goal>
-        """
-                .formatted(
-                        diffFormatInstructions(),
-                        reminder,
-                        file == null ? "" : " target=\"%s\">".formatted(file),
-                        input);
+        """.formatted(diffFormatInstructions(), reminder, input);
     }
 
     public String diffFormatInstructions() {
         return """
-        # *SEARCH/REPLACE block* Rules:
-
-        Every *SEARCH/REPLACE block* must use this format:
-        1. The opening fence: ```
-        2. The *FULL* file path alone on a line, verbatim. No bold asterisks, no quotes around it, no escaping of characters, etc.
-        3. The start of search block: <<<<<<< SEARCH
-        4. A contiguous chunk of lines to search for in the existing source code
-        5. The dividing line: =======
-        6. The lines to replace into the source code
-        7. The end of the replace block: >>>>>>> REPLACE
-        8. The closing fence: ```
-
-        Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-        """
-                .stripIndent();
+        # apply_patch (concise)
+        Envelope: *** Begin Patch ... *** End Patch
+        Ops: Add/Delete/Update. Update has optional Move-to, and 1+ chunks.
+        Chunk layout:
+          @@ [anchor]
+           pre-context (space-prefixed)
+          -old (minus-prefixed)
+          +new (plus-prefixed)
+           post-context (space-prefixed)
+          [*** End of File]
+        """.stripIndent();
     }
 
-    /** Single internal scanner used by both parseEditBlocks and redact */
-    @VisibleForTesting
-    public interface BlockScanHandler {
-        void onPlainText(String text);
-        void onBlock(EditBlock.SearchReplaceBlock block);
-        void onError(String message, String rawFragment);
-    }
-
-    @VisibleForTesting
-    public void scan(String content, Set<ProjectFile> projectFiles, BlockScanHandler handler) {
-        var lines = content.split("\n", -1);
-        var plain = new StringBuilder();
-
+    /** Remove any full envelopes from conversational text. */
+    public String redact(String original) {
+        final String placeholder = "[elided apply_patch envelope]";
+        if (original.isBlank()) return original;
+        var lines = original.split("\n", -1);
+        var out = new StringBuilder();
         int i = 0;
-        String currentFilename = null;
-
+        boolean elided = false;
         while (i < lines.length) {
-            var trimmed = lines[i].trim();
-
-            // 1) Fenced variant: ``` \n <filename> \n <<<<<<< SEARCH
-            if (trimmed.equals(DEFAULT_FENCE.get(0))
-                    && i + 2 < lines.length
-                    && HEAD.matcher(lines[i + 2].trim()).matches()) {
-
-                // flush preceding plain text
-                if (!plain.toString().isBlank()) {
-                    handler.onPlainText(plain.toString());
-                    plain.setLength(0);
-                }
-
-                int blockStart = i;
-                var filenameLine = lines[i + 1];
-                var candidatePath = stripFilename(filenameLine);
-                currentFilename = candidatePath != null && !candidatePath.isBlank()
-                        ? candidatePath
-                        : findFileNameNearby(lines, i + 2, projectFiles, currentFilename);
-
-                // advance to HEAD line and beyond
-                i = i + 2;
+            if (lines[i].trim().equals("*** Begin Patch")) {
                 i++;
-
-                var beforeLines = new ArrayList<String>();
-                while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
-                    beforeLines.add(lines[i]);
-                    i++;
-                }
-                if (i >= lines.length) {
-                    var raw = joinRange(lines, blockStart, lines.length);
-                    handler.onError("Expected ======= divider after <<<<<<< SEARCH", raw);
-                    // treat as plain text
-                    plain.append(raw);
-                    break;
-                }
-
-                i++; // skip ======= divider
-
-                var afterLines = new ArrayList<String>();
-                while (i < lines.length
-                        && !UPDATED.matcher(lines[i].trim()).matches()
-                        && !DIVIDER.matcher(lines[i].trim()).matches()) {
-                    afterLines.add(lines[i]);
-                    i++;
-                }
-                if (i >= lines.length) {
-                    var raw = joinRange(lines, blockStart, lines.length);
-                    handler.onError("Expected >>>>>>> REPLACE or =======", raw);
-                    plain.append(raw);
-                    break;
-                }
-
-                var beforeJoined =
-                        stripQuotedWrapping(String.join("\n", beforeLines), Objects.toString(currentFilename, ""));
-                var afterJoined =
-                        stripQuotedWrapping(String.join("\n", afterLines), Objects.toString(currentFilename, ""));
-
-                if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
-                if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
-
-                handler.onBlock(new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined));
-
-                // consume >>>>>>> REPLACE if present
-                if (UPDATED.matcher(lines[i].trim()).matches()) {
-                    i++;
-                }
-                // consume closing fence if present
-                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
-                    i++;
-                }
+                while (i < lines.length && !lines[i].trim().equals("*** End Patch")) i++;
+                if (i < lines.length) i++; // consume End
+                if (out.length() > 0 && out.charAt(out.length()-1) != '\n') out.append('\n');
+                out.append(placeholder);
+                elided = true;
                 continue;
             }
-
-            // 2) Fence-less variant that starts directly with <<<<<<< SEARCH
-            if (HEAD.matcher(trimmed).matches()) {
-                if (!plain.toString().isBlank()) {
-                    handler.onPlainText(plain.toString());
-                    plain.setLength(0);
-                }
-
-                int blockStart = i;
-                currentFilename = findFileNameNearby(lines, i, projectFiles, currentFilename);
-
-                i++; // move past HEAD
-                var beforeLines = new ArrayList<String>();
-                while (i < lines.length && !DIVIDER.matcher(lines[i].trim()).matches()) {
-                    beforeLines.add(lines[i]);
-                    i++;
-                }
-                if (i >= lines.length) {
-                    var raw = joinRange(lines, blockStart, lines.length);
-                    handler.onError("Expected ======= divider after <<<<<<< SEARCH", raw);
-                    plain.append(raw);
-                    break;
-                }
-
-                i++; // skip ======= divider
-
-                var afterLines = new ArrayList<String>();
-                while (i < lines.length
-                        && !UPDATED.matcher(lines[i].trim()).matches()
-                        && !DIVIDER.matcher(lines[i].trim()).matches()) {
-                    afterLines.add(lines[i]);
-                    i++;
-                }
-                if (i >= lines.length) {
-                    var raw = joinRange(lines, blockStart, lines.length);
-                    handler.onError("Expected >>>>>>> REPLACE or =======", raw);
-                    plain.append(raw);
-                    break;
-                }
-
-                var beforeJoined =
-                        stripQuotedWrapping(String.join("\n", beforeLines), Objects.toString(currentFilename, ""));
-                var afterJoined =
-                        stripQuotedWrapping(String.join("\n", afterLines), Objects.toString(currentFilename, ""));
-
-                if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
-                if (!afterJoined.isEmpty() && !afterJoined.endsWith("\n")) afterJoined += "\n";
-
-                handler.onBlock(new EditBlock.SearchReplaceBlock(currentFilename, beforeJoined, afterJoined));
-
-                // consume >>>>>>> REPLACE if present
-                if (UPDATED.matcher(lines[i].trim()).matches()) {
-                    i++;
-                }
-                // optional closing fence for this form
-                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
-                    i++;
-                }
-                continue;
-            }
-
-            // 3) Not part of block — accumulate plain text
-            plain.append(lines[i]);
-            if (i < lines.length - 1) {
-                plain.append("\n");
-            }
+            out.append(lines[i]);
+            if (i < lines.length - 1) out.append('\n');
             i++;
         }
-
-        // Flush any trailing plain text
-        if (!plain.toString().isBlank()) {
-            handler.onPlainText(plain.toString());
-        }
+        return elided ? out.toString() : original;
     }
 
-    private static String joinRange(String[] lines, int start, int end) {
-        var sb = new StringBuilder();
-        for (int j = start; j < end; j++) {
-            sb.append(lines[j]);
-            if (j < end - 1) sb.append("\n");
+    // ----------------------------- Parsing -----------------------------
+
+    public static final class PatchParseException extends RuntimeException {
+        public PatchParseException(String message) { super(message); }
+    }
+
+    /** Parse one or more envelopes found in {@code content}. */
+    public List<FileOperation> parse(String content) {
+        if (content == null || content.isBlank()) return List.of();
+        var all = new ArrayList<FileOperation>();
+        var lines = content.split("\n", -1);
+        int i = 0;
+
+        while (i < lines.length) {
+            while (i < lines.length && !lines[i].trim().equals("*** Begin Patch")) i++;
+            if (i >= lines.length) break;
+            i++; // past Begin
+
+            while (i < lines.length && !lines[i].trim().equals("*** End Patch")) {
+                if (lines[i].isBlank()) { i++; continue; }
+                var t = lines[i].trim();
+
+                if (t.startsWith("*** Add File:")) {
+                    var path = headerPath(t, "*** Add File:");
+                    i++;
+                    var plus = new ArrayList<String>();
+                    while (i < lines.length && lines[i].startsWith("+")) {
+                        plus.add(lines[i].substring(1));
+                        i++;
+                    }
+                    var body = String.join("\n", plus);
+                    if (!body.endsWith("\n") && !plus.isEmpty()) body += "\n";
+                    all.add(new EditBlock.AddFile(path, body));
+                    continue;
+                }
+
+                if (t.startsWith("*** Delete File:")) {
+                    var path = headerPath(t, "*** Delete File:");
+                    i++;
+                    all.add(new EditBlock.DeleteFile(path));
+                    continue;
+                }
+
+                if (t.startsWith("*** Update File:")) {
+                    var path = headerPath(t, "*** Update File:");
+                    i++;
+                    String moveTo = null;
+                    if (i < lines.length && lines[i].trim().startsWith("*** Move to:")) {
+                        moveTo = headerPath(lines[i].trim(), "*** Move to:");
+                        i++;
+                    }
+
+                    var chunks = new ArrayList<UpdateFileChunk>();
+                    boolean firstChunk = true;
+
+                    while (i < lines.length) {
+                        var tt = lines[i].trim();
+                        if (tt.equals("*** End Patch")) break;
+                        if (tt.startsWith("*** ") && !tt.equals("*** End of File")) break; // next op
+                        if (tt.isBlank()) { i++; continue; }
+
+                        // optional '@@' header
+                        String anchor = null;
+                        if (tt.startsWith("@@")) {
+                            anchor = tt.equals("@@") ? null : tt.substring(2).stripLeading();
+                            i++;
+                        } else if (!firstChunk) {
+                            throw new PatchParseException("Expected '@@' before subsequent chunk in update for " + path);
+                        }
+                        firstChunk = false;
+
+                        var pre = new ArrayList<String>();
+                        var old = new ArrayList<String>();
+                        var neu = new ArrayList<String>();
+                        var post = new ArrayList<String>();
+                        boolean eof = false;
+
+                        enum Mode { PRE, OLD, NEW, POST }
+                        Mode mode = Mode.PRE;
+                        boolean sawChange = false;
+
+                        while (i < lines.length) {
+                            var raw = lines[i];
+                            var trim = raw.trim();
+
+                            if (trim.equals("*** End of File")) { eof = true; i++; break; }
+                            if (trim.equals("*** End Patch")) break;
+                            if (trim.startsWith("*** ") && !trim.equals("*** End of File")) break; // next op
+                            if (trim.startsWith("@@")) break; // next chunk
+
+                            if (raw.isEmpty()) {
+                                // true blank: treat as context
+                                if (mode == Mode.PRE) pre.add("");
+                                else if (mode == Mode.POST) post.add("");
+                                else {
+                                    // During OLD/NEW, a blank line belongs to that section (no prefix), but the format
+                                    // mandates a prefix for hunk lines. Enforce that to keep structure simple.
+                                    throw new PatchParseException("Blank lines in changes must be prefixed with '-' or '+'");
+                                }
+                                i++;
+                                continue;
+                            }
+
+                            char pfx = raw.charAt(0);
+                            String payload = raw.length() > 1 ? raw.substring(1) : "";
+
+                            switch (pfx) {
+                                case ' ' -> {
+                                    if (!sawChange) pre.add(payload);
+                                    else { mode = Mode.POST; post.add(payload); }
+                                    i++;
+                                }
+                                case '-' -> {
+                                    if (mode == Mode.POST) {
+                                        throw new PatchParseException("Only one contiguous -then+ change per chunk is supported");
+                                    }
+                                    mode = Mode.OLD;
+                                    old.add(payload);
+                                    sawChange = true;
+                                    i++;
+                                }
+                                case '+' -> {
+                                    if (mode == Mode.POST) {
+                                        throw new PatchParseException("Only one contiguous -then+ change per chunk is supported");
+                                    }
+                                    mode = Mode.NEW;
+                                    neu.add(payload);
+                                    sawChange = true;
+                                    i++;
+                                }
+                                default -> throw new PatchParseException("Unexpected line in hunk: " + raw);
+                            }
+                        }
+
+                        if (!sawChange) {
+                            throw new PatchParseException("Update hunk has no '-' or '+' lines for " + path);
+                        }
+                        chunks.add(new UpdateFileChunk(anchor,
+                                                       List.copyOf(pre),
+                                                       List.copyOf(old),
+                                                       List.copyOf(neu),
+                                                       List.copyOf(post),
+                                                       eof));
+                    }
+
+                    if (chunks.isEmpty()) {
+                        throw new PatchParseException("Update file has no chunks for " + path);
+                    }
+                    all.add(new EditBlock.UpdateFile(path, moveTo, List.copyOf(chunks)));
+                    continue;
+                }
+
+                throw new PatchParseException("'" + t + "' is not a valid file operation header.");
+            }
+
+            if (i < lines.length && lines[i].trim().equals("*** End Patch")) i++;
         }
+
+        return Collections.unmodifiableList(all);
+    }
+
+    private static String headerPath(String header, String prefix) {
+        var s = header.substring(prefix.length()).trim();
+        if (s.isEmpty()) throw new PatchParseException("Missing path for header: " + prefix);
+        return s;
+    }
+
+    // ----------------------------- Rendering -----------------------------
+
+    public String renderPatch(List<FileOperation> ops) {
+        var sb = new StringBuilder();
+        sb.append("*** Begin Patch\n");
+        for (var op : ops) {
+            sb.append(repr(op)).append("\n");
+        }
+        sb.append("*** End Patch\n");
         return sb.toString();
     }
 
-    /** Parses the given content into ParseResult (SRBs only) */
-    public EditBlock.ParseResult parse(String content, Set<ProjectFile> projectFiles) {
-        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>();
-        String[] firstError = new String[1]; // null if none
-
-        scan(content, projectFiles, new BlockScanHandler() {
-            @Override
-            public void onPlainText(String text) {
-                // ignore (SRBs only)
-            }
-
-            @Override
-            public void onBlock(EditBlock.SearchReplaceBlock block) {
-                blocks.add(block);
-            }
-
-            @Override
-            public void onError(String message, String rawFragment) {
-                if (firstError[0] == null) firstError[0] = message;
-            }
-        });
-
-        String error = firstError[0];
-        if (blocks.isEmpty() && error == null && Stream.of("<<<<<", "=====", ">>>>>").anyMatch(content::contains)) {
-            error = "It looks like you tried to include an edit block, but I couldn't parse it.";
-        }
-        return new EditBlock.ParseResult(blocks, error);
-    }
-
-    /**
-     * Redacts SEARCH/REPLACE blocks from the provided text, preserving the surrounding plaintext.
-     * If no blocks are found, returns the original text unchanged.
-     */
-    public String redact(String original) {
-        final String placeholder = "[elided SEARCH/REPLACE block]";
-        var out = new StringBuilder();
-        boolean[] hadBlocks = new boolean[] {false};
-        boolean[] prevWasBlock = new boolean[] {false};
-
-        scan(original, Collections.emptySet(), new BlockScanHandler() {
-            @Override
-            public void onPlainText(String text) {
-                out.append(text);
-                prevWasBlock[0] = false;
-            }
-
-            @Override
-            public void onBlock(EditBlock.SearchReplaceBlock block) {
-                if (prevWasBlock[0]) {
-                    out.append('\n');
+    public String repr(EditBlock.FileOperation op) {
+        return switch (op) {
+            case EditBlock.AddFile add -> {
+                var sb = new StringBuilder();
+                sb.append("*** Add File: ").append(add.path()).append("\n");
+                if (!add.contents().isEmpty()) {
+                    var ls = add.contents().split("\n", -1);
+                    for (int i = 0; i < ls.length; i++) {
+                        var line = ls[i];
+                        if (i == ls.length - 1 && line.isEmpty()) break; // trailing sentinel
+                        sb.append('+').append(line).append('\n');
+                    }
                 }
-                out.append(placeholder);
-                prevWasBlock[0] = true;
-                hadBlocks[0] = true;
+                yield sb.toString().stripTrailing();
             }
-
-            @Override
-            public void onError(String message, String rawFragment) {
-                // Treat malformed constructs as plain text
-                out.append(rawFragment);
-                prevWasBlock[0] = false;
+            case EditBlock.DeleteFile del -> "*** Delete File: " + del.path();
+            case EditBlock.UpdateFile upd -> {
+                var sb = new StringBuilder();
+                sb.append("*** Update File: ").append(upd.path()).append("\n");
+                if (upd.moveTo() != null && !upd.moveTo().isBlank()) {
+                    sb.append("*** Move to: ").append(upd.moveTo()).append("\n");
+                }
+                for (var ch : upd.chunks()) {
+                    sb.append(ch.anchor() == null ? "@@\n" : "@@ " + ch.anchor() + "\n");
+                    for (var s : ch.preContext()) sb.append(' ').append(s).append('\n');
+                    for (var s : ch.oldLines()) sb.append('-').append(s).append('\n');
+                    for (var s : ch.newLines()) sb.append('+').append(s).append('\n');
+                    for (var s : ch.postContext()) sb.append(' ').append(s).append('\n');
+                    if (ch.isEndOfFile()) sb.append("*** End of File\n");
+                }
+                yield sb.toString().stripTrailing();
             }
-        });
-
-        return hadBlocks[0] ? out.toString() : original;
-    }
-
-    public String repr(EditBlock.SearchReplaceBlock block) {
-        var beforeText = block.beforeText();
-        var afterText = block.afterText();
-        return """
-               %s
-               %s
-               <<<<<<< SEARCH
-               %s%s
-               =======
-               %s%s
-               >>>>>>> REPLACE
-               %s
-               """
-                .formatted(
-                        DEFAULT_FENCE.get(0),
-                        block.rawFileName(),
-                        beforeText,
-                        beforeText.endsWith("\n") ? "" : "\n",
-                        afterText,
-                        afterText.endsWith("\n") ? "" : "\n",
-                        DEFAULT_FENCE.get(1));
+        };
     }
 }

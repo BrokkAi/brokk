@@ -316,7 +316,7 @@ class EditBlockTest {
 
         assertEquals(1, result.failedBlocks().size());
         assertEquals(
-                EditBlock.EditBlockFailureReason.FILE_NOT_FOUND,
+                EditBlock.ParseFailureReason.FILE_NOT_FOUND,
                 result.failedBlocks().getFirst().reason());
     }
 
@@ -408,7 +408,7 @@ class EditBlockTest {
         // Assert exactly one failure with the correct reason
         assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
         assertEquals(
-                EditBlock.EditBlockFailureReason.NO_MATCH,
+                EditBlock.ParseFailureReason.NO_MATCH,
                 result.failedBlocks().getFirst().reason(),
                 "Expected failure reason to be NO_MATCH");
 
@@ -575,7 +575,7 @@ class EditBlockTest {
         assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
         var failedBlock = result.failedBlocks().getFirst();
         assertEquals(
-                EditBlock.EditBlockFailureReason.NO_MATCH,
+                EditBlock.ParseFailureReason.NO_MATCH,
                 failedBlock.reason(),
                 "Expected failure reason to be NO_MATCH");
 
@@ -621,7 +621,7 @@ class EditBlockTest {
         assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
         var failedBlock = result.failedBlocks().getFirst();
         assertEquals(
-                EditBlock.EditBlockFailureReason.NO_MATCH,
+                EditBlock.ParseFailureReason.NO_MATCH,
                 failedBlock.reason(),
                 "Expected failure reason to be NO_MATCH");
 
