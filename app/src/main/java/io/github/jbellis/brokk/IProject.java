@@ -118,7 +118,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default void setAnalyzerRefresh(AnalyzerRefresh cpgRefresh) {}
+    default void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {}
 
     default boolean isDataShareAllowed() {
         return false;

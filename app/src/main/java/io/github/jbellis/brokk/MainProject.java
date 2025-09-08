@@ -749,8 +749,8 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void setAnalyzerRefresh(AnalyzerRefresh value) {
-        projectProps.setProperty("code_intelligence_refresh", value.name());
+    public void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {
+        projectProps.setProperty("code_intelligence_refresh", analyzerRefresh.name());
         saveProjectProperties();
     }
 

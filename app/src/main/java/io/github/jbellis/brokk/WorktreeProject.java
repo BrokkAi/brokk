@@ -133,8 +133,8 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public void setAnalyzerRefresh(AnalyzerRefresh value) {
-        parent.setAnalyzerRefresh(value);
+    public void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {
+        parent.setAnalyzerRefresh(analyzerRefresh);
     }
 
     @Override

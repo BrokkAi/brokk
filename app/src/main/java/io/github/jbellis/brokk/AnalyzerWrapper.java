@@ -379,9 +379,9 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
             return true;
         }
 
-        long cpgMTime;
+        long lastModifiedTime;
         try {
-            cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
+            lastModifiedTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
             logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
             // Unable to read the timestamp - treat the cache as stale so that we rebuild.
@@ -396,14 +396,14 @@ public class AnalyzerWrapper implements AutoCloseable, IWatchService.Listener {
                     return true;
                 }
                 long fileMTime = Files.getLastModifiedTime(path).toMillis();
-                if (fileMTime > cpgMTime) {
+                if (fileMTime > lastModifiedTime) {
                     logger.debug(
                             "Tracked file {} for language {} is newer than its CPG {} ({} > {})",
                             path,
                             lang.name(),
                             analyzerPath,
                             fileMTime,
-                            cpgMTime);
+                            lastModifiedTime);
                     return true;
                 }
             } catch (IOException e) {
