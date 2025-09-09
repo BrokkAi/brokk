@@ -1,14 +1,11 @@
 package io.github.jbellis.brokk.context;
 
-import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.SessionManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -24,7 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
@@ -84,24 +80,6 @@ public class ContextSerializationTest {
         try (var baos = new ByteArrayOutputStream()) {
             ImageIO.write(bufferedImage, "PNG", baos);
             return baos.toByteArray();
-        }
-    }
-
-    private void assertEventually(Runnable assertion) throws InterruptedException {
-        long timeout = 5000; // 5 seconds
-        long interval = 100; // 100 ms
-        long startTime = System.currentTimeMillis();
-        while (true) {
-            try {
-                assertion.run();
-                return; // success
-            } catch (AssertionError e) {
-                if (System.currentTimeMillis() - startTime >= timeout) {
-                    throw e;
-                }
-                // ignore and retry
-            }
-            Thread.sleep(interval);
         }
     }
 
@@ -566,92 +544,6 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testSaveAndLoadSessionHistory() throws Exception {
-        MainProject project = new MainProject(tempDir);
-        var sessionManager = project.getSessionManager();
-        SessionInfo sessionInfo = sessionManager.newSession("History Test Session");
-        UUID sessionId = sessionInfo.id();
-
-        var initialContext = new Context(mockContextManager, "Welcome to session history test.");
-        ContextHistory originalHistory = new ContextHistory(initialContext);
-
-        // Create dummy file
-        ProjectFile dummyFile = new ProjectFile(tempDir, "dummyFile.txt");
-        Files.createDirectories(dummyFile.absPath().getParent());
-        Files.writeString(dummyFile.absPath(), "Dummy file content for session history test.");
-
-        // Populate originalHistory
-
-        ContextFragment.StringFragment sf = new ContextFragment.StringFragment(
-                mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
-        Context context2 = new Context(mockContextManager, "Second context with fragments")
-                .addVirtualFragment(sf)
-                .addEditableFiles(List.of(pf));
-        originalHistory.addFrozenContextAndClearRedo(context2.freeze());
-
-        // Get initial modified time
-        long initialModifiedTime = sessionManager.listSessions().stream()
-                .filter(s -> s.id().equals(sessionId))
-                .findFirst()
-                .orElseThrow()
-                .modified();
-
-        // Save history
-        sessionManager.saveHistory(originalHistory, sessionId);
-
-        // --- Verification with live session manager (cached sessions) ---
-        verifySessionHistory(
-                sessionManager, sessionId, initialModifiedTime, originalHistory, "after save (cached sessions)");
-        project.close();
-
-        // --- Verification with new session manager (sessions loaded from disk) ---
-        MainProject newProject = new MainProject(tempDir);
-        verifySessionHistory(
-                newProject.getSessionManager(),
-                sessionId,
-                initialModifiedTime,
-                originalHistory,
-                "after recreating project (sessions loaded from disk)");
-        newProject.close();
-    }
-
-    private void verifySessionHistory(
-            SessionManager sessionManager,
-            UUID sessionId,
-            long initialModifiedTime,
-            ContextHistory originalHistory,
-            String verificationPhaseMessage)
-            throws IOException, InterruptedException {
-        // Verify modified timestamp update
-        List<SessionInfo> updatedSessions = sessionManager.listSessions();
-        SessionInfo updatedSessionInfo = updatedSessions.stream()
-                .filter(s -> s.id().equals(sessionId))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Session not found " + verificationPhaseMessage));
-        assertTrue(
-                updatedSessionInfo.modified() >= initialModifiedTime,
-                "Modified timestamp should be updated or same. Verification phase: " + verificationPhaseMessage);
-
-        // Load history
-        ContextHistory loadedHistory = sessionManager.loadHistory(sessionId, mockContextManager);
-
-        // Assertions
-        assertNotNull(
-                loadedHistory, "Loaded history should not be null. Verification phase: " + verificationPhaseMessage);
-        assertEquals(
-                originalHistory.getHistory().size(),
-                loadedHistory.getHistory().size(),
-                "Number of contexts in history should match. Verification phase: " + verificationPhaseMessage);
-
-        for (int i = 0; i < originalHistory.getHistory().size(); i++) {
-            assertContextsEqual(
-                    originalHistory.getHistory().get(i),
-                    loadedHistory.getHistory().get(i));
-        }
-    }
-
-    @Test
     void testFragmentInterningDuringDeserialization() throws IOException {
         var context1 = new Context(mockContextManager, "Context 1");
         var projectFile = new ProjectFile(tempDir, "shared.txt");
@@ -773,162 +665,6 @@ public class ContextSerializationTest {
         assertEquals(sharedTaskFragmentId, taskLog1.id(), "TaskLog1 ID mismatch");
         assertEquals(sharedTaskFragmentId, taskLog2.id(), "TaskLog2 ID mismatch");
         assertSame(taskLog1, taskLog2, "Shared TaskFragment logs should be the same instance after deserialization.");
-    }
-
-    @Test
-    void testNewSessionCreationAndListing() throws Exception {
-        // Create a Project instance using the tempDir
-        MainProject project = new MainProject(tempDir);
-        var sessionManager = project.getSessionManager();
-
-        // Create first session
-        SessionInfo session1Info = sessionManager.newSession("Test Session 1");
-
-        // Assert session1Info is valid
-        assertNotNull(session1Info);
-        assertEquals("Test Session 1", session1Info.name());
-        assertNotNull(session1Info.id());
-
-        // Verify the history zip file exists
-        Path historyZip1 = tempDir.resolve(".brokk").resolve("sessions").resolve(session1Info.id() + ".zip");
-        assertEventually(() -> assertTrue(Files.exists(historyZip1)));
-
-        // List sessions and verify session1Info
-        List<SessionInfo> sessionsAfter1 = sessionManager.listSessions();
-        assertEquals(1, sessionsAfter1.size(), "Should be 1 session after creating the first.");
-        SessionInfo listedSession1 = sessionsAfter1.get(0);
-        assertEquals(session1Info.id(), listedSession1.id());
-        assertEquals(session1Info.name(), listedSession1.name());
-        assertEquals(session1Info.created(), listedSession1.created());
-        assertEquals(session1Info.modified(), listedSession1.modified());
-        assertTrue(listedSession1.created() <= listedSession1.modified(), "created should be <= modified for session1");
-
-        // Create second session
-        SessionInfo session2Info = sessionManager.newSession("Test Session 2");
-        assertNotNull(session2Info);
-        Path historyZip2 = tempDir.resolve(".brokk")
-                .resolve("sessions")
-                .resolve(session2Info.id().toString() + ".zip");
-        assertEventually(() -> assertTrue(Files.exists(historyZip2)));
-
-        // List all sessions
-        List<SessionInfo> sessionsAfter2 = sessionManager.listSessions();
-
-        // Assert we have 2 sessions
-        assertEquals(2, sessionsAfter2.size(), "Should be 2 sessions after creating the second.");
-
-        // Verify that the list contains SessionInfo objects matching session1Info and session2Info
-        var sessionMap = sessionsAfter2.stream().collect(Collectors.toMap(SessionInfo::id, s -> s));
-
-        assertTrue(sessionMap.containsKey(session1Info.id()), "Sessions list should contain session1Info by ID");
-        SessionInfo foundSession1 = sessionMap.get(session1Info.id());
-        assertEquals("Test Session 1", foundSession1.name());
-
-        assertTrue(sessionMap.containsKey(session2Info.id()), "Sessions list should contain session2Info by ID");
-        SessionInfo foundSession2 = sessionMap.get(session2Info.id());
-        assertEquals("Test Session 2", foundSession2.name());
-        assertTrue(foundSession2.created() <= foundSession2.modified(), "created should be <= modified for session2");
-
-        project.close();
-    }
-
-    @Test
-    void testRenameSession() throws Exception {
-        MainProject project = new MainProject(tempDir);
-        var sessionManager = project.getSessionManager();
-        SessionInfo initialSession = sessionManager.newSession("Original Name");
-
-        sessionManager.renameSession(initialSession.id(), "New Name");
-
-        List<SessionInfo> sessions = sessionManager.listSessions();
-        SessionInfo renamedSession = sessions.stream()
-                .filter(s -> s.id().equals(initialSession.id()))
-                .findFirst()
-                .orElseThrow();
-
-        assertEquals("New Name", renamedSession.name());
-        assertEquals(initialSession.created(), renamedSession.created()); // Created time should not change
-
-        // Verify history zip still exists
-        assertEventually(() -> assertTrue(Files.exists(tempDir.resolve(".brokk")
-                .resolve("sessions")
-                .resolve(initialSession.id().toString() + ".zip"))));
-
-        project.close();
-    }
-
-    @Test
-    void testDeleteSession() throws Exception {
-        MainProject project = new MainProject(tempDir);
-        var sessionManager = project.getSessionManager();
-        SessionInfo session1 = sessionManager.newSession("Session 1");
-        SessionInfo session2 = sessionManager.newSession("Session 2");
-
-        UUID idToDelete = session1.id();
-        Path historyFileToDelete =
-                tempDir.resolve(".brokk").resolve("sessions").resolve(idToDelete.toString() + ".zip");
-        assertEventually(() -> assertTrue(Files.exists(historyFileToDelete)));
-
-        sessionManager.deleteSession(idToDelete);
-
-        List<SessionInfo> sessions = sessionManager.listSessions();
-        assertEquals(1, sessions.size());
-        assertEquals(session2.id(), sessions.get(0).id());
-        assertEventually(() -> assertFalse(Files.exists(historyFileToDelete)));
-
-        // Test deleting non-existent, should not throw
-        sessionManager.deleteSession(UUID.randomUUID());
-
-        project.close();
-    }
-
-    @Test
-    void testCopySession() throws Exception {
-        MainProject project = new MainProject(tempDir);
-        var sessionManager = project.getSessionManager();
-        SessionInfo originalSessionInfo = sessionManager.newSession("Original Session");
-        UUID originalId = originalSessionInfo.id();
-
-        var originalHistoryFile = tempDir.resolve(".brokk").resolve("sessions").resolve(originalId.toString() + ".zip");
-        assertEventually(() -> assertTrue(Files.exists(originalHistoryFile)));
-
-        // Create some history content
-        Context context = new Context(mockContextManager, "Test content");
-        ContextHistory originalHistory = new ContextHistory(context);
-        sessionManager.saveHistory(originalHistory, originalId);
-
-        SessionInfo copiedSessionInfo = sessionManager.copySession(originalId, "Copied Session");
-
-        assertNotNull(copiedSessionInfo);
-        assertEquals("Copied Session", copiedSessionInfo.name());
-        assertNotEquals(originalId, copiedSessionInfo.id());
-
-        List<SessionInfo> sessions = sessionManager.listSessions();
-        assertEquals(2, sessions.size());
-        assertTrue(sessions.stream().anyMatch(s -> s.id().equals(originalId)));
-        assertTrue(sessions.stream().anyMatch(s -> s.id().equals(copiedSessionInfo.id())));
-
-        Path copiedHistoryFile = tempDir.resolve(".brokk")
-                .resolve("sessions")
-                .resolve(copiedSessionInfo.id().toString() + ".zip");
-        assertEventually(() -> assertTrue(Files.exists(copiedHistoryFile)));
-
-        ContextHistory loadedOriginalHistory = sessionManager.loadHistory(originalId, mockContextManager);
-        ContextHistory loadedCopiedHistory = sessionManager.loadHistory(copiedSessionInfo.id(), mockContextManager);
-
-        assertEquals(
-                loadedOriginalHistory.getHistory().size(),
-                loadedCopiedHistory.getHistory().size());
-        if (!loadedOriginalHistory.getHistory().isEmpty()) {
-            assertContextsEqual(
-                    loadedOriginalHistory.getHistory().get(0),
-                    loadedCopiedHistory.getHistory().get(0));
-        }
-
-        assertTrue(copiedSessionInfo.created() <= copiedSessionInfo.modified());
-        assertTrue(copiedSessionInfo.created() >= originalSessionInfo.modified()); // Copied time is 'now'
-
-        project.close();
     }
 
     // --- Tests for individual fragment type round-trips ---

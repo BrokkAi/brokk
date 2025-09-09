@@ -454,7 +454,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     }
 
     /** Clears the internal intern pool. For testing purposes only. */
-    static void clearInternPoolForTesting() {
+    public static void clearInternPoolForTesting() {
         INTERN_POOL.clear();
     }
 

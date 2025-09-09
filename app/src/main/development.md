@@ -6,43 +6,31 @@ This is a multi-module Gradle project with Kotlin DSL:
 
 - **`analyzer-api`** - Core analyzer interfaces and types (1% of codebase, compiled with javac)
 - **`app`** - Java 21 main application with TreeSitter analyzers (94% of codebase, compiled with javac)
-- **`joern-analyzers`** - Scala 3.5.2 analyzers using Joern CPG (5% of codebase, compiled with scalac)
 
 ### Module Dependency Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Module Dependencies                      │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Module Dependencies                    │
+└───────────────────────────────────────────────────────────┘
 
                     ┌──────────────────────┐
                     │        app           │
                     │                      │
                     │ • GUI Application    │
                     │ Compiler: javac      │
-                    │ Size: ~94%           │
                     └──────────────────────┘
                              │
-                             │
-          ┌──────────────────┼──────────────────┐
-          │ implementation                      │ implementation
-          │                                     │
-          ▼                                     ▼
-┌─────────────────┐                 ┌─────────────────┐
-│   analyzer-api  │◄────────────────│ joern-analyzers │
-│                 │  implementation │                 │
-│ • IAnalyzer     │                 │ • JavaAnalyzer  │
-│ • CodeUnit      │                 │ • CppAnalyzer   │
-│ • ProjectFile   │                 │ • JoernAnalyzer │
-│ • BrokkFile     │                 │ • CPG Builder   │
-│                 │                 │                 │
-│ Compiler: javac │                 │ Compiler: scalac│
-│ Size: ~1%       │                 │ Size: ~5%       │
-└─────────────────┘                 └─────────────────┘
+                             │ implementation
+                             ▼
+                    ┌─────────────────┐
+                    │  analyzer-api   │
+                    │                 │
+                    │ Compiler: javac │
+                    └─────────────────┘
 
 Dependencies:
-• app → analyzer-api, joern-analyzers
-• joern-analyzers → analyzer-api
+• app → analyzer-api
 • analyzer-api → (no dependencies)
 ```
 
@@ -88,13 +76,10 @@ npm run preview
 ### Development Workflow - Individual Projects
 - `./gradlew :analyzer-api:compileJava` - Compile API interfaces only
 - `./gradlew :app:compileJava` - Compile Java code only
-- `./gradlew :joern-analyzers:compileScala` - Compile Scala code only
 - `./gradlew :analyzer-api:classes` - Compile analyzer-api (Java)
 - `./gradlew :app:classes` - Compile app (Java)
-- `./gradlew :joern-analyzers:classes` - Compile joern-analyzers (Scala)
 - `./gradlew :analyzer-api:assemble` - Build API module only
 - `./gradlew :app:assemble` - Build app project only
-- `./gradlew :joern-analyzers:assemble` - Build Joern analyzers only
 
 ### Testing
 - `./gradlew test` - Run all tests (includes TreeSitter and regular tests)
@@ -103,7 +88,6 @@ npm run preview
 #### Running Tests by Project
 - `./gradlew :analyzer-api:test` - Run tests only in the API module
 - `./gradlew :app:test` - Run tests only in the app Java project
-- `./gradlew :joern-analyzers:test` - Run tests only in the Joern analyzers project
 
 #### Running Test Subsets
 - `./gradlew test --tests "*AnalyzerTest"` - Run all analyzer tests (includes TreeSitter)
@@ -115,7 +99,6 @@ npm run preview
 #### Project-Specific Test Patterns
 - `./gradlew :analyzer-api:test --tests "*Analyzer*"` - Run API interface tests
 - `./gradlew :app:test --tests "*GitRepo*"` - Run Git-related tests in app project
-- `./gradlew :joern-analyzers:test --tests "*Analyzer*"` - Run analyzer tests in Joern project
 
 #### Test Configuration Notes
 - **Unified test suite**: All tests run together in a single forked JVM
@@ -127,7 +110,6 @@ After running tests, detailed reports are automatically generated:
 - **All Projects**: `build/reports/tests/test/index.html` - Combined test results
 - **analyzer-api**: `analyzer-api/build/reports/tests/test/index.html` - API module tests
 - **app**: `app/build/reports/tests/test/index.html` - Java project tests
-- **joern-analyzers**: `joern-analyzers/build/reports/tests/test/index.html` - Joern project tests
 - **Console Output**: Real-time test progress with pass/fail/skip status
 
 ### Code Formatting
@@ -136,9 +118,6 @@ After running tests, detailed reports are automatically generated:
 - `./gradlew tidy` - Format all Java code. (Alias for `./gradlew spotlessApply`)
 - `./gradlew spotlessCheck` - Check if code formatting is correct (CI-friendly)
 - `./gradlew spotlessInstallGitPrePushHook` - Install pre-push hook for automatic formatting checks
-
-#### Scala Code (joern-analyzers)
-- `./gradlew :joern-analyzers:scalafmt` - Format Scala code
 
 ### Dependency Management
 
@@ -180,7 +159,6 @@ The build system uses aggressive multi-level caching for optimal performance:
 ### Performance Tips
 - Keep Gradle daemon running (`gradle.properties` enables this with 6GB heap)
 - Use `./gradlew :app:classes` for fastest Java-only development
-- Use `./gradlew :joern-analyzers:classes` for Scala-only development
 - Use `./gradlew classes` to compile both projects
 - Use `./gradlew assemble` for development (skips tests, no JARs)
 - Configuration cache automatically optimizes repeated builds

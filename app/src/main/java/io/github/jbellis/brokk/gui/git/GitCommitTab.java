@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.components.ResponsiveButtonPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
@@ -598,6 +599,34 @@ public class GitCommitTab extends JPanel {
                 }
 
                 SwingUtilities.invokeLater(() -> {
+                    // Create normalized sources for window raising check (use all files in consistent order)
+                    var normalizedFiles = allFiles.stream()
+                            .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
+                            .collect(Collectors.toList());
+
+                    var leftSources = new java.util.ArrayList<BufferSource>();
+                    var rightSources = new java.util.ArrayList<BufferSource>();
+
+                    for (var file : normalizedFiles) {
+                        var rightSource =
+                                new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                        String headContent = "";
+                        try {
+                            var repo = contextManager.getProject().getRepo();
+                            headContent = repo.getFileContent("HEAD", file);
+                        } catch (Exception ex) {
+                            headContent = "";
+                        }
+                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.getFileName());
+                        leftSources.add(leftSource);
+                        rightSources.add(rightSource);
+                    }
+
+                    // Check if we already have a window showing this diff
+                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
+                        return; // Existing window raised, don't create new one
+                    }
+
                     var panel = builder.build();
                     panel.showInFrame("Uncommitted Changes Diff");
                 });

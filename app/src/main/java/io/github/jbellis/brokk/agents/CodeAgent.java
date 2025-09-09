@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
@@ -184,14 +185,22 @@ public class CodeAgent {
             }
             if (stopDetails != null) break;
 
-            // After a successful apply, replace the raw parse/apply turn with a clean, synthetic summary
+            // After a successful apply, consider compacting the turn into a clean, synthetic summary.
+            // Only do this if the turn had more than a single user/AI pair; for simple one-shot turns,
+            // keep the original messages for clarity.
             if (loopContext.editState().blocksAppliedWithoutBuild() > 0) {
-                var srb = generateSearchReplaceBlocksFromTurn(loopContext.editState());
-                var summaryText = renderBlocksAsSingleMessage(srb, parser);
-                loopContext = new LoopContext(
-                        loopContext.conversationState().replaceCurrentTurnMessages(summaryText),
-                        loopContext.editState,
-                        loopContext.userGoal);
+                int msgsThisTurn =
+                        loopContext.conversationState().taskMessages().size()
+                                - loopContext.conversationState().turnStartIndex();
+                if (msgsThisTurn > 2) {
+                    var srb = loopContext.editState().toSearchReplaceBlocks();
+                    var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
+                            + srb.stream().map(parser::repr).collect(Collectors.joining("\n"));
+                    loopContext = new LoopContext(
+                            loopContext.conversationState().replaceCurrentTurnMessages(summaryText),
+                            loopContext.editState,
+                            loopContext.userGoal);
+                }
             }
 
             // VERIFY PHASE runs the build
@@ -880,7 +889,8 @@ public class CodeAgent {
      */
     private String runVerificationCommand(String verificationCommand) throws InterruptedException {
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-        io.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+        String shellLang = ExecutorConfig.getShellLanguageFromProject(contextManager.getProject());
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
@@ -1060,180 +1070,180 @@ public class CodeAgent {
                     changedFiles,
                     newOriginalContents);
         }
-    }
 
-    /**
-     * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
-     * contents captured at the start of the turn. For files that were created in this turn (no original content),
-     * generate a "new file" block (empty before / full after).
-     *
-     * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the history
-     * compaction without depending on the diff library package structure at compile time.
-     */
-    @VisibleForTesting
-    List<EditBlock.SearchReplaceBlock> generateSearchReplaceBlocksFromTurn(EditState ws) {
-        var results = new ArrayList<EditBlock.SearchReplaceBlock>();
-        var originals = ws.originalFileContents();
+        /**
+         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
+         * contents captured at the start of the turn. For files that were created in this turn (no original content),
+         * generate a "new file" block (empty before / full after).
+         *
+         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
+         * history compaction without depending on the diff library package structure at compile time.
+         */
+        @VisibleForTesting
+        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new ArrayList<EditBlock.SearchReplaceBlock>();
+            var originals = originalFileContents();
 
-        // Include both files we have originals for and new files created in this turn
-        var candidates = new HashSet<ProjectFile>(ws.changedFiles());
-        candidates.addAll(originals.keySet());
+            // Include both files we have originals for and new files created in this turn
+            var candidates = new HashSet<>(changedFiles());
+            candidates.addAll(originals.keySet());
 
-        // Sort for determinism
-        var sorted = candidates.stream()
-                .sorted(Comparator.comparing(ProjectFile::toString))
-                .toList();
+            // Sort for determinism
+            var sorted = candidates.stream()
+                    .sorted(Comparator.comparing(ProjectFile::toString))
+                    .toList();
 
-        for (var file : sorted) {
-            String original = originals.getOrDefault(file, "");
-            String revised;
-            try {
-                revised = file.read();
-            } catch (IOException ioe) {
-                logger.warn("Unable to read file {} to generate summary diff; skipping", file, ioe);
-                continue;
-            }
-
-            if (Objects.equals(original, revised)) {
-                continue; // No effective change
-            }
-
-            // New file created this turn
-            if (!originals.containsKey(file)) {
-                results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
-                continue;
-            }
-
-            var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
-            var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
-
-            try {
-                com.github.difflib.patch.Patch<String> patch =
-                        com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
-
-                // 1) Build minimal windows per delta in original line space
-                record Window(int start, int end) {
-                    Window expandLeft() {
-                        return new Window(Math.max(0, start - 1), end);
-                    }
-
-                    Window expandRight(int max) {
-                        return new Window(start, Math.min(max, end + 1));
-                    }
-                }
-                var windows = new ArrayList<Window>();
-                for (AbstractDelta<String> delta : patch.getDeltas()) {
-                    var src = delta.getSource();
-                    int sPos = src.getPosition();
-                    int sSize = src.size();
-
-                    int wStart, wEnd;
-                    if (sSize > 0) {
-                        wStart = sPos;
-                        wEnd = sPos + sSize - 1;
-                    } else {
-                        // Pure insertion: anchor on previous line when possible, else next
-                        wStart = (sPos == 0) ? 0 : sPos - 1;
-                        wEnd = wStart;
-                    }
-                    if (!originalLines.isEmpty()) {
-                        wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
-                        wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
-                    }
-                    windows.add(new Window(wStart, wEnd));
+            for (var file : sorted) {
+                String original = originals.getOrDefault(file, "");
+                String revised;
+                try {
+                    revised = file.read();
+                } catch (IOException ioe) {
+                    logger.warn("Unable to read file {} to generate summary diff; skipping", file, ioe);
+                    continue;
                 }
 
-                // 2) Expand each window until its before-text is unique in the original
-                int lastIdx = Math.max(0, originalLines.size() - 1);
-                windows = windows.stream()
-                        .map(w -> {
-                            Window cur = w;
-                            String before = joinLines(originalLines, cur.start, cur.end);
-                            while (!before.isEmpty()
-                                    && countOccurrences(original, before) > 1
-                                    && (cur.start > 0 || cur.end < lastIdx)) {
-                                if (cur.start > 0) cur = cur.expandLeft();
-                                if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
-                                before = joinLines(originalLines, cur.start, cur.end);
-                            }
-                            return cur;
-                        })
-                        .collect(Collectors.toCollection(ArrayList::new));
+                if (Objects.equals(original, revised)) {
+                    continue; // No effective change
+                }
 
-                // 3) Merge overlapping/adjacent windows after expansion
-                windows.sort(Comparator.comparingInt(w -> w.start));
-                var merged = new ArrayList<Window>();
-                for (var w : windows) {
-                    if (merged.isEmpty()) {
-                        merged.add(w);
-                    } else {
-                        var last = merged.getLast();
-                        if (w.start <= last.end + 1) { // overlap or adjacent
-                            merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
+                // New file created this turn
+                if (!originals.containsKey(file)) {
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
+                    continue;
+                }
+
+                var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
+                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
+
+                try {
+                    com.github.difflib.patch.Patch<String> patch =
+                            com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
+
+                    // 1) Build minimal windows per delta in original line space
+                    record Window(int start, int end) {
+                        Window expandLeft() {
+                            return new Window(Math.max(0, start - 1), end);
+                        }
+
+                        Window expandRight(int max) {
+                            return new Window(start, Math.min(max, end + 1));
+                        }
+                    }
+                    var windows = new ArrayList<Window>();
+                    for (AbstractDelta<String> delta : patch.getDeltas()) {
+                        var src = delta.getSource();
+                        int sPos = src.getPosition();
+                        int sSize = src.size();
+
+                        int wStart, wEnd;
+                        if (sSize > 0) {
+                            wStart = sPos;
+                            wEnd = sPos + sSize - 1;
                         } else {
+                            // Pure insertion: anchor on previous line when possible, else next
+                            wStart = (sPos == 0) ? 0 : sPos - 1;
+                            wEnd = wStart;
+                        }
+                        if (!originalLines.isEmpty()) {
+                            wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
+                            wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
+                        }
+                        windows.add(new Window(wStart, wEnd));
+                    }
+
+                    // 2) Expand each window until its before-text is unique in the original
+                    int lastIdx = Math.max(0, originalLines.size() - 1);
+                    windows = windows.stream()
+                            .map(w -> {
+                                Window cur = w;
+                                String before = joinLines(originalLines, cur.start, cur.end);
+                                while (!before.isEmpty()
+                                        && countOccurrences(original, before) > 1
+                                        && (cur.start > 0 || cur.end < lastIdx)) {
+                                    if (cur.start > 0) cur = cur.expandLeft();
+                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
+                                    before = joinLines(originalLines, cur.start, cur.end);
+                                }
+                                return cur;
+                            })
+                            .collect(Collectors.toCollection(ArrayList::new));
+
+                    // 3) Merge overlapping/adjacent windows after expansion
+                    windows.sort(Comparator.comparingInt(w -> w.start));
+                    var merged = new ArrayList<Window>();
+                    for (var w : windows) {
+                        if (merged.isEmpty()) {
                             merged.add(w);
-                        }
-                    }
-                }
-
-                // Precompute net line deltas for mapping original -> revised
-                record DeltaShape(int pos, int size, int net) {}
-                var shapes = patch.getDeltas().stream()
-                        .map(d -> new DeltaShape(
-                                d.getSource().getPosition(),
-                                d.getSource().size(),
-                                d.getTarget().size() - d.getSource().size()))
-                        .sorted(Comparator.comparingInt(s -> s.pos))
-                        .toList();
-
-                for (var w : merged) {
-                    // Map original start to revised start
-                    int netBeforeStart = shapes.stream()
-                            .filter(s -> s.pos + s.size <= w.start) // ends before start
-                            .mapToInt(s -> s.net)
-                            .sum();
-                    int revisedStart = w.start + netBeforeStart;
-
-                    int windowLen = w.end - w.start + 1;
-                    // Net deltas that intersect the window
-                    int netInWindow = 0;
-                    for (AbstractDelta<String> d : patch.getDeltas()) {
-                        int p = d.getSource().getPosition();
-                        int sz = d.getSource().size();
-                        int net = d.getTarget().size() - sz;
-                        boolean overlaps;
-                        if (sz > 0) {
-                            overlaps = p < (w.end + 1) && (p + sz) > w.start;
                         } else {
-                            overlaps = p >= w.start && p <= (w.end + 1);
-                        }
-                        if (overlaps) {
-                            netInWindow += net;
+                            var last = merged.getLast();
+                            if (w.start <= last.end + 1) { // overlap or adjacent
+                                merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
+                            } else {
+                                merged.add(w);
+                            }
                         }
                     }
-                    int revisedEnd = revisedStart + windowLen + netInWindow - 1;
 
-                    String before = joinLines(originalLines, w.start, w.end);
-                    String after = joinLines(
-                            revisedLines,
-                            clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
-                            clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
+                    // Precompute net line deltas for mapping original -> revised
+                    record DeltaShape(int pos, int size, int net) {}
+                    var shapes = patch.getDeltas().stream()
+                            .map(d -> new DeltaShape(
+                                    d.getSource().getPosition(),
+                                    d.getSource().size(),
+                                    d.getTarget().size() - d.getSource().size()))
+                            .sorted(Comparator.comparingInt(s -> s.pos))
+                            .toList();
 
-                    // If uniqueness still fails (pathological), fall back to whole-file
-                    if (!before.isEmpty() && countOccurrences(original, before) > 1) {
-                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
-                        continue;
+                    for (var w : merged) {
+                        // Map original start to revised start
+                        int netBeforeStart = shapes.stream()
+                                .filter(s -> s.pos + s.size <= w.start) // ends before start
+                                .mapToInt(s -> s.net)
+                                .sum();
+                        int revisedStart = w.start + netBeforeStart;
+
+                        int windowLen = w.end - w.start + 1;
+                        // Net deltas that intersect the window
+                        int netInWindow = 0;
+                        for (AbstractDelta<String> d : patch.getDeltas()) {
+                            int p = d.getSource().getPosition();
+                            int sz = d.getSource().size();
+                            int net = d.getTarget().size() - sz;
+                            boolean overlaps;
+                            if (sz > 0) {
+                                overlaps = p < (w.end + 1) && (p + sz) > w.start;
+                            } else {
+                                overlaps = p >= w.start && p <= (w.end + 1);
+                            }
+                            if (overlaps) {
+                                netInWindow += net;
+                            }
+                        }
+                        int revisedEnd = revisedStart + windowLen + netInWindow - 1;
+
+                        String before = joinLines(originalLines, w.start, w.end);
+                        String after = joinLines(
+                                revisedLines,
+                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
+                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
+
+                        // If uniqueness still fails (pathological), fall back to whole-file
+                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
+                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                            continue;
+                        }
+
+                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
                     }
-
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
+                } catch (Exception e) {
+                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
+                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
                 }
-            } catch (Exception e) {
-                // If diffing fails for any reason, fall back to a conservative whole-file replacement
-                logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
-                results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
             }
+            return results;
         }
-        return results;
     }
 
     private static int clamp(int v, int lo, int hi) {
@@ -1260,22 +1270,6 @@ public class CodeAgent {
     private static String ensureTerminated(String s) {
         if (s.isEmpty()) return s;
         return s.endsWith("\n") ? s : s + "\n";
-    }
-
-    /**
-     * Render a list of SEARCH/REPLACE blocks into a single text suitable for an AiMessage:
-     *
-     * <p>Here are the SEARCH/REPLACE blocks: ```...block 1... ``` ```...block 2... ```
-     */
-    @VisibleForTesting
-    String renderBlocksAsSingleMessage(List<EditBlock.SearchReplaceBlock> blocks, EditBlockParser parser) {
-        var sb = new StringBuilder();
-        sb.append("Here are the SEARCH/REPLACE blocks:\n\n");
-        for (int i = 0; i < blocks.size(); i++) {
-            if (i > 0) sb.append("\n");
-            sb.append(parser.repr(blocks.get(i)));
-        }
-        return sb.toString();
     }
 
     private static class Metrics {

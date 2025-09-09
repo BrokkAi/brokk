@@ -185,6 +185,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI", false);
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        // Install centralized application-level QuitHandler so Cmd+Q and platform quit can be intercepted
+        AppQuitHandler.install();
         frame.setSize(800, 1200); // Taller than wide
         frame.setLayout(new BorderLayout());
 
@@ -790,6 +792,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_L);
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
         rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
+
+        // Cmd/Ctrl+M => toggle Code/Answer mode
+        var toggleModeKeyStroke =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleModeKeyStroke, "toggleCodeAnswer");
+        rootPane.getActionMap().put("toggleCodeAnswer", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        instructionsPanel.toggleCodeAnswerMode();
+                        systemOutput("Toggled Code/Answer mode");
+                    } catch (Exception ex) {
+                        logger.warn("Error toggling Code/Answer mode via shortcut", ex);
+                    }
+                });
+            }
+        });
 
         // Register IntelliJ-style shortcuts for switching sidebar panels
         // Determine the modifier based on platform (Cmd on Mac, Alt on Windows/Linux)
@@ -1924,6 +1944,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var label = new JLabel(title, SwingConstants.CENTER);
             titleBar.add(label, BorderLayout.CENTER);
             frame.add(titleBar, BorderLayout.NORTH);
+            titleBar.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (e.getClickCount() == 2) { // Double click
+                        if ((frame.getExtendedState() & Frame.MAXIMIZED_BOTH) == Frame.MAXIMIZED_BOTH) {
+                            // un-maximize the window
+                            frame.setExtendedState(JFrame.NORMAL);
+                        } else {
+                            // maximize the window
+                            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                        }
+                    }
+                }
+            });
         }
     }
 

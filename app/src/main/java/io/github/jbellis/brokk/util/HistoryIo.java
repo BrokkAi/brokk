@@ -322,82 +322,86 @@ public final class HistoryIo {
             resetEdgesBytes = objectMapper.writeValueAsBytes(dtos);
         }
 
-        Files.createDirectories(target.getParent());
-        try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
-            zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
-            zos.write(fragmentsBytes);
-            zos.closeEntry();
-
-            zos.putNextEntry(new ZipEntry(CONTENT_FILENAME));
-            var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
-            byte[] contentMetadataBytes =
-                    objectMapper.writerFor(typeRef).writeValueAsBytes(writer.getContentMetadata());
-            zos.write(contentMetadataBytes);
-            zos.closeEntry();
-
-            for (var entry : writer.getContentBytes().entrySet()) {
-                zos.putNextEntry(new ZipEntry(CONTENT_DIR_PREFIX + entry.getKey() + ".txt"));
-                zos.write(entry.getValue());
+        final var finalGitStatesBytes = gitStatesBytes;
+        final var finalEntryInfosBytes = entryInfosBytes;
+        final var finalResetEdgesBytes = resetEdgesBytes;
+        AtomicWrites.atomicSave(target, out -> {
+            try (var zos = new ZipOutputStream(out)) {
+                zos.putNextEntry(new ZipEntry(V3_FRAGMENTS_FILENAME));
+                zos.write(fragmentsBytes);
                 zos.closeEntry();
-            }
 
-            zos.putNextEntry(new ZipEntry(CONTEXTS_FILENAME));
-            zos.write(contextsBytes);
-            zos.closeEntry();
-
-            if (gitStatesBytes != null) {
-                zos.putNextEntry(new ZipEntry(GIT_STATES_FILENAME));
-                zos.write(gitStatesBytes);
+                zos.putNextEntry(new ZipEntry(CONTENT_FILENAME));
+                var typeRef = new TypeReference<Map<String, ContentMetadataDto>>() {};
+                byte[] contentMetadataBytes =
+                        objectMapper.writerFor(typeRef).writeValueAsBytes(writer.getContentMetadata());
+                zos.write(contentMetadataBytes);
                 zos.closeEntry();
-            }
 
-            if (entryInfosBytes != null) {
-                zos.putNextEntry(new ZipEntry(ENTRY_INFOS_FILENAME));
-                zos.write(entryInfosBytes);
-                zos.closeEntry();
-            }
-
-            if (resetEdgesBytes != null) {
-                zos.putNextEntry(new ZipEntry(RESET_EDGES_FILENAME));
-                zos.write(resetEdgesBytes);
-                zos.closeEntry();
-            }
-
-            for (FrozenFragment ff : imageDomainFragments) {
-                byte[] imageBytes = ff.imageBytesContent();
-                if (imageBytes != null) {
-                    ZipEntry entry = new ZipEntry(
-                            IMAGES_DIR_PREFIX + ff.id() + ".png"); // Assumes PNG, consider content type if varied
-                    entry.setMethod(ZipEntry.STORED); // For uncompressed images, or DEFLATED if compression desired
-                    entry.setSize(imageBytes.length);
-                    entry.setCompressedSize(imageBytes.length); // If STORED
-                    var crc = new CRC32();
-                    crc.update(imageBytes);
-                    entry.setCrc(crc.getValue());
-                    zos.putNextEntry(entry);
-                    zos.write(imageBytes);
+                for (var entry : writer.getContentBytes().entrySet()) {
+                    zos.putNextEntry(new ZipEntry(CONTENT_DIR_PREFIX + entry.getKey() + ".txt"));
+                    zos.write(entry.getValue());
                     zos.closeEntry();
                 }
-            }
 
-            for (var aif : pastedImageFragments) {
-                try {
-                    byte[] imageBytes = aif.imageBytes();
-                    ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + aif.id() + ".png"); // Assumes PNG
-                    entry.setMethod(ZipEntry.STORED);
-                    entry.setSize(imageBytes.length);
-                    entry.setCompressedSize(imageBytes.length); // If STORED
-                    var crc = new CRC32();
-                    crc.update(imageBytes);
-                    entry.setCrc(crc.getValue());
-                    zos.putNextEntry(entry);
-                    zos.write(imageBytes);
+                zos.putNextEntry(new ZipEntry(CONTEXTS_FILENAME));
+                zos.write(contextsBytes);
+                zos.closeEntry();
+
+                if (finalGitStatesBytes != null) {
+                    zos.putNextEntry(new ZipEntry(GIT_STATES_FILENAME));
+                    zos.write(finalGitStatesBytes);
                     zos.closeEntry();
-                } catch (IOException e) {
-                    logger.warn("Could not write pasted image {} to history zip: {}", aif.id(), e.getMessage());
+                }
+
+                if (finalEntryInfosBytes != null) {
+                    zos.putNextEntry(new ZipEntry(ENTRY_INFOS_FILENAME));
+                    zos.write(finalEntryInfosBytes);
+                    zos.closeEntry();
+                }
+
+                if (finalResetEdgesBytes != null) {
+                    zos.putNextEntry(new ZipEntry(RESET_EDGES_FILENAME));
+                    zos.write(finalResetEdgesBytes);
+                    zos.closeEntry();
+                }
+
+                for (FrozenFragment ff : imageDomainFragments) {
+                    byte[] imageBytes = ff.imageBytesContent();
+                    if (imageBytes != null) {
+                        ZipEntry entry = new ZipEntry(
+                                IMAGES_DIR_PREFIX + ff.id() + ".png"); // Assumes PNG, consider content type if varied
+                        entry.setMethod(ZipEntry.STORED); // For uncompressed images, or DEFLATED if compression desired
+                        entry.setSize(imageBytes.length);
+                        entry.setCompressedSize(imageBytes.length); // If STORED
+                        var crc = new CRC32();
+                        crc.update(imageBytes);
+                        entry.setCrc(crc.getValue());
+                        zos.putNextEntry(entry);
+                        zos.write(imageBytes);
+                        zos.closeEntry();
+                    }
+                }
+
+                for (var aif : pastedImageFragments) {
+                    try {
+                        byte[] imageBytes = aif.imageBytes();
+                        ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + aif.id() + ".png"); // Assumes PNG
+                        entry.setMethod(ZipEntry.STORED);
+                        entry.setSize(imageBytes.length);
+                        entry.setCompressedSize(imageBytes.length); // If STORED
+                        var crc = new CRC32();
+                        crc.update(imageBytes);
+                        entry.setCrc(crc.getValue());
+                        zos.putNextEntry(entry);
+                        zos.write(imageBytes);
+                        zos.closeEntry();
+                    } catch (IOException e) {
+                        logger.warn("Could not write pasted image {} to history zip: {}", aif.id(), e.getMessage());
+                    }
                 }
             }
-        }
+        });
     }
 
     public static class ContentWriter {

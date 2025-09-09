@@ -612,7 +612,7 @@ class CodeAgentTest {
         var lc1b = ((CodeAgent.Step.Continue) res1).loopContext();
 
         // Generate SRBs for turn 1; should be hello -> goodbye
-        var srb1 = codeAgent.generateSearchReplaceBlocksFromTurn(lc1b.editState());
+        var srb1 = lc1b.editState().toSearchReplaceBlocks();
         assertEquals(1, srb1.size());
         assertEquals("hello world", srb1.getFirst().beforeText().strip());
         assertEquals("goodbye world", srb1.getFirst().afterText().strip());
@@ -626,7 +626,7 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var lc2b = ((CodeAgent.Step.Continue) res2).loopContext();
 
-        var srb2 = codeAgent.generateSearchReplaceBlocksFromTurn(lc2b.editState());
+        var srb2 = lc2b.editState().toSearchReplaceBlocks();
         assertEquals(1, srb2.size());
         assertEquals("goodbye world", srb2.getFirst().beforeText().strip());
         assertEquals("ciao world", srb2.getFirst().afterText().strip());
@@ -660,7 +660,7 @@ class CodeAgentTest {
                 changedFiles,
                 originalMap);
 
-        var blocks = codeAgent.generateSearchReplaceBlocksFromTurn(ws);
+        var blocks = ws.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
         assertTrue(blocks.size() >= 2, "Expected multiple fine-grained S/R blocks");
 
@@ -691,7 +691,7 @@ class CodeAgentTest {
 
         var ws = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
 
-        var blocks = codeAgent.generateSearchReplaceBlocksFromTurn(ws);
+        var blocks = ws.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
         var before = blocks.getFirst().beforeText();
         // Ensure we didn't emit a bare "alpha" which would be ambiguous; context should be included
@@ -718,7 +718,7 @@ class CodeAgentTest {
 
         var ws = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
 
-        var blocks = codeAgent.generateSearchReplaceBlocksFromTurn(ws);
+        var blocks = ws.toSearchReplaceBlocks();
 
         // Because uniqueness expansion will expand both to include 'middle' neighbor,
         // overlapping regions should merge into one block.
