@@ -1,6 +1,9 @@
 package io.github.jbellis.brokk.gui;
 
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.*;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -183,9 +186,20 @@ public class SwingUtil {
         /** Retrieve the up-to-date delegate icon (or a simple fallback). */
         public Icon delegate() {
             Object value = UIManager.get(uiKey);
-            if (value instanceof ImageIcon svgIcon && displaySize > 0) {
-                return new ImageIcon(
-                        svgIcon.getImage().getScaledInstance(displaySize, displaySize, Image.SCALE_SMOOTH));
+            if (displaySize > 0) {
+                if (value instanceof FlatSVGIcon svgIcon) {
+                    return svgIcon.derive(displaySize, displaySize);
+                } else if (value instanceof ImageIcon imageIcon) {
+                    var image = imageIcon.getImage();
+                    var resized = new BufferedImage(displaySize, displaySize, BufferedImage.TYPE_INT_ARGB);
+                    var g = resized.createGraphics();
+                    g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                    g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g.drawImage(image, 0, 0, displaySize, displaySize, null);
+                    g.dispose();
+                    return new ImageIcon(resized);
+                }
             } else if (value instanceof Icon icon && icon.getIconWidth() > 0 && icon.getIconHeight() > 0) {
                 return icon;
             }
