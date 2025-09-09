@@ -134,6 +134,13 @@ public final class MOPBridge {
                         "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
     }
 
+    public void setCodeBlockMode(boolean wrap) {
+        var mode = wrap ? "wrap" : "scroll";
+        var js = "try { document.documentElement.setAttribute('data-code-block-mode', " + toJson(mode)
+                + "); } catch (e) { console.error('setCodeBlockMode failed', e); }";
+        Platform.runLater(() -> engine.executeScript(js));
+    }
+
     public void clear() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.Clear(e));

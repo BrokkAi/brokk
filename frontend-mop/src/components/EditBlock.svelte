@@ -139,7 +139,7 @@
         /* It also adds horizontal padding, which we override on lines. */
         padding-top: 0.8em;
         padding-bottom: 0.8em;
-        white-space: pre-wrap;
+        white-space: inherit;
         font-size: 0;
     }
 

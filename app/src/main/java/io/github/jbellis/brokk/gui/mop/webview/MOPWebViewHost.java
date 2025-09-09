@@ -35,6 +35,7 @@ public final class MOPWebViewHost extends JPanel {
     private volatile boolean darkTheme = true; // Default to dark theme
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable io.github.jbellis.brokk.gui.Chrome chrome;
+    private volatile boolean codeBlockWrap = false;
 
     // Bridge readiness tracking
     private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
@@ -318,6 +319,18 @@ public final class MOPWebViewHost extends JPanel {
         applyTheme(Theme.create(isDark));
     }
 
+    /**
+     * Toggle code block layout between wrapping and horizontal scrolling.
+     * Applies immediately to current content via a DOM attribute consumed by frontend CSS.
+     */
+    public void setCodeBlockWrapMode(boolean wrap) {
+        codeBlockWrap = wrap;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setCodeBlockMode(wrap);
+        }
+    }
+
     private void applyTheme(Theme theme) {
         // Update Swing component on EDT
         if (fxPanel != null) {
@@ -340,7 +353,8 @@ public final class MOPWebViewHost extends JPanel {
                     }
                     html, body {
                         background-color: var(--chat-background) !important;
-                    }"""
+                    }
+                    """
                                 .formatted(theme.cssColor());
                 String encodedCss = java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8)
                         .replace("+", "%20");
@@ -493,6 +507,11 @@ public final class MOPWebViewHost extends JPanel {
     public void onBridgeReady() {
         bridgeInitialized = true;
         bridgeReadyFuture.complete(null);
+        // Apply the current code block mode to the frontend
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setCodeBlockMode(codeBlockWrap);
+        }
         flushBufferedCommands();
     }
 

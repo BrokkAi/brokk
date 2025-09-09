@@ -86,6 +86,13 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.setRuntimeTheme(isDark, isDevMode);
     }
 
+    /**
+     * Controls block code layout: when true, long lines wrap; when false, horizontal scrollbars appear.
+     */
+    public void setCodeBlockMode(boolean wrap) {
+        webHost.setCodeBlockWrapMode(wrap);
+    }
+
     public void setBlocking(boolean blocked) {
         this.blockClearAndReset = blocked;
     }
