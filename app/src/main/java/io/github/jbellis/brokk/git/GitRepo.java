@@ -29,6 +29,7 @@ import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
@@ -888,6 +889,52 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Checkout a specific branch */
     @Override
     public void checkout(String branchName) throws GitAPIException {
+        // Attempt lightweight checkout optimization only for local branches
+        if (isLocalBranch(branchName)) {
+            try {
+                // If we're already on this branch, nothing to do
+                var currentBranch = repository.getBranch(); // may throw IOException
+                if (branchName.equals(currentBranch)) {
+                    logger.debug("Already on branch '{}'; skipping checkout.", branchName);
+                    return;
+                }
+
+                // Resolve HEAD and target branch; if either cannot be resolved, fall through to full checkout
+                var headId = repository.resolve("HEAD");       // may be null in an empty repo
+                var targetId = repository.resolve(branchName); // null if branch doesn't exist
+
+                if (headId != null && targetId != null) {
+                    try (var revWalk = new RevWalk(repository)) {
+                        var headCommit = revWalk.parseCommit(headId);
+                        var targetCommit = revWalk.parseCommit(targetId);
+
+                        // Compare tree IDs for identity
+                        var headTreeId = headCommit.getTree().getId();
+                        var targetTreeId = targetCommit.getTree().getId();
+
+                        if (headTreeId.equals(targetTreeId)) {
+                            logger.debug(
+                                    "Performing lightweight checkout to '{}' (identical trees): updating HEAD only",
+                                    branchName);
+                            var result = repository.updateRef("HEAD").link("refs/heads/" + branchName);
+                            if (result == RefUpdate.Result.IO_FAILURE || result == RefUpdate.Result.LOCK_FAILURE) {
+                                throw new IOException("RefUpdate.link failed with result: " + result);
+                            }
+                            invalidateCaches();
+                            return;
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                logger.warn(
+                        "Lightweight checkout optimization failed for '{}': {}. Falling back to full checkout.",
+                        branchName,
+                        e.getMessage());
+                // fall through to full checkout
+            }
+        }
+
+        // Fallback: perform a full checkout
         git.checkout().setName(branchName).call();
         invalidateCaches();
     }
