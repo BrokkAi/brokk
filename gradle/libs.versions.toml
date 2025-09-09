@@ -1,11 +1,8 @@
 [versions]
-joern = "4.0.379"
 junit = "5.10.2"
-scalatest = "3.2.18"
 log4j = "2.20.0"
 jackson = "2.18.3"
 jgit = "7.2.1.202505142326-r"
-scala = "3.6.4"
 nullaway = "0.12.7"
 flatlaf = "3.6"
 flexmark = "0.64.8"
@@ -22,16 +19,6 @@ nodejs = "22.14.0"
 npm = "10.9.2"
 
 [libraries]
-# Scala
-scala-library = { module = "org.scala-lang:scala3-library_3", version.ref = "scala" }
-
-# Joern
-joern-x2cpg = { module = "io.joern:x2cpg_3", version.ref = "joern" }
-joern-c2cpg = { module = "io.joern:c2cpg_3", version.ref = "joern" }
-joern-javasrc2cpg = { module = "io.joern:javasrc2cpg_3", version.ref = "joern" }
-joern-cli = { module = "io.joern:joern-cli_3", version.ref = "joern" }
-joern-semanticcpg = { module = "io.joern:semanticcpg_3", version.ref = "joern" }
-
 # Logging
 slf4j-api = "org.slf4j:slf4j-api:2.0.16"
 log4j-slf4j2-impl = { module = "org.apache.logging.log4j:log4j-slf4j2-impl", version.ref = "log4j" }
@@ -48,9 +35,6 @@ junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", vers
 junit-platform-engine = "org.junit.platform:junit-platform-engine:1.10.0"
 junit-platform-launcher = "org.junit.platform:junit-platform-launcher:1.10.0"
 junit-platform-commons = "org.junit.platform:junit-platform-commons:1.10.0"
-scalatest-core = { module = "org.scalatest:scalatest_3", version.ref = "scalatest" }
-scalatest-junit4 = { module = "org.scalatestplus:junit-4-13_3", version = "3.2.18.0" }
-scalatest-junit5 = { module = "org.scalatestplus:junit-5-10_3", version = "3.2.18.0" }
 jupiter-iface = "com.github.sbt.junit:jupiter-interface:0.13.3"
 
 # Static Analysis
@@ -127,11 +111,9 @@ maven-resolver-connector-basic = { module = "org.apache.maven.resolver:maven-res
 maven-resolver-transport-http = { module = "org.apache.maven.resolver:maven-resolver-transport-http", version.ref = "maven-resolver" }
 
 [bundles]
-joern = ["joern-x2cpg", "joern-c2cpg", "joern-cli", "joern-semanticcpg"]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
-scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]

@@ -3,8 +3,11 @@ package io.github.jbellis.brokk.difftool.ui;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.algorithm.DiffAlgorithmListener;
+import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
@@ -14,13 +17,27 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.SlidingWindowCache;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
@@ -249,9 +266,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         add(mainSplitPane, BorderLayout.CENTER);
 
         // Add component listener to handle window resize events after navigation
-        addComponentListener(new java.awt.event.ComponentAdapter() {
+        addComponentListener(new ComponentAdapter() {
             @Override
-            public void componentResized(java.awt.event.ComponentEvent e) {
+            public void componentResized(ComponentEvent e) {
                 // Only perform layout reset if needed after navigation
                 if (needsLayoutReset) {
                     needsLayoutReset = false; // Clear flag
@@ -306,11 +323,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Disable all control buttons FIRST, before any logic
         disableAllControlButtons();
 
-        logger.debug(
-                "Navigation Step 1: User clicked next file (current: {}, total: {})",
-                currentFileIndex,
-                fileComparisons.size());
-
         if (canNavigateToNextFile()) {
             try {
                 switchToFile(currentFileIndex + 1);
@@ -320,7 +332,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 updateNavigationButtons();
             }
         } else {
-            logger.debug("Navigation blocked: cannot navigate to next file");
             // Re-enable buttons if navigation was blocked
             updateNavigationButtons();
         }
@@ -332,11 +343,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Disable all control buttons FIRST, before any logic
         disableAllControlButtons();
 
-        logger.debug(
-                "Navigation Step 1: User clicked previous file (current: {}, total: {})",
-                currentFileIndex,
-                fileComparisons.size());
-
         if (canNavigateToPreviousFile()) {
             try {
                 switchToFile(currentFileIndex - 1);
@@ -346,7 +352,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 updateNavigationButtons();
             }
         } else {
-            logger.debug("Navigation blocked: cannot navigate to previous file");
             // Re-enable buttons if navigation was blocked
             updateNavigationButtons();
         }
@@ -355,13 +360,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     public void switchToFile(int index) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         if (index < 0 || index >= fileComparisons.size()) {
-            logger.warn(
-                    "Navigation Step 2: Invalid file index {} (valid range: 0-{})", index, fileComparisons.size() - 1);
+            logger.warn("Invalid file index {} (valid range: 0-{})", index, fileComparisons.size() - 1);
             return;
         }
-
-        logger.debug(
-                "Navigation Step 2: Starting switchToFile from {} to {} with sliding window", currentFileIndex, index);
 
         // Update sliding window in cache - this automatically evicts files outside window
         panelCache.updateWindowCenter(index, fileComparisons.size());
@@ -501,7 +502,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             var currentRightSource = currentComparison.rightSource;
 
             // Build a friendlier description that shows a shortened hash plus
-            // the first-line commit title (trimmed with … when overly long)
+            // the first-line commit title (trimmed with ... when overly long)
             // Build user-friendly labels for the two sides
             GitRepo repo = null;
             try {
@@ -615,9 +616,28 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         captureDiffButton.setEnabled(true);
 
         // Update save button text, enable state, and visibility
-        boolean hasUnsaved = hasUnsavedChanges();
-        btnSaveAll.setText(fileComparisons.size() > 1 ? "Save All" : "Save");
-        btnSaveAll.setEnabled(hasUnsaved);
+        // Compute the exact number of BufferDiffPanels that would be saved by saveAll():
+        // include bufferDiffPanel (if present) plus all cached panels (deduplicated),
+        // and count those with hasUnsavedChanges() == true.
+        int dirtyCount = 0;
+        var visited = new HashSet<BufferDiffPanel>();
+
+        if (bufferDiffPanel != null) {
+            visited.add(bufferDiffPanel);
+            if (bufferDiffPanel.hasUnsavedChanges()) {
+                dirtyCount++;
+            }
+        }
+
+        for (var p : panelCache.nonNullValues()) {
+            if (visited.add(p) && p.hasUnsavedChanges()) {
+                dirtyCount++;
+            }
+        }
+
+        String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
+        btnSaveAll.setText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
+        btnSaveAll.setEnabled(dirtyCount > 0);
 
         // Hide save button when all sides are read-only (like PR diffs)
         btnSaveAll.setVisible(showUndoRedo);
@@ -638,39 +658,227 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (undoRedoGroupStrutAfter3 != null) {
             undoRedoGroupStrutAfter3.setVisible(showUndoRedo);
         }
+
+        // Update per-file dirty indicators in the file tree (only when multiple files are shown)
+        if (fileComparisons.size() > 1) {
+            var dirty = new HashSet<Integer>();
+
+            // Current (visible) file
+            if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) {
+                dirty.add(currentFileIndex);
+            }
+
+            // Cached files (use keys to keep index association)
+            for (var key : panelCache.getCachedKeys()) {
+                var panel = panelCache.get(key);
+                if (panel != null && panel.hasUnsavedChanges()) {
+                    dirty.add(key);
+                }
+            }
+
+            fileTreePanel.setDirtyFiles(dirty);
+        }
     }
 
     /** Returns true if any loaded diff-panel holds modified documents. */
     public boolean hasUnsavedChanges() {
-        if (bufferDiffPanel != null && bufferDiffPanel.isDirty()) return true;
+        if (bufferDiffPanel != null && bufferDiffPanel.hasUnsavedChanges()) return true;
         for (var p : panelCache.nonNullValues()) {
-            if (p.isDirty()) return true;
+            if (p.hasUnsavedChanges()) return true;
         }
         return false;
     }
 
-    /** Saves every dirty document across all BufferDiffPanels. */
+    /** Saves every dirty document across all BufferDiffPanels, producing a single undoable history entry. */
     public void saveAll() {
         try {
             // Disable save button temporarily
             btnSaveAll.setEnabled(false);
 
-            var visited = new java.util.HashSet<BufferDiffPanel>();
+            // Collect unique panels to process (current + cached)
+            var visited = new LinkedHashSet<BufferDiffPanel>();
             if (bufferDiffPanel != null) {
                 visited.add(bufferDiffPanel);
-                bufferDiffPanel.doSave();
-                refreshTabTitle(bufferDiffPanel);
             }
-            // save each panel
             for (var p : panelCache.nonNullValues()) {
-                if (visited.add(p)) {
-                    p.doSave();
-                    refreshTabTitle(p);
+                visited.add(p);
+            }
+
+            // Filter to only panels with unsaved changes and at least one editable side
+            var panelsToSave = visited.stream()
+                    .filter(p -> p.hasUnsavedChanges() && p.atLeastOneSideEditable())
+                    .toList();
+
+            if (panelsToSave.isEmpty()) {
+                // Nothing to do
+                SwingUtilities.invokeLater(this::updateNavigationButtons);
+                return;
+            }
+
+            // Step 0: Add external files to workspace first (to capture original content for undo)
+            var currentContext = contextManager.liveContext();
+            var externalFiles = new ArrayList<ProjectFile>();
+
+            for (var p : panelsToSave) {
+                var panelFiles = p.getFilesBeingSaved();
+                for (var file : panelFiles) {
+                    // Check if this file is already in the current workspace context
+                    var editableFilesList = currentContext.editableFiles().toList();
+                    boolean inWorkspace = editableFilesList.stream()
+                            .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                                    && ppf.file().equals(file));
+                    if (!inWorkspace) {
+                        externalFiles.add(file);
+                    }
                 }
             }
-            repaint();
 
-            // Re-enable buttons after save operation
+            if (!externalFiles.isEmpty()) {
+                contextManager.editFiles(externalFiles);
+            }
+
+            // Step 1: Collect changes (on EDT) before writing to disk
+            var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
+            for (var p : panelsToSave) {
+                allChanges.addAll(p.collectChangesForAggregation());
+            }
+
+            // Deduplicate by filename while preserving order
+            var mergedByFilename = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+            for (var ch : allChanges) {
+                mergedByFilename.putIfAbsent(ch.filename(), ch);
+            }
+
+            if (mergedByFilename.isEmpty()) {
+                SwingUtilities.invokeLater(this::updateNavigationButtons);
+                return;
+            }
+
+            // Step 2: Write all changed documents while file change notifications are paused, collecting results
+            var perPanelResults = new LinkedHashMap<BufferDiffPanel, BufferDiffPanel.SaveResult>();
+            contextManager.withFileChangeNotificationsPaused(() -> {
+                for (var p : panelsToSave) {
+                    var result = p.writeChangedDocuments();
+                    perPanelResults.put(p, result);
+                }
+                return null;
+            });
+
+            // Merge results across panels
+            var successfulFiles = new LinkedHashSet<String>();
+            var failedFiles = new LinkedHashMap<String, String>();
+            for (var entry : perPanelResults.entrySet()) {
+                successfulFiles.addAll(entry.getValue().succeeded());
+                entry.getValue().failed().forEach((k, v) -> failedFiles.putIfAbsent(k, v));
+            }
+
+            // Filter to only successfully saved files
+            var mergedByFilenameSuccessful = new LinkedHashMap<String, BufferDiffPanel.AggregatedChange>();
+            for (var e : mergedByFilename.entrySet()) {
+                if (successfulFiles.contains(e.getKey())) {
+                    mergedByFilenameSuccessful.put(e.getKey(), e.getValue());
+                }
+            }
+
+            // If nothing succeeded, summarize failures and abort history/baseline updates
+            if (mergedByFilenameSuccessful.isEmpty()) {
+                if (!failedFiles.isEmpty()) {
+                    var msg = failedFiles.entrySet().stream()
+                            .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
+                            .collect(Collectors.joining("\n"));
+                    contextManager
+                            .getIo()
+                            .systemNotify(
+                                    "No files were saved. Errors:\n" + msg, "Save failed", JOptionPane.ERROR_MESSAGE);
+                }
+                SwingUtilities.invokeLater(this::updateNavigationButtons);
+                return;
+            }
+
+            // Step 3: Build a single TaskResult containing diffs for successfully saved files
+            var messages = new ArrayList<ChatMessage>();
+            var changedFiles = new LinkedHashSet<ProjectFile>();
+
+            int fileCount = mergedByFilenameSuccessful.size();
+            // Build a friendlier action title: include filenames when 1-2 files, otherwise count
+            var topNames = mergedByFilenameSuccessful.values().stream()
+                    .limit(2)
+                    .map(ch -> {
+                        var pf = ch.projectFile();
+                        return (pf != null)
+                                ? pf.toString()
+                                : Paths.get(ch.filename()).getFileName().toString();
+                    })
+                    .toList();
+            String actionDescription;
+            if (fileCount == 1) {
+                actionDescription = "Saved changes to " + topNames.get(0);
+            } else if (fileCount == 2) {
+                actionDescription = "Saved changes to " + topNames.get(0) + " and " + topNames.get(1);
+            } else {
+                actionDescription = "Saved changes to " + fileCount + " files";
+            }
+            messages.add(Messages.customSystem(actionDescription));
+
+            // Per-file diffs
+            for (var entry : mergedByFilenameSuccessful.values()) {
+                var filename = entry.filename();
+                var originalLines = entry.originalContent().lines().collect(Collectors.toList());
+                var currentLines = entry.currentContent().lines().collect(Collectors.toList());
+                var patch = DiffUtils.diff(originalLines, currentLines, (DiffAlgorithmListener) null);
+                var unified = UnifiedDiffUtils.generateUnifiedDiff(filename, filename, originalLines, patch, 3);
+                var diffText = String.join("\n", unified);
+
+                var pf = entry.projectFile();
+                var header = "### " + (pf != null ? pf.toString() : filename);
+                messages.add(Messages.customSystem(header));
+                messages.add(Messages.customSystem("```" + diffText + "```"));
+
+                if (pf != null) {
+                    changedFiles.add(pf);
+                } else {
+                    // Outside-project file: keep it in the transcript; not tracked in changedFiles
+                    contextManager
+                            .getIo()
+                            .systemOutput("Saved file outside project scope: " + filename
+                                    + " (not added to workspace history)");
+                }
+            }
+
+            var result = new TaskResult(
+                    contextManager,
+                    actionDescription,
+                    messages,
+                    Set.copyOf(changedFiles),
+                    TaskResult.StopReason.SUCCESS);
+
+            // Add a single history entry for the whole batch
+            contextManager.addToHistory(result, false);
+            logger.info("Saved changes to {} file(s): {}", fileCount, actionDescription);
+
+            // Step 4: Finalize panels selectively and refresh UI
+            for (var p : panelsToSave) {
+                var saved = perPanelResults
+                        .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
+                        .succeeded();
+                p.finalizeAfterSaveAggregation(saved);
+                refreshTabTitle(p);
+            }
+
+            // If some files failed, notify the user after successful saves
+            if (!failedFiles.isEmpty()) {
+                var msg = failedFiles.entrySet().stream()
+                        .map(en -> Paths.get(en.getKey()).getFileName().toString() + ": " + en.getValue())
+                        .collect(Collectors.joining("\n"));
+                contextManager
+                        .getIo()
+                        .systemNotify(
+                                "Some files could not be saved:\n" + msg,
+                                "Partial save completed",
+                                JOptionPane.WARNING_MESSAGE);
+            }
+
+            repaint();
             SwingUtilities.invokeLater(this::updateNavigationButtons);
         } catch (Exception e) {
             logger.error("Error saving files", e);
@@ -696,11 +904,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return contextManager;
     }
 
+    /** Returns the number of file comparisons in this panel. */
+    public int getFileComparisonCount() {
+        return fileComparisons.size();
+    }
+
     public void launchComparison() {
-        logger.info(
-                "Navigation Step 0: Launching diff comparison with {} files, starting with file index {}",
-                fileComparisons.size(),
-                initialFileIndex);
         // Show the initial file
         currentFileIndex = initialFileIndex;
         loadFileOnDemand(currentFileIndex);
@@ -717,14 +926,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        logger.debug("Navigation Step 3: Starting loadFileOnDemand for file index {}", fileIndex);
-
         var compInfo = fileComparisons.get(fileIndex);
 
         // First check if panel is already cached (fast read operation)
         var cachedPanel = panelCache.get(fileIndex);
         if (cachedPanel != null) {
-            logger.debug("Navigation Step 3: File {} found in cache, displaying immediately", fileIndex);
             displayCachedFile(fileIndex, cachedPanel);
             return;
         }
@@ -734,19 +940,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             // Another thread is already loading this file or it was cached between checks
             var nowCachedPanel = panelCache.get(fileIndex);
             if (nowCachedPanel != null) {
-                logger.debug("Navigation Step 3: File {} was cached during reservation check", fileIndex);
                 displayCachedFile(fileIndex, nowCachedPanel);
             } else {
                 // Reserved by another thread, show loading and wait
-                logger.debug(
-                        "Navigation Step 3: File {} is being loaded by another thread, showing loading state",
-                        fileIndex);
                 showLoadingForFile(fileIndex);
             }
             return;
         }
 
-        logger.debug("Navigation Step 3: File {} not cached, reserved for loading", fileIndex);
         showLoadingForFile(fileIndex);
 
         // Use hybrid approach - sync for small files, async for large files
@@ -762,8 +963,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     private void showLoadingForFile(int fileIndex) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        logger.debug("Navigation Step 4: Showing loading UI for file {} - disabling all control buttons", fileIndex);
 
         var compInfo = fileComparisons.get(fileIndex);
 
@@ -782,14 +981,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         revalidate();
         repaint();
-
-        logger.debug("Navigation Step 4: Loading UI displayed, all buttons disabled");
     }
 
     private void displayCachedFile(int fileIndex, BufferDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        logger.debug("Navigation Step 5: Displaying cached file {} and re-enabling control buttons", fileIndex);
 
         var compInfo = fileComparisons.get(fileIndex);
 
@@ -826,10 +1021,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         cachedPanel.refreshComponentListeners();
         needsLayoutReset = true;
 
-        // Ensure diff highlights are properly displayed after theme application
-        SwingUtilities.invokeLater(() -> {
-            cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
-        });
+        // Apply diff highlights immediately after theme to prevent timing issues
+        cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
@@ -838,8 +1031,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         updateNavigationButtons();
 
         refreshUI();
-
-        logger.debug("Navigation Step 5: File {} successfully displayed, navigation complete", fileIndex);
     }
 
     /**
@@ -900,22 +1091,35 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     public void showInFrame(String title) {
         var frame = Chrome.newFrame(title);
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+
+        // Always intercept close and decide explicitly in windowClosing.
+        // This ensures quit actions (eg. Cmd+Q) are intercepted and the user can be prompted.
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.getContentPane().add(this);
 
         // Get saved bounds from Project via the stored ContextManager
         var bounds = contextManager.getProject().getDiffWindowBounds();
         frame.setBounds(bounds);
 
-        // Save window position and size when closing
-        frame.addWindowListener(new java.awt.event.WindowAdapter() {
+        // Save window position and size when closing. We handle the actual disposal here so a
+        // global quit (Cmd+Q) still triggers our prompt and can be cancelled by the user.
+        frame.addWindowListener(new WindowAdapter() {
             @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
-                if (!checkUnsavedChangesBeforeClose()) {
-                    frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-                    return;
+            public void windowClosing(WindowEvent e) {
+                // Ask user to save if there are unsaved changes. If they cancel, do nothing and keep window open.
+                if (confirmClose(frame)) {
+                    // User chose to proceed (and possibly saved). Persist window bounds and dispose.
+                    try {
+                        contextManager.getProject().saveDiffWindowBounds(frame);
+                    } catch (Exception ex) {
+                        // Be robust: log and continue with dispose even if saving bounds fails.
+                        logger.warn("Failed to save diff window bounds on close: {}", ex.getMessage(), ex);
+                    }
+                    // Explicitly dispose the frame to close the window.
+                    frame.dispose();
+                } else {
+                    // User cancelled - do nothing to prevent closing.
                 }
-                contextManager.getProject().saveDiffWindowBounds(frame);
             }
         });
 
@@ -1106,6 +1310,37 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Public wrapper for close confirmation. This method is safe to call from any thread: it will ensure the
+     * interactive confirmation (and any saves) are performed on the EDT.
+     *
+     * @param parentWindow the parent window to use for dialogs (may be null)
+     * @return true if it's OK to close (user allowed or saved), false to cancel quit
+     */
+    public boolean confirmClose(Window parentWindow) {
+        // If already on EDT, call directly
+        if (SwingUtilities.isEventDispatchThread()) {
+            return checkUnsavedChangesBeforeClose();
+        }
+        // Otherwise, run on EDT and wait for result
+        var result = new AtomicBoolean(true);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    result.set(checkUnsavedChangesBeforeClose());
+                } catch (Exception e) {
+                    logger.warn("Error while confirming close on EDT: {}", e.getMessage(), e);
+                    // Be conservative: cancel quit on unexpected error
+                    result.set(false);
+                }
+            });
+        } catch (Exception e) {
+            logger.error("Failed to run close confirmation on EDT: {}", e.getMessage(), e);
+            return false;
+        }
+        return result.get();
+    }
+
+    /**
      * Displays a cached panel and updates navigation buttons. This is the proper way to display panels created by
      * HybridFileComparison.
      */
@@ -1118,10 +1353,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * the slot was reserved, otherwise regular put.
      */
     public void cachePanel(int fileIndex, BufferDiffPanel panel) {
-        logger.debug("Navigation Step 4.5: File {} loading completed, caching panel", fileIndex);
 
         // Reset auto-scroll flag for newly created panels
         panel.resetAutoScrollFlag();
+
+        // Ensure creation context is set for debugging
+        if ("unknown".equals(panel.getCreationContext())) {
+            panel.markCreationContext("cachePanel");
+        }
 
         // Reset selectedDelta to first difference for consistent navigation behavior
         panel.resetToFirstDifference();
@@ -1132,14 +1371,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             if (cachedPanel == null) {
                 // This was a reserved slot, replace with actual panel
                 panelCache.putReserved(fileIndex, panel);
-                logger.debug("Navigation Step 4.5: Panel {} cached in sliding window (reserved slot)", fileIndex);
             } else {
                 // Direct cache (shouldn't happen in normal flow but handle gracefully)
                 panelCache.put(fileIndex, panel);
-                logger.warn("Navigation Step 4.5: Panel {} cached directly (unexpected path)", fileIndex);
             }
         } else {
-            logger.debug("Navigation Step 4.5: Panel {} outside window, not caching but will display", fileIndex);
             // Still display but don't cache
         }
     }
@@ -1185,11 +1421,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
                     if (loadingResult.isSuccess()) {
                         var panel = new BufferDiffPanel(this, theme);
+                        panel.markCreationContext("preload");
                         panel.setDiffNode(loadingResult.getDiffNode());
+
+                        // Apply theme to ensure consistent state and avoid false dirty flags
+                        panel.applyTheme(theme);
+                        // Clear any transient dirty state caused by mirroring during preload
+                        resetDocumentDirtyStateAfterTheme(panel);
 
                         // Cache will automatically check window constraints
                         panelCache.put(fileIndex, panel);
-                        logger.debug("Preloaded and cached file {}", fileIndex);
                     } else {
                         logger.warn("Skipping preload of file {} - {}", fileIndex, loadingResult.getErrorMessage());
                     }
@@ -1247,7 +1488,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Remove and re-add mainSplitPane to reset BorderLayout relationships
         remove(mainSplitPane);
         invalidate();
-        add(mainSplitPane, java.awt.BorderLayout.CENTER);
+        add(mainSplitPane, BorderLayout.CENTER);
         revalidate();
 
         // Ensure child components are properly updated
@@ -1273,12 +1514,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Reset dirty state for both left and right documents
+        // Safely re-evaluate dirty state for both left and right documents.
+        // Do NOT unconditionally reset the saved baseline to current content (resetDirtyState),
+        // because that may hide real unsaved edits that happened earlier.
+        // Instead, ask each AbstractBufferDocument to recheck whether its current content truly
+        // matches the saved baseline and clear the changed flag only if appropriate.
         var leftBufferNode = diffNode.getBufferNodeLeft();
         if (leftBufferNode != null) {
             var leftDoc = leftBufferNode.getDocument();
             if (leftDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
-                abd.resetDirtyState();
+                abd.recheckChangedState();
             }
         }
 
@@ -1286,7 +1531,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (rightBufferNode != null) {
             var rightDoc = rightBufferNode.getDocument();
             if (rightDoc instanceof io.github.jbellis.brokk.difftool.doc.AbstractBufferDocument abd) {
-                abd.resetDirtyState();
+                abd.recheckChangedState();
             }
         }
 
@@ -1309,5 +1554,91 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         // Remove all components
         removeAll();
+    }
+
+    /**
+     * Check if this diff panel matches the given file comparisons. Used to find existing panels showing the same
+     * content to avoid duplicates.
+     *
+     * @param leftSources The left sources to match
+     * @param rightSources The right sources to match
+     * @return true if this panel shows the same content
+     */
+    public boolean matchesContent(List<BufferSource> leftSources, List<BufferSource> rightSources) {
+
+        if (fileComparisons.size() != leftSources.size() || leftSources.size() != rightSources.size()) {
+            return false;
+        }
+
+        // Check if this is an uncommitted changes diff (all left sources are HEAD, all right sources are FileSource)
+        boolean isUncommittedChanges = leftSources.stream()
+                        .allMatch(src -> src instanceof BufferSource.StringSource ss && "HEAD".equals(ss.title()))
+                && rightSources.stream().allMatch(src -> src instanceof BufferSource.FileSource);
+
+        if (isUncommittedChanges) {
+            return matchesUncommittedChangesContent(rightSources);
+        }
+
+        // Regular order-based comparison for other types of diffs
+        for (int i = 0; i < fileComparisons.size(); i++) {
+            var existing = fileComparisons.get(i);
+            var leftSource = leftSources.get(i);
+            var rightSource = rightSources.get(i);
+
+            boolean leftMatches = sourcesMatch(existing.leftSource, leftSource);
+            boolean rightMatches = sourcesMatch(existing.rightSource, rightSource);
+
+            if (!leftMatches || !rightMatches) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean matchesUncommittedChangesContent(List<BufferSource> rightSources) {
+
+        // Extract the set of filenames from the requested sources (right sources are FileSource)
+        var requestedFiles = rightSources.stream()
+                .filter(src -> src instanceof BufferSource.FileSource)
+                .map(src -> ((BufferSource.FileSource) src).title())
+                .collect(Collectors.toSet());
+
+        // Extract the set of filenames from existing panel
+        var existingFiles = fileComparisons.stream()
+                .filter(fc -> fc.rightSource instanceof BufferSource.FileSource)
+                .map(fc -> ((BufferSource.FileSource) fc.rightSource).title())
+                .collect(Collectors.toSet());
+
+        boolean matches = requestedFiles.equals(existingFiles);
+        return matches;
+    }
+
+    private boolean sourcesMatch(BufferSource source1, BufferSource source2) {
+
+        if (source1.getClass() != source2.getClass()) {
+            return false;
+        }
+
+        if (source1 instanceof BufferSource.FileSource fs1 && source2 instanceof BufferSource.FileSource fs2) {
+            boolean matches = fs1.file().equals(fs2.file());
+            return matches;
+        }
+
+        if (source1 instanceof BufferSource.StringSource ss1 && source2 instanceof BufferSource.StringSource ss2) {
+            // Early exit for different sizes to avoid expensive content comparison
+            if (ss1.content().length() != ss2.content().length()) {
+                return false;
+            }
+
+            // Compare filename, title, and full content to avoid false positives
+            boolean filenameMatch = Objects.equals(ss1.filename(), ss2.filename());
+            boolean titleMatch = Objects.equals(ss1.title(), ss2.title());
+            boolean contentMatch = Objects.equals(ss1.content(), ss2.content());
+
+            boolean result = filenameMatch && titleMatch && contentMatch;
+            return result;
+        }
+
+        return false;
     }
 }

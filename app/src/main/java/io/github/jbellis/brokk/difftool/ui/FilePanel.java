@@ -374,12 +374,15 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Access the shared patch from the parent BufferDiffPanel
         var patch = diffPanel.getPatch();
-        if (patch == null) return;
+        if (patch == null) {
+            return;
+        }
 
         boolean isOriginal = BufferDocumentIF.ORIGINAL.equals(name);
 
         // Skip viewport optimization when navigating to ensure highlights appear
-        if (isNavigatingToDiff.get()) {
+        boolean isNavigating = isNavigatingToDiff.get();
+        if (isNavigating) {
             paintAllDeltas(patch, isOriginal);
             return;
         }
@@ -397,18 +400,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
         }
 
-        // Get visible line range with caching for performance
-        var visibleRange = getVisibleLineRange();
-        if (visibleRange == null) {
-            // Fallback to highlighting all deltas if viewport calculation fails
-            paintAllDeltas(patch, isOriginal);
-            return;
-        }
-
-        // Use streams to filter and highlight visible deltas
-        patch.getDeltas().stream()
-                .filter(delta -> deltaIntersectsViewport(delta, visibleRange.start, visibleRange.end))
-                .forEach(delta -> DeltaHighlighter.highlight(this, delta, isOriginal));
+        // TODO: Re-enable viewport optimization once bug diff-viewport-visibility is resolved
+        paintAllDeltas(patch, isOriginal);
     }
 
     /** Fallback method to paint all deltas (original behavior). */
@@ -418,6 +411,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     /** Cached viewport calculation to avoid expensive repeated calls. */
     @Nullable
+    @SuppressWarnings("unused") // Temporarily disabled for debugging
     private VisibleRange getVisibleLineRange() {
         if (bufferDocument == null) {
             return null;
@@ -466,6 +460,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /** Check if a delta intersects with the visible line range. */
+    @SuppressWarnings("unused") // Temporarily disabled for debugging
     private boolean deltaIntersectsViewport(AbstractDelta<String> delta, int startLine, int endLine) {
         boolean originalSide = BufferDocumentIF.ORIGINAL.equals(name);
         var result = DiffHighlightUtil.isChunkVisible(delta, startLine, endLine, originalSide);

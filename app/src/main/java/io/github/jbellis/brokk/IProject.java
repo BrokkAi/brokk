@@ -255,6 +255,19 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    // Command executor configuration: custom shell/interpreter for command execution
+    default @Nullable String getCommandExecutor() {
+        return null;
+    }
+
+    default void setCommandExecutor(@Nullable String executor) {}
+
+    default @Nullable String getExecutorArgs() {
+        return null;
+    }
+
+    default void setExecutorArgs(@Nullable String args) {}
+
     default ArchitectAgent.ArchitectOptions getArchitectOptions() {
         throw new UnsupportedOperationException();
     }

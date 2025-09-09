@@ -14,9 +14,13 @@ public class SymbolSelectionDialog extends JDialog {
     private final SymbolSelectionPanel selectionPanel;
     private final JButton okButton;
     private final JButton cancelButton;
+    // Checkbox to include usages in test files
+    private final JCheckBox includeTestFilesCheckBox;
 
-    // The selected symbol
-    private @Nullable String selectedSymbol = null;
+    // The selected symbol and options
+    public record SymbolSelection(@Nullable String symbol, boolean includeTestFiles) {}
+
+    private @Nullable SymbolSelectionDialog.SymbolSelection symbolSelection = null;
 
     // Indicates if the user confirmed the selection
     private boolean confirmed = false;
@@ -30,6 +34,11 @@ public class SymbolSelectionDialog extends JDialog {
         // Create the symbol selection panel
         selectionPanel = new SymbolSelectionPanel(analyzer, typeFilter);
         mainPanel.add(selectionPanel, BorderLayout.NORTH);
+
+        // Include test files checkbox in center
+        includeTestFilesCheckBox = new JCheckBox("Include usages in test files");
+        includeTestFilesCheckBox.setSelected(false);
+        mainPanel.add(includeTestFilesCheckBox, BorderLayout.CENTER);
 
         // Buttons at the bottom
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -50,7 +59,7 @@ public class SymbolSelectionDialog extends JDialog {
                 .registerKeyboardAction(
                         e -> {
                             confirmed = false;
-                            selectedSymbol = null;
+                            symbolSelection = null;
                             dispose();
                         },
                         escapeKeyStroke,
@@ -70,11 +79,11 @@ public class SymbolSelectionDialog extends JDialog {
     /** When OK is pressed, get the symbol from the text input. */
     private void doOk() {
         confirmed = true;
-        selectedSymbol = null;
+        symbolSelection = null;
 
         String typed = selectionPanel.getSymbolText();
         if (!typed.isEmpty()) {
-            selectedSymbol = typed;
+            symbolSelection = new SymbolSelection(typed, includeTestFilesCheckBox.isSelected());
         }
         dispose();
     }
@@ -84,8 +93,8 @@ public class SymbolSelectionDialog extends JDialog {
         return confirmed;
     }
 
-    /** Return the selected symbol or null if none. */
-    public @Nullable String getSelectedSymbol() {
-        return selectedSymbol;
+    /** Returns the full selection, including the 'include test files' flag. */
+    public @Nullable SymbolSelectionDialog.SymbolSelection getSelection() {
+        return symbolSelection;
     }
 }

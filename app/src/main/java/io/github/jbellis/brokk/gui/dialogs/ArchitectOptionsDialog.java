@@ -68,7 +68,7 @@ public class ArchitectOptionsDialog {
             var currentOptions = project.getArchitectOptions();
             boolean currentRunInWorktree = project.getArchitectRunInWorktree();
 
-            var dialog = new JDialog(chrome.getFrame(), "Architect Options", true);
+            var dialog = new JDialog(chrome.getFrame(), "Plan Options", true);
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
             dialog.setLayout(new BorderLayout(10, 10));
 
@@ -78,13 +78,9 @@ public class ArchitectOptionsDialog {
 
             // Model selectors
             var planningSelector = new ModelSelector(chrome);
-            var codeSelector = new ModelSelector(chrome);
 
             Service.ModelConfig planningDefault = project.getArchitectModelConfig();
             planningSelector.selectConfig(planningDefault);
-
-            Service.ModelConfig codeDefault = project.getCodeModelConfig();
-            codeSelector.selectConfig(codeDefault);
 
             // Wrap each selector in a titled panel with insets
             var planningPanel = new JPanel(new BorderLayout());
@@ -93,15 +89,8 @@ public class ArchitectOptionsDialog {
                     BorderFactory.createEmptyBorder(H_GAP, H_GAP, V_GAP, H_GAP)));
             planningPanel.add(planningSelector.getComponent(), BorderLayout.CENTER);
 
-            var codePanel = new JPanel(new BorderLayout());
-            codePanel.setBorder(BorderFactory.createCompoundBorder(
-                    BorderFactory.createTitledBorder("Code Model"),
-                    BorderFactory.createEmptyBorder(V_GAP, H_GAP, V_GAP, H_GAP)));
-            codePanel.add(codeSelector.getComponent(), BorderLayout.CENTER);
-
-            var selectorsRow = new JPanel(new GridLayout(1, 2, 10, 0));
+            var selectorsRow = new JPanel(new GridLayout(1, 1, 10, 0));
             selectorsRow.add(planningPanel);
-            selectorsRow.add(codePanel);
             selectorsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
             selectorsRow.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
             mainPanel.add(selectorsRow);
@@ -244,7 +233,7 @@ public class ArchitectOptionsDialog {
             // Actions
             okButton.addActionListener(e -> {
                 Service.ModelConfig selectedPlanning = planningSelector.getModel();
-                Service.ModelConfig selectedCode = codeSelector.getModel();
+                Service.ModelConfig selectedCode = project.getCodeModelConfig();
 
                 boolean hasImages = contextManager
                         .topContext()

@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.util;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.gui.Chrome;
 import java.awt.*;
 import java.io.File;
@@ -44,7 +45,7 @@ public class Environment {
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
             (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer);
+                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -72,12 +73,44 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer);
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null);
+    }
+
+    /**
+     * Runs a shell command with a caller-specified timeout and project for executor configuration.
+     *
+     * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
+     */
+    public String runShellCommand(
+            String command, Path root, Consumer<String> outputConsumer, Duration timeout, @Nullable IProject project)
+            throws SubprocessException, InterruptedException {
+        return runShellCommandInternal(command, root, false, timeout, outputConsumer, project);
+    }
+
+    /**
+     * Runs a shell command with optional sandbox, configurable timeout, and project for executor configuration.
+     *
+     * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
+     */
+    public String runShellCommand(
+            String command,
+            Path root,
+            boolean sandbox,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable IProject project)
+            throws SubprocessException, InterruptedException {
+        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, project);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
     private static String runShellCommandInternal(
-            String command, Path root, boolean sandbox, Duration timeout, Consumer<String> outputConsumer)
+            String command,
+            Path root,
+            boolean sandbox,
+            Duration timeout,
+            Consumer<String> outputConsumer,
+            @Nullable IProject project)
             throws SubprocessException, InterruptedException {
         logger.debug("Running internal `{}` in `{}` (sandbox={})", command, root, sandbox);
 
@@ -116,20 +149,56 @@ public class Environment {
                 }
                 policyFile.toFile().deleteOnExit();
 
-                shellCommand =
-                        new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
-            } else if (isLinux()) {
+                // Phase 2: Support approved custom executors in sandbox mode
+                ExecutorConfig config = (project != null) ? ExecutorConfig.fromProject(project) : null;
+
+                if (config != null && ExecutorValidator.isApprovedForSandbox(config)) {
+                    // Use custom executor with sandbox
+                    String[] executorCommand = config.buildCommand(command);
+                    String[] sandboxedCommand = new String[executorCommand.length + 4];
+                    sandboxedCommand[0] = "sandbox-exec";
+                    sandboxedCommand[1] = "-f";
+                    sandboxedCommand[2] = policyFile.toString();
+                    sandboxedCommand[3] = "--";
+                    System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
+                    shellCommand = sandboxedCommand;
+
+                    logger.info("using custom executor '{}' with sandbox", config.getDisplayName());
+                } else {
+                    // Fallback to system default with sandbox
+                    shellCommand =
+                            new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
+
+                    if (config != null) {
+                        logger.info(
+                                "custom executor '{}' not approved for sandbox, using /bin/sh",
+                                config.getDisplayName());
+                    }
+                }
                 // TODO
+            } else if (isLinux()) {
                 throw new UnsupportedOperationException("sandboxing is not supported yet on Linux");
             } else {
                 throw new UnsupportedOperationException("sandboxing is not supported on this OS");
             }
         } else {
-            shellCommand =
-                    isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
+            // Phase 1: Support custom executors for non-sandboxed execution
+            ExecutorConfig config = (project != null) ? ExecutorConfig.fromProject(project) : null;
+
+            if (config != null && config.isValid()) {
+                shellCommand = config.buildCommand(command);
+                logger.info("using custom executor '{}'", config.getDisplayName());
+            } else {
+                if (config != null && !config.isValid()) {
+                    logger.warn("invalid custom executor '{}', using system default", config);
+                }
+                // Fall back to system default
+                shellCommand =
+                        isWindows() ? new String[] {"cmd.exe", "/c", command} : new String[] {"/bin/sh", "-c", command};
+            }
         }
 
-        logger.trace(String.join(" ", shellCommand));
+        logger.trace("command: {}", String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
         Process process;
         try {

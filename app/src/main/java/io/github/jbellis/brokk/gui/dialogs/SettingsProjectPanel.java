@@ -17,15 +17,19 @@ import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
+import io.github.jbellis.brokk.util.ExecutorValidator;
 import java.awt.*;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -83,6 +87,19 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JComboBox<JdkItem> jdkComboBox = new JComboBox<>();
     private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
+
+    // Executor configuration UI
+    private JTextField executorPathField = new JTextField(20);
+    private JTextField executorArgsField = new JTextField(20);
+    private JButton testExecutorButton = new JButton("Test");
+    private JButton resetExecutorButton = new JButton("Reset");
+    private JComboBox<String> commonExecutorsComboBox = new JComboBox<>();
+
+    // System-default executor
+    private static final boolean IS_WINDOWS =
+            System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("windows");
+    private static final String DEFAULT_EXECUTOR_PATH = IS_WINDOWS ? "cmd.exe" : "/bin/sh";
+    private static final String DEFAULT_EXECUTOR_ARGS = IS_WINDOWS ? "/c" : "-c";
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
@@ -832,6 +849,64 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(buildTimeoutSpinner, gbc);
 
+        // Executor configuration section
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(new JLabel("Execute with:"), gbc);
+
+        // Path field + dropdown in same row
+        var executorSelectPanel = new JPanel(new GridBagLayout());
+        var gbcInner = new GridBagConstraints();
+        gbcInner.fill = GridBagConstraints.HORIZONTAL;
+        gbcInner.weightx = 1.0;
+        executorSelectPanel.add(executorPathField, gbcInner);
+        gbcInner.weightx = 0;
+        gbcInner.fill = GridBagConstraints.NONE;
+        gbcInner.anchor = GridBagConstraints.WEST;
+        gbcInner.insets = new Insets(0, 5, 0, 0);
+        executorSelectPanel.add(commonExecutorsComboBox, gbcInner);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(executorSelectPanel, gbc);
+
+        // Default args row
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        buildPanel.add(new JLabel("Default parameters:"), gbc);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(executorArgsField, gbc);
+
+        // Test / Reset buttons + info
+        var executorInfoLabel = new JLabel(
+                "<html>Custom executors work in all modes. Approved executors work in sandbox mode. Default args: \""
+                        + DEFAULT_EXECUTOR_ARGS + "\"</html>");
+        executorInfoLabel.setFont(executorInfoLabel
+                .getFont()
+                .deriveFont(Font.ITALIC, executorInfoLabel.getFont().getSize() * 0.9f));
+
+        var executorTestPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        executorTestPanel.add(testExecutorButton);
+        executorTestPanel.add(Box.createHorizontalStrut(5));
+        executorTestPanel.add(resetExecutorButton);
+        executorTestPanel.add(Box.createHorizontalStrut(10));
+        executorTestPanel.add(executorInfoLabel);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
+        buildPanel.add(executorTestPanel, gbc);
+
         // Removed Build Instructions Area and its ScrollPane
 
         gbc.gridx = 0;
@@ -877,17 +952,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.BOTH;
         buildPanel.add(this.excludedScrollPane, gbc);
 
-        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         excludedButtonsPanel.add(this.addExcludedDirButton);
+        excludedButtonsPanel.add(Box.createHorizontalStrut(5));
         excludedButtonsPanel.add(this.removeExcludedDirButton);
         gbc.gridy = row + 1;
         gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.insets = new Insets(2, 0, 2, 2);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(excludedButtonsPanel, gbc);
         row += 2;
-        gbc.insets = new Insets(2, 2, 2, 2);
 
         this.addExcludedDirButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(
@@ -918,7 +992,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.EAST;
+        gbc.anchor = GridBagConstraints.WEST;
         inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
         buildPanel.add(inferBuildDetailsButton, gbc);
 
@@ -955,6 +1029,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         inferBuildDetailsButton.addActionListener(e -> runBuildAgent());
+
+        // Initialize executor UI components
+        initializeExecutorUI();
 
         // Vertical glue to push all build panel content up
         gbc.gridx = 0;
@@ -1278,6 +1355,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         for (String dir : sortedExcludedDirs) {
             excludedDirectoriesListModel.addElement(dir);
         }
+
+        // Load executor configuration
+        String executorPath = project.getCommandExecutor();
+        String executorArgs = project.getExecutorArgs();
+
+        executorPathField.setText(executorPath != null ? executorPath : DEFAULT_EXECUTOR_PATH);
+        executorArgsField.setText(executorArgs != null ? executorArgs : DEFAULT_EXECUTOR_ARGS);
+
         logger.trace("Build panel settings loaded/reloaded with details: {}", details);
     }
 
@@ -1380,6 +1465,26 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             } else {
                 project.setJdk(BuildAgent.JAVA_HOME_SENTINEL);
             }
+        }
+
+        // Apply executor configuration
+        String currentExecutorPath = project.getCommandExecutor();
+        String currentExecutorArgs = project.getExecutorArgs();
+        String newExecutorPath = executorPathField.getText().trim();
+        String newExecutorArgs = executorArgsField.getText().trim();
+
+        // Set to null if empty to clear the configuration
+        String pathToSet = newExecutorPath.isEmpty() ? null : newExecutorPath;
+        String argsToSet = newExecutorArgs.isEmpty() ? null : newExecutorArgs;
+
+        if (!Objects.equals(currentExecutorPath, pathToSet)) {
+            project.setCommandExecutor(pathToSet);
+            logger.debug("Applied Custom Executor Path: {}", pathToSet);
+        }
+
+        if (!Objects.equals(currentExecutorArgs, argsToSet)) {
+            project.setExecutorArgs(argsToSet);
+            logger.debug("Applied Custom Executor Args: {}", argsToSet);
         }
 
         // Data Retention Tab
@@ -1533,6 +1638,124 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         }
         return new ArrayList<>(langs);
+    }
+
+    private void initializeExecutorUI() {
+        // Set up tooltips
+        executorPathField.setToolTipText("Path to custom command executor (shell, interpreter, etc.)");
+        executorArgsField.setToolTipText("Arguments to pass to executor (default: " + DEFAULT_EXECUTOR_ARGS + ")");
+        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS); // Set default value
+
+        // Populate common executors dropdown
+        var commonExecutors = ExecutorValidator.getCommonExecutors();
+        commonExecutorsComboBox.setModel(new DefaultComboBoxModel<>(commonExecutors));
+        // pre-select the system default if present
+        for (int i = 0; i < commonExecutors.length; i++) {
+            if (commonExecutors[i].equalsIgnoreCase(DEFAULT_EXECUTOR_PATH)) {
+                commonExecutorsComboBox.setSelectedIndex(i);
+                break;
+            }
+        }
+
+        // Reset button action
+        resetExecutorButton.addActionListener(e -> resetExecutor());
+
+        // Common executors selection action
+        commonExecutorsComboBox.addActionListener(e -> {
+            String selected = (String) commonExecutorsComboBox.getSelectedItem();
+            if (selected != null && !selected.isEmpty()) {
+                executorPathField.setText(selected);
+            }
+        });
+
+        // Test executor button action
+        testExecutorButton.addActionListener(e -> testExecutor());
+    }
+
+    private void resetExecutor() {
+        // Restore defaults
+        executorPathField.setText(DEFAULT_EXECUTOR_PATH);
+        executorArgsField.setText(DEFAULT_EXECUTOR_ARGS);
+
+        // Clear the project configuration immediately
+        var project = chrome.getProject();
+        project.setCommandExecutor(null);
+        project.setExecutorArgs(null);
+
+        // Reset combo-box to default option if available
+        for (int i = 0; i < commonExecutorsComboBox.getItemCount(); i++) {
+            if (DEFAULT_EXECUTOR_PATH.equalsIgnoreCase(commonExecutorsComboBox.getItemAt(i))) {
+                commonExecutorsComboBox.setSelectedIndex(i);
+                break;
+            }
+        }
+    }
+
+    private void testExecutor() {
+        String executorPath = executorPathField.getText().trim();
+        String executorArgs = executorArgsField.getText().trim();
+
+        if (executorPath.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Please specify an executor path first.",
+                    "No Executor Specified",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Default args if empty
+        if (executorArgs.isEmpty()) {
+            executorArgs = DEFAULT_EXECUTOR_ARGS;
+        }
+
+        testExecutorButton.setEnabled(false);
+        testExecutorButton.setText("Testing...");
+
+        // Make variables effectively final for use in inner class
+        final String finalExecutorPath = executorPath;
+        final String finalExecutorArgs = executorArgs;
+
+        SwingWorker<ExecutorValidator.ValidationResult, Void> worker = new SwingWorker<>() {
+            @Override
+            protected ExecutorValidator.ValidationResult doInBackground() {
+                String[] argsArray = finalExecutorArgs.split("\\s+");
+                var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
+                return ExecutorValidator.validateExecutor(config);
+            }
+
+            @Override
+            protected void done() {
+                testExecutorButton.setEnabled(true);
+                testExecutorButton.setText("Test");
+
+                try {
+                    var result = get();
+                    if (result.success()) {
+                        String[] argsArray = finalExecutorArgs.split("\\s+");
+                        var config = new ExecutorConfig(finalExecutorPath, Arrays.asList(argsArray));
+                        String sandboxInfo = ExecutorValidator.getSandboxLimitation(config);
+
+                        JOptionPane.showMessageDialog(
+                                SettingsProjectPanel.this,
+                                result.message() + "\n\n" + sandboxInfo,
+                                "Executor Test Successful",
+                                JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(
+                                SettingsProjectPanel.this, result.message(), "Test Failed", JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    logger.error("Error during executor test", ex);
+                    JOptionPane.showMessageDialog(
+                            SettingsProjectPanel.this,
+                            "Test failed with error: " + ex.getMessage(),
+                            "Executor Test Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        };
+        worker.execute();
     }
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)

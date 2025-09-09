@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -32,8 +33,13 @@ class EditBlockTest {
         }
 
         @Override
-        public ProjectFile toFile(String relName) {
-            return new ProjectFile(root, Path.of(relName));
+        public IProject getProject() {
+            return new IProject() {
+                @Override
+                public Path getRoot() {
+                    return root;
+                }
+            };
         }
 
         @Override
@@ -687,6 +693,30 @@ class EditBlockTest {
                 expectedMergedCodePrecise,
                 actualCode,
                 "Greedy regex (.*) is expected to merge content if multiple blocks are present in the input string.");
+    }
+
+    @Test
+    void testResolveAbsoluteFilename(@TempDir Path tempDir) throws Exception {
+        Path subdir = tempDir.resolve("src");
+        Files.createDirectories(subdir);
+        Path filePath = subdir.resolve("foo.txt");
+        Files.writeString(filePath, "content\n");
+        var sep = File.separator;
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
+
+        ProjectFile pf = EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep));
+        assertEquals("foo.txt", pf.getFileName());
+        assertEquals(filePath, pf.absPath());
+    }
+
+    @Test
+    void testResolveAbsoluteNonExistentFilename(@TempDir Path tempDir) {
+        var sep = File.separator;
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of());
+        assertThrows(
+                EditBlock.SymbolInvalidException.class,
+                () -> EditBlock.resolveProjectFile(ctx, "%ssrc%sfoo.txt".formatted(sep, sep)));
     }
 
     // ----------------------------------------------------

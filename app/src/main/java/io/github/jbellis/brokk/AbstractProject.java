@@ -357,6 +357,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     private static final String PROP_JDK_HOME = "jdk.home";
     private static final String PROP_BUILD_LANGUAGE = "build.language";
+    private static final String PROP_COMMAND_EXECUTOR = "commandExecutor";
+    private static final String PROP_EXECUTOR_ARGS = "commandExecutorArgs";
 
     @Override
     public @Nullable String getJdk() {
@@ -397,6 +399,37 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             workspaceProps.remove(PROP_BUILD_LANGUAGE);
         } else {
             workspaceProps.setProperty(PROP_BUILD_LANGUAGE, language.name());
+        }
+        saveWorkspaceProperties();
+    }
+
+    @Override
+    public @Nullable String getCommandExecutor() {
+        return workspaceProps.getProperty(PROP_COMMAND_EXECUTOR);
+    }
+
+    @Override
+    public void setCommandExecutor(@Nullable String executor) {
+        if (executor == null || executor.isBlank()) {
+            workspaceProps.remove(PROP_COMMAND_EXECUTOR);
+        } else {
+            workspaceProps.setProperty(PROP_COMMAND_EXECUTOR, executor);
+        }
+        saveWorkspaceProperties();
+    }
+
+    @Override
+    public @Nullable String getExecutorArgs() {
+        String args = workspaceProps.getProperty(PROP_EXECUTOR_ARGS);
+        return (args == null || args.isBlank()) ? null : args;
+    }
+
+    @Override
+    public void setExecutorArgs(@Nullable String args) {
+        if (args == null || args.isBlank()) {
+            workspaceProps.remove(PROP_EXECUTOR_ARGS);
+        } else {
+            workspaceProps.setProperty(PROP_EXECUTOR_ARGS, args);
         }
         saveWorkspaceProperties();
     }

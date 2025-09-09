@@ -483,6 +483,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 return Stream.of(staged, unstaged).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n"));
             } catch (NoHeadException e) {
                 // Handle empty repository case - return empty diff for repositories with no commits
+                logger.debug("NoHeadException caught - empty repository, returning empty diff");
                 return "";
             }
         } catch (IOException e) {
@@ -493,6 +494,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Produces a combined diff of staged + unstaged changes, restricted to the given files. */
     @Override
     public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+
         var filters = files.stream()
                 .map(file -> PathFilter.create(toRepoRelativePath(file)))
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -504,6 +506,7 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public synchronized String diff() throws GitAPIException {
         var status = git.status().call();
+
         var trackedPaths = new HashSet<String>();
         trackedPaths.addAll(status.getModified());
         trackedPaths.addAll(status.getChanged());
@@ -512,6 +515,7 @@ public class GitRepo implements Closeable, IGitRepo {
         trackedPaths.addAll(status.getMissing());
 
         if (trackedPaths.isEmpty()) {
+            logger.debug("No tracked changes found, returning empty diff");
             return "";
         }
 

@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.DiffWindowManager;
 import io.github.jbellis.brokk.gui.PrTitleFormatter;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import java.util.ArrayList;
@@ -332,11 +333,19 @@ public final class GitUiUtil {
                 String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
 
                 SwingUtilities.invokeLater(() -> {
+                    // Check if we already have a window showing this diff
+                    var leftSource =
+                            new BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString());
+                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.toString());
+
+                    if (DiffWindowManager.tryRaiseExistingWindow(List.of(leftSource), List.of(rightSource))) {
+                        return; // Existing window raised, don't create new one
+                    }
+
+                    // No existing window found, create new one
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
-                            .leftSource(new BufferSource.StringSource(
-                                    finalOldContent, finalBaseCommitTitle, file.toString()))
-                            .rightSource(
-                                    new BufferSource.FileSource(file.absPath().toFile(), file.toString()))
+                            .leftSource(leftSource)
+                            .rightSource(rightSource)
                             .build();
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });
@@ -469,22 +478,35 @@ public final class GitUiUtil {
                     return;
                 }
 
-                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
                 var parentId = commitInfo.id() + "^";
+                var leftSources = new ArrayList<BufferSource>();
+                var rightSources = new ArrayList<BufferSource>();
 
                 for (var file : files) {
                     var oldContent = getFileContentOrEmpty(repo, parentId, file);
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
-                    builder.addComparison(
-                            new BufferSource.StringSource(oldContent, parentId, file.toString()),
-                            new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
+                    leftSources.add(new BufferSource.StringSource(oldContent, parentId, file.toString()));
+                    rightSources.add(new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
                 }
 
                 var title = "Commit Diff: %s (%s)"
                         .formatted(
                                 commitInfo.message().lines().findFirst().orElse(""), shortenCommitId(commitInfo.id()));
-                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+
+                SwingUtilities.invokeLater(() -> {
+                    // Check if we already have a window showing this diff
+                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
+                        return; // Existing window raised, don't create new one
+                    }
+
+                    // No existing window found, create new one
+                    var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
+                    for (int i = 0; i < leftSources.size(); i++) {
+                        builder.addComparison(leftSources.get(i), rightSources.get(i));
+                    }
+                    builder.build().showInFrame(title);
+                });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
             }
@@ -562,18 +584,28 @@ public final class GitUiUtil {
                     return;
                 }
 
-                var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
                 var repo = contextManager.getProject().getRepo();
                 var shortId = shortenCommitId(commitInfo.id());
+                var leftSources = new ArrayList<BufferSource>();
+                var rightSources = new ArrayList<BufferSource>();
 
                 for (var file : changedFiles) {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
-                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.toString());
-                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.toString());
-                    builder.addComparison(leftSource, rightSource);
+                    leftSources.add(new BufferSource.StringSource(commitContent, shortId, file.toString()));
+                    rightSources.add(new BufferSource.FileSource(file.absPath().toFile(), file.toString()));
                 }
 
                 SwingUtilities.invokeLater(() -> {
+                    // Check if we already have a window showing this diff
+                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
+                        return; // Existing window raised, don't create new one
+                    }
+
+                    // No existing window found, create new one
+                    var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
+                    for (int i = 0; i < leftSources.size(); i++) {
+                        builder.addComparison(leftSources.get(i), rightSources.get(i));
+                    }
                     var panel = builder.build();
                     panel.showInFrame("Compare " + shortId + " to Local");
                 });

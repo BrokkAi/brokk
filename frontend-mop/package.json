@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "vite build -c vite.worker.config.mjs && vite dev",
-    "build": "vite build -c vite.worker.config.mjs && vite build",
+    "build": "vite build --logLevel error -c vite.worker.config.mjs && vite build --logLevel error",
     "preview": "vite preview"
   },
   "devDependencies": {

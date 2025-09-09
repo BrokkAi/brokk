@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.cpg.CpgCache;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -468,21 +467,17 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return CpgCache.getOrCompute(project, this, () -> {
-                var cpgPath = getCpgPath(project);
-                return new CppAnalyzer(project.getRoot(), project.getExcludedDirectories(), cpgPath);
-            });
+            return new CppTreeSitterAnalyzer(project, project.getExcludedDirectories());
         }
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            Path cpgPath = getCpgPath(project);
-            return CppAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
+            return createAnalyzer(project);
         }
 
         @Override
         public boolean isCpg() {
-            return true;
+            return false;
         }
 
         @Override

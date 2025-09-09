@@ -1,0 +1,51 @@
+name: 🐞 Bug report
+description: File a bug report to help us improve Brokk
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+        Please include as much detail as possible.
+        **Make sure to attach your `~/.brokk/debug.log` file** to help us debug faster.
+
+  - type: input
+    id: version
+    attributes:
+      label: Brokk Version
+      description: What version of Brokk are you running? (Help > About)
+      placeholder: e.g., 0.13.4
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly.
+      placeholder: Tell us what you saw, what you expected, and how to reproduce it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: |
+        Please paste relevant parts of `~/.brokk/debug.log` here.
+        You can also drag and drop the full file into the issue.
+      render: shell

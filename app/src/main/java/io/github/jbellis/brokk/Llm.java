@@ -197,9 +197,13 @@ public class Llm {
             @Override
             public void onReasoningResponse(String reasoningContent) {
                 ifNotCancelled.accept(() -> {
-                    accumulatedReasoningBuilder.append(reasoningContent);
+                    // Gate formatting to GPT-5 only, and only after the first reasoning chunk
+                    boolean isGpt5 = contextManager.getService().nameOf(model).equals(Service.GPT_5);
+                    String out = isGpt5 ? addReasoningNewlinesForGpt5(reasoningContent) : reasoningContent;
+
+                    accumulatedReasoningBuilder.append(out);
                     if (echo) {
-                        io.llmOutput(reasoningContent, ChatMessageType.AI, false, true);
+                        io.llmOutput(out, ChatMessageType.AI, false, true);
                     }
                 });
             }
@@ -305,6 +309,18 @@ public class Llm {
                 ? Service.FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                 : Service.DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
         return firstToken ? firstTokenTimeoutSeconds : Service.NEXT_TOKEN_TIMEOUT_SECONDS;
+    }
+
+    /**
+     * GPT-5 reasoning formatting workaround: Insert two newlines before an opening "**" when we are mid-message (not
+     * the first chunk). Regex matches "**" not preceded by a newline or word char, followed by a word char, and not
+     * part of "***".
+     */
+    private static String addReasoningNewlinesForGpt5(String text) {
+        if (!text.isEmpty()) {
+            return text.replaceAll("(?<!\\n)(?<!\\w)\\*\\*(?=\\w)(?!\\*)", "\n\n**");
+        }
+        return text;
     }
 
     private static class LitellmException extends LangChain4jException {
