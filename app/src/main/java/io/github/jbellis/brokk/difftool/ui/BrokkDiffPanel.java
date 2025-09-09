@@ -715,6 +715,28 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                 return;
             }
 
+            // Step 0: Add external files to workspace first (to capture original content for undo)
+            var currentContext = contextManager.liveContext();
+            var externalFiles = new ArrayList<ProjectFile>();
+
+            for (var p : panelsToSave) {
+                var panelFiles = p.getFilesBeingSaved();
+                for (var file : panelFiles) {
+                    // Check if this file is already in the current workspace context
+                    var editableFilesList = currentContext.editableFiles().toList();
+                    boolean inWorkspace = editableFilesList.stream()
+                        .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                                    && ppf.file().equals(file));
+                    if (!inWorkspace) {
+                        externalFiles.add(file);
+                    }
+                }
+            }
+
+            if (!externalFiles.isEmpty()) {
+                contextManager.editFiles(externalFiles);
+            }
+
             // Step 1: Collect changes (on EDT) before writing to disk
             var allChanges = new ArrayList<BufferDiffPanel.AggregatedChange>();
             for (var p : panelsToSave) {

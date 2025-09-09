@@ -1621,6 +1621,32 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         return changes;
     }
 
+    /**
+     * Returns list of ProjectFiles for documents that have changes and will be saved.
+     * Used to identify external files that need to be added to workspace before saving.
+     */
+    public java.util.List<ProjectFile> getFilesBeingSaved() {
+        var files = new java.util.ArrayList<ProjectFile>();
+
+        // Capture current file data to get ProjectFile mappings
+        var currentFileData = captureCurrentFileDataOnEdt();
+
+        for (var fp : filePanels.values()) {
+            if (!fp.isDocumentChanged()) continue;
+
+            var doc = fp.getBufferDocument();
+            if (doc == null || doc.isReadonly()) continue;
+
+            var filename = doc.getName();
+            var fileData = currentFileData.get(filename);
+            if (fileData != null && fileData.projectFile() != null) {
+                files.add(fileData.projectFile());
+            }
+        }
+
+        return files;
+    }
+
     /** Writes all changed, non-readonly documents in this panel to disk and returns per-file results. */
     public SaveResult writeChangedDocuments() {
         var succeeded = new java.util.LinkedHashSet<String>();
