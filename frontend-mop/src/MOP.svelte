@@ -7,6 +7,8 @@
   import CacheStatsDebug from './dev/components/CacheStatsDebug.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
+  import { historyStore } from './stores/historyStore';
+  import TaskPanel from './components/TaskPanel.svelte';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -56,6 +58,12 @@
     overflow-y: auto;
     overflow-x: hidden;
   }
+
+  .history-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+  }
 </style>
 
 <!-- Debug cache stats panel -->
@@ -65,6 +73,11 @@
   class="chat-container"
   id="chat-container"
 >
+  <div class="history-container">
+    {#each $historyStore as task (task.sequence)}
+      <TaskPanel {task} />
+    {/each}
+  </div>
   {#each $bubblesStore as bubble (bubble.seq)}
     {#if bubble.type === 'AI' && bubble.reasoning}
       <AIReasoningBubble {bubble} />

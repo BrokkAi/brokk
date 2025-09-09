@@ -103,10 +103,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 /* ─── entry from worker ───────────────────────────────── */
 export function reparseAll(contextId = 'main-context'): void {
     bubblesStore.update(list => {
-        // Clear HAST trees to force re-rendering when worker sends back results
-        const clearedList = list.map(bubble => ({...bubble, hast: undefined}));
-
-        for (const bubble of clearedList) {
+        for (const bubble of list) {
             // Re-register a handler for each bubble. This overwrites any existing handler
             // for the same seq, so there is no need to unregister first.
             register(bubble.seq, (msg: ResultMsg) => {
@@ -118,7 +115,7 @@ export function reparseAll(contextId = 'main-context'): void {
             // skip updating the internal worker buffer, to give the worker the chance to go ahead where it stopped after reparseAll
             parse(bubble.markdown, bubble.seq, false);
         }
-        return clearedList; // Return new list with cleared HAST to trigger reactivity
+        return list; // Return new list with cleared HAST to trigger reactivity
     });
 }
 
