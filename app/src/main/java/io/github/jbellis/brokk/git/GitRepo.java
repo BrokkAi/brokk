@@ -28,8 +28,8 @@ import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ProgressMonitor;
-import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.RefUpdate;
+import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
@@ -900,7 +900,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 }
 
                 // Resolve HEAD and target branch; if either cannot be resolved, fall through to full checkout
-                var headId = repository.resolve("HEAD");       // may be null in an empty repo
+                var headId = repository.resolve("HEAD"); // may be null in an empty repo
                 var targetId = repository.resolve(branchName); // null if branch doesn't exist
 
                 if (headId != null && targetId != null) {
