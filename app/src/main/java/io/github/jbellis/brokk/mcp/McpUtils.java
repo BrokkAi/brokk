@@ -18,12 +18,19 @@ public class McpUtils {
     private static final Logger logger = LogManager.getLogger(McpUtils.class);
 
     public static List<String> fetchTools(URL url, @Nullable String bearerToken) {
-        var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString());
+        var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString())
+                .resumableStreams(true)
+                .openConnectionOnStartup(true);
         if (bearerToken != null) {
             transportBuilder.customizeRequest(request -> request.header("Authorization", "Bearer " + bearerToken));
         }
 
         final McpSyncClient client = McpClient.sync(transportBuilder.build())
+                .loggingConsumer(logger::debug)
+                .capabilities(McpSchema.ClientCapabilities.builder()
+                        .elicitation()
+                        .sampling()
+                        .build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
         try {
