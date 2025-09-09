@@ -3,6 +3,7 @@ import {mount, tick} from 'svelte';
 import {get} from 'svelte/store';
 import Mop from './MOP.svelte';
 import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
+import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
 import {createSearchController, type SearchController} from './search/search';
@@ -76,7 +77,11 @@ function setupBrokkInterface(): any[] {
 }
 
 async function handleEvent(payload: any): Promise<void> {
-    onBrokkEvent(payload); // updates store & talks to worker
+    if (payload.type === 'history-reset' || payload.type === 'history-task') {
+        onHistoryEvent(payload);
+    } else {
+        onBrokkEvent(payload); // updates store & talks to worker
+    }
 
     // Wait until Svelte updated *and* browser painted
     await tick();

@@ -13,6 +13,20 @@ export type BrokkEvent =
   | {
       type: 'clear';
       epoch: number;
+    }
+  | {
+      type: 'history-reset';
+      epoch: number;
+    }
+  | {
+      type: 'history-task';
+      epoch: number;
+      sequence: number;
+      title: string;
+      messageCount: number;
+      compressed: boolean;
+      summary?: string;
+      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM' }[];
     };
 
 export type Bubble = {
@@ -47,4 +61,13 @@ export type BubbleState = Bubble & {
   reasoningComplete?: boolean;  // true when the reasoning stream ends
   duration?: number;            // calculated duration in seconds
   isCollapsed?: boolean;        // for UI state
+};
+
+export type HistoryTask = {
+  sequence: number;
+  title: string;
+  messageCount: number;
+  compressed: boolean;
+  isCollapsed: boolean;
+  entries: BubbleState[];
 };

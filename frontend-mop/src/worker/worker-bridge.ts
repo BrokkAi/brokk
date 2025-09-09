@@ -1,5 +1,6 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
-import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
+import { reparseAll } from '../stores/bubblesStore';
+import { onWorkerResult } from './parseRouter';
 import { createLogger } from '../lib/logging';
 
 // Environment detection
