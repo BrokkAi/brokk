@@ -47,6 +47,7 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+    private final Set<UUID> dirtySessions = ConcurrentHashMap.newKeySet();
 
     public SessionManager(Path sessionsDir) {
         this.sessionsDir = sessionsDir;
@@ -104,6 +105,7 @@ public class SessionManager implements AutoCloseable {
                 throw new UncheckedIOException("Failed to create new session " + name, e);
             }
         });
+        markDirty(sessionId);
         return newSessionInfo;
     }
 
@@ -122,6 +124,7 @@ public class SessionManager implements AutoCloseable {
                             "Error writing updated manifest for renamed session {}: {}", sessionId, e.getMessage());
                 }
             });
+            markDirty(sessionId);
         } else {
             logger.warn("Session ID {} not found in cache, cannot rename.", sessionId);
         }
@@ -129,6 +132,16 @@ public class SessionManager implements AutoCloseable {
 
     public void deleteSession(UUID sessionId) {
         sessionsCache.remove(sessionId);
+        dirtySessions.remove(sessionId);
+        // Attempt remote deletion asynchronously; ignore failures
+        sessionExecutor.submit(() -> {
+            try {
+                Service.deleteRemoteSession(sessionId);
+                logger.debug("Deleted remote session {}", sessionId);
+            } catch (Exception e) {
+                logger.warn("Failed to delete remote session {}: {}", sessionId, e.toString());
+            }
+        });
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             try {
@@ -250,6 +263,7 @@ public class SessionManager implements AutoCloseable {
         copyFuture.get(); // Wait for copy to complete
 
         sessionsCache.put(newSessionId, newSessionInfo);
+        markDirty(newSessionId);
         sessionExecutorByKey.submit(newSessionId.toString(), () -> {
             try {
                 Path newHistoryPath = getSessionHistoryPath(newSessionId);
@@ -295,6 +309,10 @@ public class SessionManager implements AutoCloseable {
             logger.warn("Error reading manifest.json from {}: {}", zipPath.getFileName(), e.getMessage());
         }
         return Optional.empty();
+    }
+
+    private void markDirty(UUID id) {
+        dirtySessions.add(id);
     }
 
     private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
@@ -357,6 +375,9 @@ public class SessionManager implements AutoCloseable {
                     sessionId);
         }
 
+        if (infoToSave != null) {
+            markDirty(sessionId);
+        }
         final SessionInfo finalInfoToSave = infoToSave;
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
@@ -456,6 +477,113 @@ public class SessionManager implements AutoCloseable {
             logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
         }
         return ch;
+    }
+
+    // Pull remote sessions (if any) into local storage; skip if missing key or remote.
+    public void synchronizeRemoteSessionsIfAvailable(AbstractProject project) {
+        try {
+            if (!project.hasGit()) return;
+            String key = MainProject.getBrokkKey();
+            if (key.isBlank()) return;
+
+            var repo = project.getRepo();
+            String remoteUrl = repo.getRemoteUrl();
+            if (remoteUrl == null || remoteUrl.isBlank()) return;
+
+            List<Service.RemoteSessionMeta> metas = Service.listRemoteSessions(remoteUrl);
+            if (metas.isEmpty()) return;
+
+            Files.createDirectories(sessionsDir);
+
+            for (var meta : metas) {
+                if (meta == null) continue;
+                String idStr = java.util.Objects.toString(meta.id(), "");
+                if (idStr.isBlank()) continue;
+                UUID id;
+                try {
+                    id = UUID.fromString(idStr);
+                } catch (IllegalArgumentException e) {
+                    logger.warn("Skipping remote session with non-UUID id: {}", meta.id());
+                    continue;
+                }
+                Path localPath = getSessionHistoryPath(id);
+                if (Files.exists(localPath)) {
+                    continue; // already present
+                }
+                try {
+                    byte[] content = Service.getRemoteSessionContent(id);
+                    Files.createDirectories(localPath.getParent());
+                    Files.write(localPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                    readSessionInfoFromZip(localPath).ifPresent(si -> sessionsCache.put(si.id(), si));
+                    logger.info("Downloaded remote session {} to local cache", id);
+                } catch (IOException io) {
+                    logger.warn("Failed to download remote session {}: {}", id, io.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("synchronizeRemoteSessionsIfAvailable failed: {}", e.getMessage());
+        }
+    }
+
+    public void uploadDirtySessionsToRemote(AbstractProject project) {
+        try {
+            if (!project.hasGit()) return;
+            String key = MainProject.getBrokkKey();
+            if (key.isBlank()) return;
+            var repo = project.getRepo();
+            String remoteUrl = repo.getRemoteUrl();
+            if (remoteUrl == null || remoteUrl.isBlank()) return;
+
+            Set<UUID> remoteIds = new HashSet<>();
+            try {
+                List<Service.RemoteSessionMeta> metas = Service.listRemoteSessions(remoteUrl);
+                for (Service.RemoteSessionMeta meta : metas) {
+                    if (meta == null) continue;
+                    String idStr = java.util.Objects.toString(meta.id(), "");
+                    if (idStr.isBlank()) continue;
+                    try {
+                        remoteIds.add(UUID.fromString(idStr));
+                    } catch (IllegalArgumentException ex) {
+                        logger.warn("Skipping remote session with non-UUID id: {}", idStr);
+                    }
+                }
+            } catch (IOException e) {
+                logger.warn("Failed to list remote sessions; proceeding with empty remote set: {}", e.getMessage());
+            }
+
+            // Union: (dirty sessions) + (any local sessions missing on remote)
+            Set<UUID> toUpload = new HashSet<>(dirtySessions);
+            for (UUID localId : sessionsCache.keySet()) {
+                if (!remoteIds.contains(localId)) {
+                    toUpload.add(localId);
+                }
+            }
+
+            for (UUID id : toUpload) {
+                Path zipPath = getSessionHistoryPath(id);
+                if (!Files.exists(zipPath)) {
+                    dirtySessions.remove(id);
+                    continue;
+                }
+                SessionInfo info = sessionsCache.get(id);
+                if (info == null) {
+                    info = readSessionInfoFromZip(zipPath).orElse(null);
+                }
+                String name = (info != null && !info.name().isBlank())
+                        ? info.name()
+                        : ("Session " + id.toString());
+                try {
+                    byte[] bytes = Files.readAllBytes(zipPath);
+                    Service.writeRemoteSession(id, remoteUrl, name, bytes);
+                    dirtySessions.remove(id);
+                    logger.debug("Uploaded session {} to remote", id);
+                } catch (IOException e) {
+                    logger.warn("Failed to upload session {}: {}", id, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("uploadDirtySessionsToRemote failed: {}", e.getMessage());
+        }
     }
 
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {

@@ -356,6 +356,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         checkBalanceAndNotify();
 
+        submitBackgroundTask("Sync remote sessions", () -> {
+            try {
+                project.getSessionManager().synchronizeRemoteSessionsIfAvailable(project);
+                project.getMainProject().sessionsListChanged();
+            } catch (Exception e) {
+                logger.warn("Remote session sync failed: {}", e.getMessage());
+            }
+        });
+
         return contextTask;
     }
 

@@ -1117,6 +1117,118 @@ public class Service {
         }
     }
 
+    // Metadata for remote sessions (lenient; unknown fields ignored)
+    public record RemoteSessionMeta(String id, String name, Long created, Long modified, String remote, String sharing) {}
+
+    // Separate mapper configured to ignore unknown properties
+    private static final ObjectMapper SESSION_OBJECT_MAPPER =
+            new ObjectMapper().configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+    private static @Nullable String sessionAuthHeader() {
+        String key = MainProject.getBrokkKey();
+        if (key.isBlank()) return null;
+        return "Bearer " + key;
+    }
+
+    public static List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+        var log = LogManager.getLogger(Service.class);
+        String auth = sessionAuthHeader();
+        if (auth == null || remote.isBlank()) {
+            log.debug("Skipping listRemoteSessions: missing auth or remote");
+            return List.of();
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions?remote=" + URLEncoder.encode(remote, StandardCharsets.UTF_8);
+        Request request = new Request.Builder().url(url).header("Authorization", auth).get().build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                log.warn("listRemoteSessions failed: {} - {}", response.code(), body);
+                return List.of();
+            }
+            String body = response.body() != null ? response.body().string() : "[]";
+            RemoteSessionMeta[] arr = SESSION_OBJECT_MAPPER.readValue(body, RemoteSessionMeta[].class);
+            return Arrays.asList(arr);
+        }
+    }
+
+    public static byte[] getRemoteSessionContent(UUID id) throws IOException {
+        String auth = sessionAuthHeader();
+        if (auth == null) {
+            throw new IOException("Missing Brokk key for remote session content fetch");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions/" + id;
+        Request request = new Request.Builder().url(url).header("Authorization", auth).get().build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                throw new IOException("getRemoteSessionContent failed: " + response.code() + " - " + body);
+            }
+            return response.body() != null ? response.body().bytes() : new byte[0];
+        }
+    }
+
+    public static RemoteSessionMeta writeRemoteSession(@Nullable UUID id, String remote, String name, byte[] contentZip) throws IOException {
+        String auth = sessionAuthHeader();
+        if (auth == null || remote.isBlank()) {
+            throw new IOException("Missing auth or remote for writeRemoteSession");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions";
+        var payload = new java.util.HashMap<String, Object>();
+        payload.put("remote", remote);
+        payload.put("name", name);
+        payload.put("content_b64", Base64.getEncoder().encodeToString(contentZip));
+        if (id != null) {
+            payload.put("id", id.toString());
+        }
+        String json = SESSION_OBJECT_MAPPER.writeValueAsString(payload);
+        RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
+        Request request = new Request.Builder().url(url).header("Authorization", auth).post(body).build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IOException("writeRemoteSession failed: " + response.code() + " - " + respBody);
+            }
+            return SESSION_OBJECT_MAPPER.readValue(respBody, RemoteSessionMeta.class);
+        }
+    }
+
+    public static RemoteSessionMeta updateRemoteSession(UUID id, @Nullable String name, @Nullable String sharing) throws IOException {
+        String auth = sessionAuthHeader();
+        if (auth == null) {
+            throw new IOException("Missing auth for updateRemoteSession");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions";
+        var payload = new java.util.HashMap<String, Object>();
+        payload.put("id", id.toString());
+        if (name != null) payload.put("name", name);
+        if (sharing != null) payload.put("sharing", sharing);
+        String json = SESSION_OBJECT_MAPPER.writeValueAsString(payload);
+        RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
+        Request request = new Request.Builder().url(url).header("Authorization", auth).post(body).build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                throw new IOException("updateRemoteSession failed: " + response.code() + " - " + respBody);
+            }
+            return SESSION_OBJECT_MAPPER.readValue(respBody, RemoteSessionMeta.class);
+        }
+    }
+
+    public static void deleteRemoteSession(UUID id) throws IOException {
+        String auth = sessionAuthHeader();
+        if (auth == null) {
+            throw new IOException("Missing auth for deleteRemoteSession");
+        }
+        String url = MainProject.getServiceUrl() + "/api/sessions/" + id;
+        Request request = new Request.Builder().url(url).header("Authorization", auth).delete().build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String body = response.body() != null ? response.body().string() : "";
+                throw new IOException("deleteRemoteSession failed: " + response.code() + " - " + body);
+            }
+        }
+    }
+
     public static class UnavailableStreamingModel implements StreamingChatModel {
         public UnavailableStreamingModel() {}
 

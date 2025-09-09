@@ -1493,10 +1493,15 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void close() {
-        super.close();
-        sessionManager.close();
+  public void close() {
+    try {
+      sessionManager.uploadDirtySessionsToRemote(this);
+    } catch (Exception e) {
+      logger.warn("Failed to upload dirty sessions to remote during close: {}", e.getMessage());
     }
+    sessionManager.close();
+    super.close();
+  }
 
     public Path getWorktreeStoragePath() {
         return Path.of(
