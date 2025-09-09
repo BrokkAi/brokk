@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
     implementation(libs.picocli)
+    implementation(libs.bundles.jediterm)
     implementation(libs.bundles.apache)
     implementation(libs.bundles.jdkmon)
 

@@ -60,10 +60,6 @@ import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.*;
-import javax.swing.text.AbstractDocument;
-import javax.swing.text.AttributeSet;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -717,7 +713,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
         var historyDropdown = createHistoryDropdown();
-        topBarPanel.add(historyDropdown, BorderLayout.CENTER);
+        var historyPanel = new JPanel(new BorderLayout());
+        historyPanel.add(historyDropdown, BorderLayout.CENTER);
+        topBarPanel.add(historyPanel, BorderLayout.CENTER);
 
         return topBarPanel;
     }
@@ -737,7 +735,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.inputLayeredPane.setBorder(new EmptyBorder(0, H_PAD, 0, H_PAD));
 
         panel.add(buildModeIndicatorPanel()); // Mode badge
-        panel.add(this.inputLayeredPane); // Add the layered pane instead of the scroll pane directly
+
+        // Add the layered input directly (drawer will host tool panels)
+        panel.add(this.inputLayeredPane);
 
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()

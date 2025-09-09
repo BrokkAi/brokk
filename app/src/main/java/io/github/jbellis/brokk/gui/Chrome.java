@@ -22,6 +22,7 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
@@ -175,6 +176,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
+
+    // Right-hand drawer (tools) - split and content
+    private InstructionsDrawerSplit instructionsDrawerSplit;
+    private TerminalDrawerPanel terminalDrawer;
 
     /** Default constructor sets up the UI. */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
@@ -367,6 +372,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceInstructionsSplit.setTopComponent(workspacePanel);
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
+
+        // Create terminal drawer panel
+        instructionsDrawerSplit = new InstructionsDrawerSplit();
+        terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
+
+        // Attach instructions (left) and drawer (right)
+        instructionsDrawerSplit.setInstructionsComponent(instructionsPanel);
+        instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
+
+        // Attach the combined instructions+drawer split as the bottom component
+        workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -2143,5 +2159,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         int max = (int) (frameWidth * maxFraction);
 
         return Math.max(min, Math.min(ideal, max));
+    }
+
+    /** Updates the terminal font size for all active terminals. */
+    public void updateTerminalFontSize() {
+        SwingUtilities.invokeLater(() -> {
+            terminalDrawer.updateTerminalFontSize();
+        });
     }
 }
