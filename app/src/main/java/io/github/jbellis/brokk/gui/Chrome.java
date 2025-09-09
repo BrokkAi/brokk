@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -32,6 +33,7 @@ import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -482,6 +484,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
+
+        // Clean up any orphaned clone operations from previous sessions
+        if (getProject() instanceof MainProject) {
+            Path dependenciesRoot =
+                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
+        }
     }
 
     /**

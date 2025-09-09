@@ -1121,6 +1121,142 @@ public class GitRepoTest {
     }
 
     @Test
+    void testCloneRepo_WithBranchSelection() throws Exception {
+        // 1. Create an origin repository with multiple branches
+        Path originDir = tempDir.resolve("origin-with-branches");
+        Files.createDirectories(originDir);
+        try (Git originGit = Git.init().setDirectory(originDir.toFile()).call()) {
+            // Initial commit on main/master
+            Path readme = originDir.resolve("README.md");
+            Files.writeString(readme, "main readme");
+            originGit.add().addFilepattern("README.md").call();
+            originGit
+                    .commit()
+                    .setAuthor("Origin", "origin@example.com")
+                    .setMessage("Initial commit on main")
+                    .setSign(false)
+                    .call();
+
+            // Create feature branch with different content
+            originGit.branchCreate().setName("feature-branch").call();
+            originGit.checkout().setName("feature-branch").call();
+
+            Path featureFile = originDir.resolve("feature.txt");
+            Files.writeString(featureFile, "feature content");
+            Files.writeString(readme, "feature branch readme");
+            originGit.add().addFilepattern(".").call();
+            originGit
+                    .commit()
+                    .setAuthor("Origin", "origin@example.com")
+                    .setMessage("Feature branch commit")
+                    .setSign(false)
+                    .call();
+
+            // Create tag on feature branch
+            originGit.tag().setName("v1.0.0").setMessage("Version 1.0.0").call();
+
+            // Go back to main and add different content
+            originGit.checkout().setName("master").call();
+            Path mainFile = originDir.resolve("main.txt");
+            Files.writeString(mainFile, "main content");
+            originGit.add().addFilepattern("main.txt").call();
+            originGit
+                    .commit()
+                    .setAuthor("Origin", "origin@example.com")
+                    .setMessage("Main branch commit")
+                    .setSign(false)
+                    .call();
+        }
+
+        String originUrl = originDir.toUri().toString();
+
+        // 2. Test cloning default branch (null parameter - should behave like 3-parameter version)
+        Path defaultCloneDir = tempDir.resolve("clone-default");
+        GitRepo defaultClone = null;
+        try {
+            defaultClone = GitRepo.cloneRepo(originUrl, defaultCloneDir, 0, null);
+
+            assertEquals("master", defaultClone.getCurrentBranch());
+            assertTrue(Files.exists(defaultCloneDir.resolve("README.md")));
+            assertTrue(Files.exists(defaultCloneDir.resolve("main.txt")));
+            assertFalse(Files.exists(defaultCloneDir.resolve("feature.txt")));
+
+            assertEquals("main readme", Files.readString(defaultCloneDir.resolve("README.md")));
+        } finally {
+            if (defaultClone != null) {
+                GitTestCleanupUtil.cleanupGitResources(defaultClone);
+            }
+        }
+
+        // 3. Test cloning specific branch
+        Path branchCloneDir = tempDir.resolve("clone-feature");
+        GitRepo branchClone = null;
+        try {
+            branchClone = GitRepo.cloneRepo(originUrl, branchCloneDir, 0, "feature-branch");
+
+            assertEquals("feature-branch", branchClone.getCurrentBranch());
+            assertTrue(Files.exists(branchCloneDir.resolve("README.md")));
+            assertTrue(Files.exists(branchCloneDir.resolve("feature.txt")));
+            assertFalse(Files.exists(branchCloneDir.resolve("main.txt")));
+
+            assertEquals("feature branch readme", Files.readString(branchCloneDir.resolve("README.md")));
+            assertEquals("feature content", Files.readString(branchCloneDir.resolve("feature.txt")));
+        } finally {
+            if (branchClone != null) {
+                GitTestCleanupUtil.cleanupGitResources(branchClone);
+            }
+        }
+
+        // 4. Test cloning specific tag
+        Path tagCloneDir = tempDir.resolve("clone-tag");
+        GitRepo tagClone = null;
+        try {
+            tagClone = GitRepo.cloneRepo(originUrl, tagCloneDir, 0, "v1.0.0");
+
+            // When cloning a tag, we're in detached HEAD state
+            // The files should match the tag's commit (which was on feature-branch)
+            assertTrue(Files.exists(tagCloneDir.resolve("README.md")));
+            assertTrue(Files.exists(tagCloneDir.resolve("feature.txt")));
+            assertFalse(Files.exists(tagCloneDir.resolve("main.txt")));
+
+            assertEquals("feature branch readme", Files.readString(tagCloneDir.resolve("README.md")));
+            assertEquals("feature content", Files.readString(tagCloneDir.resolve("feature.txt")));
+        } finally {
+            if (tagClone != null) {
+                GitTestCleanupUtil.cleanupGitResources(tagClone);
+            }
+        }
+
+        // 5. Test that 4-parameter with null is equivalent to 3-parameter
+        Path equivalentCloneDir = tempDir.resolve("clone-equivalent");
+        GitRepo equivalentClone = null;
+        GitRepo threeParamClone = null;
+        try {
+            // Clone with 4 parameters (null branch)
+            equivalentClone = GitRepo.cloneRepo(originUrl, equivalentCloneDir, 1, null);
+
+            // Clone with 3 parameters for comparison
+            Path threeParamDir = tempDir.resolve("clone-three-param");
+            threeParamClone = GitRepo.cloneRepo(originUrl, threeParamDir, 1);
+
+            // Both should be on the same branch
+            assertEquals(threeParamClone.getCurrentBranch(), equivalentClone.getCurrentBranch());
+
+            // Both should have the same files
+            assertEquals(
+                    Files.readString(threeParamDir.resolve("README.md")),
+                    Files.readString(equivalentCloneDir.resolve("README.md")));
+        } finally {
+            if (equivalentClone != null) {
+                GitTestCleanupUtil.cleanupGitResources(equivalentClone);
+            }
+            if (threeParamClone != null) {
+                GitTestCleanupUtil.cleanupGitResources(threeParamClone);
+            }
+        }
+    }
+
+    @Test
     void testSearchCommits() throws Exception {
         // Create additional commits
         createCommit("file1.txt", "content1", "First feature commit");
