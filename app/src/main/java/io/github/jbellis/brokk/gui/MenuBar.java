@@ -195,7 +195,7 @@ public class MenuBar {
 
         var summarizeItem = new JMenuItem("Summarize");
         summarizeItem.setAccelerator(KeyStroke.getKeyStroke(
-                KeyEvent.VK_M, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+                KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeItem.addActionListener(e -> {
             chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.SUMMARIZE, List.of());
         });
