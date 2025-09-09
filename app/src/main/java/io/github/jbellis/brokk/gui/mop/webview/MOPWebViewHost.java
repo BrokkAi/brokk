@@ -24,6 +24,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class MOPWebViewHost extends JPanel {
     private static final Logger logger = LogManager.getLogger(MOPWebViewHost.class);
+    private static final CopyOnWriteArrayList<MOPWebViewHost> INSTANCES = new CopyOnWriteArrayList<>();
 
     @Nullable
     private JFXPanel fxPanel;
@@ -56,7 +57,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode, boolean wrapMode) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
@@ -67,6 +68,7 @@ public final class MOPWebViewHost extends JPanel {
 
     public MOPWebViewHost() {
         super(new BorderLayout());
+        INSTANCES.add(this);
 
         // Defer JFXPanel creation to avoid EDT event pumping during construction
         SwingUtilities.invokeLater(this::initializeFxPanel);
@@ -282,7 +284,7 @@ public final class MOPWebViewHost extends JPanel {
             }
             // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            setInitialTheme(darkTheme, isDevMode);
+            setInitialTheme(darkTheme, isDevMode, codeBlockWrap);
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -298,9 +300,12 @@ public final class MOPWebViewHost extends JPanel {
      * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
      * reports it is ready.
      */
-    public void setInitialTheme(boolean isDark, boolean isDevMode) {
+    public void setInitialTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         darkTheme = isDark;
-        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
+        codeBlockWrap = wrapMode;
+        sendOrQueue(
+                new HostCommand.SetTheme(isDark, isDevMode, wrapMode),
+                bridge -> bridge.setTheme(isDark, isDevMode, wrapMode));
         applyTheme(Theme.create(isDark));
     }
 
@@ -308,26 +313,29 @@ public final class MOPWebViewHost extends JPanel {
      * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
      * command is queued so that the frontend is updated once the bridge appears.
      */
-    public void setRuntimeTheme(boolean isDark, boolean isDevMode) {
+    public void setRuntimeTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         darkTheme = isDark;
+        codeBlockWrap = wrapMode;
         var bridge = bridgeRef.get();
         if (bridge != null) {
-            bridge.setTheme(isDark, isDevMode);
+            bridge.setTheme(isDark, isDevMode, wrapMode);
         } else {
-            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode));
+            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode, wrapMode));
         }
         applyTheme(Theme.create(isDark));
     }
 
     /**
-     * Toggle code block layout between wrapping and horizontal scrolling.
-     * Applies immediately to current content via a DOM attribute consumed by frontend CSS.
+     * Apply theme and wrap mode to all open MarkdownOutputPanels. Used by settings dialog to propagate changes
+     * globally.
      */
-    public void setCodeBlockWrapMode(boolean wrap) {
-        codeBlockWrap = wrap;
-        var bridge = bridgeRef.get();
-        if (bridge != null) {
-            bridge.setCodeBlockMode(wrap);
+    public static void setGlobalThemeAndWrapMode(boolean isDark, boolean isDevMode, boolean wrap) {
+        for (var host : INSTANCES) {
+            try {
+                host.setRuntimeTheme(isDark, isDevMode, wrap);
+            } catch (Exception e) {
+                logger.warn("Failed to set theme and wrap mode on a host", e);
+            }
         }
     }
 
@@ -494,7 +502,7 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode(), t.wrapMode());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
@@ -507,11 +515,6 @@ public final class MOPWebViewHost extends JPanel {
     public void onBridgeReady() {
         bridgeInitialized = true;
         bridgeReadyFuture.complete(null);
-        // Apply the current code block mode to the frontend
-        var bridge = bridgeRef.get();
-        if (bridge != null) {
-            bridge.setCodeBlockMode(codeBlockWrap);
-        }
         flushBufferedCommands();
     }
 
@@ -551,6 +554,7 @@ public final class MOPWebViewHost extends JPanel {
                 webView.getEngine().load(null); // release memory
             }
         });
+        INSTANCES.remove(this);
         // Note: ClasspathHttpServer shutdown is handled at application level, not per WebView instance
     }
 }

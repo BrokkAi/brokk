@@ -115,9 +115,9 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void setTheme(boolean isDark, boolean isDevMode) {
+    public void setTheme(boolean isDark, boolean isDevMode, boolean wrapMode) {
         var js = "if (window.brokk && window.brokk.setTheme) { window.brokk.setTheme(" + isDark + ", " + isDevMode
-                + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
+                + ", " + wrapMode + "); } else { console.error('setTheme buffered - bridge not ready yet'); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 
@@ -132,14 +132,6 @@ public final class MOPBridge {
         Platform.runLater(
                 () -> engine.executeScript(
                         "if (window.brokk && window.brokk.hideSpinner) { window.brokk.hideSpinner(); } else { console.error('hideSpinner called - bridge not ready yet'); }"));
-    }
-
-    public void setCodeBlockMode(boolean wrap) {
-        var js = "try { " +
-                 "document.documentElement.classList.toggle('code-wrap-mode', " + wrap + "); " +
-                 "document.documentElement.classList.toggle('code-scroll-mode', " + !wrap + "); " +
-                 "} catch (e) { console.error('setCodeBlockMode failed', e); }";
-        Platform.runLater(() -> engine.executeScript(js));
     }
 
     public void clear() {

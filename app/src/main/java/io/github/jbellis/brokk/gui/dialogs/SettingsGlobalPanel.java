@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.gui.mop.webview.MOPWebViewHost;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.IOException;
@@ -40,6 +41,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JRadioButton wrapLinesRadio = new JRadioButton("Wrap long lines");
+    private JRadioButton scrollLinesRadio = new JRadioButton("Scroll horizontally (default)");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JTextField balanceField = new JTextField();
@@ -282,6 +285,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.gridy = row++;
         appearancePanel.add(darkThemeRadio, gbc);
 
+        // Word wrap for code blocks
+        gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Code Block Layout:"), gbc);
+
+        var wrapGroup = new ButtonGroup();
+        wrapGroup.add(wrapLinesRadio);
+        wrapGroup.add(scrollLinesRadio);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(wrapLinesRadio, gbc);
+
+        gbc.gridy = row++;
+        appearancePanel.add(scrollLinesRadio, gbc);
+
+        gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
+
         // UI Scale controls (hidden on macOS)
         if (!Environment.isMacOs()) {
             gbc.insets = new Insets(10, 5, 2, 5); // spacing before next section
@@ -472,6 +498,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             lightThemeRadio.setSelected(true);
         }
 
+        // Code Block Layout
+        if (MainProject.getCodeBlockWrapMode()) {
+            wrapLinesRadio.setSelected(true);
+        } else {
+            scrollLinesRadio.setSelected(true);
+        }
+
         // UI Scale (if present; hidden on macOS)
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
             String pref = MainProject.getUiScalePref();
@@ -564,10 +597,31 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();
+        boolean newWrapMode = wrapLinesRadio.isSelected();
         String newTheme = newIsDark ? "dark" : "light";
-        if (!newTheme.equals(MainProject.getTheme())) {
-            chrome.switchTheme(newIsDark);
-            logger.debug("Applied Theme: {}", newTheme);
+        boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
+
+        // Check if either theme or wrap mode changed
+        boolean themeChanged = !newTheme.equals(MainProject.getTheme());
+        boolean wrapChanged = newWrapMode != currentWrapMode;
+
+        if (themeChanged || wrapChanged) {
+            // Save wrap mode setting globally
+            if (wrapChanged) {
+                MainProject.setCodeBlockWrapMode(newWrapMode);
+                logger.debug("Applied Code Block Wrap Mode: {}", newWrapMode);
+            }
+
+            // Apply theme change (this will trigger chrome.switchTheme)
+            if (themeChanged) {
+                chrome.switchTheme(newIsDark);
+                logger.debug("Applied Theme: {}", newTheme);
+            }
+
+            // Apply both theme and wrap mode to all open markdown panels via the new integrated method
+            // This handles the case where only wrap mode changed (and theme didn't)
+            boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+            MOPWebViewHost.setGlobalThemeAndWrapMode(newIsDark, isDevMode, newWrapMode);
         }
 
         // UI Scale preference (if present; hidden on macOS)

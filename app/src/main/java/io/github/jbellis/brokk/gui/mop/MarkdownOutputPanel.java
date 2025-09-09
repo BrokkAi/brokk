@@ -7,6 +7,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -83,14 +84,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public void updateTheme(boolean isDark) {
         boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        webHost.setRuntimeTheme(isDark, isDevMode);
-    }
-
-    /**
-     * Controls block code layout: when true, long lines wrap; when false, horizontal scrollbars appear.
-     */
-    public void setCodeBlockMode(boolean wrap) {
-        webHost.setCodeBlockWrapMode(wrap);
+        boolean wrapMode = MainProject.getCodeBlockWrapMode();
+        webHost.setRuntimeTheme(isDark, isDevMode, wrapMode);
     }
 
     public void setBlocking(boolean blocked) {
