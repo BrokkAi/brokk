@@ -1187,7 +1187,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 // ----- Code wrap helpers and demo ---------------------------------------------------------
 
 function getWrapMode() {
-    return document.documentElement.getAttribute('data-code-block-mode') || 'scroll';
+    return document.documentElement.classList.contains('code-wrap-mode') ? 'wrap' : 'scroll';
 }
 
 function updateWrapModeStatus() {
@@ -1199,7 +1199,8 @@ function updateWrapModeStatus() {
 
 function setWrapMode(mode) {
     if (mode !== 'wrap' && mode !== 'scroll') return;
-    document.documentElement.setAttribute('data-code-block-mode', mode);
+    document.documentElement.classList.toggle('code-wrap-mode', mode === 'wrap');
+    document.documentElement.classList.toggle('code-scroll-mode', mode === 'scroll');
     updateWrapModeStatus();
 }
 
@@ -1220,15 +1221,15 @@ function updateModeIndicators() {
 
 // Initialize default mode if missing and update status
 (function () {
-    if (!document.documentElement.getAttribute('data-code-block-mode')) {
-        document.documentElement.setAttribute('data-code-block-mode', 'scroll');
+    if (!document.documentElement.classList.contains('code-wrap-mode') && !document.documentElement.classList.contains('code-scroll-mode')) {
+        document.documentElement.classList.add('code-scroll-mode');
     }
     updateWrapModeStatus();
 })();
 
 // Show a comprehensive sample covering all code block cases
 function showAllCodeblockCases() {
-    const mode = document.documentElement.getAttribute('data-code-block-mode') || 'scroll';
+    const mode = getWrapMode();
     const content = `# Code Block Modes Demo
 
 Current mode: \`${mode}\`

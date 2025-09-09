@@ -135,9 +135,10 @@ public final class MOPBridge {
     }
 
     public void setCodeBlockMode(boolean wrap) {
-        var mode = wrap ? "wrap" : "scroll";
-        var js = "try { document.documentElement.setAttribute('data-code-block-mode', " + toJson(mode)
-                + "); } catch (e) { console.error('setCodeBlockMode failed', e); }";
+        var js = "try { " +
+                 "document.documentElement.classList.toggle('code-wrap-mode', " + wrap + "); " +
+                 "document.documentElement.classList.toggle('code-scroll-mode', " + !wrap + "); " +
+                 "} catch (e) { console.error('setCodeBlockMode failed', e); }";
         Platform.runLater(() -> engine.executeScript(js));
     }
 

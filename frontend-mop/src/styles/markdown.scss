@@ -176,7 +176,7 @@ pre {
   overflow-y: hidden;
 }
 
-html[data-code-block-mode="wrap"] pre {
+html.code-wrap-mode pre {
   white-space: pre-wrap;
   overflow-x: hidden;
   overflow-y: auto;
@@ -184,7 +184,7 @@ html[data-code-block-mode="wrap"] pre {
   overflow-wrap: anywhere;
 }
 
-html[data-code-block-mode="wrap"] pre > code {
+html.code-wrap-mode pre > code {
   white-space: inherit;
 }
 
@@ -192,7 +192,7 @@ html[data-code-block-mode="wrap"] pre > code {
 /* Edit blocks have a nested structure that needs more specific selectors */
 
 /* Default scroll mode for edit blocks */
-html[data-code-block-mode="scroll"] .edit-block-body .custom-code-block pre {
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre {
   white-space: pre;
   overflow-x: auto;
   overflow-y: hidden;
@@ -200,7 +200,7 @@ html[data-code-block-mode="scroll"] .edit-block-body .custom-code-block pre {
 }
 
 /* Wrap mode for edit blocks */
-html[data-code-block-mode="wrap"] .edit-block-body .custom-code-block pre {
+html.code-wrap-mode .edit-block-body .custom-code-block pre {
   white-space: pre-wrap;
   overflow-x: hidden;
   overflow-y: auto;
@@ -218,13 +218,13 @@ html[data-code-block-mode="wrap"] .edit-block-body .custom-code-block pre {
 }
 
 /* Fix diff line backgrounds to extend full width in scroll mode */
-html[data-code-block-mode="scroll"] .edit-block-body .custom-code-block pre code {
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre code {
   /* Make code container expand to full content width */
   display: inline-block;
   min-width: 100%;
 }
 
-html[data-code-block-mode="scroll"] .edit-block-body .custom-code-block pre .diff-line {
+html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre .diff-line {
   /* Reset diff line styling */
   display: block;
   padding-left: 0.8em;
