@@ -725,7 +725,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     // Check if this file is already in the current workspace context
                     var editableFilesList = currentContext.editableFiles().toList();
                     boolean inWorkspace = editableFilesList.stream()
-                        .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                            .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
                                     && ppf.file().equals(file));
                     if (!inWorkspace) {
                         externalFiles.add(file);
@@ -789,9 +789,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
                     contextManager
                             .getIo()
                             .systemNotify(
-                                    "No files were saved. Errors:\n" + msg,
-                                    "Save failed",
-                                    JOptionPane.ERROR_MESSAGE);
+                                    "No files were saved. Errors:\n" + msg, "Save failed", JOptionPane.ERROR_MESSAGE);
                 }
                 SwingUtilities.invokeLater(this::updateNavigationButtons);
                 return;
@@ -860,7 +858,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
             // Step 4: Finalize panels selectively and refresh UI
             for (var p : panelsToSave) {
-                var saved = perPanelResults.getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of())).succeeded();
+                var saved = perPanelResults
+                        .getOrDefault(p, new BufferDiffPanel.SaveResult(Set.of(), Map.of()))
+                        .succeeded();
                 p.finalizeAfterSaveAggregation(saved);
                 refreshTabTitle(p);
             }

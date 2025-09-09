@@ -1622,8 +1622,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
     }
 
     /**
-     * Returns list of ProjectFiles for documents that have changes and will be saved.
-     * Used to identify external files that need to be added to workspace before saving.
+     * Returns list of ProjectFiles for documents that have changes and will be saved. Used to identify external files
+     * that need to be added to workspace before saving.
      */
     public java.util.List<ProjectFile> getFilesBeingSaved() {
         var files = new java.util.ArrayList<ProjectFile>();
@@ -1680,13 +1680,16 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware,
         recalcDirty();
     }
 
-    /** Finalize selectively after a save-all operation: refresh baselines and dirty flags only for successfully saved files. */
+    /**
+     * Finalize selectively after a save-all operation: refresh baselines and dirty flags only for successfully saved
+     * files.
+     */
     public void finalizeAfterSaveAggregation(java.util.Set<String> savedFilenames) {
         updateBaselineContentAfterSave(savedFilenames);
         recalcDirty();
     }
 
-    /** Update baseline only for the specified filenames after a successful save.*/
+    /** Update baseline only for the specified filenames after a successful save. */
     private void updateBaselineContentAfterSave(java.util.Set<String> savedFilenames) {
         // Capture current content on EDT
         var currentFileDataMap = captureCurrentFileDataOnEdt();
