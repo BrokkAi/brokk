@@ -65,6 +65,9 @@ function setupBrokkInterface(): any[] {
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
+        // Debug API
+        toggleWrapStatus: () => typeof window !== 'undefined' && window.toggleWrapStatus ? window.toggleWrapStatus() : undefined,
+
     };
 
     // Signal to Java that the bridge is ready
@@ -111,6 +114,11 @@ function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): vo
         } else {
             html.classList.remove('code-wrap-mode');
             console.info('Removed code-wrap-mode class');
+        }
+
+        // Trigger status update for debug display
+        if (typeof window !== 'undefined' && window.updateWrapStatus) {
+            window.updateWrapStatus();
         }
     }
 
