@@ -1603,9 +1603,11 @@ public class WorkspacePanel extends JPanel {
                     return;
                 }
 
-                String symbol = showSymbolSelectionDialog("Select Symbol", CodeUnitType.ALL);
-                if (symbol != null && !symbol.isBlank()) {
-                    contextManager.usageForIdentifier(symbol);
+                var selection = showSymbolSelectionDialog("Select Symbol", CodeUnitType.ALL);
+                if (selection != null
+                        && selection.symbol() != null
+                        && !selection.symbol().isBlank()) {
+                    contextManager.usageForIdentifier(selection.symbol(), selection.includeTestFiles());
                 } else {
                     chrome.systemOutput("No symbol selected.");
                 }
@@ -1683,7 +1685,8 @@ public class WorkspacePanel extends JPanel {
     }
 
     /** Show the symbol selection dialog with a type filter */
-    private @Nullable String showSymbolSelectionDialog(String title, Set<CodeUnitType> typeFilter) {
+    private @Nullable SymbolSelectionDialog.SymbolSelection showSymbolSelectionDialog(
+            String title, Set<CodeUnitType> typeFilter) {
         var analyzer = contextManager.getAnalyzerUninterrupted();
         var dialogRef = new AtomicReference<SymbolSelectionDialog>();
         SwingUtil.runOnEdt(() -> {
@@ -1694,10 +1697,7 @@ public class WorkspacePanel extends JPanel {
             dialogRef.set(dialog);
         });
         var dialog = castNonNull(dialogRef.get());
-        if (dialog.isConfirmed()) {
-            return dialog.getSelectedSymbol();
-        }
-        return null;
+        return dialog.isConfirmed() ? dialog.getSelection() : null;
     }
 
     /** Show the call graph dialog for configuring method and depth */
@@ -1977,13 +1977,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Add as string fragment (possibly converted from HTML)
-            Future<String> summaryFuture = contextManager.submitSummarizePastedText(content);
-            String finalContent = content;
-            contextManager.pushContext(ctx -> {
-                var fragment = new ContextFragment.PasteTextFragment(
-                        contextManager, finalContent, summaryFuture); // Pass contextManager
-                return ctx.addVirtualFragment(fragment);
-            });
+            contextManager.addPastedTextFragment(content);
 
             // Inform the user about what happened
             if (stacktrace == null) {

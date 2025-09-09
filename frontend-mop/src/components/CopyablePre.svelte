@@ -4,8 +4,36 @@
 
   // Reactive state in Svelte 5 (Runes)
   let copied = $state(false);
+  let captured = $state(false);
   let preElem: HTMLElement;
   let copyTimeout: number | null = null;
+  let captureTimeout: number | null = null;
+
+  function handleWheel(event: WheelEvent) {
+    // Only intervene if the pre element doesn't need to scroll vertically
+    const { scrollTop, scrollHeight, clientHeight } = preElem;
+    const canScrollDown = scrollTop < scrollHeight - clientHeight;
+    const canScrollUp = scrollTop > 0;
+
+    const isScrollingDown = event.deltaY > 0;
+    const isScrollingUp = event.deltaY < 0;
+
+    // If we can't scroll vertically in the intended direction, pass to parent
+    if ((isScrollingDown && !canScrollDown) || (isScrollingUp && !canScrollUp)) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Find scrollable parent (more generic than .chat-container)
+      let parent = preElem.parentElement;
+      while (parent && parent.scrollHeight <= parent.clientHeight) {
+        parent = parent.parentElement;
+      }
+
+      if (parent) {
+        parent.scrollBy(0, event.deltaY);
+      }
+    }
+  }
 
   async function copyToClipboard() {
     const text = preElem?.innerText ?? '';
@@ -39,6 +67,21 @@
     }
   }
 
+  function captureToWorkspace() {
+    const text = preElem?.innerText ?? '';
+    if (!text) {
+      return;
+    }
+
+    const javaBridge = window.javaBridge;
+    if (javaBridge.captureText) {
+      javaBridge.captureText(text);
+      setCapturedTransient();
+    } else {
+      console.warn('`window.brokk.captureText` is not available');
+    }
+  }
+
   function setCopiedTransient() {
     copied = true;
     if (copyTimeout !== null) {
@@ -47,6 +90,17 @@
     copyTimeout = window.setTimeout(() => {
       copied = false;
       copyTimeout = null;
+    }, 1200);
+  }
+
+  function setCapturedTransient() {
+    captured = true;
+    if (captureTimeout !== null) {
+      clearTimeout(captureTimeout);
+    }
+    captureTimeout = window.setTimeout(() => {
+      captured = false;
+      captureTimeout = null;
     }, 1200);
   }
 </script>
@@ -59,6 +113,16 @@
     <button
       type="button"
       class="copy-btn"
+      class:captured={captured}
+      on:click={captureToWorkspace}
+      aria-label={captured ? 'Captured!' : 'Capture code to workspace'}
+      title={captured ? 'Captured!' : 'Capture code to workspace'}
+    >
+      <Icon icon={captured ? 'mdi:check' : 'mdi:camera-plus-outline'} />
+    </button>
+    <button
+      type="button"
+      class="copy-btn"
       class:copied={copied}
       on:click={copyToClipboard}
       aria-label={copied ? 'Copied!' : 'Copy code to clipboard'}
@@ -67,10 +131,10 @@
       <Icon icon={copied ? 'mdi:check' : 'mdi:content-copy'} />
     </button>
     <span class="sr-only" aria-live="polite" role="status">
-      {copied ? 'Copied to clipboard' : ''}
+      {copied ? 'Copied to clipboard' : captured ? 'Captured to workspace' : ''}
     </span>
   </div>
-  <pre bind:this={preElem} {...rest}>{@render children?.()}</pre>
+  <pre bind:this={preElem} on:wheel={handleWheel} {...rest}>{@render children?.()}</pre>
 </div>
 
 <style>
@@ -122,7 +186,8 @@
   }
 
   /* Visual hint on success */
-  .copy-btn.copied {
+  .copy-btn.copied,
+  .copy-btn.captured {
     color: var(--git-status-added);
     opacity: 1;
   }

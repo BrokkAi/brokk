@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
@@ -1169,18 +1170,30 @@ public interface ContextFragment {
 
     class UsageFragment extends VirtualFragment { // Dynamic, uses nextId
         private final String targetIdentifier;
+        private final boolean includeTestFiles;
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
+            this(contextManager, targetIdentifier, false);
+        }
+
+        public UsageFragment(IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
             super(contextManager); // Assigns dynamic numeric String ID
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
+            this(existingId, contextManager, targetIdentifier, false);
+        }
+
+        public UsageFragment(
+                String existingId, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
             assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
+            this.includeTestFiles = includeTestFiles;
         }
 
         @Override
@@ -1194,6 +1207,11 @@ public interface ContextFragment {
             return analyzer.as(UsagesProvider.class)
                     .map(up -> {
                         List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        if (!includeTestFiles) {
+                            uses = uses.stream()
+                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                                    .toList();
+                        }
                         var result = AnalyzerUtil.processUsages(analyzer, uses);
                         return result.code().isEmpty()
                                 ? "No relevant usages found for symbol: " + targetIdentifier
@@ -1213,6 +1231,11 @@ public interface ContextFragment {
             return analyzer.as(UsagesProvider.class)
                     .map(up -> {
                         List<CodeUnit> uses = up.getUses(targetIdentifier);
+                        if (!includeTestFiles) {
+                            uses = uses.stream()
+                                    .filter(cu -> !ContextManager.isTestFile(cu.source()))
+                                    .toList();
+                        }
                         var result = AnalyzerUtil.processUsages(analyzer, uses);
                         return result.sources();
                     })
@@ -1221,7 +1244,14 @@ public interface ContextFragment {
 
         @Override
         public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+            final var allSources = sources().stream().map(CodeUnit::source);
+            if (!includeTestFiles) {
+                return allSources
+                        .filter(source -> !ContextManager.isTestFile(source))
+                        .collect(Collectors.toSet());
+            } else {
+                return allSources.collect(Collectors.toSet());
+            }
         }
 
         @Override
@@ -1244,6 +1274,10 @@ public interface ContextFragment {
 
         public String targetIdentifier() {
             return targetIdentifier;
+        }
+
+        public boolean getIncludeTestFiles() {
+            return includeTestFiles;
         }
     }
 

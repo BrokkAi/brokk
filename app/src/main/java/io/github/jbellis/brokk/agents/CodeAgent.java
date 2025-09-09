@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.difflib.patch.AbstractDelta;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -18,6 +19,7 @@ import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import java.io.IOException;
@@ -29,6 +31,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -103,7 +106,7 @@ public class CodeAgent {
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
                 userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, null);
 
-        var conversationState = new ConversationState(taskMessages, nextRequest);
+        var conversationState = new ConversationState(taskMessages, nextRequest, taskMessages.size());
         var workspaceState = new EditState(
                 blocks, 0, applyFailures, 0, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
@@ -182,6 +185,24 @@ public class CodeAgent {
             }
             if (stopDetails != null) break;
 
+            // After a successful apply, consider compacting the turn into a clean, synthetic summary.
+            // Only do this if the turn had more than a single user/AI pair; for simple one-shot turns,
+            // keep the original messages for clarity.
+            if (loopContext.editState().blocksAppliedWithoutBuild() > 0) {
+                int msgsThisTurn =
+                        loopContext.conversationState().taskMessages().size()
+                                - loopContext.conversationState().turnStartIndex();
+                if (msgsThisTurn > 2) {
+                    var srb = loopContext.editState().toSearchReplaceBlocks();
+                    var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
+                            + srb.stream().map(parser::repr).collect(Collectors.joining("\n"));
+                    loopContext = new LoopContext(
+                            loopContext.conversationState().replaceCurrentTurnMessages(summaryText),
+                            loopContext.editState,
+                            loopContext.userGoal);
+                }
+            }
+
             // VERIFY PHASE runs the build
             // since this is the last phase, it does not use Continue
             assert loopContext.editState().pendingBlocks().isEmpty() : loopContext;
@@ -246,7 +267,7 @@ public class CodeAgent {
         UserMessage initialRequest = CodePrompts.instance.codeRequest(
                 instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, file);
 
-        var conversationState = new ConversationState(new ArrayList<>(), initialRequest);
+        var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
@@ -396,7 +417,7 @@ public class CodeAgent {
                 return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
             }
 
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
+            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
             // Add any newly parsed blocks before the error to the pending list for the next apply phase
             var nextPending = new ArrayList<>(ws.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
@@ -430,7 +451,7 @@ public class CodeAgent {
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
                         .formatted(newlyParsedBlocks.size());
             }
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry);
+            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
             var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
             report(consoleLogForRetry);
             return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
@@ -677,6 +698,7 @@ public class CodeAgent {
         String latestBuildError;
         try {
             latestBuildError = performBuildVerification();
+            latestBuildError = sanitizeBuildOutput(latestBuildError);
         } catch (InterruptedException e) {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
@@ -701,7 +723,10 @@ public class CodeAgent {
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, latestBuildError)));
             }
             UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
-            var newCs = new ConversationState(cs.taskMessages(), nextRequestForBuildFailure);
+            var newCs = new ConversationState(
+                    cs.taskMessages(),
+                    nextRequestForBuildFailure,
+                    cs.taskMessages().size());
             var newWs = ws.afterBuildFailure(latestBuildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(new LoopContext(newCs, newWs, loopContext.userGoal()));
@@ -764,7 +789,7 @@ public class CodeAgent {
                     String retryPromptText =
                             CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount, contextManager);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
-                    csForStep = new ConversationState(cs.taskMessages(), retryRequest);
+                    csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.turnStartIndex());
                     wsForStep = ws.afterApply(
                             nextPendingBlocks,
                             updatedConsecutiveApplyFailures,
@@ -864,7 +889,8 @@ public class CodeAgent {
      */
     private String runVerificationCommand(String verificationCommand) throws InterruptedException {
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-        io.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+        String shellLang = ExecutorConfig.getShellLanguageFromProject(contextManager.getProject());
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
@@ -879,6 +905,46 @@ public class CodeAgent {
             // Add the combined error and output to the history for the next request
             return e.getMessage() + "\n\n" + e.getOutput();
         }
+    }
+
+    /**
+     * Sanitize build output by relativizing absolute paths that begin with the project root.
+     *
+     * <p>Behavior: - Handles both Unix-style and Windows-style absolute paths. - Converts the project root path to both
+     * forward- and back-slash forms and appends a trailing separator, so that only paths that are clearly children of
+     * the project root are matched. - Replacement is case-insensitive to accommodate tooling differences. - The root
+     * markers are only removed when they appear as a directory prefix of a larger path (root + separator) and when
+     * preceded by a non-path character boundary. This prevents accidental removal when the root string appears as part
+     * of some other token, and avoids removing the root itself when it stands alone.
+     *
+     * <p>Examples: - Unix: /home/user/repo/src/Main.java -> src/Main.java - Windows: C:\repo\pkg\mod.py -> pkg\mod.py
+     */
+    private String sanitizeBuildOutput(String text) {
+        var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();
+        var rootAbs = root.toString();
+
+        // Build forward- and back-slash variants with a trailing separator
+        var rootFwd = rootAbs.replace('\\', '/');
+        if (!rootFwd.endsWith("/")) {
+            rootFwd = rootFwd + "/";
+        }
+        var rootBwd = rootAbs.replace('/', '\\');
+        if (!rootBwd.endsWith("\\")) {
+            rootBwd = rootBwd + "\\";
+        }
+
+        // Case-insensitive replacement and boundary-checked:
+        // - (?<![A-Za-z0-9._-]) ensures the match is not preceded by a typical path/token character.
+        // - The trailing separator in rootFwd/rootBwd ensures we only match a directory prefix of a larger path.
+        // - (?=\S) ensures there is at least one non-whitespace character following the prefix (i.e., a larger path).
+        var sanitized = text;
+        var forwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootFwd) + "(?=\\S)");
+        var backwardPattern = Pattern.compile("(?i)(?<![A-Za-z0-9._-])" + Pattern.quote(rootBwd) + "(?=\\S)");
+
+        sanitized = forwardPattern.matcher(sanitized).replaceAll("");
+        sanitized = backwardPattern.matcher(sanitized).replaceAll("");
+
+        return sanitized;
     }
 
     record LoopContext(ConversationState conversationState, EditState editState, String userGoal) {}
@@ -905,7 +971,49 @@ public class CodeAgent {
         }
     }
 
-    record ConversationState(List<ChatMessage> taskMessages, UserMessage nextRequest) {}
+    record ConversationState(List<ChatMessage> taskMessages, UserMessage nextRequest, int turnStartIndex) {
+        /**
+         * Replace all messages in the current turn (starting from turnStartIndex) with: - the original starting
+         * UserMessage of the turn - a single synthetic AiMessage summarizing the edits.
+         *
+         * <p>Exposed for testing.
+         */
+        ConversationState replaceCurrentTurnMessages(String summaryText) {
+            var msgs = new ArrayList<>(taskMessages);
+            if (turnStartIndex < 0 || turnStartIndex >= msgs.size()) {
+                logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
+                // Fall back: just append a synthetic message (should never happen in practice)
+                msgs.add(new AiMessage(summaryText));
+                return new ConversationState(msgs, nextRequest, msgs.size());
+            }
+
+            var startMsg = msgs.get(turnStartIndex);
+            UserMessage startUser;
+            if (startMsg instanceof UserMessage su) {
+                startUser = su;
+            } else {
+                logger.warn(
+                        "Expected UserMessage at turnStartIndex {}, found {}. Using nextRequest as fallback.",
+                        turnStartIndex,
+                        startMsg.type());
+                startUser = nextRequest;
+            }
+
+            // Drop everything from the start of this turn onward
+            while (msgs.size() > turnStartIndex) {
+                msgs.removeLast();
+            }
+
+            // Re-add the starting user message and the synthetic summary
+            msgs.add(startUser);
+            msgs.add(new AiMessage(summaryText));
+
+            logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
+
+            // After replacement, the next turn should start at the end of the current msgs
+            return new ConversationState(msgs, nextRequest, msgs.size());
+        }
+    }
 
     record EditState(
             // parsed but not yet applied
@@ -930,7 +1038,10 @@ public class CodeAgent {
                     originalFileContents);
         }
 
-        /** Returns a new WorkspaceState after a build failure, updating the error message. */
+        /**
+         * Returns a new WorkspaceState after a build failure, updating the error message. Also resets the per-turn
+         * baseline (originalFileContents) for the next turn.
+         */
         EditState afterBuildFailure(String newBuildError) {
             return new EditState(
                     pendingBlocks,
@@ -940,7 +1051,7 @@ public class CodeAgent {
                     0,
                     newBuildError,
                     changedFiles,
-                    originalFileContents);
+                    new HashMap<>()); // Clear per-turn baseline
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -960,21 +1071,205 @@ public class CodeAgent {
                     newOriginalContents);
         }
 
-        /** Returns a new WorkspaceState after a successful full-file replacement fallback. */
-        EditState afterFallbackSuccess(
-                List<EditBlock.SearchReplaceBlock> newPendingBlocks,
-                Set<ProjectFile> updatedChangedFiles,
-                Map<ProjectFile, String> newOriginalContents) {
-            return new EditState(
-                    newPendingBlocks,
-                    consecutiveParseFailures,
-                    0,
-                    consecutiveBuildFailures,
-                    1,
-                    lastBuildError,
-                    updatedChangedFiles,
-                    newOriginalContents);
+        /**
+         * Generate SEARCH/REPLACE blocks by diffing each changed file's current contents against the per-turn original
+         * contents captured at the start of the turn. For files that were created in this turn (no original content),
+         * generate a "new file" block (empty before / full after).
+         *
+         * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
+         * history compaction without depending on the diff library package structure at compile time.
+         */
+        @VisibleForTesting
+        List<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
+            var results = new ArrayList<EditBlock.SearchReplaceBlock>();
+            var originals = originalFileContents();
+
+            // Include both files we have originals for and new files created in this turn
+            var candidates = new HashSet<>(changedFiles());
+            candidates.addAll(originals.keySet());
+
+            // Sort for determinism
+            var sorted = candidates.stream()
+                    .sorted(Comparator.comparing(ProjectFile::toString))
+                    .toList();
+
+            for (var file : sorted) {
+                String original = originals.getOrDefault(file, "");
+                String revised;
+                try {
+                    revised = file.read();
+                } catch (IOException ioe) {
+                    logger.warn("Unable to read file {} to generate summary diff; skipping", file, ioe);
+                    continue;
+                }
+
+                if (Objects.equals(original, revised)) {
+                    continue; // No effective change
+                }
+
+                // New file created this turn
+                if (!originals.containsKey(file)) {
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
+                    continue;
+                }
+
+                var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
+                var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
+
+                try {
+                    com.github.difflib.patch.Patch<String> patch =
+                            com.github.difflib.DiffUtils.diff(originalLines, revisedLines);
+
+                    // 1) Build minimal windows per delta in original line space
+                    record Window(int start, int end) {
+                        Window expandLeft() {
+                            return new Window(Math.max(0, start - 1), end);
+                        }
+
+                        Window expandRight(int max) {
+                            return new Window(start, Math.min(max, end + 1));
+                        }
+                    }
+                    var windows = new ArrayList<Window>();
+                    for (AbstractDelta<String> delta : patch.getDeltas()) {
+                        var src = delta.getSource();
+                        int sPos = src.getPosition();
+                        int sSize = src.size();
+
+                        int wStart, wEnd;
+                        if (sSize > 0) {
+                            wStart = sPos;
+                            wEnd = sPos + sSize - 1;
+                        } else {
+                            // Pure insertion: anchor on previous line when possible, else next
+                            wStart = (sPos == 0) ? 0 : sPos - 1;
+                            wEnd = wStart;
+                        }
+                        if (!originalLines.isEmpty()) {
+                            wStart = Math.max(0, Math.min(wStart, originalLines.size() - 1));
+                            wEnd = Math.max(0, Math.min(wEnd, originalLines.size() - 1));
+                        }
+                        windows.add(new Window(wStart, wEnd));
+                    }
+
+                    // 2) Expand each window until its before-text is unique in the original
+                    int lastIdx = Math.max(0, originalLines.size() - 1);
+                    windows = windows.stream()
+                            .map(w -> {
+                                Window cur = w;
+                                String before = joinLines(originalLines, cur.start, cur.end);
+                                while (!before.isEmpty()
+                                        && countOccurrences(original, before) > 1
+                                        && (cur.start > 0 || cur.end < lastIdx)) {
+                                    if (cur.start > 0) cur = cur.expandLeft();
+                                    if (cur.end < lastIdx) cur = cur.expandRight(lastIdx);
+                                    before = joinLines(originalLines, cur.start, cur.end);
+                                }
+                                return cur;
+                            })
+                            .collect(Collectors.toCollection(ArrayList::new));
+
+                    // 3) Merge overlapping/adjacent windows after expansion
+                    windows.sort(Comparator.comparingInt(w -> w.start));
+                    var merged = new ArrayList<Window>();
+                    for (var w : windows) {
+                        if (merged.isEmpty()) {
+                            merged.add(w);
+                        } else {
+                            var last = merged.getLast();
+                            if (w.start <= last.end + 1) { // overlap or adjacent
+                                merged.set(merged.size() - 1, new Window(last.start, Math.max(last.end, w.end)));
+                            } else {
+                                merged.add(w);
+                            }
+                        }
+                    }
+
+                    // Precompute net line deltas for mapping original -> revised
+                    record DeltaShape(int pos, int size, int net) {}
+                    var shapes = patch.getDeltas().stream()
+                            .map(d -> new DeltaShape(
+                                    d.getSource().getPosition(),
+                                    d.getSource().size(),
+                                    d.getTarget().size() - d.getSource().size()))
+                            .sorted(Comparator.comparingInt(s -> s.pos))
+                            .toList();
+
+                    for (var w : merged) {
+                        // Map original start to revised start
+                        int netBeforeStart = shapes.stream()
+                                .filter(s -> s.pos + s.size <= w.start) // ends before start
+                                .mapToInt(s -> s.net)
+                                .sum();
+                        int revisedStart = w.start + netBeforeStart;
+
+                        int windowLen = w.end - w.start + 1;
+                        // Net deltas that intersect the window
+                        int netInWindow = 0;
+                        for (AbstractDelta<String> d : patch.getDeltas()) {
+                            int p = d.getSource().getPosition();
+                            int sz = d.getSource().size();
+                            int net = d.getTarget().size() - sz;
+                            boolean overlaps;
+                            if (sz > 0) {
+                                overlaps = p < (w.end + 1) && (p + sz) > w.start;
+                            } else {
+                                overlaps = p >= w.start && p <= (w.end + 1);
+                            }
+                            if (overlaps) {
+                                netInWindow += net;
+                            }
+                        }
+                        int revisedEnd = revisedStart + windowLen + netInWindow - 1;
+
+                        String before = joinLines(originalLines, w.start, w.end);
+                        String after = joinLines(
+                                revisedLines,
+                                clamp(revisedStart, 0, Math.max(0, revisedLines.size() - 1)),
+                                clamp(revisedEnd, 0, Math.max(0, revisedLines.size() - 1)));
+
+                        // If uniqueness still fails (pathological), fall back to whole-file
+                        if (!before.isEmpty() && countOccurrences(original, before) > 1) {
+                            results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                            continue;
+                        }
+
+                        results.add(new EditBlock.SearchReplaceBlock(file.toString(), before, after));
+                    }
+                } catch (Exception e) {
+                    // If diffing fails for any reason, fall back to a conservative whole-file replacement
+                    logger.warn("Diff generation failed for {}; falling back to whole-file SRB", file, e);
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), original, revised));
+                }
+            }
+            return results;
         }
+    }
+
+    private static int clamp(int v, int lo, int hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    private static String joinLines(List<String> lines, int start, int end) {
+        if (lines.isEmpty() || start > end) return "";
+        var slice = String.join("\n", lines.subList(start, end + 1));
+        return slice.isEmpty() ? "" : ensureTerminated(slice);
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        if (needle.isEmpty()) return 0;
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(needle, idx)) != -1) {
+            count++;
+            idx = idx + Math.max(1, needle.length());
+        }
+        return count;
+    }
+
+    private static String ensureTerminated(String s) {
+        if (s.isEmpty()) return s;
+        return s.endsWith("\n") ? s : s + "\n";
     }
 
     private static class Metrics {

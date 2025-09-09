@@ -4,8 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.menu.ContextMenuBuilder;
 import io.github.jbellis.brokk.gui.mop.SymbolLookupService;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
@@ -37,7 +38,7 @@ public final class MOPBridge {
     private final AtomicInteger epoch = new AtomicInteger();
     private final Map<Integer, CompletableFuture<Void>> awaiting = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<BrokkEvent> eventQueue = new LinkedBlockingQueue<>();
-    private volatile @Nullable IContextManager contextManager;
+    private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable java.awt.Component hostComponent;
 
@@ -109,7 +110,7 @@ public final class MOPBridge {
         if (text.isEmpty()) {
             return;
         }
-        // Epoch is assigned later, just queue the content
+
         eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
         scheduleSend();
     }
@@ -261,7 +262,7 @@ public final class MOPBridge {
         }
     }
 
-    public void setContextManager(@Nullable IContextManager contextManager) {
+    public void setContextManager(@Nullable ContextManager contextManager) {
         this.contextManager = contextManager;
     }
 
@@ -276,10 +277,6 @@ public final class MOPBridge {
     public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
-
-        logger.debug(
-                "Async symbol lookup requested with JSON: {}, seq: {}, contextId: {}", symbolNamesJson, seq, contextId);
-        logger.debug("ContextManager available: {}", contextManager != null);
 
         // Parse symbol names (keep existing parsing logic)
         Set<String> symbolNames;
@@ -316,12 +313,13 @@ public final class MOPBridge {
                         symbolNames,
                         contextManager,
                         // Result callback - called for each individual symbol result
-                        (symbolName, fqn) -> {
+                        (symbolName, symbolResult) -> {
                             // Send individual result immediately on UI thread
                             Platform.runLater(() -> {
                                 try {
-                                    var singleResult = java.util.Map.of(symbolName, fqn != null ? fqn : "");
+                                    var singleResult = java.util.Map.of(symbolName, symbolResult);
                                     var resultsJson = toJson(singleResult);
+
                                     var js = "if (window.brokk && window.brokk.onSymbolLookupResponse) { "
                                             + "window.brokk.onSymbolLookupResponse(" + resultsJson + ", " + seq + ", "
                                             + toJson(contextId) + "); }";
@@ -371,15 +369,28 @@ public final class MOPBridge {
 
             if (component != null && contextManager != null) {
                 if (chrome != null) {
-                    io.github.jbellis.brokk.gui.menu.ContextMenuBuilder.forSymbol(
-                                    symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
-                                            contextManager)
-                            .show(component, x, y);
+                    try {
+                        ContextMenuBuilder.forSymbol(
+                                        symbolName, symbolExists, fqn, chrome, (io.github.jbellis.brokk.ContextManager)
+                                                contextManager)
+                                .show(component, x, y);
+                    } catch (Exception e) {
+                        logger.error("Failed to show context menu", e);
+                    }
                 } else {
                     logger.warn("Symbol right-click handler not set, ignoring right-click on symbol: {}", symbolName);
                 }
+            } else {
+                logger.warn("Cannot show context menu - missing dependencies");
             }
         });
+    }
+
+    public void captureText(String text) {
+        var cm = contextManager;
+        if (cm != null) {
+            cm.addPastedTextFragment(text);
+        }
     }
 
     public String getContextCacheId() {

@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.RunTestsService;
+import io.github.jbellis.brokk.gui.util.SourceCaptureUtil;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Toolkit;
@@ -158,6 +159,12 @@ public class ContextMenuBuilder {
         summarizeFileItem.setEnabled(analyzerReady);
         summarizeFileItem.addActionListener(e -> summarizeFiles(context));
         parent.add(summarizeFileItem);
+
+        // Capture Class Source
+        var captureSourceItem = new JMenuItem("Capture Class Source");
+        captureSourceItem.setEnabled(analyzerReady);
+        captureSourceItem.addActionListener(e -> captureClassSource(context));
+        parent.add(captureSourceItem);
     }
 
     private void buildFileMenu() {
@@ -428,6 +435,38 @@ public class ContextMenuBuilder {
             if (definition.isPresent()) {
                 var file = definition.get().source();
                 context.contextManager().addSummaries(Set.of(file), Collections.emptySet());
+            }
+        });
+    }
+
+    /**
+     * Capture class source for the given symbol context.
+     *
+     * <p>Uses shared SourceCaptureUtil to ensure consistent behavior with PreviewTextPanel.
+     */
+    private void captureClassSource(SymbolMenuContext context) {
+        if (!context.contextManager().getAnalyzerWrapper().isReady()) {
+            context.chrome()
+                    .systemNotify(
+                            AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                            AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                            JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
+        context.contextManager().submitBackgroundTask("Capture Source Code", () -> {
+            var definition = findSymbolDefinition(context);
+            if (definition.isPresent()) {
+                SourceCaptureUtil.captureSourceForCodeUnit(definition.get(), context.contextManager());
+            } else {
+                SwingUtilities.invokeLater(() -> {
+                    context.chrome()
+                            .systemNotify(
+                                    "No source definition found for: " + fqn,
+                                    "Capture Class Source",
+                                    JOptionPane.WARNING_MESSAGE);
+                });
             }
         });
     }

@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
@@ -87,7 +88,8 @@ class CodeAgentTest {
             int blocksAppliedWithoutBuild) {
         var conversationState = new CodeAgent.ConversationState(
                 new ArrayList<>(taskMessages), // Modifiable copy
-                nextRequest);
+                nextRequest,
+                taskMessages.size());
         var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingBlocks), // Modifiable copy
                 0, // consecutiveParseFailures
@@ -501,5 +503,256 @@ class CodeAgentTest {
         assertTrue(
                 continueStep.loopContext().editState().changedFiles().contains(file),
                 "changedFiles should include the edited file");
+    }
+
+    // S-1: verifyPhase sanitizes Unix Java-style compiler output
+    @Test
+    void testVerifyPhase_sanitizesUnixJavaPaths() {
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
+        var absPath = rootFwd + "/src/Main.java";
+        var errorOutput = absPath + ":12: error: cannot find symbol\n    Foo bar;\n    ^\n1 error\n";
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", errorOutput);
+        };
+
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+        var sanitized = retry.loopContext().editState().lastBuildError();
+
+        assertFalse(sanitized.contains(rootFwd), "Sanitized output should not contain absolute root");
+        assertTrue(sanitized.contains("src/Main.java:12"), "Sanitized output should contain relativized path");
+        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
+                .contains("src/Main.java:12"));
+    }
+
+    // S-2: verifyPhase sanitizes Windows Java-style compiler output
+    @Test
+    void testVerifyPhase_sanitizesWindowsJavaPaths() {
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var rootAbs = projectRoot.toAbsolutePath().toString();
+        var rootBwd = rootAbs.replace('/', '\\');
+        var absWinPath = rootBwd + "\\src\\Main.java";
+        var errorOutput = absWinPath + ":12: error: cannot find symbol\r\n    Foo bar;\r\n    ^\r\n1 error\r\n";
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", errorOutput);
+        };
+
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+        var sanitized = retry.loopContext().editState().lastBuildError();
+
+        assertFalse(sanitized.contains(rootBwd), "Sanitized output should not contain absolute Windows root");
+        assertTrue(sanitized.contains("src\\Main.java:12"), "Sanitized output should contain relativized Windows path");
+        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
+                .contains("src\\Main.java:12"));
+    }
+
+    // S-3: verifyPhase sanitizes Python-style traceback paths
+    @Test
+    void testVerifyPhase_sanitizesPythonTracebackPaths() {
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        contextManager.getProject().setBuildDetails(bd);
+        contextManager.getProject().setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
+        var absPyPath = rootFwd + "/pkg/mod.py";
+        var traceback = ""
+                + "Traceback (most recent call last):\n"
+                + "  File \"" + absPyPath + "\", line 13, in <module>\n"
+                + "    main()\n"
+                + "  File \"" + absPyPath + "\", line 8, in main\n"
+                + "    raise ValueError(\"bad\")\n"
+                + "ValueError: bad\n";
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException("Build failed", traceback);
+        };
+
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var result = codeAgent.verifyPhase(loopContext, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retry = (CodeAgent.Step.Retry) result;
+        var sanitized = retry.loopContext().editState().lastBuildError();
+
+        assertFalse(sanitized.contains(rootFwd), "Sanitized traceback should not contain absolute root");
+        assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
+        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
+                .contains("pkg/mod.py"));
+    }
+
+    // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_preservesBaselinePerTurn() throws IOException {
+        var file = contextManager.toFile("file.txt");
+        file.write("hello world");
+        contextManager.addEditableFile(file);
+
+        // Turn 1: apply "hello world" -> "goodbye world"
+        var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
+        var lc1 = createLoopContext("goal", List.of(), new UserMessage("req1"), List.of(block1), 0);
+
+        var res1 = codeAgent.applyPhase(lc1, parser, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, res1);
+        var lc1b = ((CodeAgent.Step.Continue) res1).loopContext();
+
+        // Generate SRBs for turn 1; should be hello -> goodbye
+        var srb1 = lc1b.editState().toSearchReplaceBlocks();
+        assertEquals(1, srb1.size());
+        assertEquals("hello world", srb1.getFirst().beforeText().strip());
+        assertEquals("goodbye world", srb1.getFirst().afterText().strip());
+
+        // Turn 2 baseline should be the current contents ("goodbye world")
+        // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
+        var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
+        var lc2 = createLoopContext("goal", List.of(), new UserMessage("req2"), List.of(block2), 0);
+
+        var res2 = codeAgent.applyPhase(lc2, parser, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, res2);
+        var lc2b = ((CodeAgent.Step.Continue) res2).loopContext();
+
+        var srb2 = lc2b.editState().toSearchReplaceBlocks();
+        assertEquals(1, srb2.size());
+        assertEquals("goodbye world", srb2.getFirst().beforeText().strip());
+        assertEquals("ciao world", srb2.getFirst().afterText().strip());
+    }
+
+    // SRB-2: Multiple distinct changes in a single turn produce multiple S/R blocks (fine-grained)
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_multipleChangesProduceMultipleBlocks() throws IOException {
+        var file = contextManager.toFile("multi.txt");
+        var original = String.join("\n", List.of("alpha", "keep", "omega")) + "\n";
+        file.write(original);
+        contextManager.addEditableFile(file);
+
+        // Prepare per-turn baseline manually (simulate what applyPhase would capture)
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(file, original);
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(file);
+
+        // Modify two separate lines: alpha->ALPHA and omega->OMEGA
+        var revised = String.join("\n", List.of("ALPHA", "keep", "OMEGA")) + "\n";
+        file.write(revised);
+
+        var ws = new CodeAgent.EditState(
+                List.of(), // pendingBlocks
+                0,
+                0,
+                0,
+                1, // blocksAppliedWithoutBuild (not relevant for generation)
+                "", // lastBuildError
+                changedFiles,
+                originalMap);
+
+        var blocks = ws.toSearchReplaceBlocks();
+        // Expect two distinct blocks (one per changed line)
+        assertTrue(blocks.size() >= 2, "Expected multiple fine-grained S/R blocks");
+
+        var normalized = blocks.stream()
+                .map(b -> Map.entry(b.beforeText().strip(), b.afterText().strip()))
+                .toList();
+
+        assertTrue(normalized.contains(Map.entry("alpha", "ALPHA")));
+        assertTrue(normalized.contains(Map.entry("omega", "OMEGA")));
+    }
+
+    // SRB-3: Ensure expansion to achieve uniqueness (avoid ambiguous search blocks)
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_expandsToUniqueSearchTargets() throws IOException {
+        var file = contextManager.toFile("unique.txt");
+        var original = String.join("\n", List.of("alpha", "beta", "alpha", "gamma")) + "\n";
+        file.write(original);
+        contextManager.addEditableFile(file);
+
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(file, original);
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(file);
+
+        // Change the second "alpha" only
+        var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
+        file.write(revised);
+
+        var ws = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
+
+        var blocks = ws.toSearchReplaceBlocks();
+        assertEquals(1, blocks.size(), "Should produce a single unique block");
+        var before = blocks.getFirst().beforeText();
+        // Ensure we didn't emit a bare "alpha" which would be ambiguous; context should be included
+        assertNotEquals("alpha\n", before, "Search should be expanded with context to be unique");
+        assertTrue(before.contains("beta"), "Expanded context should likely include neighboring lines");
+    }
+
+    // SRB-4: Overlapping expansions should merge into a single block
+    @Test
+    void testGenerateSearchReplaceBlocksFromTurn_mergesOverlappingExpansions() throws IOException {
+        var file = contextManager.toFile("merge.txt");
+        var original = String.join("\n", List.of("line1", "target", "middle", "target", "line5")) + "\n";
+        file.write(original);
+        contextManager.addEditableFile(file);
+
+        var originalMap = new HashMap<ProjectFile, String>();
+        originalMap.put(file, original);
+        var changedFiles = new HashSet<ProjectFile>();
+        changedFiles.add(file);
+
+        // Change both 'target' lines
+        var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
+        file.write(revised);
+
+        var ws = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
+
+        var blocks = ws.toSearchReplaceBlocks();
+
+        // Because uniqueness expansion will expand both to include 'middle' neighbor,
+        // overlapping regions should merge into one block.
+        assertEquals(1, blocks.size(), "Overlapping expanded regions should be merged");
+        var b = blocks.getFirst();
+        assertTrue(
+                b.beforeText().contains("target\nmiddle\ntarget"), "Merged before should span both targets and middle");
+        assertTrue(b.afterText().contains("TARGET\nmiddle\nTARGET"), "Merged after should reflect both changes");
+    }
+
+    // TURN-1: replaceCurrentTurnMessages should replace the entire turn, not just last two messages
+    @Test
+    void testReplaceCurrentTurnMessages_replacesWholeTurn() {
+        var msgs = new ArrayList<ChatMessage>();
+        msgs.add(new UserMessage("old turn user"));
+        msgs.add(new AiMessage("old turn ai"));
+
+        // Start of new turn at index 2
+        int turnStart = msgs.size();
+        msgs.add(new UserMessage("turn start"));
+        msgs.add(new AiMessage("partial response 1"));
+        msgs.add(new UserMessage("retry prompt"));
+        msgs.add(new AiMessage("partial response 2"));
+
+        var cs = new CodeAgent.ConversationState(msgs, new UserMessage("next request"), turnStart);
+        var summary = "Here are the SEARCH/REPLACE blocks:\n\n<summary>";
+        var replaced = cs.replaceCurrentTurnMessages(summary);
+
+        var finalMsgs = replaced.taskMessages();
+        // We should have: [old turn user, old turn ai, turn start (user), summary (ai)]
+        assertEquals(4, finalMsgs.size());
+        assertEquals("turn start", Messages.getText(finalMsgs.get(2)));
+        assertEquals("Here are the SEARCH/REPLACE blocks:\n\n<summary>", ((AiMessage) finalMsgs.get(3)).text());
+        // Next turn should start at end
+        assertEquals(finalMsgs.size(), replaced.turnStartIndex());
     }
 }

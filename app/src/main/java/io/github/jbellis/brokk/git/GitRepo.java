@@ -483,6 +483,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 return Stream.of(staged, unstaged).filter(s -> !s.isEmpty()).collect(Collectors.joining("\n"));
             } catch (NoHeadException e) {
                 // Handle empty repository case - return empty diff for repositories with no commits
+                logger.debug("NoHeadException caught - empty repository, returning empty diff");
                 return "";
             }
         } catch (IOException e) {
@@ -512,6 +513,7 @@ public class GitRepo implements Closeable, IGitRepo {
         trackedPaths.addAll(status.getMissing());
 
         if (trackedPaths.isEmpty()) {
+            logger.debug("No tracked changes found, returning empty diff");
             return "";
         }
 

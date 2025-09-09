@@ -1005,6 +1005,10 @@ public class Brokk {
         return openProjectWindows;
     }
 
+    public static List<Chrome> getWorktreeChromes(IProject mainProject) {
+        return mainToWorktreeChromes.getOrDefault(mainProject, List.of());
+    }
+
     /**
      * Gracefully exit the application: - request each open project's ContextManager to close with a timeout - wait for
      * all closes to complete - then terminate the JVM

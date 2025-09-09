@@ -65,11 +65,6 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public ProjectFile toFile(String relName) {
-        return new ProjectFile(project.getRoot(), relName);
-    }
-
-    @Override
     public IAnalyzer getAnalyzerUninterrupted() {
         return mockAnalyzer;
     }

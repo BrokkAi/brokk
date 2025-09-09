@@ -4,13 +4,13 @@ import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.ActivityTableRenderers;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.util.GitUiUtil;
@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -41,7 +42,6 @@ import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
 public class SessionsDialog extends JDialog {
-    private final HistoryOutputPanel historyOutputPanel;
     private final Chrome chrome;
     private final ContextManager contextManager;
 
@@ -61,9 +61,8 @@ public class SessionsDialog extends JDialog {
     private JScrollPane markdownScrollPane;
     private @Nullable Context selectedActivityContext;
 
-    public SessionsDialog(HistoryOutputPanel historyOutputPanel, Chrome chrome, ContextManager contextManager) {
+    public SessionsDialog(Chrome chrome, ContextManager contextManager) {
         super(chrome.getFrame(), "Manage Sessions", true);
-        this.historyOutputPanel = historyOutputPanel;
         this.chrome = chrome;
         this.contextManager = contextManager;
 
@@ -431,12 +430,11 @@ public class SessionsDialog extends JDialog {
 
             JMenuItem setActiveItem = new JMenuItem("Set as Active");
             setActiveItem.setEnabled(!sessionInfo.id().equals(contextManager.getCurrentSessionId()));
-            setActiveItem.addActionListener(ev -> contextManager
-                    .switchSessionAsync(sessionInfo.id())
-                    .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        historyOutputPanel.updateSessionComboBox();
-                    })));
+            setActiveItem.addActionListener(
+                    ev -> contextManager.switchSessionAsync(sessionInfo.id()).thenRun(() -> {
+                        SwingUtilities.invokeLater(this::refreshSessionsTable);
+                        contextManager.getProject().getMainProject().sessionsListChanged();
+                    }));
             popup.add(setActiveItem);
             popup.addSeparator();
 
@@ -455,16 +453,29 @@ public class SessionsDialog extends JDialog {
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
+                var activeSessions = selectedSessions.stream()
+                        .filter(s -> SessionRegistry.isSessionActiveElsewhere(
+                                contextManager.getProject().getRoot(), s.id()))
+                        .toList();
+
+                if (!activeSessions.isEmpty()) {
+                    var sessionNames =
+                            activeSessions.stream().map(SessionInfo::name).collect(Collectors.joining(", "));
+                    chrome.toolError(
+                            "Cannot delete sessions active in other worktrees: " + sessionNames, "Sessions in use");
+                    return;
+                }
+
                 var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
                 for (var s : selectedSessions) {
                     futures.add(contextManager.deleteSessionAsync(s.id()));
                 }
                 java.util.concurrent.CompletableFuture.allOf(
                                 futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                        .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                            refreshSessionsTable();
-                            historyOutputPanel.updateSessionComboBox();
-                        }));
+                        .thenRun(() -> {
+                            SwingUtilities.invokeLater(this::refreshSessionsTable);
+                            contextManager.getProject().getMainProject().sessionsListChanged();
+                        });
             }
         });
         popup.add(deleteItem);
@@ -477,10 +488,10 @@ public class SessionsDialog extends JDialog {
                 futures.add(contextManager.copySessionAsync(s.id(), s.name()));
             }
             java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
-                    .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        historyOutputPanel.updateSessionComboBox();
-                    }));
+                    .thenRun(() -> {
+                        SwingUtilities.invokeLater(this::refreshSessionsTable);
+                        contextManager.getProject().getMainProject().sessionsListChanged();
+                    });
         });
         popup.add(dupItem);
 
@@ -496,10 +507,10 @@ public class SessionsDialog extends JDialog {
         if (newName != null && !newName.trim().isBlank()) {
             contextManager
                     .renameSessionAsync(sessionInfo.id(), CompletableFuture.completedFuture(newName.trim()))
-                    .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        historyOutputPanel.updateSessionComboBox();
-                    }));
+                    .thenRun(() -> {
+                        SwingUtilities.invokeLater(this::refreshSessionsTable);
+                        contextManager.getProject().getMainProject().sessionsListChanged();
+                    });
         }
     }
 
@@ -661,8 +672,7 @@ public class SessionsDialog extends JDialog {
     }
 
     // ---------- Static helpers for other UI components ----------
-    public static void renameCurrentSession(
-            Component parent, Chrome chrome, ContextManager contextManager, HistoryOutputPanel historyOutputPanel) {
+    public static void renameCurrentSession(Component parent, Chrome chrome, ContextManager contextManager) {
         var sessionManager = contextManager.getProject().getSessionManager();
         var currentId = contextManager.getCurrentSessionId();
         var maybeInfo = sessionManager.listSessions().stream()
@@ -679,12 +689,11 @@ public class SessionsDialog extends JDialog {
             contextManager
                     .renameSessionAsync(
                             info.id(), java.util.concurrent.CompletableFuture.completedFuture(newName.trim()))
-                    .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
+                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         }
     }
 
-    public static void deleteCurrentSession(
-            Component parent, Chrome chrome, ContextManager contextManager, HistoryOutputPanel historyOutputPanel) {
+    public static void deleteCurrentSession(Component parent, Chrome chrome, ContextManager contextManager) {
         var sessionManager = contextManager.getProject().getSessionManager();
         var currentId = contextManager.getCurrentSessionId();
         var maybeInfo = sessionManager.listSessions().stream()
@@ -704,7 +713,7 @@ public class SessionsDialog extends JDialog {
         if (confirm == JOptionPane.YES_OPTION) {
             contextManager
                     .deleteSessionAsync(info.id())
-                    .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
+                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         }
     }
 }

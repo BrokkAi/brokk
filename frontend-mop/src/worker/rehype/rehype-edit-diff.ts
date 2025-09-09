@@ -16,6 +16,7 @@ export function rehypeEditDiff(highlighter: HighlighterCore) {
             if (!p.headerOk) return;
 
             // Compute lightweight diff metrics for header display even when collapsed
+            // Works for both SEARCH/REPLACE format and git diff format
             const {text, added, removed} = buildUnifiedDiff(p.search, p.replace);
             p.adds = added.length;
             p.dels = removed.length;
