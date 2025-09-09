@@ -110,7 +110,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default CpgRefresh getAnalyzerRefresh() {
+    default AnalyzerRefresh getAnalyzerRefresh() {
         throw new UnsupportedOperationException();
     }
 
@@ -118,7 +118,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default void setAnalyzerRefresh(CpgRefresh cpgRefresh) {}
+    default void setAnalyzerRefresh(AnalyzerRefresh analyzerRefresh) {}
 
     default boolean isDataShareAllowed() {
         return false;
@@ -306,7 +306,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    enum CpgRefresh {
+    enum AnalyzerRefresh {
         AUTO,
         ON_RESTART,
         MANUAL,

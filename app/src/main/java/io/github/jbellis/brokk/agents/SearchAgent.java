@@ -21,8 +21,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -345,17 +344,30 @@ public class SearchAgent {
         var names = new ArrayList<String>();
 
         // Analyzer-backed exploration
-        if (cm.getAnalyzerWrapper().isCpg()) {
-            names.add("searchSymbols");
+        names.add("searchSymbols");
+        try {
+            var currentAnalyzer = cm.getAnalyzerWrapper().get();
 
-            names.add("getUsages");
-            names.add("getRelatedClasses");
+            if (currentAnalyzer.as(UsagesProvider.class).isPresent()) {
+                names.add("getUsages");
+                names.add("getRelatedClasses");
+            }
 
-            names.add("getClassSkeletons");
-            names.add("getClassSources");
-            names.add("getMethodSources");
-            names.add("getCallGraphTo");
-            names.add("getCallGraphFrom");
+            if (currentAnalyzer.as(SkeletonProvider.class).isPresent()) {
+                names.add("getClassSkeletons");
+            }
+
+            if (currentAnalyzer.as(SourceCodeProvider.class).isPresent()) {
+                names.add("getClassSources");
+                names.add("getMethodSources");
+            }
+
+            if (currentAnalyzer.as(CallGraphProvider.class).isPresent()) {
+                names.add("getCallGraphTo");
+                names.add("getCallGraphFrom");
+            }
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while determining analyzer capabilities.");
         }
 
         // Text-based search
@@ -605,8 +617,6 @@ public class SearchAgent {
     // =======================
 
     private ToolExecutionRequest handleDuplicateRequestIfNeeded(ToolExecutionRequest request) {
-        if (!cm.getAnalyzerWrapper().isCpg()) return request;
-
         var requestSignatures = createToolCallSignatures(request);
         if (toolCallSignatures.stream().anyMatch(requestSignatures::contains)) {
             logger.debug("Duplicate call detected for {}; forging getRelatedClasses", request.name());

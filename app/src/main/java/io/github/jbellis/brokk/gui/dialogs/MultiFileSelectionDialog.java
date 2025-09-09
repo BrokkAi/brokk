@@ -122,7 +122,7 @@ public class MultiFileSelectionDialog extends JDialog {
         }
 
         // --- Create Classes Tab (if requested) ---
-        if (modes.contains(SelectionMode.CLASSES) && analyzerWrapper.isCpg()) {
+        if (modes.contains(SelectionMode.CLASSES)) {
             tabbedPane.addTab("Classes", createClassSelectionPanel());
         }
 

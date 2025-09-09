@@ -1004,30 +1004,30 @@ public class GitWorktreeTab extends JPanel {
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
-        // Copy (prefer hard-link) existing language CPG caches to the new worktree
+        // Copy (prefer hard-link) existing language storage caches to the new worktree
         var enabledLanguages = parentProject.getAnalyzerLanguages();
         for (var lang : enabledLanguages) {
-            if (!lang.isCpg()) {
-                continue;
-            }
-            var srcCpg = lang.getCpgPath(parentProject);
-            if (!Files.exists(srcCpg)) {
+            var sourceCache = lang.getStoragePath(parentProject);
+            if (!Files.exists(sourceCache)) {
                 continue;
             }
             try {
-                var relative = parentProject.getRoot().relativize(srcCpg);
-                var destCpg = newWorktreePath.resolve(relative);
-                Files.createDirectories(destCpg.getParent());
+                var relative = parentProject.getRoot().relativize(sourceCache);
+                var destCache = newWorktreePath.resolve(relative);
+                Files.createDirectories(destCache.getParent());
                 try {
-                    Files.createLink(destCpg, srcCpg); // Try hard-link first
-                    logger.debug("Hard-linked CPG cache from {} to {}", srcCpg, destCpg);
+                    Files.createLink(destCache, sourceCache); // Try hard-link first
+                    logger.debug("Hard-linked analyzer storage cache from {} to {}", sourceCache, destCache);
                 } catch (UnsupportedOperationException | IOException linkEx) {
-                    Files.copy(srcCpg, destCpg, StandardCopyOption.REPLACE_EXISTING);
-                    logger.debug("Copied CPG cache from {} to {}", srcCpg, destCpg);
+                    Files.copy(sourceCache, destCache, StandardCopyOption.REPLACE_EXISTING);
+                    logger.debug("Copied analyzer storage cache from {} to {}", sourceCache, destCache);
                 }
             } catch (IOException copyEx) {
                 logger.warn(
-                        "Failed to replicate CPG cache for language {}: {}", lang.name(), copyEx.getMessage(), copyEx);
+                        "Failed to replicate analyzer storage cache for language {}: {}",
+                        lang.name(),
+                        copyEx.getMessage(),
+                        copyEx);
             }
         }
 
