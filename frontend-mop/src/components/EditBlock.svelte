@@ -1,10 +1,7 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
     import {expandDiff} from '../worker/worker-bridge';
-    import type {BubbleState} from '../stores/bubblesStore';
-    import { bubblesStore } from '../stores/bubblesStore';
-    import { get } from 'svelte/store';
-
+    import { findMarkdownBySeq } from '../stores/lookup';
     import type { EditBlockProperties } from '../worker/shared';
 
     let {
@@ -26,8 +23,7 @@
     function toggleDetails() {
         showDetails = !showDetails;
         if (showDetails) {
-            const markdown =
-                get(bubblesStore).find(b => b.seq === bubbleId)?.markdown ?? '';
+            const markdown = findMarkdownBySeq(bubbleId) ?? '';
             expandDiff(markdown, bubbleId, id);
         }
     }
