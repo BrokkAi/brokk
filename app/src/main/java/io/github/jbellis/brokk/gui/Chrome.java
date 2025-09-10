@@ -20,7 +20,6 @@ import io.github.jbellis.brokk.gui.git.*;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.mop.webview.MOPWebViewHost;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
@@ -633,11 +632,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         boolean wrapMode = MainProject.getCodeBlockWrapMode();
-        switchTheme(isDark);
-
-        // Apply theme and wrap mode to all markdown panels
-        boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-        MOPWebViewHost.setGlobalThemeAndWrapMode(isDark, isDevMode, wrapMode);
+        switchThemeAndWrapMode(isDark, wrapMode);
     }
 
     /**
@@ -679,6 +674,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
+    }
+
+    public void switchThemeAndWrapMode(boolean isDark, boolean wordWrap) {
+        themeManager.applyTheme(isDark, wordWrap);
     }
 
     public GuiTheme getTheme() {

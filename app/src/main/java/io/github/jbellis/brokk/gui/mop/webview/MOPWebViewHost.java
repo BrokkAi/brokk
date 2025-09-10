@@ -24,7 +24,6 @@ import org.jetbrains.annotations.Nullable;
 
 public final class MOPWebViewHost extends JPanel {
     private static final Logger logger = LogManager.getLogger(MOPWebViewHost.class);
-    private static final CopyOnWriteArrayList<MOPWebViewHost> INSTANCES = new CopyOnWriteArrayList<>();
 
     @Nullable
     private JFXPanel fxPanel;
@@ -68,7 +67,6 @@ public final class MOPWebViewHost extends JPanel {
 
     public MOPWebViewHost() {
         super(new BorderLayout());
-        INSTANCES.add(this);
 
         // Defer JFXPanel creation to avoid EDT event pumping during construction
         SwingUtilities.invokeLater(this::initializeFxPanel);
@@ -325,20 +323,6 @@ public final class MOPWebViewHost extends JPanel {
         applyTheme(Theme.create(isDark));
     }
 
-    /**
-     * Apply theme and wrap mode to all open MarkdownOutputPanels. Used by settings dialog to propagate changes
-     * globally.
-     */
-    public static void setGlobalThemeAndWrapMode(boolean isDark, boolean isDevMode, boolean wrap) {
-        for (var host : INSTANCES) {
-            try {
-                host.setRuntimeTheme(isDark, isDevMode, wrap);
-            } catch (Exception e) {
-                logger.warn("Failed to set theme and wrap mode on a host", e);
-            }
-        }
-    }
-
     private void applyTheme(Theme theme) {
         // Update Swing component on EDT
         if (fxPanel != null) {
@@ -554,7 +538,6 @@ public final class MOPWebViewHost extends JPanel {
                 webView.getEngine().load(null); // release memory
             }
         });
-        INSTANCES.remove(this);
         // Note: ClasspathHttpServer shutdown is handled at application level, not per WebView instance
     }
 }

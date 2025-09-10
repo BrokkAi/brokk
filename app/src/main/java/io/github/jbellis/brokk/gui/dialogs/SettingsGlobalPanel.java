@@ -7,7 +7,6 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-import io.github.jbellis.brokk.gui.mop.webview.MOPWebViewHost;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.io.IOException;
@@ -600,16 +599,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 logger.debug("Applied Code Block Wrap Mode: {}", newWrapMode);
             }
 
-            // Apply theme change (this will trigger chrome.switchTheme)
-            if (themeChanged) {
-                chrome.switchTheme(newIsDark);
-                logger.debug("Applied Theme: {}", newTheme);
+            // Apply theme and wrap mode changes via unified Chrome method
+            if (themeChanged || wrapChanged) {
+                chrome.switchThemeAndWrapMode(newIsDark, newWrapMode);
+                logger.debug("Applied Theme: {} and Wrap Mode: {}", newTheme, newWrapMode);
             }
-
-            // Apply both theme and wrap mode to all open markdown panels via the new integrated method
-            // This handles the case where only wrap mode changed (and theme didn't)
-            boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
-            MOPWebViewHost.setGlobalThemeAndWrapMode(newIsDark, isDevMode, newWrapMode);
         }
 
         // UI Scale preference (if present; hidden on macOS)
@@ -663,6 +657,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
+        SwingUtilities.updateComponentTreeUI(this);
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
+        // Word wrap not applicable to settings global panel
         SwingUtilities.updateComponentTreeUI(this);
     }
 
