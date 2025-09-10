@@ -1491,20 +1491,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             // Load and set bottom horizontal split position (ProjectFiles/Git | Output)
-            int bottomHorizPos = project.getHorizontalSplitPosition();
-            if (bottomHorizPos > 0) {
-                bottomSplitPane.setDividerLocation(bottomHorizPos);
-                // Check if restored position indicates minimized state
-                if (bottomHorizPos < 50) {
-                    bottomSplitPane.setDividerSize(0);
-                    leftTabbedPanel.setSelectedIndex(-1);
-                } else {
-                    lastExpandedSidebarLocation = bottomHorizPos;
-                }
+            int safePosition = project.getSafeHorizontalSplitPosition(frame.getWidth());
+            bottomSplitPane.setDividerLocation(safePosition);
+
+            if (safePosition < 50) {
+                bottomSplitPane.setDividerSize(0);
+                leftTabbedPanel.setSelectedIndex(-1);
             } else {
-                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(preferred);
-                lastExpandedSidebarLocation = preferred;
+                lastExpandedSidebarLocation = safePosition;
             }
 
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {

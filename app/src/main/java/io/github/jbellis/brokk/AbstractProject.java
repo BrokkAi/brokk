@@ -313,6 +313,27 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
+    /** Computes a context-aware fallback width for split pane positioning. */
+    public final int computeContextualFallback(int frameWidth, boolean isWorktree) {
+        if (isWorktree) {
+            return Math.max(300, Math.min(600, frameWidth * 2 / 5));
+        } else {
+            return Math.max(250, Math.min(800, frameWidth * 3 / 10));
+        }
+    }
+
+    /** Gets a safe horizontal split position that validates against frame dimensions. */
+    public final int getSafeHorizontalSplitPosition(int frameWidth) {
+        int saved = getHorizontalSplitPosition();
+
+        if (saved > 0 && saved < frameWidth - 200) {
+            return saved;
+        }
+
+        boolean isWorktree = this instanceof WorktreeProject;
+        return computeContextualFallback(frameWidth, isWorktree);
+    }
+
     @Override
     public final void saveRightVerticalSplitPosition(int position) {
         if (position > 0) {
