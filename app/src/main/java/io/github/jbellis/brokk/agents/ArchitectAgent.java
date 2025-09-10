@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -43,6 +44,8 @@ import org.jetbrains.annotations.Nullable;
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
 
+    public record McpTool(McpServer server, String toolName) {}
+
     /** Configuration options for the ArchitectAgent, including selected models and enabled tools. */
     public record ArchitectOptions(
             Service.ModelConfig planningModel,
@@ -56,7 +59,8 @@ public class ArchitectAgent {
             boolean includeAskHuman,
             boolean includeGitCommit,
             boolean includeGitCreatePr,
-            boolean includeShellCommand) {
+            boolean includeShellCommand,
+            @Nullable List<McpTool> selectedMcpTools) {
         /** Default options (all enabled, except Git tools and shell command). Uses GPT_5_MINI for both models. */
         public static final ArchitectOptions DEFAULTS = new ArchitectOptions(
                 new Service.ModelConfig(Service.GEMINI_2_5_PRO),
@@ -70,7 +74,8 @@ public class ArchitectAgent {
                 true,
                 false,
                 false,
-                false);
+                false,
+                List.of());
 
         // Backward-compatible constructor for existing callers that pass only booleans.
         public ArchitectOptions(
@@ -96,7 +101,13 @@ public class ArchitectAgent {
                     includeAskHuman,
                     includeGitCommit,
                     includeGitCreatePr,
-                    includeShellCommand);
+                    includeShellCommand,
+                    List.of());
+        }
+
+        @Override
+        public List<McpTool> selectedMcpTools() {
+            return selectedMcpTools == null ? List.of() : selectedMcpTools;
         }
     }
 

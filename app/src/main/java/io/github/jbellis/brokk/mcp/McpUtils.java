@@ -22,7 +22,10 @@ public class McpUtils {
                 .resumableStreams(true)
                 .openConnectionOnStartup(true);
         if (bearerToken != null) {
-            transportBuilder.customizeRequest(request -> request.header("Authorization", "Bearer " + bearerToken));
+            final String token;
+            if (!bearerToken.startsWith("Bearer ")) token = "Bearer " + bearerToken;
+            else token = bearerToken;
+            transportBuilder.customizeRequest(request -> request.header("Authorization", token));
         }
 
         final McpSyncClient client = McpClient.sync(transportBuilder.build())
