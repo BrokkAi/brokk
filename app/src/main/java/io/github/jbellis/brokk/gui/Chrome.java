@@ -108,7 +108,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         lastTabToggleTime = currentTime;
 
         if (leftTabbedPanel.getSelectedIndex() == tabIndex) {
-            // Tab already selected, minimize the panel but keep tabs visible
+            // Tab already selected: capture current expanded width (if not already minimized), then minimize
+            int currentLocation = bottomSplitPane.getDividerLocation();
+            if (currentLocation >= 50) {
+                lastExpandedSidebarLocation = currentLocation;
+            }
             leftTabbedPanel.setSelectedIndex(-1);
             bottomSplitPane.setDividerSize(0);
             bottomSplitPane.setDividerLocation(40);
@@ -117,14 +121,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // Restore panel if it was minimized
             if (bottomSplitPane.getDividerLocation() < 50) {
                 bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(preferred);
+                int target = (lastExpandedSidebarLocation > 0)
+                        ? lastExpandedSidebarLocation
+                        : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
+                bottomSplitPane.setDividerLocation(target);
             }
         }
     }
 
     // Store original divider size for hiding/showing divider
     private int originalBottomDividerSize;
+
+    // Remember the last non-minimized divider location of the left sidebar
+    // Used to restore the previous width when re-expanding after a minimize
+    private int lastExpandedSidebarLocation = -1;
 
     // Swing components:
     final JFrame frame;
@@ -410,6 +420,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomSplitPane.setResizeWeight(0.0);
         int initialDividerLocation = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
         bottomSplitPane.setDividerLocation(initialDividerLocation);
+        // Initialize the remembered expanded location
+        lastExpandedSidebarLocation = initialDividerLocation;
 
         // Store original divider size
         originalBottomDividerSize = bottomSplitPane.getDividerSize();
@@ -475,6 +487,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (getProject().getHorizontalSplitPosition() == 0) {
                 int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(preferred);
+                lastExpandedSidebarLocation = preferred;
             }
 
             // Add themed title bar asynchronously
@@ -1495,10 +1508,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 if (bottomHorizPos < 50) {
                     bottomSplitPane.setDividerSize(0);
                     leftTabbedPanel.setSelectedIndex(-1);
+                } else {
+                    lastExpandedSidebarLocation = bottomHorizPos;
                 }
             } else {
                 int preferred = computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
                 bottomSplitPane.setDividerLocation(preferred);
+                lastExpandedSidebarLocation = preferred;
             }
 
             bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
@@ -1506,6 +1522,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     var newPos = bottomSplitPane.getDividerLocation();
                     if (newPos > 0) {
                         project.saveHorizontalSplitPosition(newPos);
+                        // Remember expanded locations only (ignore minimized 40px)
+                        if (newPos >= 50) {
+                            lastExpandedSidebarLocation = newPos;
+                        }
                     }
                 }
             });
