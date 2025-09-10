@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
+import io.github.jbellis.brokk.mcp.McpToolTable;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.util.Environment;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -830,31 +831,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         JLabel fetchStatusLabel = new JLabel(" ");
 
-        var toolsTableModel = new ToolListTableModel();
-        var toolsTable = new JTable(toolsTableModel) {
-            @Override
-            public String getToolTipText(java.awt.event.MouseEvent event) {
-                java.awt.Point p = event.getPoint();
-                int rowIndex = rowAtPoint(p);
-                if (rowIndex >= 0) {
-                    int modelRow = convertRowIndexToModel(rowIndex);
-                    String desc = toolsTableModel.getDescriptionAt(modelRow);
-                    String name = toolsTableModel.getNameAt(modelRow);
-                    return desc.isEmpty() ? name : desc;
-                }
-                return "";
-            }
-        };
-        toolsTable.setFillsViewportHeight(true);
+        var toolsTable = new McpToolTable();
         var toolsScrollPane = new JScrollPane(toolsTable);
         toolsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         toolsScrollPane.setVisible(false);
-        // Ellipsize long descriptions in the Description column
-        toolsTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
-        var descRenderer = new EllipsingCellRenderer();
-        if (toolsTable.getColumnModel().getColumnCount() > 1) {
-            toolsTable.getColumnModel().getColumn(1).setCellRenderer(descRenderer);
-        }
 
         var errorTextArea = new JTextArea(5, 20);
         errorTextArea.setEditable(false);
@@ -865,7 +845,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         errorScrollPane.setVisible(false);
 
         if (fetchedTools.value != null && !fetchedTools.value.isEmpty()) {
-            toolsTableModel.setToolsFromNames(fetchedTools.value);
+            toolsTable.setToolsFromNames(fetchedTools.value);
             toolsScrollPane.setVisible(true);
             errorScrollPane.setVisible(false);
         }
@@ -924,7 +904,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                         var toolNames = tools.stream().map(McpSchema.Tool::name).collect(Collectors.toList());
                         fetchedTools.value = toolNames;
 
-                        toolsTableModel.setToolsFromDetails(tools);
+                        toolsTable.setToolsFromDetails(tools);
 
                         toolsScrollPane.setVisible(true);
                         errorScrollPane.setVisible(false);
@@ -1544,122 +1524,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         @Override
         public Object getCellEditorValue() {
             return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ProcessingTier.DEFAULT;
-        }
-    }
-
-    // Table model for listing MCP tools with names and descriptions
-    private static class ToolListTableModel extends AbstractTableModel {
-        private static class Row {
-            final String name;
-            final String description;
-
-            Row(String name, @Nullable String description) {
-                this.name = name;
-                this.description = description == null ? "" : description;
-            }
-        }
-
-        private final String[] columnNames = {"Tool", "Description"};
-        private java.util.List<Row> rows = new java.util.ArrayList<>();
-
-        @Override
-        public int getRowCount() {
-            return rows.size();
-        }
-
-        @Override
-        public int getColumnCount() {
-            return columnNames.length;
-        }
-
-        @Override
-        public String getColumnName(int column) {
-            return columnNames[column];
-        }
-
-        @Override
-        public Class<?> getColumnClass(int columnIndex) {
-            return String.class;
-        }
-
-        @Override
-        public boolean isCellEditable(int rowIndex, int columnIndex) {
-            return false;
-        }
-
-        @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
-            Row r = rows.get(rowIndex);
-            return columnIndex == 0 ? r.name : r.description;
-        }
-
-        void setToolsFromDetails(java.util.List<McpSchema.Tool> tools) {
-            java.util.List<Row> newRows = new java.util.ArrayList<>();
-            for (McpSchema.Tool t : tools) {
-                newRows.add(new Row(t.name(), t.description()));
-            }
-            this.rows = newRows;
-            fireTableDataChanged();
-        }
-
-        void setToolsFromNames(java.util.List<String> names) {
-            java.util.List<Row> newRows = new java.util.ArrayList<>();
-            for (String n : names) {
-                newRows.add(new Row(n, ""));
-            }
-            this.rows = newRows;
-            fireTableDataChanged();
-        }
-
-        String getDescriptionAt(int modelRow) {
-            if (modelRow < 0 || modelRow >= rows.size()) return "";
-            return rows.get(modelRow).description;
-        }
-
-        String getNameAt(int modelRow) {
-            if (modelRow < 0 || modelRow >= rows.size()) return "";
-            return rows.get(modelRow).name;
-        }
-    }
-
-    // Renderer that truncates long text with ellipsis to fit the column width
-    private static class EllipsingCellRenderer extends DefaultTableCellRenderer {
-        @Override
-        public Component getTableCellRendererComponent(
-                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            JLabel label =
-                    (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            String text = value == null ? "" : value.toString();
-            int colWidth = table.getColumnModel().getColumn(column).getWidth();
-            int padding = 4;
-            Insets insets = label.getInsets();
-            int available = colWidth - insets.left - insets.right - padding;
-            if (available < 0) available = 0;
-            FontMetrics fm = label.getFontMetrics(label.getFont());
-            label.setText(ellipsize(text, fm, available));
-            return label;
-        }
-
-        private String ellipsize(String text, FontMetrics fm, int availWidth) {
-            if (text.isEmpty()) return "";
-            if (fm.stringWidth(text) <= availWidth) return text;
-            String ellipsis = "...";
-            int ellipsisW = fm.stringWidth(ellipsis);
-            int target = availWidth - ellipsisW;
-            if (target <= 0) return ellipsis;
-            int low = 0, high = text.length();
-            while (low < high) {
-                int mid = (low + high) >>> 1;
-                String sub = text.substring(0, mid);
-                int w = fm.stringWidth(sub);
-                if (w <= target) {
-                    low = mid + 1;
-                } else {
-                    high = mid;
-                }
-            }
-            int cut = Math.max(0, low - 1);
-            return text.substring(0, cut) + ellipsis;
         }
     }
 }
