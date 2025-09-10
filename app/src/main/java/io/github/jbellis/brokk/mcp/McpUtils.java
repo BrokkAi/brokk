@@ -4,9 +4,9 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.io.IOException;
 import java.net.URL;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -17,7 +17,7 @@ public class McpUtils {
 
     private static final Logger logger = LogManager.getLogger(McpUtils.class);
 
-    public static List<String> fetchTools(URL url, @Nullable String bearerToken) {
+    public static List<String> fetchTools(URL url, @Nullable String bearerToken) throws IOException {
         var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString())
                 .resumableStreams(true)
                 .openConnectionOnStartup(true);
@@ -39,7 +39,10 @@ public class McpUtils {
             return toolsResult.tools().stream().map(McpSchema.Tool::name).collect(Collectors.toList());
         } catch (Exception e) {
             logger.error("Failed to fetch tools from MCP server at {}: {}", url, e.getMessage());
-            return Collections.emptyList();
+            throw new IOException(
+                    "Failed to fetch tools. Brokk supports Streamable HTTP servers that are stateless. Error: "
+                            + e.getMessage(),
+                    e);
         } finally {
             client.closeGracefully();
         }

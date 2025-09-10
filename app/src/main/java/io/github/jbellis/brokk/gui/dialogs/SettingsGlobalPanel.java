@@ -7,12 +7,15 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -21,6 +24,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
@@ -667,6 +671,20 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return urlErrorLabel;
     }
 
+    private boolean isUrlValid(String text) {
+        text = text.trim();
+        if (text.isEmpty()) {
+            return false;
+        }
+        try {
+            URL u = new URI(text).toURL();
+            String host = u.getHost();
+            return host != null && !host.isEmpty();
+        } catch (URISyntaxException | MalformedURLException ex) {
+            return false;
+        }
+    }
+
     private JPanel createMcpPanel() {
         var mcpPanel = new JPanel(new BorderLayout(5, 5));
         mcpPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -804,7 +822,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             });
         });
 
-        var fetchToolsButton = new JButton("Fetch Tools");
+        JLabel fetchStatusLabel = new JLabel(" ");
+
         var toolsTextArea = new JTextArea(5, 20);
         toolsTextArea.setEditable(false);
         var toolsScrollPane = new JScrollPane(toolsTextArea);
@@ -815,18 +834,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             toolsScrollPane.setVisible(true);
         }
 
-        fetchToolsButton.addActionListener(e -> {
+        AtomicReference<String> lastFetchedUrl =
+                new AtomicReference<>(existing != null ? existing.url().toString() : null);
+
+        Runnable fetcher = () -> {
             String rawUrl = urlField.getText().trim();
-            if (rawUrl.isEmpty()) {
-                JOptionPane.showMessageDialog(fetchToolsButton, "URL is required.", "Error", JOptionPane.ERROR_MESSAGE);
+            if (!isUrlValid(rawUrl)) {
                 return;
             }
 
-            URL url;
+            URL urlObj;
             try {
-                url = new URI(rawUrl).toURL();
+                urlObj = new URI(rawUrl).toURL();
             } catch (MalformedURLException | URISyntaxException ex) {
-                JOptionPane.showMessageDialog(fetchToolsButton, "Invalid URL.", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
 
@@ -843,17 +863,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
             final String finalBearerToken = bearerToken;
 
-            fetchToolsButton.setEnabled(false);
-            fetchToolsButton.setText("Fetching...");
+            fetchStatusLabel.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
+            fetchStatusLabel.setText("Fetching...");
 
             new SwingWorker<List<String>, Void>() {
                 @Override
-                protected List<String> doInBackground() {
-                    return McpUtils.fetchTools(url, finalBearerToken);
+                protected List<String> doInBackground() throws IOException {
+                    return McpUtils.fetchTools(urlObj, finalBearerToken);
                 }
 
                 @Override
                 protected void done() {
+                    fetchStatusLabel.setIcon(null);
+                    fetchStatusLabel.setText(" ");
                     try {
                         List<String> tools = get();
                         fetchedTools.value = tools;
@@ -863,23 +885,34 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                             toolsTextArea.setText(String.join("\n", tools));
                         }
                         toolsScrollPane.setVisible(true);
-                        SwingUtilities.getWindowAncestor(fetchToolsButton).pack();
+                        SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
                     } catch (Exception ex) {
-                        logger.error("Error fetching MCP tools", ex);
+                        var root = ex.getCause() != null ? ex.getCause() : ex;
+                        logger.error("Error fetching MCP tools", root);
                         fetchedTools.value = null;
-                        toolsTextArea.setText("Error fetching tools: " + ex.getMessage());
+                        toolsTextArea.setText("Error fetching tools: " + root.getMessage());
                         toolsScrollPane.setVisible(true);
-                        SwingUtilities.getWindowAncestor(fetchToolsButton).pack();
-                    } finally {
-                        fetchToolsButton.setEnabled(true);
-                        fetchToolsButton.setText("Fetch Tools");
+                        SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
                     }
                 }
             }.execute();
-        });
+        };
+
+        Runnable validationAction = () -> {
+            String current = urlField.getText().trim();
+            if (!isUrlValid(current)) {
+                return;
+            }
+            String previous = lastFetchedUrl.get();
+            if (previous == null || !previous.equals(current)) {
+                lastFetchedUrl.set(current);
+                fetcher.run();
+            }
+        };
 
         JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
-        urlField.getDocument().addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel));
+        urlField.getDocument()
+                .addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel, validationAction));
 
         var panel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
@@ -931,13 +964,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.weightx = 1;
         panel.add(tokenPanel, gbc);
 
-        // Row 5: Fetch Tools Button
+        // Row 5: Fetch Status
         gbc.gridx = 1;
         gbc.gridy = 5;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         gbc.anchor = GridBagConstraints.WEST;
-        panel.add(fetchToolsButton, gbc);
+        panel.add(fetchStatusLabel, gbc);
 
         // Row 6: Tools Pane
         gbc.gridx = 0;
@@ -981,6 +1014,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         });
 
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                // Trigger initial fetch for existing servers when tools haven't been fetched yet
+                String current = urlField.getText().trim();
+                if (existing != null && fetchedTools.value == null && isUrlValid(current)) {
+                    fetcher.run();
+                }
+            }
+        });
         dialog.setVisible(true);
     }
 
@@ -988,7 +1031,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
      * Shared helper: create a debounced URL DocumentListener that validates the URL and toggles the provided error
      * label. Debounce interval is 500ms.
      */
-    private DocumentListener createUrlValidationListener(JTextField urlField, JLabel urlErrorLabel) {
+    private DocumentListener createUrlValidationListener(
+            JTextField urlField, JLabel urlErrorLabel, Runnable onValidUrl) {
         final javax.swing.Timer[] debounceTimer = new javax.swing.Timer[1];
         return new DocumentListener() {
             private void scheduleValidation() {
@@ -997,19 +1041,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
                 debounceTimer[0] = new javax.swing.Timer(500, ev -> {
                     String text = urlField.getText().trim();
-                    boolean ok = true;
-                    if (text.isEmpty()) {
-                        ok = false;
-                    } else {
-                        try {
-                            URL u = new URI(text).toURL();
-                            String host = u.getHost();
-                            if (host == null || host.isEmpty()) ok = false;
-                        } catch (URISyntaxException | MalformedURLException ex) {
-                            ok = false;
-                        }
-                    }
+                    boolean ok = isUrlValid(text);
                     urlErrorLabel.setVisible(!ok);
+                    if (ok) {
+                        onValidUrl.run();
+                    }
                     // Repack containing dialog/window so visibility change is applied
                     SwingUtilities.invokeLater(() -> {
                         java.awt.Window w = SwingUtilities.getWindowAncestor(urlField);
