@@ -1104,9 +1104,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         dialog.addWindowListener(new WindowAdapter() {
             @Override
             public void windowOpened(WindowEvent e) {
-                // Trigger initial fetch for existing servers when tools haven't been fetched yet
+                // Trigger initial fetch for existing servers to populate tool descriptions (tooltips)
                 String current = urlField.getText().trim();
-                if (existing != null && fetchedTools.value == null && isUrlValid(current)) {
+                if (existing != null && fetchedToolDetails.value == null && isUrlValid(current)) {
                     fetcher.run();
                 }
             }
