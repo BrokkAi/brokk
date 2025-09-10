@@ -834,7 +834,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var toolsTable = new McpToolTable();
         var toolsScrollPane = new JScrollPane(toolsTable);
         toolsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-        toolsScrollPane.setVisible(false);
+        toolsScrollPane.setPreferredSize(new Dimension(650, 240));
+        toolsScrollPane.setVisible(true);
 
         var errorTextArea = new JTextArea(5, 20);
         errorTextArea.setEditable(false);
@@ -842,6 +843,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         errorTextArea.setWrapStyleWord(true);
         var errorScrollPane = new JScrollPane(errorTextArea);
         errorScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        errorScrollPane.setPreferredSize(new Dimension(650, 240));
         errorScrollPane.setVisible(false);
 
         if (fetchedTools.value != null && !fetchedTools.value.isEmpty()) {
@@ -1039,12 +1041,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
         final var dialog = optionPane.createDialog(SettingsGlobalPanel.this, title);
-        // Make the MCP dialog wider to improve readability
+        // Make the MCP dialog wider and resizable to improve readability
+        dialog.setResizable(true);
         var preferred = dialog.getPreferredSize();
-        int minWidth = Math.max(700, preferred.width);
-        dialog.setPreferredSize(new Dimension(minWidth, preferred.height));
-        dialog.setMinimumSize(new Dimension(minWidth, preferred.height));
+        int minWidth = Math.max(800, preferred.width);
+        int prefHeight = Math.max(500, preferred.height);
+        dialog.setMinimumSize(new Dimension(700, 400));
+        dialog.setPreferredSize(new Dimension(minWidth, prefHeight));
         dialog.pack();
+        dialog.setLocationRelativeTo(SettingsGlobalPanel.this);
 
         optionPane.addPropertyChangeListener(pce -> {
             if (pce.getSource() != optionPane || !pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
