@@ -26,6 +26,7 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -719,11 +720,19 @@ public class GitCommitTab extends JPanel {
         var frozen = contextManager.liveContext().freezeAndCleanup();
         contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
 
+        RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {
-            getRepo().createStash(stashDescription);
+            stashCommit = getRepo().createStash(stashDescription);
         } else {
-            getRepo().createPartialStash(stashDescription, selectedFiles);
+            stashCommit = getRepo().createPartialStash(stashDescription, selectedFiles);
         }
+
+        if (stashCommit == null) {
+            SwingUtilities.invokeLater(() -> chrome.toolError("No changes to stash.", "Stash Failed"));
+            // The `undo` stack will have a no-op change. This is acceptable.
+            return;
+        }
+
         SwingUtilities.invokeLater(() -> {
             if (selectedFiles.isEmpty()) {
                 chrome.systemOutput("All changes stashed successfully: " + stashDescription);

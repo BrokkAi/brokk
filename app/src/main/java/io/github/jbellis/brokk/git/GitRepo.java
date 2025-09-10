@@ -1693,12 +1693,13 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /** Create a stash from the current changes */
-    public void createStash(String message) throws GitAPIException {
+    public @Nullable RevCommit createStash(String message) throws GitAPIException {
         assert !message.isEmpty();
         logger.debug("Creating stash with message: {}", message);
         var stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
         logger.debug("Stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
         invalidateCaches();
+        return stashId;
     }
 
     /**
@@ -1711,7 +1712,8 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param filesToStash The specific files to include in the stash
      * @throws GitAPIException If there's an error during the stash process
      */
-    public void createPartialStash(String message, List<ProjectFile> filesToStash) throws GitAPIException {
+    public @Nullable RevCommit createPartialStash(String message, List<ProjectFile> filesToStash)
+            throws GitAPIException {
         assert !message.isEmpty();
         assert !filesToStash.isEmpty();
 
@@ -1733,8 +1735,7 @@ public class GitRepo implements Closeable, IGitRepo {
         if (filesToCommit.isEmpty()) {
             // If all changed files are selected for stashing, just do a regular stash
             logger.debug("All changed files selected for stashing, using regular stash");
-            createStash(message);
-            return;
+            return createStash(message);
         }
 
         // Remember the original branch
@@ -1756,10 +1757,10 @@ public class GitRepo implements Closeable, IGitRepo {
         var stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
         logger.debug("Partial stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
 
-        // Soft reset to restore uncommitted files
-        logger.debug("Soft resetting to restore UN-selected files as uncommitted");
+        // Mixed reset to restore uncommitted files to the working directory
+        logger.debug("Mixed resetting to restore UN-selected files as uncommitted");
         git.reset()
-                .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
+                .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.MIXED)
                 .setRef("HEAD~1")
                 .call();
 
@@ -1772,6 +1773,7 @@ public class GitRepo implements Closeable, IGitRepo {
         git.branchDelete().setBranchNames(tempBranchName).setForce(true).call();
 
         invalidateCaches();
+        return stashId;
     }
 
     // StashInfo record removed
