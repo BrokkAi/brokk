@@ -172,8 +172,28 @@ pre {
   margin: 0;
   background-color: var(--shiki-background);
   white-space: pre;
-  overflow-x: auto;
+  overflow-x: scroll;
   overflow-y: hidden;
+  scrollbar-width: thin; /* Firefox */
+}
+
+/* WebKit scrollbar styling for horizontal scrollbars */
+pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 8px;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 html.code-wrap-mode pre {
@@ -194,7 +214,7 @@ html.code-wrap-mode pre > code {
 /* Default scroll mode for edit blocks */
 html:not(.code-wrap-mode) .edit-block-body .custom-code-block pre {
   white-space: pre;
-  overflow-x: auto;
+  overflow-x: scroll;
   overflow-y: hidden;
   position: relative;
 }
