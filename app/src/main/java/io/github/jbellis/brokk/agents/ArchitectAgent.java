@@ -21,8 +21,10 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
 import io.github.jbellis.brokk.mcp.McpServer;
+import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -31,6 +33,7 @@ import io.github.jbellis.brokk.util.ExecutorConfig;
 import io.github.jbellis.brokk.util.ExecutorValidator;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -515,6 +518,38 @@ public class ArchitectAgent {
         return stringResult;
     }
 
+    @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
+    public String callMcpTool(
+            @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
+            @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
+                    @Nullable
+                    Map<String, Object> arguments) {
+        Map<String, Object> args = arguments == null ? Collections.emptyMap() : arguments;
+
+        var mcpToolOptional = options.selectedMcpTools().stream()
+                .filter(t -> t.toolName().equals(toolName))
+                .findFirst();
+
+        if (mcpToolOptional.isEmpty()) {
+            var err = "Error: MCP tool '" + toolName + "' not found in configuration.";
+            logger.warn(err);
+            return err;
+        }
+
+        var server = mcpToolOptional.get().server();
+        try {
+            var result = McpUtils.callTool(server, toolName, args, server.bearerToken());
+            var preamble = McpPrompts.mcpToolPreamble();
+            var msg = preamble + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
+            logger.info("MCP tool '{}' executed successfully via server '{}'", toolName, server.name());
+            return msg;
+        } catch (IOException | RuntimeException e) {
+            var err = "Error calling MCP tool '" + toolName + "': " + e.getMessage();
+            logger.error(err, e);
+            return err;
+        }
+    }
+
     @Tool("Escalate to a human for guidance. The model should call this "
             + "when it is stuck or unsure how to proceed. The argument is a question to show the human.")
     @Nullable
@@ -656,6 +691,9 @@ public class ArchitectAgent {
                 }
                 if (options.includeGitCreatePr()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("createPullRequest")));
+                }
+                if (!options.selectedMcpTools().isEmpty()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("callMcpTool")));
                 }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
@@ -932,6 +970,9 @@ public class ArchitectAgent {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         var reminder = CodePrompts.instance.architectReminder(contextManager.getService(), model);
+        if (!options.selectedMcpTools().isEmpty()) {
+            messages.add(new SystemMessage(McpPrompts.mcpToolPreamble()));
+        }
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, reminder));
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
