@@ -62,7 +62,12 @@
   .history-container {
     display: flex;
     flex-direction: column;
-    gap: 0.5em;
+  }
+
+  .history-container > :global(.task-panel + .task-panel) {
+    border-top: 1px solid var(--border-color-hex);
+    padding-top: 0.8em;
+    margin-top: 0.8em;
   }
 </style>
 

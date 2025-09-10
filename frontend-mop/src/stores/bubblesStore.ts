@@ -78,15 +78,15 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     list = [...list.slice(0, -1), bubble];
                 }
 
+                // Register a handler for this bubble's parse results
+                register(bubble.seq, (msg: ResultMsg) => {
+                    bubblesStore.update(l =>
+                        l.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
+                    );
+                });
                 if (isStreaming) {
                     pushChunk(evt.text ?? '', bubble.seq);
                 } else {
-                    // Register a handler for this bubble's parse results
-                    register(bubble.seq, (msg: ResultMsg) => {
-                        bubblesStore.update(l =>
-                            l.map(b => (b.seq === msg.seq ? {...b, hast: msg.tree} : b))
-                        );
-                    });
                     // first fast pass (to show fast results), then deferred full pass
                     parse(bubble.markdown, bubble.seq, true);
                     setTimeout(() => parse(bubble.markdown, bubble.seq), 0);
@@ -113,7 +113,7 @@ export function reparseAll(contextId = 'main-context'): void {
             });
             // Re-parse any bubble that has markdown content and might contain code.
             // skip updating the internal worker buffer, to give the worker the chance to go ahead where it stopped after reparseAll
-            parse(bubble.markdown, bubble.seq, false);
+            parse(bubble.markdown, bubble.seq, false, false);
         }
         return list; // Return new list with cleared HAST to trigger reactivity
     });

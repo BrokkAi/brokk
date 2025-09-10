@@ -86,6 +86,20 @@ export function onHistoryEvent(evt: BrokkEvent): void {
     });
 }
 
+export function reparseAll(): void {
+    historyStore.update(tasks => {
+        for (const task of tasks) {
+            for (const entry of task.entries) {
+                // Re-register the handler to update the correct task entry
+                register(entry.seq, (msg: ResultMsg) => handleParseResult(msg, task.sequence));
+                // Re-parse for syntax highlighting, don't update worker buffer
+                parse(entry.markdown, entry.seq, false, false);
+            }
+        }
+        return tasks;
+    });
+}
+
 export function toggleTaskCollapsed(sequence: number): void {
     historyStore.update(tasks =>
         tasks.map(task =>
