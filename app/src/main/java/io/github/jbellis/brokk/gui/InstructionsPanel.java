@@ -237,132 +237,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
-        planOptionsLink = new JButton("Plan Options") {
-            private static final long serialVersionUID = 1L;
-            // Animation state
-            private float hoverAlpha = 0f;
-            private float targetAlpha = 0f;
-            private final int DURATION_MS = 200; // animation duration
-            private final int INTERVAL_MS = 30; // timer tick
-            private final javax.swing.Timer hoverTimer = new javax.swing.Timer(INTERVAL_MS, ev -> {
-                float step = (float) INTERVAL_MS / (float) DURATION_MS;
-                boolean changed = false;
-                if (hoverAlpha < targetAlpha) {
-                    hoverAlpha = Math.min(targetAlpha, hoverAlpha + step);
-                    changed = true;
-                } else if (hoverAlpha > targetAlpha) {
-                    hoverAlpha = Math.max(targetAlpha, hoverAlpha - step);
-                    changed = true;
-                }
-                if (changed) {
-                    repaint();
-                } else {
-                    javax.swing.Timer t = (javax.swing.Timer) ev.getSource();
-                    t.stop();
-                }
-            });
+        planOptionsLink = new JButton("Plan Options");
+        // Visual and input configuration
+        KeyStroke planOptionsKs =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
+        planOptionsLink.setToolTipText(
+                "Configure options for the Architect agent (Plan First) (" + formatKeyStroke(planOptionsKs) + ")");
+        planOptionsLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        planOptionsLink.setBorderPainted(false);
+        planOptionsLink.setFocusable(true);
+        planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
+        planOptionsLink.putClientProperty("JButton.buttonType", "borderless");
 
-            {
-                // Visual and input configuration
-                KeyStroke planOptionsKs =
-                        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-                setToolTipText("Configure options for the Architect agent (Plan First) ("
-                        + formatKeyStroke(planOptionsKs) + ")");
-                setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-                setContentAreaFilled(false);
-                setFocusPainted(false); // we will render focus via the hover background
-                setOpaque(false);
-                setFocusable(true);
-                setMargin(new Insets(0, 0, 0, 0));
-                setAlignmentY(Component.CENTER_ALIGNMENT);
+        // Action listener for click/activation
+        planOptionsLink.addActionListener(e -> {
+            ArchitectOptionsDialog.showDialogAndWait(chrome);
+            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
+        });
 
-                // Mouse interactions
-                addMouseListener(new java.awt.event.MouseAdapter() {
-                    @Override
-                    public void mouseClicked(java.awt.event.MouseEvent e) {
-                        ArchitectOptionsDialog.showDialogAndWait(chrome);
-                        javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                    }
-
-                    @Override
-                    public void mouseEntered(java.awt.event.MouseEvent e) {
-                        targetAlpha = 1f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-
-                    @Override
-                    public void mouseExited(java.awt.event.MouseEvent e) {
-                        targetAlpha = 0f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
+        // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
+        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
+                chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
+                    ArchitectOptionsDialog.showDialogAndWait(chrome);
+                    javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
                 });
-
-                // Keyboard activation and focus behavior
-                addFocusListener(new java.awt.event.FocusAdapter() {
-                    @Override
-                    public void focusGained(java.awt.event.FocusEvent e) {
-                        targetAlpha = 1f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-
-                    @Override
-                    public void focusLost(java.awt.event.FocusEvent e) {
-                        targetAlpha = 0f;
-                        if (!hoverTimer.isRunning()) hoverTimer.start();
-                    }
-                });
-
-                // Bind Enter and Space to activation for accessibility
-                getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "activate");
-                getInputMap(WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "activate");
-                getActionMap().put("activate", new AbstractAction() {
-                    @Override
-                    public void actionPerformed(ActionEvent e) {
-                        ArchitectOptionsDialog.showDialogAndWait(chrome);
-                        javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                    }
-                });
-
-                // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
-                        chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
-                            ArchitectOptionsDialog.showDialogAndWait(chrome);
-                            javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                        });
-            }
-
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                try {
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                    // Draw hover/focus rounded background with animated alpha
-                    if (hoverAlpha > 0f) {
-                        boolean isDark = UIManager.getBoolean("laf.dark");
-                        java.awt.Color hoverColor;
-                        try {
-                            hoverColor = ThemeColors.getColor(isDark, "badge_background");
-                            if (hoverColor == null) throw new Exception("null");
-                        } catch (Exception ex) {
-                            // fallback light-blue for light theme, translucent bluish for dark theme
-                            hoverColor = isDark ? new Color(0x1F6FEB) : new Color(0xD9EEFF);
-                        }
-                        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, hoverAlpha));
-                        g2.setColor(hoverColor);
-                        int arc = 8;
-                        g2.fillRoundRect(0, 0, getWidth(), getHeight(), arc, arc);
-                        g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
-                    }
-
-                    // Draw the text/icon on top (use default button painting for text)
-                    super.paintComponent(g);
-                } finally {
-                    g2.dispose();
-                }
-            }
-        };
 
         // Try to use a link-like color from UI, fall back to label foreground or blue
         java.awt.Color linkColor = UIManager.getColor("Label.linkForeground");
