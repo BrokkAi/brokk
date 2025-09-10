@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.net.URL;
 import java.time.Duration;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -17,7 +16,7 @@ public class McpUtils {
 
     private static final Logger logger = LogManager.getLogger(McpUtils.class);
 
-    public static List<String> fetchTools(URL url, @Nullable String bearerToken) throws IOException {
+    public static List<McpSchema.Tool> fetchTools(URL url, @Nullable String bearerToken) throws IOException {
         var transportBuilder = HttpClientStreamableHttpTransport.builder(url.toString())
                 .resumableStreams(true)
                 .openConnectionOnStartup(true);
@@ -39,7 +38,7 @@ public class McpUtils {
         try {
             client.initialize();
             McpSchema.ListToolsResult toolsResult = client.listTools();
-            return toolsResult.tools().stream().map(McpSchema.Tool::name).collect(Collectors.toList());
+            return toolsResult.tools();
         } catch (Exception e) {
             logger.error("Failed to fetch tools from MCP server at {}: {}", url, e.getMessage());
             throw new IOException(

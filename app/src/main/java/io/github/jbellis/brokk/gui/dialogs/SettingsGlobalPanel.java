@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.util.Environment;
+import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
@@ -875,9 +877,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             fetchStatusLabel.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
             fetchStatusLabel.setText("Fetching...");
 
-            new SwingWorker<List<String>, Void>() {
+            new SwingWorker<List<McpSchema.Tool>, Void>() {
                 @Override
-                protected List<String> doInBackground() throws IOException {
+                protected List<McpSchema.Tool> doInBackground() throws IOException {
                     return McpUtils.fetchTools(urlObj, finalBearerToken);
                 }
 
@@ -886,12 +888,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     fetchStatusLabel.setIcon(null);
                     fetchStatusLabel.setText(" ");
                     try {
-                        List<String> tools = get();
-                        fetchedTools.value = tools;
+                        List<McpSchema.Tool> tools = get();
+                        var toolNames = tools.stream().map(McpSchema.Tool::name).collect(Collectors.toList());
+                        fetchedTools.value = toolNames;
                         if (tools.isEmpty()) {
                             toolsTextArea.setText("No tools found or failed to fetch.");
                         } else {
-                            toolsTextArea.setText(String.join("\n", tools));
+                            toolsTextArea.setText(String.join("\n", toolNames));
                         }
                         toolsScrollPane.setVisible(true);
                         SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
