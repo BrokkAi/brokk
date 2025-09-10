@@ -9,6 +9,7 @@ import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage} from './stores/zoomStore';
 
 const mainLog = createLogger('main');
 
@@ -64,6 +65,20 @@ function setupBrokkInterface(): any[] {
         // Symbol lookup API
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
+
+        // Zoom API
+        zoomIn: () => {
+            zoomIn();
+            updateZoomDisplay();
+        },
+        zoomOut: () => {
+            zoomOut();
+            updateZoomDisplay();
+        },
+        resetZoom: () => {
+            resetZoom();
+            updateZoomDisplay();
+        },
 
     };
 
@@ -185,4 +200,12 @@ function setupSearchRehighlight(): void {
             });
         });
     });
+}
+
+function updateZoomDisplay(): void {
+    const zoomDisplayEl = document.getElementById('zoom-display');
+    if (zoomDisplayEl) {
+        const currentZoom = get(zoomStore);
+        zoomDisplayEl.textContent = getZoomPercentage(currentZoom);
+    }
 }
