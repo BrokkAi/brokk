@@ -31,6 +31,7 @@ import javax.swing.*;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 import org.apache.logging.log4j.LogManager;
@@ -771,6 +772,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             @Nullable
             List<String> value = existing != null ? existing.tools() : null;
         };
+        final var fetchedToolDetails = new Object() {
+            @Nullable
+            List<McpSchema.Tool> value = null;
+        };
         JTextField nameField = new JTextField(existing != null ? existing.name() : "");
         JTextField urlField = new JTextField(existing != null ? existing.url().toString() : "");
         JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
@@ -826,17 +831,46 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         JLabel fetchStatusLabel = new JLabel(" ");
 
-        var toolsTextArea = new JTextArea(5, 20);
-        toolsTextArea.setEditable(false);
-        toolsTextArea.setLineWrap(true);
-        toolsTextArea.setWrapStyleWord(true);
-        var toolsScrollPane = new JScrollPane(toolsTextArea);
+        String[] toolsColumnNames = {"Tool"};
+        var toolsTableModel = new DefaultTableModel(toolsColumnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        var toolsTable = new JTable(toolsTableModel) {
+            @Override
+            public String getToolTipText(java.awt.event.MouseEvent event) {
+                java.awt.Point p = event.getPoint();
+                int rowIndex = rowAtPoint(p);
+                if (rowIndex >= 0 && fetchedToolDetails.value != null && rowIndex < fetchedToolDetails.value.size()) {
+                    var tool = fetchedToolDetails.value.get(rowIndex);
+                    String desc = tool.description();
+                    return (desc == null || desc.isEmpty()) ? tool.name() : desc;
+                }
+                return "";
+            }
+        };
+        toolsTable.setFillsViewportHeight(true);
+        var toolsScrollPane = new JScrollPane(toolsTable);
         toolsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         toolsScrollPane.setVisible(false);
 
+        var errorTextArea = new JTextArea(5, 20);
+        errorTextArea.setEditable(false);
+        errorTextArea.setLineWrap(true);
+        errorTextArea.setWrapStyleWord(true);
+        var errorScrollPane = new JScrollPane(errorTextArea);
+        errorScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        errorScrollPane.setVisible(false);
+
         if (fetchedTools.value != null && !fetchedTools.value.isEmpty()) {
-            toolsTextArea.setText(String.join("\n", fetchedTools.value));
+            toolsTableModel.setRowCount(0);
+            for (String n : fetchedTools.value) {
+                toolsTableModel.addRow(new Object[] {n});
+            }
             toolsScrollPane.setVisible(true);
+            errorScrollPane.setVisible(false);
         }
 
         AtomicReference<String> lastFetchedUrl =
@@ -889,21 +923,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     fetchStatusLabel.setText(" ");
                     try {
                         List<McpSchema.Tool> tools = get();
+                        fetchedToolDetails.value = tools;
                         var toolNames = tools.stream().map(McpSchema.Tool::name).collect(Collectors.toList());
                         fetchedTools.value = toolNames;
-                        if (tools.isEmpty()) {
-                            toolsTextArea.setText("No tools found or failed to fetch.");
-                        } else {
-                            toolsTextArea.setText(String.join("\n", toolNames));
+
+                        toolsTableModel.setRowCount(0);
+                        for (String n : toolNames) {
+                            toolsTableModel.addRow(new Object[] {n});
                         }
+
                         toolsScrollPane.setVisible(true);
+                        errorScrollPane.setVisible(false);
                         SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
                     } catch (Exception ex) {
                         var root = ex.getCause() != null ? ex.getCause() : ex;
                         logger.error("Error fetching MCP tools", root);
                         fetchedTools.value = null;
-                        toolsTextArea.setText("Error fetching tools: " + root.getMessage());
-                        toolsScrollPane.setVisible(true);
+                        fetchedToolDetails.value = null;
+
+                        errorTextArea.setText("Error fetching tools: " + root.getMessage());
+                        toolsScrollPane.setVisible(false);
+                        errorScrollPane.setVisible(true);
                         SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
                     }
                 }
@@ -1021,6 +1061,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.weighty = 1;
         gbc.insets = new Insets(8, 0, 0, 0);
         panel.add(toolsScrollPane, gbc);
+        panel.add(errorScrollPane, gbc);
 
         var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
         final var dialog = optionPane.createDialog(SettingsGlobalPanel.this, title);
