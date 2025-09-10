@@ -2172,7 +2172,62 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** Adds “.git” to simple GitHub HTTPS URLs when missing. */
+    /**
+     * Clone a repository to the specified directory with branch/tag selection.
+     *
+     * @param remoteUrl the URL of the remote repository
+     * @param directory the local directory to clone into (must be empty or not exist)
+     * @param depth clone depth (0 for full clone, > 0 for shallow)
+     * @param branchOrTag specific branch or tag to clone (null for default branch)
+     * @return a GitRepo instance for the cloned repository
+     * @throws GitAPIException if the clone fails
+     */
+    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
+            throws GitAPIException {
+        requireNonNull(remoteUrl, "remoteUrl");
+        requireNonNull(directory, "directory");
+
+        String effectiveUrl = normalizeRemoteUrl(remoteUrl);
+
+        // Ensure the target directory is empty (or doesn't yet exist)
+        if (Files.exists(directory)
+                && directory.toFile().list() != null
+                && directory.toFile().list().length > 0) {
+            throw new IllegalArgumentException("Target directory " + directory + " must be empty or not yet exist");
+        }
+
+        try {
+            var cloneCmd = Git.cloneRepository()
+                    .setURI(effectiveUrl)
+                    .setDirectory(directory.toFile())
+                    .setCloneAllBranches(depth <= 0);
+
+            if (branchOrTag != null && !branchOrTag.trim().isEmpty()) {
+                cloneCmd.setBranch(branchOrTag);
+            }
+
+            if (depth > 0) {
+                cloneCmd.setDepth(depth);
+                cloneCmd.setNoTags();
+            }
+            // Perform clone and immediately close the returned Git handle
+            try (var ignored = cloneCmd.call()) {
+                // nothing – resources closed via try-with-resources
+            }
+            return new GitRepo(directory);
+        } catch (GitAPIException e) {
+            logger.error(
+                    "Failed to clone {} (branch/tag: {}) into {}: {}",
+                    effectiveUrl,
+                    branchOrTag,
+                    directory,
+                    e.getMessage(),
+                    e);
+            throw e;
+        }
+    }
+
+    /** Adds ".git" to simple GitHub HTTPS URLs when missing. */
     private static String normalizeRemoteUrl(String remoteUrl) {
         var pattern = Pattern.compile("^https://github\\.com/[^/]+/[^/]+$");
         return pattern.matcher(remoteUrl).matches() && !remoteUrl.endsWith(".git") ? remoteUrl + ".git" : remoteUrl;

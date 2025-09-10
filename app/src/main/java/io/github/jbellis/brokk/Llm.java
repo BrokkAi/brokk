@@ -125,7 +125,7 @@ public class Llm {
      * @return The Path object representing the base history directory.
      */
     public static Path getHistoryBaseDir(Path projectRoot) {
-        return projectRoot.resolve(".brokk").resolve(HISTORY_DIR_NAME);
+        return projectRoot.resolve(AbstractProject.BROKK_DIR).resolve(HISTORY_DIR_NAME);
     }
 
     /**

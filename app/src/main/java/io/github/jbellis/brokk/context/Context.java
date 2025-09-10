@@ -256,11 +256,15 @@ public class Context {
     }
 
     public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) { // IContextManager is already member
-        // Check if a fragment with the same text content already exists
-        boolean duplicateByText = virtualFragments.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+        // Avoid duplicates:
+        // - For pasted images, compare by id (content hash), since text() is a placeholder string.
+        // - For all other virtual fragments, preserve existing text-based de-duplication.
+        boolean isDuplicate = fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE
+                ? virtualFragments.stream().anyMatch(vf -> Objects.equals(vf.id(), fragment.id()))
+                : virtualFragments.stream().anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
 
-        if (duplicateByText) {
-            return this; // Fragment with same text content already present, no change
+        if (isDuplicate) {
+            return this; // Duplicate fragment detected, no change
         }
 
         var newFragments = new ArrayList<>(virtualFragments);

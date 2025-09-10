@@ -2,11 +2,13 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Decompiler;
 import io.github.jbellis.brokk.util.FileUtil;
 import java.awt.*;
@@ -25,7 +27,6 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.Nullable;
 
 public class ImportDependencyDialog {
@@ -83,19 +84,24 @@ public class ImportDependencyDialog {
         private JTextField gitUrlField;
 
         @Nullable
-        private JComboBox<String> gitRefComboBox;
+        private JButton validateGitRepoButton;
 
         @Nullable
-        private JButton validateGitRepoButton;
+        private JComboBox<String> gitRefComboBox;
 
         @Nullable
         private GitRepo.RemoteInfo remoteInfo;
 
         DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
             this.chrome = chrome;
-            this.dependenciesRoot =
-                    chrome.getProject().getRoot().resolve(".brokk").resolve("dependencies");
+            this.dependenciesRoot = chrome.getProject()
+                    .getRoot()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR);
             this.listener = listener;
+
+            // Clean up any orphaned operations from previous crashes
+            CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
         }
 
         void buildAndShow() {
@@ -201,6 +207,7 @@ public class ImportDependencyDialog {
             gitUrlField.setColumns(30);
             validateGitRepoButton = new JButton("Load Tags & Branches");
             gitRefComboBox = new JComboBox<>();
+            gitRefComboBox.setEnabled(false);
 
             GridBagConstraints gbc = new GridBagConstraints();
             gbc.insets = new Insets(2, 2, 2, 2);
@@ -236,7 +243,7 @@ public class ImportDependencyDialog {
             gbc.fill = GridBagConstraints.NONE;
             gitPanel.add(new JLabel("Branch/Tag:"), gbc);
 
-            // Row 2: Branch/Tag ComboBox
+            // Row 2: Branch/Tag Combo
             gbc.gridx = 1;
             gbc.gridy = 2;
             gbc.weightx = 1.0;
@@ -246,13 +253,14 @@ public class ImportDependencyDialog {
 
             gitPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
 
-            validateGitRepoButton.addActionListener(e -> validateAndPopulateRefs());
-            gitRefComboBox.addActionListener(e -> updateGitImportButtonState());
+            validateGitRepoButton.addActionListener(e -> validateRepository());
             gitUrlField.getDocument().addDocumentListener(new SimpleDocumentListener() {
                 @Override
                 public void update(DocumentEvent e) {
                     remoteInfo = null;
-                    requireNonNull(gitRefComboBox).setModel(new DefaultComboBoxModel<>()); // Clear
+                    // Clear repository info on URL change
+                    requireNonNull(gitRefComboBox).removeAllItems();
+                    gitRefComboBox.setEnabled(false);
                     importButton.setEnabled(false);
                 }
             });
@@ -260,7 +268,7 @@ public class ImportDependencyDialog {
             return gitPanel;
         }
 
-        private void validateAndPopulateRefs() {
+        private void validateRepository() {
             String url = requireNonNull(gitUrlField).getText().trim();
             if (url.isEmpty()) {
                 chrome.toolError("Git repository URL cannot be empty.", "Validation Error");
@@ -269,7 +277,7 @@ public class ImportDependencyDialog {
 
             requireNonNull(validateGitRepoButton).setEnabled(false);
 
-            chrome.getContextManager().submitBackgroundTask("Validating Git remote", () -> {
+            chrome.getContextManager().submitBackgroundTask("Loading branches and tags", () -> {
                 try {
                     // Normalize URL for display and use
                     String normalizedUrl = url;
@@ -286,27 +294,8 @@ public class ImportDependencyDialog {
                     this.remoteInfo = info;
 
                     SwingUtilities.invokeLater(() -> {
-                        var cb = requireNonNull(gitRefComboBox);
-                        cb.removeAllItems();
-                        info.branches().forEach(cb::addItem);
-                        info.tags().forEach(cb::addItem);
-
-                        String preferred = info.defaultBranch();
-                        if (preferred == null && info.branches().contains("main")) {
-                            preferred = "main";
-                        }
-                        if (preferred == null && info.branches().contains("master")) {
-                            preferred = "master";
-                        }
-
-                        if (preferred != null) {
-                            cb.setSelectedItem(preferred);
-                        } else if (!info.branches().isEmpty()) {
-                            cb.setSelectedIndex(0);
-                        } else if (!info.tags().isEmpty()) {
-                            cb.setSelectedIndex(info.branches().size());
-                        }
-
+                        populateGitRefComboBox(info);
+                        chrome.systemOutput("Repository validated successfully. Select a branch or tag to import.");
                         updateGitImportButtonState();
                     });
                 } catch (Exception ex) {
@@ -315,7 +304,6 @@ public class ImportDependencyDialog {
                     SwingUtilities.invokeLater(() -> {
                         chrome.toolError(
                                 "Failed to access remote repository:\n" + ex.getMessage(), "Validation Failed");
-                        requireNonNull(gitRefComboBox).removeAllItems();
                         importButton.setEnabled(false);
                     });
                 } finally {
@@ -324,6 +312,34 @@ public class ImportDependencyDialog {
                 }
                 return null;
             });
+        }
+
+        private void populateGitRefComboBox(GitRepo.RemoteInfo info) {
+            var combo = requireNonNull(gitRefComboBox);
+            combo.removeAllItems();
+
+            // Add default branch first
+            if (info.defaultBranch() != null) {
+                combo.addItem(info.defaultBranch() + " (default)");
+            }
+
+            // Add other branches
+            for (String branch : info.branches()) {
+                if (!branch.equals(info.defaultBranch())) {
+                    combo.addItem(branch);
+                }
+            }
+
+            // Add tags
+            for (String tag : info.tags()) {
+                combo.addItem(tag);
+            }
+
+            // Enable combo box and select first item if available
+            combo.setEnabled(combo.getItemCount() > 0);
+            if (combo.getItemCount() > 0) {
+                combo.setSelectedIndex(0);
+            }
         }
 
         private void updateGitImportButtonState() {
@@ -461,18 +477,21 @@ public class ImportDependencyDialog {
         }
 
         private void performGitImport() {
-            if (remoteInfo == null || requireNonNull(gitRefComboBox).getSelectedItem() == null) {
+            if (remoteInfo == null) {
                 JOptionPane.showMessageDialog(
-                        dialog,
-                        "No valid Git repository and branch/tag selected.",
-                        "Import Error",
-                        JOptionPane.ERROR_MESSAGE);
+                        dialog, "No valid Git repository selected.", "Import Error", JOptionPane.ERROR_MESSAGE);
                 importButton.setEnabled(true);
                 return;
             }
 
             final String repoUrl = remoteInfo.url();
-            final String selectedRef = (String) requireNonNull(gitRefComboBox).getSelectedItem();
+
+            // Extract selected branch/tag from combo box
+            String selectedRef = (String) requireNonNull(gitRefComboBox).getSelectedItem();
+            final String branchOrTag = selectedRef != null && selectedRef.endsWith(" (default)")
+                    ? selectedRef.replace(" (default)", "")
+                    : selectedRef;
+
             final String repoName =
                     repoUrl.substring(repoUrl.lastIndexOf('/') + 1).replace(".git", "");
             final Path targetPath = dependenciesRoot.resolve(repoName);
@@ -496,58 +515,64 @@ public class ImportDependencyDialog {
             dialog.dispose();
 
             chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
-                Path tempDir = null;
                 try {
-                    tempDir = Files.createTempDirectory("brokk-git-clone-");
-                    Git.cloneRepository()
-                            .setURI(repoUrl)
-                            .setBranch(selectedRef)
-                            .setDirectory(tempDir.toFile())
-                            .setDepth(1)
-                            .setCloneSubmodules(false)
-                            .call();
-
-                    Path gitInternalDir = tempDir.resolve(".git");
-                    if (Files.exists(gitInternalDir)) {
-                        boolean removed = FileUtil.deleteRecursively(gitInternalDir);
-                        if (!removed && Files.exists(gitInternalDir)) {
-                            logger.warn("Failed to delete .git directory at {}", gitInternalDir);
-                        }
-                    }
-
                     Files.createDirectories(dependenciesRoot);
+
+                    // Clean up any existing target directory
                     if (Files.exists(targetPath)) {
                         boolean deleted = FileUtil.deleteRecursively(targetPath);
                         if (!deleted && Files.exists(targetPath)) {
                             throw new IOException("Failed to delete existing destination: " + targetPath);
                         }
                     }
-                    Files.move(tempDir, targetPath, StandardCopyOption.REPLACE_EXISTING);
 
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.systemOutput("Repository " + repoName
-                                + " imported successfully. Reopen project to incorporate the new files.");
-                        if (listener != null) {
-                            listener.dependencyImportFinished(repoName);
+                    // Clone directly to target using GitRepo.cloneRepo() with selected branch/tag
+                    // Note: targetPath must not exist or be empty for GitRepo.cloneRepo() to work
+                    GitRepo.cloneRepo(repoUrl, targetPath, 1, branchOrTag); // depth=1 for shallow clone
+
+                    // Mark clone as in-progress now that directory exists with content
+                    CloneOperationTracker.createInProgressMarker(targetPath, repoUrl, branchOrTag);
+                    CloneOperationTracker.registerCloneOperation(targetPath);
+
+                    try {
+                        // Remove .git directory (dependencies don't need git history)
+                        Path gitInternalDir = targetPath.resolve(".git");
+                        if (Files.exists(gitInternalDir)) {
+                            FileUtil.deleteRecursively(gitInternalDir);
                         }
-                    });
+
+                        // Mark clone as complete
+                        CloneOperationTracker.createCompleteMarker(targetPath, repoUrl, branchOrTag);
+                        CloneOperationTracker.unregisterCloneOperation(targetPath);
+
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.systemOutput("Repository " + repoName + " imported successfully.");
+                            if (listener != null) {
+                                listener.dependencyImportFinished(repoName);
+                            }
+                        });
+
+                    } catch (Exception postCloneException) {
+                        CloneOperationTracker.unregisterCloneOperation(targetPath);
+                        throw postCloneException;
+                    }
 
                 } catch (Exception ex) {
                     logger.error("Error cloning Git repository {}", repoUrl, ex);
-                    SwingUtilities.invokeLater(() -> {
-                        JOptionPane.showMessageDialog(
-                                dialog,
-                                "Error cloning repository: " + ex.getMessage(),
-                                "Error",
-                                JOptionPane.ERROR_MESSAGE);
-                        importButton.setEnabled(true);
-                    });
-                    if (tempDir != null && Files.exists(tempDir)) {
-                        boolean deleted = FileUtil.deleteRecursively(tempDir);
-                        if (!deleted && Files.exists(tempDir)) {
-                            logger.warn("Failed to cleanup temporary directory {}", tempDir);
+
+                    // Cleanup on any error
+                    if (Files.exists(targetPath)) {
+                        try {
+                            FileUtil.deleteRecursively(targetPath);
+                        } catch (Exception cleanupEx) {
+                            logger.warn("Failed to cleanup target directory after clone failure", cleanupEx);
                         }
                     }
+
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Failed to import repository: " + ex.getMessage(), "Import Error");
+                        importButton.setEnabled(true);
+                    });
                 }
                 return null;
             });

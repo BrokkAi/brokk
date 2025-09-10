@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.lsp;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.FileUtil;
@@ -455,7 +456,7 @@ public abstract class LspServer {
      */
     public static Path getCacheForLsp(String language) {
         final var cacheName = language + "-lsp"; // assuming we use one LSP per language
-        return Path.of(System.getProperty("user.home"), ".brokk", "cache", cacheName)
+        return Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.CACHE_DIR, cacheName)
                 .toAbsolutePath();
     }
 

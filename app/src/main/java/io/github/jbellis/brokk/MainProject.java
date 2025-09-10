@@ -147,10 +147,10 @@ public final class MainProject extends AbstractProject {
     public MainProject(Path root) {
         super(root); // Initializes this.root and this.repo
 
-        this.propertiesFile = this.masterRootPathForConfig.resolve(".brokk").resolve("project.properties");
-        this.styleGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("style.md");
-        this.reviewGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("review.md");
-        var sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
+        this.propertiesFile = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(PROJECT_PROPERTIES_FILE);
+        this.styleGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(STYLE_GUIDE_FILE);
+        this.reviewGuidePath = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(REVIEW_GUIDE_FILE);
+        var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
         this.sessionManager = new SessionManager(sessionsDir);
 
         this.projectProps = new Properties();
@@ -1536,7 +1536,7 @@ public final class MainProject extends AbstractProject {
     public Path getWorktreeStoragePath() {
         return Path.of(
                 System.getProperty("user.home"),
-                ".brokk",
+                BROKK_DIR,
                 "worktrees",
                 getMasterRootPathForConfig().getFileName().toString());
     }
@@ -1556,7 +1556,7 @@ public final class MainProject extends AbstractProject {
                     continue;
                 }
 
-                var wsPropsPath = wtPath.resolve(".brokk").resolve("workspace.properties");
+                var wsPropsPath = wtPath.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
                 if (!Files.exists(wsPropsPath)) {
                     continue;
                 }

@@ -14,6 +14,13 @@
         "org.openjfx:javafx-web:22.0.1"
       ]
     },
+    "brokk-0.14.0-beta1": {
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.14.0-beta1/brokk-0.14.0-beta1.jar",
+      "java": "21",
+      "java-options": [
+        "--add-modules=jdk.incubator.vector"
+      ]
+    },
     "brokk-0.13.3": {
       "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.13.3/brokk-0.13.3.jar",
       "java": "21",

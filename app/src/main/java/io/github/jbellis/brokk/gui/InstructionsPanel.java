@@ -711,9 +711,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         topBarPanel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 2, H_PAD));
 
         JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        var modelComp = modelSelector.getComponent();
+
+        // Lock control heights to the larger of mic and model selector so one growing won't shrink the other
+        var micPref = micButton.getPreferredSize();
+        var modelPref = modelComp.getPreferredSize();
+        int controlHeight = Math.max(micPref.height, modelPref.height);
+
+        var micDim = new Dimension(controlHeight, controlHeight);
+        micButton.setPreferredSize(micDim);
+        micButton.setMinimumSize(micDim);
+        micButton.setMaximumSize(micDim);
+
+        var modelDim = new Dimension(modelPref.width, controlHeight);
+        modelComp.setPreferredSize(modelDim);
+        modelComp.setMinimumSize(new Dimension(50, controlHeight));
+        modelComp.setMaximumSize(new Dimension(Integer.MAX_VALUE, controlHeight));
+
         leftPanel.add(micButton);
         leftPanel.add(Box.createHorizontalStrut(H_GAP));
-        leftPanel.add(modelSelector.getComponent());
+        leftPanel.add(modelComp);
         topBarPanel.add(leftPanel, BorderLayout.WEST);
 
         var historyDropdown = createHistoryDropdown();

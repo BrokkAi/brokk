@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.AbstractProject;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.IOException;
@@ -40,7 +41,9 @@ public interface Language {
      */
     default Path getCpgPath(IProject project) {
         // Use oldName for CPG path to ensure stable and filesystem-safe names
-        return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
+        return project.getRoot()
+                .resolve(AbstractProject.BROKK_DIR)
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
     }
 
     default List<Path> getDependencyCandidates(IProject project) {

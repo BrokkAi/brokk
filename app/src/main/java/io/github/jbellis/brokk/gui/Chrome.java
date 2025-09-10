@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
 import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import java.awt.*;
@@ -32,6 +33,7 @@ import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -135,6 +137,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
 
     private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
+    private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
+    private final JTabbedPane historyTabbedPane; // Bottom area for file history
+    private int originalLeftVerticalDividerSize;
     private final HistoryOutputPanel historyOutputPanel;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
@@ -384,7 +389,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // 3) Final horizontal split: left tabs | right stack
         bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        bottomSplitPane.setLeftComponent(leftTabbedPanel);
+
+        // Create a vertical split on the left: top = regular tabs, bottom = per-file history tabs
+        historyTabbedPane = new JTabbedPane();
+        historyTabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); // keep single row; scroll horizontally
+        historyTabbedPane.setVisible(false); // hidden until a history tab is added
+
+        leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        leftVerticalSplitPane.setTopComponent(leftTabbedPanel);
+        leftVerticalSplitPane.setBottomComponent(historyTabbedPane);
+        leftVerticalSplitPane.setResizeWeight(0.7); // top gets most space by default
+        originalLeftVerticalDividerSize = leftVerticalSplitPane.getDividerSize();
+        leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
+
+        bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
         bottomSplitPane.setRightComponent(outputStackSplit);
         // Ensure the right stack can shrink enough so the sidebar can grow
         outputStackSplit.setMinimumSize(new Dimension(200, 0));
@@ -484,6 +502,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
+
+        // Clean up any orphaned clone operations from previous sessions
+        if (getProject() instanceof MainProject) {
+            Path dependenciesRoot =
+                    getProject().getRoot().resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            CloneOperationTracker.cleanupOrphanedClones(dependenciesRoot);
+        }
     }
 
     /**
@@ -1612,13 +1637,25 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (existing == null) {
             return;
         }
-        int count = leftTabbedPanel.getTabCount();
+
+        // Ensure the history pane is visible
+        if (!historyTabbedPane.isVisible()) {
+            historyTabbedPane.setVisible(true);
+            leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
+            leftVerticalSplitPane.setDividerLocation(0.7);
+        }
+
+        int count = historyTabbedPane.getTabCount();
         for (int i = 0; i < count; i++) {
-            if (leftTabbedPanel.getComponentAt(i) == existing) {
-                leftTabbedPanel.setSelectedIndex(i);
+            if (historyTabbedPane.getComponentAt(i) == existing) {
+                historyTabbedPane.setSelectedIndex(i);
                 break;
             }
         }
+    }
+
+    public void showFileHistory(ProjectFile file) {
+        SwingUtilities.invokeLater(() -> addFileHistoryTab(file));
     }
 
     public void addFileHistoryTab(ProjectFile file) {
@@ -1659,20 +1696,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
         closeButton.addActionListener(e -> {
-            int idx = leftTabbedPanel.indexOfComponent(historyTab);
+            int idx = historyTabbedPane.indexOfComponent(historyTab);
             if (idx >= 0) {
-                leftTabbedPanel.remove(idx);
+                historyTabbedPane.remove(idx);
                 fileHistoryTabs.remove(filePath);
+
+                // Hide history pane if now empty and remove divider
+                if (historyTabbedPane.getTabCount() == 0) {
+                    historyTabbedPane.setVisible(false);
+                    leftVerticalSplitPane.setDividerSize(0);
+                }
             }
         });
 
         tabHeader.add(titleLabel);
         tabHeader.add(closeButton);
 
-        leftTabbedPanel.addTab(file.getFileName(), historyTab);
-        int newIndex = leftTabbedPanel.indexOfComponent(historyTab);
-        leftTabbedPanel.setTabComponentAt(newIndex, tabHeader);
-        leftTabbedPanel.setSelectedIndex(newIndex);
+        // Ensure history pane is visible and divider shown
+        if (!historyTabbedPane.isVisible()) {
+            historyTabbedPane.setVisible(true);
+            leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
+            leftVerticalSplitPane.setDividerLocation(0.7);
+        }
+
+        historyTabbedPane.addTab(file.getFileName(), historyTab);
+        int newIndex = historyTabbedPane.indexOfComponent(historyTab);
+        historyTabbedPane.setTabComponentAt(newIndex, tabHeader);
+        historyTabbedPane.setSelectedIndex(newIndex);
 
         fileHistoryTabs.put(filePath, historyTab);
     }

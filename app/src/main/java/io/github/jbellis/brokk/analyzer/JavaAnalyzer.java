@@ -89,19 +89,17 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (jdtAnalyzer != null) {
-            return jdtAnalyzer.update(changedFiles);
-        } else {
-            return super.update(changedFiles);
+            jdtAnalyzer.update(changedFiles);
         }
+        return super.update(changedFiles);
     }
 
     @Override
     public IAnalyzer update() {
         if (jdtAnalyzer != null) {
-            return jdtAnalyzer.update();
-        } else {
-            return super.update();
+            jdtAnalyzer.update();
         }
+        return super.update();
     }
 
     @Override

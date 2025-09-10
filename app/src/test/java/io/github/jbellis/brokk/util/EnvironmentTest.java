@@ -21,17 +21,21 @@ class EnvironmentTest {
                 Environment.isSandboxAvailable(), "Required sandboxing tool not available on this platform");
 
         Path tmpRoot = Files.createTempDirectory(Environment.getHomePath(), "brokk-sandbox-test");
-        String output = Environment.instance.runShellCommand(
-                "echo hello > test.txt && cat test.txt",
-                tmpRoot,
-                true,
-                s -> {}, // no-op consumer
-                Environment.UNLIMITED_TIMEOUT);
-        assertEquals("hello", output.trim());
+        try {
+            String output = Environment.instance.runShellCommand(
+                    "echo hello > test.txt && cat test.txt",
+                    tmpRoot,
+                    true,
+                    s -> {}, // no-op consumer
+                    Environment.UNLIMITED_TIMEOUT);
+            assertEquals("hello", output.trim());
 
-        String fileContents = Files.readString(tmpRoot.resolve("test.txt"), StandardCharsets.UTF_8)
-                .trim();
-        assertEquals("hello", fileContents);
+            String fileContents = Files.readString(tmpRoot.resolve("test.txt"), StandardCharsets.UTF_8)
+                    .trim();
+            assertEquals("hello", fileContents);
+        } finally {
+            FileUtil.deleteRecursively(tmpRoot);
+        }
     }
 
     @Test
@@ -41,14 +45,19 @@ class EnvironmentTest {
         Assumptions.assumeFalse(Environment.isWindows(), "Sandboxing not supported on Windows for this test");
 
         Path tmpRoot = Files.createTempDirectory(Environment.getHomePath(), "brokk-sandbox-test");
-        Path outsideTarget = Environment.getHomePath().resolve("brokk-outside-test-" + System.nanoTime() + ".txt");
+        try {
+            Path outsideTarget = Environment.getHomePath().resolve("brokk-outside-test-" + System.nanoTime() + ".txt");
 
-        String cmd = "echo fail > '" + outsideTarget + "'";
-        assertThrows(
-                Environment.FailureException.class,
-                () -> Environment.instance.runShellCommand(cmd, tmpRoot, true, s -> {}, Environment.UNLIMITED_TIMEOUT));
+            String cmd = "echo fail > '" + outsideTarget + "'";
+            assertThrows(
+                    Environment.FailureException.class,
+                    () -> Environment.instance.runShellCommand(
+                            cmd, tmpRoot, true, s -> {}, Environment.UNLIMITED_TIMEOUT));
 
-        assertFalse(Files.exists(outsideTarget), "File should not have been created outside sandbox");
+            assertFalse(Files.exists(outsideTarget), "File should not have been created outside sandbox");
+        } finally {
+            FileUtil.deleteRecursively(tmpRoot);
+        }
     }
 
     @Test
