@@ -14,7 +14,7 @@ export const DEBUG_CONFIG: DebugConfig = {
   showCacheStats: false, // Show cache statistics box
   showTooltips: false,   // Show symbol info tooltips on hover
   logSymbolLookups: false, // Log symbol lookup details to console
-  showWrapStatus: true   // Show word wrap status display at top of page
+  showWrapStatus: false   // Show word wrap status display at top of page
 };
 
 /**

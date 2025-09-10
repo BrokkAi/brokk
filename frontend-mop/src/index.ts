@@ -106,20 +106,19 @@ function setAppTheme(dark: boolean, isDevMode?: boolean, wrapMode?: boolean): vo
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
 
-    // Handle wrap mode classes
-    if (wrapMode !== undefined) {
-        if (wrapMode) {
-            html.classList.add('code-wrap-mode');
-            console.info('Applied code-wrap-mode class');
-        } else {
-            html.classList.remove('code-wrap-mode');
-            console.info('Removed code-wrap-mode class');
-        }
+    // Handle wrap mode classes - default to wrap mode enabled
+    const shouldWrap = wrapMode !== undefined ? wrapMode : true;
+    if (shouldWrap) {
+        html.classList.add('code-wrap-mode');
+        console.info('Applied code-wrap-mode class');
+    } else {
+        html.classList.remove('code-wrap-mode');
+        console.info('Removed code-wrap-mode class');
+    }
 
-        // Trigger status update for debug display
-        if (typeof window !== 'undefined' && window.updateWrapStatus) {
-            window.updateWrapStatus();
-        }
+    // Trigger status update for debug display
+    if (typeof window !== 'undefined' && window.updateWrapStatus) {
+        window.updateWrapStatus();
     }
 
     // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
