@@ -1118,11 +1118,12 @@ public class Service {
     }
 
     // Metadata for remote sessions (lenient; unknown fields ignored)
-    public record RemoteSessionMeta(String id, String name, Long created, Long modified, String remote, String sharing) {}
+    public record RemoteSessionMeta(
+            String id, String name, Long created, Long modified, String remote, String sharing) {}
 
     // Separate mapper configured to ignore unknown properties
-    private static final ObjectMapper SESSION_OBJECT_MAPPER =
-            new ObjectMapper().configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper SESSION_OBJECT_MAPPER = new ObjectMapper()
+            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static @Nullable String sessionAuthHeader() {
         String key = MainProject.getBrokkKey();
@@ -1137,8 +1138,13 @@ public class Service {
             log.debug("Skipping listRemoteSessions: missing auth or remote");
             return List.of();
         }
-        String url = MainProject.getServiceUrl() + "/api/sessions?remote=" + URLEncoder.encode(remote, StandardCharsets.UTF_8);
-        Request request = new Request.Builder().url(url).header("Authorization", auth).get().build();
+        String url = MainProject.getServiceUrl() + "/api/sessions?remote="
+                + URLEncoder.encode(remote, StandardCharsets.UTF_8);
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", auth)
+                .get()
+                .build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
@@ -1157,7 +1163,11 @@ public class Service {
             throw new IOException("Missing Brokk key for remote session content fetch");
         }
         String url = MainProject.getServiceUrl() + "/api/sessions/" + id;
-        Request request = new Request.Builder().url(url).header("Authorization", auth).get().build();
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", auth)
+                .get()
+                .build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";
@@ -1167,7 +1177,8 @@ public class Service {
         }
     }
 
-    public static RemoteSessionMeta writeRemoteSession(@Nullable UUID id, String remote, String name, byte[] contentZip) throws IOException {
+    public static RemoteSessionMeta writeRemoteSession(@Nullable UUID id, String remote, String name, byte[] contentZip)
+            throws IOException {
         String auth = sessionAuthHeader();
         if (auth == null || remote.isBlank()) {
             throw new IOException("Missing auth or remote for writeRemoteSession");
@@ -1182,7 +1193,11 @@ public class Service {
         }
         String json = SESSION_OBJECT_MAPPER.writeValueAsString(payload);
         RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
-        Request request = new Request.Builder().url(url).header("Authorization", auth).post(body).build();
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", auth)
+                .post(body)
+                .build();
         try (Response response = httpClient.newCall(request).execute()) {
             String respBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
@@ -1192,7 +1207,8 @@ public class Service {
         }
     }
 
-    public static RemoteSessionMeta updateRemoteSession(UUID id, @Nullable String name, @Nullable String sharing) throws IOException {
+    public static RemoteSessionMeta updateRemoteSession(UUID id, @Nullable String name, @Nullable String sharing)
+            throws IOException {
         String auth = sessionAuthHeader();
         if (auth == null) {
             throw new IOException("Missing auth for updateRemoteSession");
@@ -1204,7 +1220,11 @@ public class Service {
         if (sharing != null) payload.put("sharing", sharing);
         String json = SESSION_OBJECT_MAPPER.writeValueAsString(payload);
         RequestBody body = RequestBody.create(json, MediaType.parse("application/json; charset=utf-8"));
-        Request request = new Request.Builder().url(url).header("Authorization", auth).post(body).build();
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", auth)
+                .post(body)
+                .build();
         try (Response response = httpClient.newCall(request).execute()) {
             String respBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
@@ -1220,7 +1240,11 @@ public class Service {
             throw new IOException("Missing auth for deleteRemoteSession");
         }
         String url = MainProject.getServiceUrl() + "/api/sessions/" + id;
-        Request request = new Request.Builder().url(url).header("Authorization", auth).delete().build();
+        Request request = new Request.Builder()
+                .url(url)
+                .header("Authorization", auth)
+                .delete()
+                .build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
                 String body = response.body() != null ? response.body().string() : "";

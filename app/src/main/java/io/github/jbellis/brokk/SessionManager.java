@@ -569,9 +569,7 @@ public class SessionManager implements AutoCloseable {
                 if (info == null) {
                     info = readSessionInfoFromZip(zipPath).orElse(null);
                 }
-                String name = (info != null && !info.name().isBlank())
-                        ? info.name()
-                        : ("Session " + id.toString());
+                String name = (info != null && !info.name().isBlank()) ? info.name() : ("Session " + id.toString());
                 try {
                     byte[] bytes = Files.readAllBytes(zipPath);
                     Service.writeRemoteSession(id, remoteUrl, name, bytes);
