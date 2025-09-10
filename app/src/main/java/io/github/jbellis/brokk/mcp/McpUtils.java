@@ -42,9 +42,7 @@ public class McpUtils {
         } catch (Exception e) {
             logger.error("Failed to fetch tools from MCP server at {}: {}", url, e.getMessage());
             throw new IOException(
-                    "Failed to fetch tools. Brokk supports Streamable HTTP servers that are stateless. Error: "
-                            + e.getMessage(),
-                    e);
+                    "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.", e);
         } finally {
             client.closeGracefully();
         }
