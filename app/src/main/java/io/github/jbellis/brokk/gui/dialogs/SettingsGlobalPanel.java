@@ -41,8 +41,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     private JRadioButton lightThemeRadio = new JRadioButton("Light");
     private JRadioButton darkThemeRadio = new JRadioButton("Dark");
-    private JRadioButton wrapLinesRadio = new JRadioButton("Wrap long lines");
-    private JRadioButton scrollLinesRadio = new JRadioButton("Scroll horizontally (default)");
+    private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JTable quickModelsTable = new JTable();
     private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
     private JTextField balanceField = new JTextField();
@@ -293,18 +292,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         appearancePanel.add(new JLabel("Code Block Layout:"), gbc);
 
-        var wrapGroup = new ButtonGroup();
-        wrapGroup.add(wrapLinesRadio);
-        wrapGroup.add(scrollLinesRadio);
-
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        appearancePanel.add(wrapLinesRadio, gbc);
-
-        gbc.gridy = row++;
-        appearancePanel.add(scrollLinesRadio, gbc);
+        appearancePanel.add(wordWrapCheckbox, gbc);
 
         gbc.insets = new Insets(2, 5, 2, 5); // reset spacing
 
@@ -499,11 +491,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         // Code Block Layout
-        if (MainProject.getCodeBlockWrapMode()) {
-            wrapLinesRadio.setSelected(true);
-        } else {
-            scrollLinesRadio.setSelected(true);
-        }
+        wordWrapCheckbox.setSelected(MainProject.getCodeBlockWrapMode());
 
         // UI Scale (if present; hidden on macOS)
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
@@ -597,7 +585,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();
-        boolean newWrapMode = wrapLinesRadio.isSelected();
+        boolean newWrapMode = wordWrapCheckbox.isSelected();
         String newTheme = newIsDark ? "dark" : "light";
         boolean currentWrapMode = MainProject.getCodeBlockWrapMode();
 

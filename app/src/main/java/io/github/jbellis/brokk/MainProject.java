@@ -1000,12 +1000,12 @@ public final class MainProject extends AbstractProject {
 
     public static boolean getCodeBlockWrapMode() {
         var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty("code.block.wrap", "true"));
+        return Boolean.parseBoolean(props.getProperty("wordWrap", "true"));
     }
 
     public static void setCodeBlockWrapMode(boolean wrap) {
         var props = loadGlobalProperties();
-        props.setProperty("code.block.wrap", String.valueOf(wrap));
+        props.setProperty("wordWrap", String.valueOf(wrap));
         saveGlobalProperties(props);
     }
 
