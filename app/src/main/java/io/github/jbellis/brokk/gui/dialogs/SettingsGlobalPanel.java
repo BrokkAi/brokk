@@ -826,7 +826,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         var toolsTextArea = new JTextArea(5, 20);
         toolsTextArea.setEditable(false);
+        toolsTextArea.setLineWrap(true);
+        toolsTextArea.setWrapStyleWord(true);
         var toolsScrollPane = new JScrollPane(toolsTextArea);
+        toolsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         toolsScrollPane.setVisible(false);
 
         if (fetchedTools.value != null && !fetchedTools.value.isEmpty()) {
@@ -836,6 +839,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         AtomicReference<String> lastFetchedUrl =
                 new AtomicReference<>(existing != null ? existing.url().toString() : null);
+        final java.util.concurrent.atomic.AtomicLong lastFetchStartedAt =
+                new java.util.concurrent.atomic.AtomicLong(0L);
 
         Runnable fetcher = () -> {
             String rawUrl = urlField.getText().trim();
@@ -862,6 +867,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
             }
             final String finalBearerToken = bearerToken;
+
+            // Record the URL and timestamp we are about to fetch to enforce a minimum interval between fetches
+            lastFetchedUrl.set(rawUrl);
+            lastFetchStartedAt.set(System.currentTimeMillis());
 
             fetchStatusLabel.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
             fetchStatusLabel.setText("Fetching...");
@@ -898,15 +907,43 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }.execute();
         };
 
+        final javax.swing.Timer[] throttleTimer = new javax.swing.Timer[1];
         Runnable validationAction = () -> {
             String current = urlField.getText().trim();
             if (!isUrlValid(current)) {
                 return;
             }
             String previous = lastFetchedUrl.get();
-            if (previous == null || !previous.equals(current)) {
-                lastFetchedUrl.set(current);
+            if (previous != null && previous.equals(current)) {
+                // Already fetched this URL
+                return;
+            }
+            // Enforce a minimum of 2 seconds between fetches; fetch immediately if enough time has passed
+            if (throttleTimer[0] != null && throttleTimer[0].isRunning()) {
+                throttleTimer[0].stop();
+            }
+            long now = System.currentTimeMillis();
+            long startedAt = lastFetchStartedAt.get();
+            long elapsed = now - startedAt;
+            if (startedAt == 0L || elapsed >= 2000L) {
+                // First fetch or enough time elapsed; fetch immediately (post-debounce)
                 fetcher.run();
+            } else {
+                int delay = (int) (2000L - elapsed);
+                throttleTimer[0] = new javax.swing.Timer(delay, ev -> {
+                    String latest = urlField.getText().trim();
+                    if (!isUrlValid(latest)) {
+                        return;
+                    }
+                    // Avoid duplicate fetch for the same URL
+                    String last = lastFetchedUrl.get();
+                    if (last != null && last.equals(latest)) {
+                        return;
+                    }
+                    fetcher.run();
+                });
+                throttleTimer[0].setRepeats(false);
+                throttleTimer[0].start();
             }
         };
 
@@ -984,6 +1021,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
         final var dialog = optionPane.createDialog(SettingsGlobalPanel.this, title);
+        // Make the MCP dialog wider to improve readability
+        var preferred = dialog.getPreferredSize();
+        int minWidth = Math.max(700, preferred.width);
+        dialog.setPreferredSize(new Dimension(minWidth, preferred.height));
+        dialog.setMinimumSize(new Dimension(minWidth, preferred.height));
+        dialog.pack();
 
         optionPane.addPropertyChangeListener(pce -> {
             if (pce.getSource() != optionPane || !pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
