@@ -1908,12 +1908,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public void popStash(int stashIndex) throws GitAPIException {
         var stashRef = "stash@{" + stashIndex + "}";
         logger.debug("Popping stash {}", stashRef);
-        git.stashApply()
-                .setStashRef(stashRef)
-                .setRestoreIndex(false)
-                .setRestoreUntracked(true)
-                .ignoreRepositoryState(true)
-                .call();
+        git.stashApply().setStashRef(stashRef).call();
         git.stashDrop().setStashRef(stashIndex).call();
         logger.debug("Stash pop completed successfully");
         invalidateCaches();
