@@ -663,15 +663,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private JLabel createMcpServerUrlErrorLabel() {
-        var urlErrorLabel = new JLabel("Invalid URL");
+        return createErrorLabel("Invalid URL");
+    }
+
+    private JLabel createErrorLabel(String text) {
+        var label = new JLabel(text);
         var errorColor = UIManager.getColor("Label.errorForeground");
-        // A fallback to a softer, brownish-red if not defined in the theme
         if (errorColor == null) {
             errorColor = new Color(219, 49, 49);
         }
-        urlErrorLabel.setForeground(errorColor);
-        urlErrorLabel.setVisible(false);
-        return urlErrorLabel;
+        label.setForeground(errorColor);
+        label.setVisible(false);
+        return label;
     }
 
     private boolean isUrlValid(String text) {
@@ -967,6 +970,52 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         };
 
         JLabel urlErrorLabel = createMcpServerUrlErrorLabel();
+        JLabel nameErrorLabel = createErrorLabel("Duplicate name");
+        nameField.getDocument().addDocumentListener(new DocumentListener() {
+            private void validateName() {
+                String candidate = nameField.getText().trim();
+                if (candidate.isEmpty()) {
+                    candidate = urlField.getText().trim();
+                }
+                boolean duplicate = false;
+                for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+                    McpServer s = mcpServersListModel.getElementAt(i);
+                    if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
+                        continue;
+                    }
+                    if (s.name().equalsIgnoreCase(candidate)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                nameErrorLabel.setVisible(duplicate);
+                SwingUtilities.invokeLater(() -> {
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(nameField);
+                    if (w != null) w.pack();
+                });
+            }
+
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                validateName();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                validateName();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                validateName();
+            }
+        });
+        // Initial validation for name field
+        SwingUtilities.invokeLater(() -> {
+            java.awt.Window w = SwingUtilities.getWindowAncestor(nameField);
+            nameErrorLabel.setVisible(false);
+            if (w != null) w.pack();
+        });
         urlField.getDocument()
                 .addDocumentListener(createUrlValidationListener(urlField, urlErrorLabel, validationAction));
 
@@ -986,9 +1035,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.weightx = 1;
         panel.add(nameField, gbc);
 
-        // Row 1: URL
-        gbc.gridx = 0;
+        // Row 1: Name Error
+        gbc.gridx = 1;
         gbc.gridy = 1;
+        panel.add(nameErrorLabel, gbc);
+
+        // Row 2: URL
+        gbc.gridx = 0;
+        gbc.gridy = 2;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         panel.add(new JLabel("URL:"), gbc);
@@ -997,21 +1051,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.weightx = 1;
         panel.add(urlField, gbc);
 
-        // Row 2: URL Error
+        // Row 3: URL Error
         gbc.gridx = 1;
-        gbc.gridy = 2;
+        gbc.gridy = 3;
         panel.add(urlErrorLabel, gbc);
 
-        // Row 3: Token checkbox
+        // Row 4: Token checkbox
         gbc.gridx = 0;
-        gbc.gridy = 3;
+        gbc.gridy = 4;
         gbc.gridwidth = 2;
         panel.add(useTokenCheckbox, gbc);
         gbc.gridwidth = 1;
 
-        // Row 4: Token
+        // Row 5: Token
         gbc.gridx = 0;
-        gbc.gridy = 4;
+        gbc.gridy = 5;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         panel.add(tokenLabel, gbc);
@@ -1020,17 +1074,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.weightx = 1;
         panel.add(tokenPanel, gbc);
 
-        // Row 5: Fetch Status
+        // Row 6: Fetch Status
         gbc.gridx = 1;
-        gbc.gridy = 5;
+        gbc.gridy = 6;
         gbc.fill = GridBagConstraints.NONE;
         gbc.weightx = 0;
         gbc.anchor = GridBagConstraints.WEST;
         panel.add(fetchStatusLabel, gbc);
 
-        // Row 6: Tools Pane
+        // Row 7: Tools Pane
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 7;
         gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.BOTH;
         gbc.weightx = 1;
@@ -1064,6 +1118,27 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 String name = nameField.getText().trim();
                 String rawUrl = urlField.getText().trim();
                 boolean useToken = useTokenCheckbox.isSelected();
+
+                String effectiveName = name.isEmpty() ? rawUrl : name;
+                boolean duplicate = false;
+                for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+                    McpServer s = mcpServersListModel.getElementAt(i);
+                    if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
+                        continue;
+                    }
+                    if (s.name().equalsIgnoreCase(effectiveName)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate) {
+                    nameErrorLabel.setVisible(true);
+                    dialog.pack();
+                    dialog.setVisible(true);
+                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                    return;
+                }
+
                 McpServer newServer = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, fetchedTools.value);
 
                 if (newServer != null) {
