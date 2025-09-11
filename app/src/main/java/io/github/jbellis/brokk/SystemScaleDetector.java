@@ -117,15 +117,16 @@ public final class SystemScaleDetector {
     }
 
     public static @Nullable Double tryDetectScaleViaGnomeDBus(SystemScaleProvider provider) {
-        var lines = provider.runCommand("gdbus",
-                                        "call",
-                                        "--session",
-                                        "--dest",
-                                        "org.gnome.Mutter.DisplayConfig",
-                                        "--object-path",
-                                        "/org/gnome/Mutter/DisplayConfig",
-                                        "--method",
-                                        "org.gnome.Mutter.DisplayConfig.GetCurrentState");
+        var lines = provider.runCommand(
+                "gdbus",
+                "call",
+                "--session",
+                "--dest",
+                "org.gnome.Mutter.DisplayConfig",
+                "--object-path",
+                "/org/gnome/Mutter/DisplayConfig",
+                "--method",
+                "org.gnome.Mutter.DisplayConfig.GetCurrentState");
         if (lines == null || lines.isEmpty()) {
             return null;
         }
