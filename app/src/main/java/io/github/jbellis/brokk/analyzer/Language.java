@@ -46,6 +46,22 @@ public interface Language {
                 .resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
     }
 
+    default boolean shouldDisableLsp() {
+        var raw = System.getenv("BRK_NO_LSP");
+        if (raw == null) return false;
+        var value = raw.trim().toLowerCase(Locale.ROOT);
+        if (value.isEmpty()) return true;
+        return switch (value) {
+            case "1", "true", "t", "yes", "y", "on" -> true;
+            case "0", "false", "f", "no", "n", "off" -> false;
+            default -> {
+                logger.warn("Environment variable BRK_NO_LSP='" + raw
+                        + "' is not a recognized boolean; defaulting to disabling LSP.");
+                yield true;
+            }
+        };
+    }
+
     default List<Path> getDependencyCandidates(IProject project) {
         return List.of();
     }
@@ -134,7 +150,12 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
-            return JavaAnalyzer.create(project);
+            if (shouldDisableLsp()) {
+                logger.info("BRK_NO_LSP disables JDT LSP; TSA-only mode.");
+                return new JavaTreeSitterAnalyzer(project);
+            } else {
+                return JavaAnalyzer.create(project);
+            }
         }
 
         @Override
