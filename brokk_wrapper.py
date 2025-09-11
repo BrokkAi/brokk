@@ -191,6 +191,10 @@ def main():
         action="store_true",
         help="Show verbose output including Brokk's stdout/stderr."
     )
+    parser.add_argument(
+        "--log_dir",
+        help="Optional directory to write logs (command, stdout, stderr, git diff)."
+    )
 
     args = parser.parse_args()
 
@@ -243,6 +247,16 @@ def main():
             print(f"Additional args: {' '.join(additional_args)}")
         return
 
+    # If logging is enabled, ensure directory exists and record command later
+    log_dir_path = None
+    if args.log_dir:
+        try:
+            log_dir_path = Path(args.log_dir)
+            log_dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            print(f"Error creating log directory {args.log_dir}: {e}", file=sys.stderr)
+            sys.exit(1)
+
     # Execute Brokk CLI
     print("Running Brokk to apply changes based on instructions...")
     try:
@@ -254,6 +268,22 @@ def main():
             print("=== Brokk stderr ===") 
             print(stderr)
             print("=== End Brokk output ===")
+
+        # Write logs if requested
+        if log_dir_path:
+            try:
+                with open(log_dir_path / "brokk_stdout.txt", "w", encoding="utf-8") as f:
+                    f.write(stdout or "")
+                with open(log_dir_path / "brokk_stderr.txt", "w", encoding="utf-8") as f:
+                    f.write(stderr or "")
+                # Reconstruct and save the effective command (approximate)
+                cmd_preview = f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} --code \"{args.instructions}\""
+                if additional_args:
+                    cmd_preview += " " + " ".join(additional_args)
+                with open(log_dir_path / "command.txt", "w", encoding="utf-8") as f:
+                    f.write(cmd_preview + "\n")
+            except Exception as e:
+                print(f"Warning: Failed writing Brokk logs: {e}", file=sys.stderr)
         
         if returncode != 0:
             print(f"Warning: Brokk CLI exited with non-zero status: {returncode}", file=sys.stderr)
@@ -290,6 +320,14 @@ def main():
     if not git_diff.strip():
         print("Warning: No changes detected by 'git diff HEAD'. Brokk might not have made any changes.", file=sys.stderr)
         git_diff = ""
+
+    # Write git diff log if requested
+    if log_dir_path:
+        try:
+            with open(log_dir_path / "git_diff.patch", "w", encoding="utf-8") as f:
+                f.write(git_diff or "")
+        except Exception as e:
+            print(f"Warning: Failed writing git diff log: {e}", file=sys.stderr)
 
     # Format output
     if args.instance_id:

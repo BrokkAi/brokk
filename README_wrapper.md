@@ -48,6 +48,13 @@ python swe_bench_helper.py process dataset.json /path/to/target/project \
 python swe_bench_helper.py process dataset.json /path/to/target/project \
     --output predictions.json \
     --model "gpt-4"
+
+# Process a local HuggingFace Arrow dataset (load_from_disk)
+python swe_bench_helper.py process_hf /path/to/SWE-bench_lite \
+    --auto_checkout --workspace_root ./workspace \
+    --output predictions.json \
+    --max_instances 10 \
+    --log_dir run_logs
 ```
 
 ### 3. Validation
@@ -70,6 +77,12 @@ The `brokk_wrapper.py` script supports these options:
 - `--model` - Override model to use for the code task
 - `--dry_run` - Show what would be executed without running
 - `--verbose` - Show detailed output including Brokk's stdout/stderr
+- `--log_dir` - Directory to write logs (stdout, stderr, git diff, command)
+
+For Arrow datasets (`process_hf`):
+- `--auto_checkout` to automatically clone and checkout each instance's repo
+- `--workspace_root` path that will contain per-instance repos
+- Optional `--target_project` to run all instances against one local repo (when appropriate)
 
 ## SWE-bench Format
 
