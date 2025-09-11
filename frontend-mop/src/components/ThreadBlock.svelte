@@ -25,40 +25,40 @@
 </script>
 
 <div class="thread-block" data-thread-id={threadId} data-collapsed={collapsed}>
-    {#if collapsed}
-        <!-- COLLAPSED STATE: Render a single-line, clickable header -->
-        <header
-            class="header-preview"
-            style="border-left-color: var({bubbleDisplay.hlVar});"
-            on:click={toggle}
-            on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
-            tabindex="0"
-            role="button"
-            aria-expanded="false"
-            aria-controls="thread-body-{threadId}"
-        >
-            <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
-            <span class="tag">{bubbleDisplay.tag}</span>
-            <div class="content-preview">
-                {#if firstBubble.hast}
-                    <HastRenderer tree={firstBubble.hast} plugins={rendererPlugins} />
-                {:else}
-                    {firstBubble.markdown}
-                {/if}
-            </div>
-            {#if bubbles.length > 1}
-                <span class="message-count">{bubbles.length} msgs</span>
+    <!-- Collapsed header preview (always rendered; hidden when expanded via CSS) -->
+    <header
+        class="header-preview"
+        style="border-left-color: var({bubbleDisplay.hlVar});"
+        on:click={toggle}
+        on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
+        tabindex="0"
+        role="button"
+        aria-expanded={collapsed ? 'false' : 'true'}
+        aria-controls="thread-body-{threadId}"
+    >
+        <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
+        <span class="tag">{bubbleDisplay.tag}</span>
+        <div class="content-preview search-exclude">
+            {#if firstBubble.hast}
+                <HastRenderer tree={firstBubble.hast} plugins={rendererPlugins} />
+            {:else}
+                {firstBubble.markdown}
             {/if}
-        </header>
-    {:else}
-        <!-- EXPANDED STATE: Render first bubble with controls, then the rest -->
+        </div>
+        {#if bubbles.length > 1}
+            <span class="message-count">{bubbles.length} msgs</span>
+        {/if}
+    </header>
+
+    <!-- Thread body (always rendered; visually collapsed via CSS when data-collapsed="true") -->
+    <div class="thread-body" id="thread-body-{threadId}">
         <div
             class="first-bubble-wrapper"
             on:click={toggle}
             on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}
             tabindex="0"
             role="button"
-            aria-expanded="true"
+            aria-expanded={collapsed ? 'false' : 'true'}
             aria-controls="thread-body-{threadId}"
         >
             <Icon icon="mdi:chevron-down" class="toggle-arrow" style="color: var(--chat-text);" />
@@ -72,7 +72,7 @@
         </div>
 
         {#if remainingBubbles.length > 0}
-            <div class="remaining-bubbles" id="thread-body-{threadId}">
+            <div class="remaining-bubbles">
                 {#each remainingBubbles as bubble (bubble.seq)}
                     {#if bubble.type === 'AI' && bubble.reasoning}
                         <AIReasoningBubble {bubble} />
@@ -82,7 +82,7 @@
                 {/each}
             </div>
         {/if}
-    {/if}
+    </div>
 </div>
 
 <style>
@@ -161,5 +161,16 @@
         flex-direction: column;
         gap: 1em;
         padding-left: 1.7em; /* Indent to align with first bubble content */
+    }
+
+    /* Visibility rules to keep DOM mounted while preserving visuals */
+    .thread-block[data-collapsed="false"] .header-preview {
+        display: none;
+    }
+    .thread-block[data-collapsed="true"] .thread-body {
+        max-height: 0;
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
     }
 </style>

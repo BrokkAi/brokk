@@ -92,7 +92,7 @@ export function createSearchController(container: HTMLElement): SearchController
           diacritics: false,
           element: 'span',
           className: HIGHLIGHT_CLASS,
-          exclude: ['.copy-button']
+          exclude: ['.copy-button', '.search-exclude', '.search-exclude *']
         });
         matches = Array.from(container.querySelectorAll<HTMLElement>(`span.${HIGHLIGHT_CLASS}`));
 
