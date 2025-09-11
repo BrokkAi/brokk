@@ -247,8 +247,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         KeyStroke planOptionsKs =
                 io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
         planOptionsLink.setToolTipText("Configure options for the Architect agent (Plan First)");
-        planOptionsLink.setShortcut(
-                planOptionsKs, chrome.getFrame().getRootPane(), "PlanOptions", openOptionsAction);
+        planOptionsLink.setShortcut(planOptionsKs, chrome.getFrame().getRootPane(), "PlanOptions", openOptionsAction);
         planOptionsLink.setAppendShortcutToTooltip(true);
 
         // Load persisted checkbox states (default to checked)

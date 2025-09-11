@@ -10,11 +10,11 @@ import javax.swing.KeyStroke;
 import javax.swing.UIManager;
 import org.jetbrains.annotations.Nullable;
 
-/** A borderless, link-styled button that can optionally manage a global keyboard shortcut.
+/**
+ * A borderless, link-styled button that can optionally manage a global keyboard shortcut.
  *
- *  This implementation relies on the Look-and-Feel for rollover visuals by enabling
- *  rollover and keeping the content area filled, rather than managing hover colors
- *  via a dedicated MouseListener.
+ * <p>This implementation relies on the Look-and-Feel for rollover visuals by enabling rollover and keeping the content
+ * area filled, rather than managing hover colors via a dedicated MouseListener.
  */
 public class MaterialButton extends JButton {
     private @Nullable KeyStroke keyStroke;
