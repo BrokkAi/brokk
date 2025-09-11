@@ -523,6 +523,7 @@ public class ArchitectAgent {
                     @Nullable
                     String arguments) {
         Map<String, Object> args;
+        // fixme: Arguments should ideally be Map<String, Object>
         if (arguments == null || arguments.isBlank()) {
             args = Collections.emptyMap();
         } else {
