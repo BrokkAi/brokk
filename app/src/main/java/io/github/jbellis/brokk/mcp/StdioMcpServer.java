@@ -13,7 +13,7 @@ public record StdioMcpServer(
          */
         String name,
         String command,
-        List<String> arguments,
+        List<String> args,
         Map<String, String> env,
 
         /**

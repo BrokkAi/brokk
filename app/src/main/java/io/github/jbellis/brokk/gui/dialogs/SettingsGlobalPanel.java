@@ -14,7 +14,9 @@ import io.github.jbellis.brokk.mcp.HttpMcpServer;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
+import io.github.jbellis.brokk.mcp.StdioMcpServer;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.Json;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -706,6 +708,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value instanceof HttpMcpServer server) {
                     setText(server.name() + " (" + server.url() + ")");
+                } else if (value instanceof StdioMcpServer server) {
+                    setText(server.name() + " (" + server.command() + ")");
                 }
                 return this;
             }
@@ -715,12 +719,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Buttons
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var addButton = new JButton("Add...");
+        var addHttpButton = new JButton("Add HTTP...");
+        var addStdioButton = new JButton("Add Stdio...");
         var editButton = new JButton("Edit...");
         var removeButton = new JButton("Remove");
 
         // Enable and wire up action listeners for MCP server management.
-        addButton.setEnabled(true);
+        addHttpButton.setEnabled(true);
+        addStdioButton.setEnabled(true);
         editButton.setEnabled(false);
         removeButton.setEnabled(false);
 
@@ -731,8 +737,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             removeButton.setEnabled(hasSelection);
         });
 
-        // Add new MCP server (name + url). Tools can be fetched later.
-        addButton.addActionListener(e -> showMcpServerDialog("Add MCP Server", null, server -> {
+        // Add new HTTP MCP server (name + url). Tools can be fetched later.
+        addHttpButton.addActionListener(e -> showMcpServerDialog("Add HTTP MCP Server", null, server -> {
+            mcpServersListModel.addElement(server);
+            mcpServersList.setSelectedValue(server, true);
+        }));
+
+        // Add new Stdio MCP server via JSON configuration
+        addStdioButton.addActionListener(e -> showStdioMcpServerDialog("Add Stdio MCP Server", null, server -> {
             mcpServersListModel.addElement(server);
             mcpServersList.setSelectedValue(server, true);
         }));
@@ -742,10 +754,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             int idx = mcpServersList.getSelectedIndex();
             if (idx < 0) return;
             McpServer existing = mcpServersListModel.getElementAt(idx);
-            showMcpServerDialog("Edit MCP Server", existing, updated -> {
-                mcpServersListModel.setElementAt(updated, idx);
-                mcpServersList.setSelectedIndex(idx);
-            });
+            if (existing instanceof HttpMcpServer http) {
+                showMcpServerDialog("Edit MCP Server", http, updated -> {
+                    mcpServersListModel.setElementAt(updated, idx);
+                    mcpServersList.setSelectedIndex(idx);
+                });
+            } else if (existing instanceof StdioMcpServer stdio) {
+                showStdioMcpServerDialog("Edit MCP Server", stdio, updated -> {
+                    mcpServersListModel.setElementAt(updated, idx);
+                    mcpServersList.setSelectedIndex(idx);
+                });
+            }
         });
 
         // Remove selected MCP server with confirmation
@@ -763,7 +782,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         });
 
-        buttonPanel.add(addButton);
+        buttonPanel.add(addHttpButton);
+        buttonPanel.add(addStdioButton);
         buttonPanel.add(editButton);
         buttonPanel.add(removeButton);
         mcpPanel.add(buttonPanel, BorderLayout.SOUTH);
@@ -772,7 +792,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private void showMcpServerDialog(
-            String title, @Nullable McpServer existing, java.util.function.Consumer<McpServer> onSave) {
+            String title, @Nullable HttpMcpServer existing, java.util.function.Consumer<McpServer> onSave) {
         final var fetchedTools = new Object() {
             @Nullable
             List<String> value = existing != null ? existing.tools() : null;
@@ -980,7 +1000,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
                 boolean duplicate = false;
                 for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-                    HttpMcpServer s = mcpServersListModel.getElementAt(i);
+                    McpServer s = mcpServersListModel.getElementAt(i);
                     if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
                         continue;
                     }
@@ -1123,7 +1143,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 String effectiveName = name.isEmpty() ? rawUrl : name;
                 boolean duplicate = false;
                 for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-                    HttpMcpServer s = mcpServersListModel.getElementAt(i);
+                    McpServer s = mcpServersListModel.getElementAt(i);
                     if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
                         continue;
                     }
@@ -1167,6 +1187,87 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
             }
         });
+        dialog.setVisible(true);
+    }
+
+    private void showStdioMcpServerDialog(
+            String title, @Nullable StdioMcpServer existing, java.util.function.Consumer<McpServer> onSave) {
+        var textArea = new JTextArea(20, 60);
+        textArea.setLineWrap(false);
+        textArea.setWrapStyleWord(false);
+        textArea.setFont(
+                new Font(Font.MONOSPACED, Font.PLAIN, textArea.getFont().getSize()));
+
+        // Seed JSON
+        try {
+            if (existing != null) {
+                textArea.setText(Json.toJson(existing));
+            } else {
+                // Minimal JSON template for convenience
+                textArea.setText(
+                        """
+                            {
+                             "name": "",
+                             "command": "",
+                             "args": [],
+                             "env": {}
+                            }
+                            """);
+            }
+        } catch (Exception ignore) {
+            // Fallback to blank if serialization fails
+        }
+
+        var scroll = new JScrollPane(textArea);
+        scroll.setPreferredSize(new Dimension(650, 300));
+
+        var errorLabel = createErrorLabel("");
+        errorLabel.setVisible(false);
+
+        var panel = new JPanel(new BorderLayout(5, 5));
+        panel.add(scroll, BorderLayout.CENTER);
+        panel.add(errorLabel, BorderLayout.SOUTH);
+
+        var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        final var dialog = optionPane.createDialog(SettingsGlobalPanel.this, title);
+        dialog.setResizable(true);
+        var preferred = dialog.getPreferredSize();
+        int minWidth = Math.max(800, preferred.width);
+        int prefHeight = Math.max(500, preferred.height);
+        dialog.setMinimumSize(new Dimension(700, 400));
+        dialog.setPreferredSize(new Dimension(minWidth, prefHeight));
+        dialog.pack();
+        dialog.setLocationRelativeTo(SettingsGlobalPanel.this);
+
+        optionPane.addPropertyChangeListener(pce -> {
+            if (pce.getSource() != optionPane || !pce.getPropertyName().equals(JOptionPane.VALUE_PROPERTY)) {
+                return;
+            }
+            var value = optionPane.getValue();
+            if (value == JOptionPane.UNINITIALIZED_VALUE) {
+                return;
+            }
+
+            if (value.equals(JOptionPane.OK_OPTION)) {
+                String jsonText = textArea.getText();
+                try {
+                    StdioMcpServer parsed = Json.fromJson(jsonText, StdioMcpServer.class);
+                    errorLabel.setVisible(false);
+                    onSave.accept(parsed);
+                    dialog.setVisible(false);
+                } catch (Exception ex) {
+                    var root = ex.getCause() != null ? ex.getCause() : ex;
+                    errorLabel.setText(root.getMessage() != null ? root.getMessage() : root.toString());
+                    errorLabel.setVisible(true);
+                    dialog.pack();
+                    dialog.setVisible(true);
+                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                }
+            } else {
+                dialog.setVisible(false);
+            }
+        });
+
         dialog.setVisible(true);
     }
 

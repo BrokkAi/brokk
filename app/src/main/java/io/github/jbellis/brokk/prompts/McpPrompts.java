@@ -36,7 +36,7 @@ public class McpPrompts {
 
                     List<McpSchema.Tool> available;
                     try {
-                        available = McpUtils.fetchTools(server.url(), server.bearerToken());
+                        available = McpUtils.fetchTools(server);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }

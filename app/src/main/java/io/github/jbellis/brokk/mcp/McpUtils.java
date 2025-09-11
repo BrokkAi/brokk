@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -92,6 +93,16 @@ public class McpUtils {
         }
     }
 
+    public static List<McpSchema.Tool> fetchTools(McpServer server) throws IOException {
+        if (server instanceof HttpMcpServer httpMcpServer) {
+            return fetchTools(httpMcpServer.url(), httpMcpServer.bearerToken(), null);
+        } else if (server instanceof StdioMcpServer stdioMcpServer) {
+            return fetchTools(stdioMcpServer.command(), stdioMcpServer.args(), stdioMcpServer.env(), null);
+        } else {
+            return Collections.emptyList();
+        }
+    }
+
     public static List<McpSchema.Tool> fetchTools(URL url, @Nullable String bearerToken) throws IOException {
         return fetchTools(url, bearerToken, null);
     }
@@ -107,6 +118,24 @@ public class McpUtils {
             logger.error("Failed to fetch tools from MCP server at {}: {}", url, e.getMessage());
             throw new IOException(
                     "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.", e);
+        }
+    }
+
+    public static List<McpSchema.Tool> fetchTools(
+            String command, List<String> arguments, Map<String, String> env, @Nullable Path projectRoot)
+            throws IOException {
+        try {
+            return withMcpSyncClient(command, arguments, env, projectRoot, client -> {
+                McpSchema.ListToolsResult toolsResult = client.listTools();
+                return toolsResult.tools();
+            });
+        } catch (Exception e) {
+            logger.error(
+                    "Failed to fetch tools from MCP server on command '{} {}': {}",
+                    command,
+                    String.join(" ", arguments),
+                    e.getMessage());
+            throw new IOException("Failed to fetch tools.", e);
         }
     }
 
@@ -130,7 +159,7 @@ public class McpUtils {
             try {
                 return withMcpSyncClient(
                         stdioMcpServer.command(),
-                        stdioMcpServer.arguments(),
+                        stdioMcpServer.args(),
                         stdioMcpServer.env(),
                         projectRoot,
                         client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
@@ -139,7 +168,7 @@ public class McpUtils {
                         "Failed to call tool '{}' from MCP server on command '{} {}': {} ",
                         toolName,
                         stdioMcpServer.command(),
-                        String.join(" ", stdioMcpServer.arguments()),
+                        String.join(" ", stdioMcpServer.args()),
                         e.getMessage());
                 throw new IOException("Failed to fetch tools.", e);
             }
