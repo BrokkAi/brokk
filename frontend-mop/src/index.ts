@@ -10,6 +10,7 @@ import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
 import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage} from './stores/zoomStore';
+import './components/ZoomWidget.ts';
 
 const mainLog = createLogger('main');
 
@@ -22,6 +23,7 @@ const buffer = setupBrokkInterface();
 replayBufferedItems(buffer);
 void initSearchController();
 setupSearchRehighlight();
+setupZoomDisplayObserver();
 
 // Function definitions below
 function checkWorkerSupport(): void {
@@ -69,15 +71,12 @@ function setupBrokkInterface(): any[] {
         // Zoom API
         zoomIn: () => {
             zoomIn();
-            updateZoomDisplay();
         },
         zoomOut: () => {
             zoomOut();
-            updateZoomDisplay();
         },
         resetZoom: () => {
             resetZoom();
-            updateZoomDisplay();
         },
 
     };
@@ -202,10 +201,15 @@ function setupSearchRehighlight(): void {
     });
 }
 
-function updateZoomDisplay(): void {
-    const zoomDisplayEl = document.getElementById('zoom-display');
-    if (zoomDisplayEl) {
-        const currentZoom = get(zoomStore);
-        zoomDisplayEl.textContent = getZoomPercentage(currentZoom);
-    }
+function setupZoomDisplayObserver(): void {
+    const render = (zoom: number) => {
+        const el = document.getElementById('zoom-display');
+        if (el) {
+            el.textContent = getZoomPercentage(zoom);
+        }
+    };
+
+    // Initial render and ongoing updates
+    render(get(zoomStore));
+    zoomStore.subscribe(render);
 }
