@@ -47,22 +47,21 @@ public class McpPrompts {
                     var descByName = available.stream()
                             .collect(Collectors.toMap(McpSchema.Tool::name, McpSchema.Tool::description, (a, b) -> a));
 
-                    var toolLines = toolsForServer.stream()
+                    return toolsForServer.stream()
                             .map(sel -> {
                                 var desc = descByName.get(sel.toolName());
                                 var descText = (desc == null || desc.isBlank()) ? "(no description provided)" : desc;
-                                return "- " + sel.toolName() + ": " + descText;
+                                return "<tool>\n\t<name>" + sel.toolName() + "</name>\n\t<description>" + descText
+                                        + "\n\t</description>\n</tool>\n";
                             })
                             .collect(Collectors.joining("\n"));
-
-                    return "Server: " + server.name() + "\n" + toolLines;
                 })
                 .collect(Collectors.joining("\n\n"));
 
         if (sections.isBlank()) {
             return null;
         }
-        var header = "Available MCP tools (restricted to this project configuration):";
+        var header = "Available MCP tools callable by `callMcpTool` (restricted to this project configuration):";
         return header + "\n" + sections;
     }
 }

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.agents;
 import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import com.google.gson.JsonSyntaxException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -28,11 +29,7 @@ import io.github.jbellis.brokk.prompts.McpPrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
-import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.ExecutorConfig;
-import io.github.jbellis.brokk.util.ExecutorValidator;
-import io.github.jbellis.brokk.util.LogDescription;
-import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.*;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.Callable;
@@ -225,11 +222,11 @@ public class ArchitectAgent {
             var entrySummary = entry.summary();
             var summary =
                     """
-                    CodeAgent success!
-                    <summary>
-                    %s
-                    </summary>
-                    """
+                            CodeAgent success!
+                            <summary>
+                            %s
+                            </summary>
+                            """
                             .stripIndent()
                             .formatted(entrySummary); // stopDetails may be redundant for success
             logger.debug("Summary for successful callCodeAgent: {}", summary);
@@ -251,15 +248,15 @@ public class ArchitectAgent {
         this.offerUndoToolNext = true;
         var summary =
                 """
-                CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
-                <summary>
-                %s
-                </summary>
+                        CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
+                        <summary>
+                        %s
+                        </summary>
 
-                <stop-details>
-                %s
-                </stop-details>
-                """
+                        <stop-details>
+                        %s
+                        </stop-details>
+                        """
                         .stripIndent()
                         .formatted(entry.summary(), stopDetails);
         logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
@@ -450,11 +447,11 @@ public class ArchitectAgent {
 
         var msg =
                 """
-                    Command finished successfully.
-                    <output>
-                    %s
-                    </output>
-                    """
+                        Command finished successfully.
+                        <output>
+                        %s
+                        </output>
+                        """
                         .stripIndent()
                         .formatted(output.trim());
         io.llmOutput(msg, ChatMessageType.CUSTOM);
@@ -505,11 +502,11 @@ public class ArchitectAgent {
                 result.output().sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(","));
         var stringResult =
                 """
-                %s
+                        %s
 
-                Full list of potentially relevant classes:
-                %s
-                """
+                        Full list of potentially relevant classes:
+                        %s
+                        """
                         .stripIndent()
                         .formatted(
                                 TaskEntry.formatMessages(historyResult.output().messages()), relevantClasses);
@@ -518,13 +515,33 @@ public class ArchitectAgent {
         return stringResult;
     }
 
+    @SuppressWarnings("unchecked")
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
     public String callMcpTool(
             @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
             @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
                     @Nullable
-                    Map<String, Object> arguments) {
-        Map<String, Object> args = arguments == null ? Collections.emptyMap() : arguments;
+                    String arguments) {
+        Map<String, Object> args;
+        if (arguments == null || arguments.isBlank()) {
+            args = Collections.emptyMap();
+        } else {
+            Map<?, ?> parsedArgs;
+            try {
+                parsedArgs = Json.fromJson(arguments, Map.class);
+            } catch (JsonSyntaxException e) {
+                var err = "Unable to deserialize 'arguments' parameter.";
+                logger.error(err, e);
+                return err + " " + e.getMessage();
+            }
+            try {
+                args = (Map<String, Object>) parsedArgs;
+            } catch (ClassCastException e) {
+                var err = "The argument 'arguments' is not of type Map<String, Object>.";
+                logger.error(err, e);
+                return err;
+            }
+        }
 
         var mcpToolOptional = options.selectedMcpTools().stream()
                 .filter(t -> t.toolName().equals(toolName))
@@ -532,6 +549,10 @@ public class ArchitectAgent {
 
         if (mcpToolOptional.isEmpty()) {
             var err = "Error: MCP tool '" + toolName + "' not found in configuration.";
+            if (toolName.contains("(") || toolName.contains("{")) {
+                err = err
+                        + " Possible arguments found in the tool name. Hint: The first argument, 'toolName', is the tool name only. Any arguments must be defined as a map in the second argument, named 'arguments'.";
+            }
             logger.warn(err);
             return err;
         }
@@ -988,14 +1009,14 @@ public class ArchitectAgent {
         if (!topClassesRaw.isBlank()) {
             var topClassesText =
                     """
-                           <related_classes>
-                           Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
-                           If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                           visible to Code Agent. If they are not relevant, just ignore them.
+                            <related_classes>
+                            Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                            If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
+                            visible to Code Agent. If they are not relevant, just ignore them.
 
-                           %s
-                           </related_classes>
-                           """
+                            %s
+                            </related_classes>
+                            """
                             .stripIndent()
                             .formatted(topClassesRaw);
             messages.add(new UserMessage(topClassesText));
