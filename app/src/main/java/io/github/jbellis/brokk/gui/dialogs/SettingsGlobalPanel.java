@@ -29,6 +29,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -793,14 +794,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     private void showMcpServerDialog(
             String title, @Nullable HttpMcpServer existing, java.util.function.Consumer<McpServer> onSave) {
-        final var fetchedTools = new Object() {
-            @Nullable
-            List<String> value = existing != null ? existing.tools() : null;
-        };
-        final var fetchedToolDetails = new Object() {
-            @Nullable
-            List<McpSchema.Tool> value = null;
-        };
+        final var fetchedTools =
+                new AtomicReference<@Nullable List<String>>(existing != null ? existing.tools() : null);
+        final var fetchedToolDetails = new AtomicReference<@Nullable List<McpSchema.Tool>>(null);
         JTextField nameField = new JTextField(existing != null ? existing.name() : "");
         JTextField urlField = new JTextField(existing != null ? existing.url().toString() : "");
         JCheckBox useTokenCheckbox = new JCheckBox("Use Bearer Token");
@@ -871,8 +867,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         errorScrollPane.setPreferredSize(new Dimension(650, 240));
         errorScrollPane.setVisible(false);
 
-        if (fetchedTools.value != null && !fetchedTools.value.isEmpty()) {
-            toolsTable.setToolsFromNames(fetchedTools.value);
+        if (fetchedTools.get() != null && !fetchedTools.get().isEmpty()) {
+            toolsTable.setToolsFromNames(fetchedTools.get());
             toolsScrollPane.setVisible(true);
             errorScrollPane.setVisible(false);
         }
@@ -911,43 +907,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             lastFetchedUrl.set(rawUrl);
             lastFetchStartedAt.set(System.currentTimeMillis());
 
-            fetchStatusLabel.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
-            fetchStatusLabel.setText("Fetching...");
-
-            new SwingWorker<List<McpSchema.Tool>, Void>() {
-                @Override
-                protected List<McpSchema.Tool> doInBackground() throws IOException {
-                    return McpUtils.fetchTools(urlObj, finalBearerToken);
-                }
-
-                @Override
-                protected void done() {
-                    fetchStatusLabel.setIcon(null);
-                    fetchStatusLabel.setText(" ");
-                    try {
-                        List<McpSchema.Tool> tools = get();
-                        fetchedToolDetails.value = tools;
-                        var toolNames = tools.stream().map(McpSchema.Tool::name).collect(Collectors.toList());
-                        fetchedTools.value = toolNames;
-
-                        toolsTable.setToolsFromDetails(tools);
-
-                        toolsScrollPane.setVisible(true);
-                        errorScrollPane.setVisible(false);
-                        SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
-                    } catch (Exception ex) {
-                        var root = ex.getCause() != null ? ex.getCause() : ex;
-                        logger.error("Error fetching MCP tools", root);
-                        fetchedTools.value = null;
-                        fetchedToolDetails.value = null;
-
-                        errorTextArea.setText(root.getMessage());
-                        toolsScrollPane.setVisible(false);
-                        errorScrollPane.setVisible(true);
-                        SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
-                    }
-                }
-            }.execute();
+            Callable<List<McpSchema.Tool>> callable = () -> McpUtils.fetchTools(urlObj, finalBearerToken);
+            initiateMcpToolsFetch(
+                    fetchStatusLabel,
+                    callable,
+                    toolsTable,
+                    toolsScrollPane,
+                    errorTextArea,
+                    errorScrollPane,
+                    fetchedToolDetails,
+                    fetchedTools);
         };
 
         final javax.swing.Timer[] throttleTimer = new javax.swing.Timer[1];
@@ -1161,7 +1130,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
 
                 HttpMcpServer newServer =
-                        createMcpServerFromInputs(name, rawUrl, useToken, tokenField, fetchedTools.value);
+                        createMcpServerFromInputs(name, rawUrl, useToken, tokenField, fetchedTools.get());
 
                 if (newServer != null) {
                     onSave.accept(newServer);
@@ -1182,7 +1151,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             public void windowOpened(WindowEvent e) {
                 // Trigger initial fetch for existing servers to populate tool descriptions (tooltips)
                 String current = urlField.getText().trim();
-                if (existing != null && fetchedToolDetails.value == null && isUrlValid(current)) {
+                if (existing != null && fetchedToolDetails.get() == null && isUrlValid(current)) {
                     fetcher.run();
                 }
             }
@@ -1198,10 +1167,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         textArea.setFont(
                 new Font(Font.MONOSPACED, Font.PLAIN, textArea.getFont().getSize()));
 
-        // Seed JSON
+        // Seed JSON (omit tools from the editable JSON)
         try {
             if (existing != null) {
-                textArea.setText(Json.toJson(existing));
+                var seed =
+                        new StdioMcpServer(existing.name(), existing.command(), existing.args(), existing.env(), null);
+                textArea.setText(Json.toJson(seed));
             } else {
                 // Minimal JSON template for convenience
                 textArea.setText(
@@ -1218,15 +1189,106 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             // Fallback to blank if serialization fails
         }
 
-        var scroll = new JScrollPane(textArea);
-        scroll.setPreferredSize(new Dimension(650, 300));
+        // JSON scroll area
+        var jsonScroll = new JScrollPane(textArea);
+        jsonScroll.setPreferredSize(new Dimension(650, 300));
 
+        // JSON error label
         var errorLabel = createErrorLabel("");
         errorLabel.setVisible(false);
 
-        var panel = new JPanel(new BorderLayout(5, 5));
-        panel.add(scroll, BorderLayout.CENTER);
-        panel.add(errorLabel, BorderLayout.SOUTH);
+        // --- Tool fetching UI, similar to HTTP dialog ---
+        final var fetchedTools =
+                new AtomicReference<@Nullable List<String>>(existing != null ? existing.tools() : null);
+        final var fetchedToolDetails = new AtomicReference<@Nullable List<McpSchema.Tool>>(null);
+
+        javax.swing.JLabel fetchStatusLabel = new javax.swing.JLabel(" ");
+
+        var toolsTable = new McpToolTable();
+        var toolsScrollPane = new JScrollPane(toolsTable);
+        toolsScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        toolsScrollPane.setPreferredSize(new Dimension(650, 240));
+        toolsScrollPane.setVisible(true);
+
+        var fetchErrorTextArea = new JTextArea(5, 20);
+        fetchErrorTextArea.setEditable(false);
+        fetchErrorTextArea.setLineWrap(true);
+        fetchErrorTextArea.setWrapStyleWord(true);
+        var fetchErrorScrollPane = new JScrollPane(fetchErrorTextArea);
+        fetchErrorScrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        fetchErrorScrollPane.setPreferredSize(new Dimension(650, 240));
+        fetchErrorScrollPane.setVisible(false);
+
+        if (fetchedTools.get() != null && !fetchedTools.get().isEmpty()) {
+            toolsTable.setToolsFromNames(fetchedTools.get());
+            toolsScrollPane.setVisible(true);
+            fetchErrorScrollPane.setVisible(false);
+        }
+
+        // Fetch Tools button
+        var fetchButton = new JButton("Fetch Tools");
+        fetchButton.addActionListener(e -> {
+            String jsonText = textArea.getText();
+            StdioMcpServer parsed;
+            try {
+                parsed = Json.fromJson(jsonText, StdioMcpServer.class);
+                // Hide JSON error when parsing succeeds
+                errorLabel.setVisible(false);
+            } catch (Exception ex) {
+                var root = ex.getCause() != null ? ex.getCause() : ex;
+                errorLabel.setText(root.getMessage() != null ? root.getMessage() : root.toString());
+                errorLabel.setVisible(true);
+                java.awt.Window w = SwingUtilities.getWindowAncestor(errorLabel);
+                if (w != null) w.pack();
+                return;
+            }
+
+            java.util.concurrent.Callable<java.util.List<io.modelcontextprotocol.spec.McpSchema.Tool>> callable =
+                    () -> McpUtils.fetchTools(parsed.command(), parsed.args(), parsed.env(), null);
+            initiateMcpToolsFetch(
+                    fetchStatusLabel,
+                    callable,
+                    toolsTable,
+                    toolsScrollPane,
+                    fetchErrorTextArea,
+                    fetchErrorScrollPane,
+                    fetchedToolDetails,
+                    fetchedTools);
+        });
+
+        // Main panel uses GridBagLayout to accommodate all components
+        var panel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.gridwidth = 1;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 1.0;
+        gbc.weighty = 0.6;
+        panel.add(jsonScroll, gbc);
+
+        // Row 1: JSON error label
+        gbc.gridy = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weighty = 0.0;
+        panel.add(errorLabel, gbc);
+
+        // Row 2: fetch controls (button + spinner/status)
+        var fetchControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        fetchControls.add(fetchButton);
+        fetchControls.add(fetchStatusLabel);
+        gbc.gridy = 2;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weighty = 0.0;
+        panel.add(fetchControls, gbc);
+
+        // Row 3: tools area (overlapping scroll panes)
+        gbc.gridy = 3;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weighty = 0.4;
+        panel.add(toolsScrollPane, gbc);
+        panel.add(fetchErrorScrollPane, gbc);
 
         var optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
         final var dialog = optionPane.createDialog(SettingsGlobalPanel.this, title);
@@ -1252,8 +1314,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 String jsonText = textArea.getText();
                 try {
                     StdioMcpServer parsed = Json.fromJson(jsonText, StdioMcpServer.class);
+                    // Build a new server that includes fetched tools
+                    StdioMcpServer toSave = new StdioMcpServer(
+                            parsed.name(), parsed.command(), parsed.args(), parsed.env(), fetchedTools.get());
+
                     errorLabel.setVisible(false);
-                    onSave.accept(parsed);
+                    onSave.accept(toSave);
                     dialog.setVisible(false);
                 } catch (Exception ex) {
                     var root = ex.getCause() != null ? ex.getCause() : ex;
@@ -1363,6 +1429,56 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         return new HttpMcpServer(name, url, tools, token);
+    }
+
+    /** Initiates an asynchronous MCP tools fetch using the provided Callable and updates UI components accordingly. */
+    private void initiateMcpToolsFetch(
+            JLabel fetchStatusLabel,
+            Callable<List<McpSchema.Tool>> fetcher,
+            McpToolTable toolsTable,
+            JScrollPane toolsScrollPane,
+            JTextArea errorTextArea,
+            JScrollPane errorScrollPane,
+            AtomicReference<@Nullable List<McpSchema.Tool>> fetchedToolDetails,
+            AtomicReference<@Nullable List<String>> fetchedTools) {
+
+        fetchStatusLabel.setIcon(SpinnerIconUtil.getSpinner(this.chrome, true));
+        fetchStatusLabel.setText("Fetching...");
+
+        new SwingWorker<List<McpSchema.Tool>, Void>() {
+            @Override
+            protected List<McpSchema.Tool> doInBackground() throws Exception {
+                return fetcher.call();
+            }
+
+            @Override
+            protected void done() {
+                fetchStatusLabel.setIcon(null);
+                fetchStatusLabel.setText(" ");
+                try {
+                    List<McpSchema.Tool> tools = get();
+                    fetchedToolDetails.set(tools);
+                    var toolNames = tools.stream().map(McpSchema.Tool::name).collect(Collectors.toList());
+                    fetchedTools.set(toolNames);
+
+                    toolsTable.setToolsFromDetails(tools);
+
+                    toolsScrollPane.setVisible(true);
+                    errorScrollPane.setVisible(false);
+                    SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
+                } catch (Exception ex) {
+                    var root = ex.getCause() != null ? ex.getCause() : ex;
+                    logger.error("Error fetching MCP tools", root);
+                    fetchedTools.set(null);
+                    fetchedToolDetails.set(null);
+
+                    errorTextArea.setText(root.getMessage());
+                    toolsScrollPane.setVisible(false);
+                    errorScrollPane.setVisible(true);
+                    SwingUtilities.getWindowAncestor(fetchStatusLabel).pack();
+                }
+            }
+        }.execute();
     }
 
     // --- Inner Classes for Quick Models Table (Copied from SettingsDialog) ---
