@@ -3,17 +3,17 @@ import type {BrokkEvent, BubbleState, HistoryTask} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {parse} from '../worker/worker-bridge';
 import {register, unregister} from '../worker/parseRouter';
-import { threadStore } from './threadStore';
+import { getNextThreadId, threadStore } from './threadStore';
 
 export const historyStore = writable<HistoryTask[]>([]);
 
 // Start history bubble sequences at a high number to avoid any collision with the main bubblesStore
 let nextHistoryBubbleSeq = 1_000_000;
 
-function handleParseResult(msg: ResultMsg, taskSequence: number): void {
+function handleParseResult(msg: ResultMsg, threadId: number): void {
     historyStore.update(currentTasks => {
         return currentTasks.map(task => {
-            if (task.sequence === taskSequence) {
+            if (task.threadId === threadId) {
                 return {
                     ...task,
                     entries: task.entries.map(e => (e.seq === msg.seq ? {...e, hast: msg.tree} : e)),
@@ -37,16 +37,12 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 return [];
 
             case 'history-task': {
-                // Ignore duplicate tasks
-                if (tasks.some(t => t.sequence === evt.sequence)) {
-                    return tasks;
-                }
-
+                const threadId = getNextThreadId();
                 const entries: BubbleState[] = [];
                 if (evt.compressed && evt.summary) {
                     entries.push({
                         seq: nextHistoryBubbleSeq++,
-                        threadId: evt.sequence,
+                        threadId: threadId,
                         type: 'SYSTEM',
                         markdown: evt.summary,
                         streaming: false,
@@ -55,7 +51,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     (evt.messages ?? []).forEach(msg => {
                         entries.push({
                             seq: nextHistoryBubbleSeq++,
-                            threadId: evt.sequence,
+                            threadId: threadId,
                             type: msg.msgType,
                             markdown: msg.text,
                             streaming: false,
@@ -64,19 +60,16 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 }
 
                 const newTask: HistoryTask = {
-                    sequence: evt.sequence,
-                    title: evt.title,
-                    messageCount: evt.messageCount,
+                    threadId: threadId,
                     compressed: evt.compressed,
-                    isCollapsed: true, // Always collapse historical tasks by default
                     entries: entries,
                 };
 
-                threadStore.setThreadCollapsed(newTask.sequence, true);
+                threadStore.setThreadCollapsed(newTask.threadId, true);
 
                 // Parse all new entries and register result handlers
                 newTask.entries.forEach(entry => {
-                    register(entry.seq, (msg: ResultMsg) => handleParseResult(msg, newTask.sequence));
+                    register(entry.seq, (msg: ResultMsg) => handleParseResult(msg, newTask.threadId));
                     // First a fast pass, then a deferred full pass for syntax highlighting
                     parse(entry.markdown, entry.seq, true);
                     setTimeout(() => parse(entry.markdown, entry.seq), 0);
@@ -84,7 +77,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
 
                 // Insert in order of sequence
                 const newTasks = [...tasks, newTask];
-                newTasks.sort((a, b) => a.sequence - b.sequence);
+                newTasks.sort((a, b) => a.threadId - b.threadId);
                 return newTasks;
             }
         }
@@ -106,10 +99,3 @@ export function reparseAll(): void {
     });
 }
 
-export function toggleTaskCollapsed(sequence: number): void {
-    historyStore.update(tasks =>
-        tasks.map(task =>
-            task.sequence === sequence ? {...task, isCollapsed: !task.isCollapsed} : task
-        )
-    );
-}

@@ -95,6 +95,7 @@ function getCurrentSelection(): string {
 
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
+    onHistoryEvent({type: 'history-reset', epoch: 0});
 }
 
 function setAppTheme(dark: boolean, isDevMode?: boolean): void {

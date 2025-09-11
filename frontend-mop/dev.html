@@ -318,8 +318,8 @@ Both approaches:
     }
 
     function showAskMd() {
-        simulateEvent('history-task', {sequence: 1, title: '"npm run dev" should run vite/svelte based on dev.html?', messageCount: 2, compressed: false, summary: "", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
-        simulateEvent('history-task', {sequence: 2, title: 'Implement the changes like described', messageCount: 2, compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
+        simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
         simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
         simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, reasoning: false})

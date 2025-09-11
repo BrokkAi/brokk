@@ -65,10 +65,7 @@ export type BubbleState = Bubble & {
 };
 
 export type HistoryTask = {
-  sequence: number;
-  title: string;
-  messageCount: number;
+  threadId: number;
   compressed: boolean;
-  isCollapsed: boolean;
   entries: BubbleState[];
 };

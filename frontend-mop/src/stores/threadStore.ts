@@ -1,5 +1,11 @@
 import { writable } from 'svelte/store';
 
+let nextThreadId = 1;
+
+export function getNextThreadId(): number {
+    return nextThreadId++;
+}
+
 const { subscribe, update, set } = writable<Record<number, boolean>>({});
 
 export const threadStore = {

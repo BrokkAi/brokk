@@ -3,13 +3,13 @@ import type {BrokkEvent, BubbleState} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {clearState, pushChunk, parse} from '../worker/worker-bridge';
 import {register, unregister} from '../worker/parseRouter';
-import { threadStore } from './threadStore';
+import { getNextThreadId, threadStore } from './threadStore';
 
 export const bubblesStore = writable<BubbleState[]>([]);
 
 /* ─── monotonic IDs & seq  ───────────────────────────── */
 let nextBubbleSeq = 0;   // grows forever (DOM keys never reused)
-let currentThreadId = 1;
+let currentThreadId = getNextThreadId();
 threadStore.setThreadCollapsed(currentThreadId, false);
 
 /* ─── main entry from Java bridge ─────────────────────── */
@@ -23,7 +23,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 // clear without flushing (hard clear; no next message)
                 clearState(false);
                 threadStore.clearAll();
-                currentThreadId++;
+                currentThreadId = getNextThreadId();
                 threadStore.setThreadCollapsed(currentThreadId, false);
                 return [];
 
@@ -38,7 +38,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         reasoningComplete: true,
                         streaming: false,
                         duration: durationInMs / 1000,
-                        isCollapsed: true, // Auto-collapse
+                        isCollapsed: true, // Auto-collapse reasoning bubble
                     };
                     list = [...list.slice(0, -1), updatedBubble];
                 }
