@@ -115,7 +115,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable JPanel modeIndicatorPanel;
     private @Nullable JLabel modeBadge;
     private @Nullable JComponent inputLayeredPane;
-    private @Nullable JPanel actionGroupPanel;
+    private ActionGroupPanel actionGroupPanel;
     private @Nullable TitledBorder instructionsTitledBorder;
     private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
     private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
@@ -882,12 +882,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             inputLayeredPane.repaint();
         }
 
-        if (actionGroupPanel != null) {
-            actionGroupPanel.setBorder(BorderFactory.createCompoundBorder(
-                    new io.github.jbellis.brokk.gui.components.RoundedLineBorder(accent, 1, -1),
-                    BorderFactory.createEmptyBorder(2, 6, 2, 2)));
-            actionGroupPanel.repaint();
-        }
+        actionGroupPanel.setAccentColor(accent);
 
         if (instructionsTitledBorder != null) {
             instructionsTitledBorder.setTitle(askMode ? "Instructions - Answer" : "Instructions - Code");
@@ -919,23 +914,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
         // Action selector group: Code/Answer switch inside a bordered panel
-        this.actionGroupPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
-        java.awt.Color borderColor = UIManager.getColor("Component.borderColor");
-        if (borderColor == null) {
-            borderColor = java.awt.Color.GRAY;
-        }
-        this.actionGroupPanel.setBorder(BorderFactory.createCompoundBorder(
-                new io.github.jbellis.brokk.gui.components.RoundedLineBorder(borderColor, 1, -1),
-                BorderFactory.createEmptyBorder(2, 6, 2, 2)));
-        this.actionGroupPanel.setOpaque(false);
-        this.actionGroupPanel.add(codeModeLabel);
-        this.actionGroupPanel.add(Box.createHorizontalStrut(2));
-        this.actionGroupPanel.add(modeSwitch);
-        this.actionGroupPanel.add(Box.createHorizontalStrut(2));
-        this.actionGroupPanel.add(answerModeLabel);
-
-        // Keep the grouping box tight; prevent BoxLayout from stretching it
-        this.actionGroupPanel.setMaximumSize(this.actionGroupPanel.getPreferredSize());
+        this.actionGroupPanel = new ActionGroupPanel(codeModeLabel, modeSwitch, answerModeLabel);
         this.actionGroupPanel.setAlignmentY(Component.CENTER_ALIGNMENT);
 
         bottomPanel.add(this.actionGroupPanel);
