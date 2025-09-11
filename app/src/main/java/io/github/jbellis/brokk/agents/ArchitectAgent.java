@@ -970,10 +970,14 @@ public class ArchitectAgent {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         var reminder = CodePrompts.instance.architectReminder(contextManager.getService(), model);
-        if (!options.selectedMcpTools().isEmpty()) {
-            messages.add(new SystemMessage(McpPrompts.mcpToolPreamble()));
-        }
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, reminder));
+
+        // Describe available MCP tools
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(options.selectedMcpTools());
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
