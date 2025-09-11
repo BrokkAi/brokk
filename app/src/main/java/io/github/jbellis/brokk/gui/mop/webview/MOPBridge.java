@@ -99,6 +99,21 @@ public final class MOPBridge {
                 "if (window.brokk && window.brokk.scrollToCurrent) { window.brokk.scrollToCurrent(); }"));
     }
 
+    public void zoomIn() {
+        Platform.runLater(
+                () -> engine.executeScript("if (window.brokk && window.brokk.zoomIn) { window.brokk.zoomIn(); }"));
+    }
+
+    public void zoomOut() {
+        Platform.runLater(
+                () -> engine.executeScript("if (window.brokk && window.brokk.zoomOut) { window.brokk.zoomOut(); }"));
+    }
+
+    public void resetZoom() {
+        Platform.runLater(() ->
+                engine.executeScript("if (window.brokk && window.brokk.resetZoom) { window.brokk.resetZoom(); }"));
+    }
+
     public void onAnalyzerReadyResponse(String contextId) {
         logger.debug("Notifying frontend that analyzer is ready for context: {}", contextId);
         var js = "if (window.brokk && window.brokk.refreshSymbolLookup) { window.brokk.refreshSymbolLookup("

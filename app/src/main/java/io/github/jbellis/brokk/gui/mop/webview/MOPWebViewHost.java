@@ -423,6 +423,33 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
+    public void zoomIn() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("zoomIn ignored; bridge not ready");
+            return;
+        }
+        bridge.zoomIn();
+    }
+
+    public void zoomOut() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("zoomOut ignored; bridge not ready");
+            return;
+        }
+        bridge.zoomOut();
+    }
+
+    public void resetZoom() {
+        var bridge = bridgeRef.get();
+        if (bridge == null) {
+            logger.debug("resetZoom ignored; bridge not ready");
+            return;
+        }
+        bridge.resetZoom();
+    }
+
     public void onAnalyzerReadyResponse(String contextId) {
         var bridge = bridgeRef.get();
         if (bridge == null) {

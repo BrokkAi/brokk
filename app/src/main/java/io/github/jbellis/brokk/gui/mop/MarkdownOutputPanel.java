@@ -242,6 +242,18 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.scrollToCurrent();
     }
 
+    public void zoomIn() {
+        webHost.zoomIn();
+    }
+
+    public void zoomOut() {
+        webHost.zoomOut();
+    }
+
+    public void resetZoom() {
+        webHost.resetZoom();
+    }
+
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
         webHost.addSearchStateListener(l);
     }
