@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.git;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.SessionRegistry;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import java.io.*;
@@ -2513,6 +2514,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 command = String.format("git worktree remove %s", absolutePath).trim();
             }
             Environment.instance.runShellCommand(command, gitTopLevel, out -> {}, Environment.GIT_TIMEOUT);
+            SessionRegistry.release(path);
         } catch (Environment.SubprocessException e) {
             String output = e.getOutput();
             // If 'force' was false and the command failed because force is needed, throw WorktreeNeedsForceException

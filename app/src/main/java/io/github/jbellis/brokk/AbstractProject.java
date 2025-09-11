@@ -467,7 +467,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public void close() {
-        SessionRegistry.release(this.root);
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
                 autoCloseableRepo.close();
