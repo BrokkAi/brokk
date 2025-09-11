@@ -1,9 +1,16 @@
 package io.github.jbellis.brokk.mcp;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
 
-public sealed interface McpServer permits HttpMcpServer, StdioMcpServer {
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = HttpMcpServer.class, name = "http"),
+    @JsonSubTypes.Type(value = StdioMcpServer.class, name = "stdio")
+})
+public interface McpServer {
 
     /**
      * Human-friendly display name for the MCP server.

@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.mcp;
 
+import com.fasterxml.jackson.annotation.JsonTypeName;
 import java.net.URL;
 import java.util.List;
 import org.jetbrains.annotations.Nullable;
@@ -20,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
  *       form {@code "Bearer <token>"}.
  * </ol>
  */
+@JsonTypeName("http")
 public record HttpMcpServer(
         /**
          * Human-friendly display name for the MCP server.

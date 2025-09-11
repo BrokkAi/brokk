@@ -928,6 +928,7 @@ public final class MainProject extends AbstractProject {
         if (json == null || json.isBlank()) {
             return McpConfig.EMPTY;
         }
+        logger.info("Deserializing McpConfig from JSON: {}", json);
         try {
             return objectMapper.readValue(json, McpConfig.class);
         } catch (JsonProcessingException e) {
@@ -944,6 +945,7 @@ public final class MainProject extends AbstractProject {
                 props.remove(MCP_CONFIG_JSON_KEY);
             } else {
                 String newJson = objectMapper.writeValueAsString(config);
+                logger.info("Serialized McpConfig to JSON: {}", newJson);
                 props.setProperty(MCP_CONFIG_JSON_KEY, newJson);
             }
             saveGlobalProperties(props);

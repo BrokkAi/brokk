@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.mcp;
 
+import com.fasterxml.jackson.annotation.JsonTypeName;
 import java.util.List;
 import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
+@JsonTypeName("stdio")
 public record StdioMcpServer(
         /**
          * Human-friendly display name for the MCP server.

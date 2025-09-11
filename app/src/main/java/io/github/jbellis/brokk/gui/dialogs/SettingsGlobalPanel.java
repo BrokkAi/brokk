@@ -571,7 +571,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // MCP Servers Tab
         mcpServersListModel.clear();
-        var mcpConfig = chrome.getProject().getMcpConfig();
+        var mcpConfig = chrome.getProject().getMainProject().getMcpConfig();
         for (McpServer server : mcpConfig.servers()) {
             mcpServersListModel.addElement(server);
         }
@@ -692,7 +692,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             servers.add(mcpServersListModel.getElementAt(i));
         }
         var newMcpConfig = new McpConfig(servers);
-        chrome.getProject().setMcpConfig(newMcpConfig);
+        chrome.getProject().getMainProject().setMcpConfig(newMcpConfig);
 
         return true;
     }
@@ -1395,6 +1395,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         panel.add(nameErrorLabel, gbc);
 
         // Row 2: Command
+        gbc.insets = new Insets(8, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = 2;
         gbc.weightx = 0;
@@ -1406,10 +1407,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         panel.add(commandField, gbc);
 
         // Row 3: Args label
+        gbc.insets = new Insets(8, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = 3;
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
         panel.add(new JLabel("Arguments:"), gbc);
         // Row 3: Args table + buttons
         gbc.gridx = 1;
@@ -1421,10 +1424,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         panel.add(argsContainer, gbc);
 
         // Row 4: Env label
+        gbc.insets = new Insets(8, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = 4;
         gbc.weightx = 0;
         gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
         panel.add(new JLabel("Environment:"), gbc);
         // Row 4: Env table + buttons
         gbc.gridx = 1;
@@ -1435,14 +1440,18 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         envContainer.add(envButtons, BorderLayout.SOUTH);
         panel.add(envContainer, gbc);
 
-        // Row 5: Fetch controls
+        // Row 7: Fetch controls (moved below tools)
         var fetchControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         fetchControls.add(fetchButton);
         fetchControls.add(fetchStatusLabel);
-        gbc.gridx = 1;
-        gbc.gridy = 5;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0;
+        gbc.gridy = 7;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.0;
+        gbc.weighty = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.insets = new Insets(5, 5, 5, 5);
         panel.add(fetchControls, gbc);
 
         // Row 6: Tools/Error area
