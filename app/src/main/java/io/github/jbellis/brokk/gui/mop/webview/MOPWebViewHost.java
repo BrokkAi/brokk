@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.util.Environment;
 import java.awt.*;
 import java.util.List;
@@ -12,7 +13,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
-import io.github.jbellis.brokk.MainProject;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
@@ -286,7 +286,6 @@ public final class MOPWebViewHost extends JPanel {
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
             setInitialTheme(darkTheme, isDevMode);
 
-
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -305,8 +304,8 @@ public final class MOPWebViewHost extends JPanel {
     public void setInitialTheme(boolean isDark, boolean isDevMode) {
         darkTheme = isDark;
         double zoom = MainProject.getMopZoom();
-        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode, zoom),
-                bridge -> bridge.setTheme(isDark, isDevMode, zoom));
+        sendOrQueue(
+                new HostCommand.SetTheme(isDark, isDevMode, zoom), bridge -> bridge.setTheme(isDark, isDevMode, zoom));
         applyTheme(Theme.create(isDark));
     }
 
