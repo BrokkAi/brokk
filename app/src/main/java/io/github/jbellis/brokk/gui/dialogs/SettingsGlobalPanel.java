@@ -16,7 +16,6 @@ import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
 import io.github.jbellis.brokk.mcp.StdioMcpServer;
 import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.Json;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -29,6 +28,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1161,48 +1161,34 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     private void showStdioMcpServerDialog(
             String title, @Nullable StdioMcpServer existing, java.util.function.Consumer<McpServer> onSave) {
-        var textArea = new JTextArea(20, 60);
-        textArea.setLineWrap(false);
-        textArea.setWrapStyleWord(false);
-        textArea.setFont(
-                new Font(Font.MONOSPACED, Font.PLAIN, textArea.getFont().getSize()));
 
-        // Seed JSON (omit tools from the editable JSON)
-        try {
-            if (existing != null) {
-                var seed =
-                        new StdioMcpServer(existing.name(), existing.command(), existing.args(), existing.env(), null);
-                textArea.setText(Json.toJson(seed));
-            } else {
-                // Minimal JSON template for convenience
-                textArea.setText(
-                        """
-                            {
-                             "name": "",
-                             "command": "",
-                             "args": [],
-                             "env": {}
-                            }
-                            """);
-            }
-        } catch (Exception ignore) {
-            // Fallback to blank if serialization fails
-        }
+        // Inputs
+        JTextField nameField = new JTextField(existing != null ? existing.name() : "");
+        JTextField commandField = new JTextField(existing != null ? existing.command() : "");
 
-        // JSON scroll area
-        var jsonScroll = new JScrollPane(textArea);
-        jsonScroll.setPreferredSize(new Dimension(650, 300));
+        List<String> initialArgs = existing != null ? existing.args() : new ArrayList<>();
+        Map<String, String> initialEnv = existing != null ? existing.env() : java.util.Collections.emptyMap();
 
-        // JSON error label
-        var errorLabel = createErrorLabel("");
-        errorLabel.setVisible(false);
+        ArgsTableModel argsModel = new ArgsTableModel(initialArgs);
+        JTable argsTable = new JTable(argsModel);
+        argsTable.setFillsViewportHeight(true);
+        argsTable.setRowHeight(argsTable.getRowHeight() + 2);
 
-        // --- Tool fetching UI, similar to HTTP dialog ---
+        EnvTableModel envModel = new EnvTableModel(initialEnv);
+        JTable envTable = new JTable(envModel);
+        envTable.setFillsViewportHeight(true);
+        envTable.setRowHeight(envTable.getRowHeight() + 2);
+
+        // Duplicate name error label
+        JLabel nameErrorLabel = createErrorLabel("Duplicate name");
+        nameErrorLabel.setVisible(false);
+
+        // Tools fetching state
         final var fetchedTools =
                 new AtomicReference<@Nullable List<String>>(existing != null ? existing.tools() : null);
         final var fetchedToolDetails = new AtomicReference<@Nullable List<McpSchema.Tool>>(null);
 
-        javax.swing.JLabel fetchStatusLabel = new javax.swing.JLabel(" ");
+        JLabel fetchStatusLabel = new JLabel(" ");
 
         var toolsTable = new McpToolTable();
         var toolsScrollPane = new JScrollPane(toolsTable);
@@ -1225,26 +1211,120 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             fetchErrorScrollPane.setVisible(false);
         }
 
+        // Name validation against duplicates (similar to HTTP dialog)
+        nameField.getDocument().addDocumentListener(new DocumentListener() {
+            private void validateName() {
+                String candidate = nameField.getText().trim();
+                if (candidate.isEmpty()) {
+                    // fall back to command for duplicate check when empty
+                    candidate = commandField.getText().trim();
+                }
+                boolean duplicate = false;
+                for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+                    McpServer s = mcpServersListModel.getElementAt(i);
+                    if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
+                        continue;
+                    }
+                    if (s.name().equalsIgnoreCase(candidate)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                nameErrorLabel.setVisible(duplicate);
+                SwingUtilities.invokeLater(() -> {
+                    java.awt.Window w = SwingUtilities.getWindowAncestor(nameField);
+                    if (w != null) w.pack();
+                });
+            }
+
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                validateName();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                validateName();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                validateName();
+            }
+        });
+
+        // Args panel with Add/Remove
+        var argsScroll = new JScrollPane(argsTable);
+        argsScroll.setPreferredSize(new Dimension(400, 120));
+        var argsButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var addArgButton = new JButton("Add");
+        var removeArgButton = new JButton("Remove");
+        argsButtons.add(addArgButton);
+        argsButtons.add(removeArgButton);
+        addArgButton.addActionListener(e -> {
+            if (argsTable.isEditing()) argsTable.getCellEditor().stopCellEditing();
+            argsModel.addRow();
+            int last = argsModel.getRowCount() - 1;
+            if (last >= 0) {
+                argsTable.setRowSelectionInterval(last, last);
+                argsTable.editCellAt(last, 0);
+                Component editor = argsTable.getEditorComponent();
+                if (editor != null) editor.requestFocusInWindow();
+            }
+        });
+        removeArgButton.addActionListener(e -> {
+            int viewRow = argsTable.getSelectedRow();
+            if (viewRow != -1) {
+                if (argsTable.isEditing()) argsTable.getCellEditor().stopCellEditing();
+                int modelRow = argsTable.convertRowIndexToModel(viewRow);
+                argsModel.removeRow(modelRow);
+            }
+        });
+
+        // Env panel with Add/Remove
+        var envScroll = new JScrollPane(envTable);
+        envScroll.setPreferredSize(new Dimension(400, 150));
+        var envButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var addEnvButton = new JButton("Add");
+        var removeEnvButton = new JButton("Remove");
+        envButtons.add(addEnvButton);
+        envButtons.add(removeEnvButton);
+        addEnvButton.addActionListener(e -> {
+            if (envTable.isEditing()) envTable.getCellEditor().stopCellEditing();
+            envModel.addRow();
+            int last = envModel.getRowCount() - 1;
+            if (last >= 0) {
+                envTable.setRowSelectionInterval(last, last);
+                envTable.editCellAt(last, 0);
+                Component editor = envTable.getEditorComponent();
+                if (editor != null) editor.requestFocusInWindow();
+            }
+        });
+        removeEnvButton.addActionListener(e -> {
+            int viewRow = envTable.getSelectedRow();
+            if (viewRow != -1) {
+                if (envTable.isEditing()) envTable.getCellEditor().stopCellEditing();
+                int modelRow = envTable.convertRowIndexToModel(viewRow);
+                envModel.removeRow(modelRow);
+            }
+        });
+
         // Fetch Tools button
         var fetchButton = new JButton("Fetch Tools");
         fetchButton.addActionListener(e -> {
-            String jsonText = textArea.getText();
-            StdioMcpServer parsed;
-            try {
-                parsed = Json.fromJson(jsonText, StdioMcpServer.class);
-                // Hide JSON error when parsing succeeds
-                errorLabel.setVisible(false);
-            } catch (Exception ex) {
-                var root = ex.getCause() != null ? ex.getCause() : ex;
-                errorLabel.setText(root.getMessage() != null ? root.getMessage() : root.toString());
-                errorLabel.setVisible(true);
-                java.awt.Window w = SwingUtilities.getWindowAncestor(errorLabel);
+            String cmd = commandField.getText().trim();
+            if (cmd.isEmpty()) {
+                fetchErrorTextArea.setText("Command cannot be empty.");
+                toolsScrollPane.setVisible(false);
+                fetchErrorScrollPane.setVisible(true);
+                java.awt.Window w = SwingUtilities.getWindowAncestor(fetchErrorScrollPane);
                 if (w != null) w.pack();
                 return;
             }
+            List<String> args = new ArrayList<>(argsModel.getArgs());
+            Map<String, String> env = envModel.getEnvMap();
 
-            java.util.concurrent.Callable<java.util.List<io.modelcontextprotocol.spec.McpSchema.Tool>> callable =
-                    () -> McpUtils.fetchTools(parsed.command(), parsed.args(), parsed.env(), null);
+            Callable<List<McpSchema.Tool>> callable = () -> McpUtils.fetchTools(cmd, args, env, null);
             initiateMcpToolsFetch(
                     fetchStatusLabel,
                     callable,
@@ -1256,37 +1336,88 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     fetchedTools);
         });
 
-        // Main panel uses GridBagLayout to accommodate all components
+        // Layout
         var panel = new JPanel(new GridBagLayout());
         var gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 5, 2, 5);
         gbc.gridx = 0;
         gbc.gridy = 0;
-        gbc.gridwidth = 1;
-        gbc.fill = GridBagConstraints.BOTH;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.fill = GridBagConstraints.NONE;
+
+        // Row 0: Name
+        panel.add(new JLabel("Name:"), gbc);
+        gbc.gridx = 1;
         gbc.weightx = 1.0;
-        gbc.weighty = 0.6;
-        panel.add(jsonScroll, gbc);
-
-        // Row 1: JSON error label
-        gbc.gridy = 1;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weighty = 0.0;
-        panel.add(errorLabel, gbc);
+        panel.add(nameField, gbc);
 
-        // Row 2: fetch controls (button + spinner/status)
+        // Row 1: Name error
+        gbc.gridx = 1;
+        gbc.gridy = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(nameErrorLabel, gbc);
+
+        // Row 2: Command
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Command:"), gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(commandField, gbc);
+
+        // Row 3: Args label
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Arguments:"), gbc);
+        // Row 3: Args table + buttons
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        gbc.fill = GridBagConstraints.BOTH;
+        var argsContainer = new JPanel(new BorderLayout(5, 5));
+        argsContainer.add(argsScroll, BorderLayout.CENTER);
+        argsContainer.add(argsButtons, BorderLayout.SOUTH);
+        panel.add(argsContainer, gbc);
+
+        // Row 4: Env label
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        gbc.weightx = 0;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(new JLabel("Environment:"), gbc);
+        // Row 4: Env table + buttons
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        gbc.fill = GridBagConstraints.BOTH;
+        var envContainer = new JPanel(new BorderLayout(5, 5));
+        envContainer.add(envScroll, BorderLayout.CENTER);
+        envContainer.add(envButtons, BorderLayout.SOUTH);
+        panel.add(envContainer, gbc);
+
+        // Row 5: Fetch controls
         var fetchControls = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         fetchControls.add(fetchButton);
         fetchControls.add(fetchStatusLabel);
-        gbc.gridy = 2;
+        gbc.gridx = 1;
+        gbc.gridy = 5;
+        gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weighty = 0.0;
         panel.add(fetchControls, gbc);
 
-        // Row 3: tools area (overlapping scroll panes)
-        gbc.gridy = 3;
+        // Row 6: Tools/Error area
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.BOTH;
-        gbc.weighty = 0.4;
+        gbc.insets = new Insets(8, 5, 5, 5);
         panel.add(toolsScrollPane, gbc);
         panel.add(fetchErrorScrollPane, gbc);
 
@@ -1311,24 +1442,48 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
 
             if (value.equals(JOptionPane.OK_OPTION)) {
-                String jsonText = textArea.getText();
-                try {
-                    StdioMcpServer parsed = Json.fromJson(jsonText, StdioMcpServer.class);
-                    // Build a new server that includes fetched tools
-                    StdioMcpServer toSave = new StdioMcpServer(
-                            parsed.name(), parsed.command(), parsed.args(), parsed.env(), fetchedTools.get());
+                // Validate and save
+                String name = nameField.getText().trim();
+                String command = commandField.getText().trim();
+                if (name.isEmpty()) {
+                    name = command;
+                }
 
-                    errorLabel.setVisible(false);
-                    onSave.accept(toSave);
-                    dialog.setVisible(false);
-                } catch (Exception ex) {
-                    var root = ex.getCause() != null ? ex.getCause() : ex;
-                    errorLabel.setText(root.getMessage() != null ? root.getMessage() : root.toString());
-                    errorLabel.setVisible(true);
+                // Duplicate name check
+                boolean duplicate = false;
+                for (int i = 0; i < mcpServersListModel.getSize(); i++) {
+                    McpServer s = mcpServersListModel.getElementAt(i);
+                    if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
+                        continue;
+                    }
+                    if (s.name().equalsIgnoreCase(name)) {
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (duplicate) {
+                    nameErrorLabel.setVisible(true);
                     dialog.pack();
                     dialog.setVisible(true);
                     optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                    return;
                 }
+
+                if (command.isEmpty()) {
+                    fetchErrorTextArea.setText("Command cannot be empty.");
+                    toolsScrollPane.setVisible(false);
+                    fetchErrorScrollPane.setVisible(true);
+                    dialog.pack();
+                    dialog.setVisible(true);
+                    optionPane.setValue(JOptionPane.UNINITIALIZED_VALUE);
+                    return;
+                }
+
+                List<String> args = new ArrayList<>(argsModel.getArgs());
+                Map<String, String> env = envModel.getEnvMap();
+                StdioMcpServer toSave = new StdioMcpServer(name, command, args, env, fetchedTools.get());
+                onSave.accept(toSave);
+                dialog.setVisible(false);
             } else {
                 dialog.setVisible(false);
             }
@@ -1479,6 +1634,122 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
             }
         }.execute();
+    }
+
+    private static class ArgsTableModel extends AbstractTableModel {
+        private final List<String> args;
+        private final String[] columnNames = {"Argument"};
+
+        public ArgsTableModel(List<String> args) {
+            this.args = new ArrayList<>(args);
+        }
+
+        public List<String> getArgs() {
+            return args;
+        }
+
+        @Override
+        public int getRowCount() {
+            return args.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return 1;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return columnNames[column];
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            return args.get(rowIndex);
+        }
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return true;
+        }
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+            args.set(rowIndex, (String) aValue);
+            fireTableCellUpdated(rowIndex, columnIndex);
+        }
+
+        public void addRow() {
+            args.add("");
+            fireTableRowsInserted(args.size() - 1, args.size() - 1);
+        }
+
+        public void removeRow(int rowIndex) {
+            if (rowIndex >= 0 && rowIndex < args.size()) {
+                args.remove(rowIndex);
+                fireTableRowsDeleted(rowIndex, rowIndex);
+            }
+        }
+    }
+
+    private static class EnvTableModel extends AbstractTableModel {
+        private final List<String[]> envVars;
+        private final String[] columnNames = {"Variable", "Value"};
+
+        public EnvTableModel(Map<String, String> env) {
+            this.envVars = new ArrayList<>(env.entrySet().stream()
+                    .map(e -> new String[] {e.getKey(), e.getValue()})
+                    .collect(Collectors.toList()));
+        }
+
+        public Map<String, String> getEnvMap() {
+            return envVars.stream()
+                    .filter(p -> p[0] != null && !p[0].trim().isEmpty())
+                    .collect(Collectors.toMap(p -> p[0], p -> p[1] != null ? p[1] : "", (v1, v2) -> v2));
+        }
+
+        @Override
+        public int getRowCount() {
+            return envVars.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return 2;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return columnNames[column];
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            return envVars.get(rowIndex)[columnIndex];
+        }
+
+        @Override
+        public boolean isCellEditable(int rowIndex, int columnIndex) {
+            return true;
+        }
+
+        @Override
+        public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
+            envVars.get(rowIndex)[columnIndex] = (String) aValue;
+            fireTableCellUpdated(rowIndex, columnIndex);
+        }
+
+        public void addRow() {
+            envVars.add(new String[] {"", ""});
+            fireTableRowsInserted(envVars.size() - 1, envVars.size() - 1);
+        }
+
+        public void removeRow(int rowIndex) {
+            if (rowIndex >= 0 && rowIndex < envVars.size()) {
+                envVars.remove(rowIndex);
+                fireTableRowsDeleted(rowIndex, rowIndex);
+            }
+        }
     }
 
     // --- Inner Classes for Quick Models Table (Copied from SettingsDialog) ---
