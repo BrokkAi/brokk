@@ -51,6 +51,7 @@ export interface BufferItem {
 }
 
 export type BubbleState = Bubble & {
+  threadId: number;
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing

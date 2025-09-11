@@ -3,6 +3,7 @@ import type {BrokkEvent, BubbleState, HistoryTask} from '../types';
 import type {ResultMsg} from '../worker/shared';
 import {parse} from '../worker/worker-bridge';
 import {register, unregister} from '../worker/parseRouter';
+import { threadStore } from './threadStore';
 
 export const historyStore = writable<HistoryTask[]>([]);
 
@@ -32,6 +33,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
         switch (evt.type) {
             case 'history-reset':
                 tasks.forEach(task => task.entries.forEach(entry => unregister(entry.seq)));
+                threadStore.clearAll();
                 return [];
 
             case 'history-task': {
@@ -44,6 +46,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                 if (evt.compressed && evt.summary) {
                     entries.push({
                         seq: nextHistoryBubbleSeq++,
+                        threadId: evt.sequence,
                         type: 'SYSTEM',
                         markdown: evt.summary,
                         streaming: false,
@@ -52,6 +55,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     (evt.messages ?? []).forEach(msg => {
                         entries.push({
                             seq: nextHistoryBubbleSeq++,
+                            threadId: evt.sequence,
                             type: msg.msgType,
                             markdown: msg.text,
                             streaming: false,
@@ -67,6 +71,8 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                     isCollapsed: true, // Always collapse historical tasks by default
                     entries: entries,
                 };
+
+                threadStore.setThreadCollapsed(newTask.sequence, true);
 
                 // Parse all new entries and register result handlers
                 newTask.entries.forEach(entry => {
