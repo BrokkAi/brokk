@@ -1719,6 +1719,15 @@ public class GitRepo implements Closeable, IGitRepo {
 
         logger.debug("Creating partial stash with message: {} for {} files", message, filesToStash.size());
 
+        // 1. Determine initial staging state
+        var status = git.status().call();
+        var stagedPaths = new HashSet<String>();
+        stagedPaths.addAll(status.getAdded());
+        stagedPaths.addAll(status.getChanged());
+        stagedPaths.addAll(status.getRemoved());
+        var originallyStagedFiles =
+                stagedPaths.stream().map(this::toProjectFile).collect(Collectors.toSet());
+
         var allUncommittedFilesWithStatus = getModifiedFiles();
         var allUncommittedProjectFiles =
                 allUncommittedFilesWithStatus.stream().map(ModifiedFile::file).collect(Collectors.toSet());
@@ -1727,12 +1736,12 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Files NOT to stash
-        var filesToCommit = allUncommittedFilesWithStatus.stream()
+        var filesToKeep = allUncommittedFilesWithStatus.stream()
                 .map(ModifiedFile::file)
                 .filter(file -> !filesToStash.contains(file))
                 .collect(Collectors.toList());
 
-        if (filesToCommit.isEmpty()) {
+        if (filesToKeep.isEmpty()) {
             // If all changed files are selected for stashing, just do a regular stash
             logger.debug("All changed files selected for stashing, using regular stash");
             return createStash(message);
@@ -1741,38 +1750,76 @@ public class GitRepo implements Closeable, IGitRepo {
         // Remember the original branch
         String originalBranch = getCurrentBranch();
         String tempBranchName = "temp-stash-branch-" + System.currentTimeMillis();
+        RevCommit stashId = null;
 
-        // Add the UN-selected files to the index
-        add(filesToCommit);
+        try {
+            // 2. Prepare index for temporary commit:
+            // - Stage all files we want to keep (those not being stashed)
+            // - Unstage any files that are to be stashed but were already staged
+            add(filesToKeep);
 
-        // Create a temporary branch and commit those files
-        logger.debug("Creating temporary branch: {}", tempBranchName);
-        git.branchCreate().setName(tempBranchName).call();
+            var stagedFilesToStash = filesToStash.stream()
+                    .filter(originallyStagedFiles::contains)
+                    .toList();
+            if (!stagedFilesToStash.isEmpty()) {
+                var resetCommand = git.reset();
+                for (var file : stagedFilesToStash) {
+                    resetCommand.addPath(toRepoRelativePath(file));
+                }
+                resetCommand.call();
+            }
 
-        logger.debug("Committing UN-selected files to temporary branch");
-        git.commit().setMessage("Temporary commit to facilitate partial stash").call();
+            // 3. Create a temporary branch and commit the staged files
+            logger.debug("Creating temporary branch: {}", tempBranchName);
+            git.branchCreate().setName(tempBranchName).call();
+            git.checkout().setName(tempBranchName).call();
 
-        // Now stash the remaining changes
-        logger.debug("Creating stash with only the selected files");
-        var stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
-        logger.debug("Partial stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
+            logger.debug("Committing UN-selected files to temporary branch");
+            git.commit()
+                    .setMessage("Temporary commit to facilitate partial stash")
+                    .call();
 
-        // Mixed reset to restore uncommitted files to the working directory
-        logger.debug("Mixed resetting to restore UN-selected files as uncommitted");
-        git.reset()
-                .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.MIXED)
-                .setRef("HEAD~1")
-                .call();
+            // 4. Prepare the remaining files (those to be stashed) by restoring their original staging state
+            if (!stagedFilesToStash.isEmpty()) {
+                add(stagedFilesToStash);
+            }
 
-        // Checkout the original branch
-        logger.debug("Checking out original branch: {}", originalBranch);
-        git.checkout().setName(originalBranch).call();
+            // 5. Stash the remaining changes
+            logger.debug("Creating stash with only the selected files");
+            stashId = git.stashCreate().setWorkingDirectoryMessage(message).call();
+            logger.debug("Partial stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
 
-        // Delete the temporary branch
-        logger.debug("Deleting temporary branch");
-        git.branchDelete().setBranchNames(tempBranchName).setForce(true).call();
+            // 6. Soft reset to undo the temporary commit, leaving its changes staged
+            logger.debug("Soft resetting to restore staged changes of files not stashed");
+            git.reset()
+                    .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
+                    .setRef("HEAD~1")
+                    .call();
 
-        invalidateCaches();
+            // 7. Unstage any files from the temporary commit that were not originally staged
+            var unstagedFilesToKeep = filesToKeep.stream()
+                    .filter(f -> !originallyStagedFiles.contains(f))
+                    .toList();
+            if (!unstagedFilesToKeep.isEmpty()) {
+                var resetCommand = git.reset();
+                for (var file : unstagedFilesToKeep) {
+                    resetCommand.addPath(toRepoRelativePath(file));
+                }
+                resetCommand.call();
+            }
+        } finally {
+            // 8. Cleanup: switch back to the original branch and delete the temporary one
+            if (!getCurrentBranch().equals(originalBranch)) {
+                logger.debug("Checking out original branch: {}", originalBranch);
+                git.checkout().setName(originalBranch).call();
+            }
+
+            logger.debug("Deleting temporary branch");
+            git.branchDelete().setBranchNames(tempBranchName).setForce(true).call();
+
+            invalidateCaches();
+        }
+
         return stashId;
     }
 
