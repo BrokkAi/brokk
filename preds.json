@@ -1,0 +1,17 @@
+[
+  {
+    "instance_id": "django__django-15202",
+    "model_name_or_path": "BrokkAgent",
+    "model_patch": ""
+  },
+  {
+    "instance_id": "django__django-17087",
+    "model_name_or_path": "BrokkAgent",
+    "model_patch": ""
+  },
+  {
+    "instance_id": "sphinx-doc__sphinx-8721",
+    "model_name_or_path": "BrokkAgent",
+    "model_patch": ""
+  }
+]

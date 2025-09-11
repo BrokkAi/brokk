@@ -1,0 +1,60 @@
+Starting Brokk CLI...
+Usage: brokk-cli [-hV] [--deepscan] [--architect=<architectPrompt>]
+                 [--ask=<askPrompt>] [--code=<codePrompt>]
+                 [--codemodel=<codeModelName>] [--model=<modelName>]
+                 --project=<projectPath> [--search=<searchPrompt>]
+                 [--worktree=<worktreePath>]
+                 [--add-callees=<String=Integer>]...
+                 [--add-callers=<String=Integer>]...
+                 [--add-class=<addClasses>]...
+                 [--add-method-source=<addMethodSources>]...
+                 [--add-summary-class=<addSummaryClasses>]...
+                 [--add-summary-file=<addSummaryFiles>]...
+                 [--add-url=<addUrls>]... [--add-usage=<addUsages>]...
+                 [--edit=<editFiles>]... [--read=<readFiles>]...
+One-shot Brokk workspace and task runner.
+      --add-callees=<String=Integer>
+                            Add callees of a FQ method. Format: <FQN>=<depth>.
+                              Can be repeated.
+      --add-callers=<String=Integer>
+                            Add callers of a FQ method. Format: <FQN>=<depth>.
+                              Can be repeated.
+      --add-class=<addClasses>
+                            Add the file containing the given FQCN to the
+                              workspace for editing. Can be repeated.
+      --add-method-source=<addMethodSources>
+                            Add the source of a FQ method as a fragment. Can be
+                              repeated.
+      --add-summary-class=<addSummaryClasses>
+                            Add a class summary/skeleton as a dynamic fragment.
+                              Can be repeated.
+      --add-summary-file=<addSummaryFiles>
+                            Add summaries for all classes in a file/glob as a
+                              dynamic fragment. Can be repeated.
+      --add-url=<addUrls>   Add content from a URL as a read-only fragment. Can
+                              be repeated.
+      --add-usage=<addUsages>
+                            Add usages of a FQ symbol as a dynamic fragment.
+                              Can be repeated.
+      --architect=<architectPrompt>
+                            Run Architect agent with the given prompt.
+      --ask=<askPrompt>     Run Ask command with the given prompt.
+      --code=<codePrompt>   Run Code agent with the given prompt.
+      --codemodel=<codeModelName>
+                            Override the code model to use.
+      --deepscan            Perform a Deep Scan to suggest additional relevant
+                              context.
+      --edit=<editFiles>    Add a file to the workspace for editing. Can be
+                              repeated.
+  -h, --help                Show this help message and exit.
+      --model=<modelName>   Override the task model to use.
+      --project=<projectPath>
+                            Path to the project root.
+      --read=<readFiles>    Add a file to the workspace as read-only. Can be
+                              repeated.
+      --search=<searchPrompt>
+                            Run Search agent with the given prompt.
+  -V, --version             Print version information and exit.
+      --worktree=<worktreePath>
+                            Create a detached worktree at the given path, from
+                              the default branch's HEAD.

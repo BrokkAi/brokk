@@ -1,0 +1,1 @@
+java -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli --project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4a72da71001f --code "@C:\Users\tenant\AppData\Local\Temp\tmp8_9m7ozi.txt"
