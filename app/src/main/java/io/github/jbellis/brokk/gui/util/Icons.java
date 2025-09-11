@@ -28,4 +28,5 @@ public final class Icons {
     public static final Icon SEND = SwingUtil.uiIcon("Brokk.send");
     public static final Icon STOP = SwingUtil.uiIcon("Brokk.stop");
     public static final Icon TERMINAL = SwingUtil.uiIcon("Brokk.terminal");
+    public static final Icon ATTACH_FILE = SwingUtil.uiIcon("Brokk.attach-file");
 }
