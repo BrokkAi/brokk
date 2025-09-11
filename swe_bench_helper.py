@@ -13,6 +13,148 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 import subprocess
 import shutil
+import time
+from datetime import datetime, timedelta
+def _now_ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def log_info(message: str) -> None:
+    print(f"[{_now_ts()}] {message}")
+
+
+def run_command_stream(
+    cmd: List[str],
+    cwd: Optional[Path] = None,
+    log_file: Optional[Path] = None,
+    label: str = "",
+    heartbeat_interval: int = 30,
+) -> Tuple[int, str, str]:
+    """Run a command streaming stdout/stderr and emitting heartbeats.
+
+    Returns: (returncode, collected_stdout, collected_stderr)
+    """
+    start = time.time()
+    last_heartbeat = start
+    collected_out: List[str] = []
+    collected_err: List[str] = []
+
+    # Open log file if provided
+    log_handle = None
+    if log_file is not None:
+        try:
+            log_handle = open(log_file, "a", encoding="utf-8")
+        except Exception:
+            log_handle = None
+
+    def _write_log(line: str) -> None:
+        if log_handle is not None:
+            try:
+                log_handle.write(line)
+                if not line.endswith("\n"):
+                    log_handle.write("\n")
+            except Exception:
+                pass
+
+    log_info(f"Starting: {' '.join(cmd)}" + (f" (label={label})" if label else ""))
+    log_info(f"DEBUG: About to create subprocess Popen")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=(str(cwd) if cwd else None),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+        log_info(f"DEBUG: Subprocess created successfully, PID: {proc.pid}")
+    except Exception as e:
+        log_info(f"DEBUG: Failed to create subprocess: {e}")
+        if log_handle is not None:
+            log_handle.close()
+        raise e
+
+    # Stream loop
+    log_info(f"DEBUG: Entering stream loop")
+    loop_count = 0
+    max_wait_time = 600  # 10 minutes timeout
+    try:
+        while True:
+            loop_count += 1
+            if loop_count % 100 == 0:  # Every 100 iterations (~10 seconds)
+                log_info(f"DEBUG: Stream loop iteration {loop_count}")
+            
+            out_line = None
+            err_line = None
+            if proc.stdout is not None:
+                out_line = proc.stdout.readline()
+            if proc.stderr is not None:
+                err_line = proc.stderr.readline()
+
+            progressed = False
+            if out_line:
+                collected_out.append(out_line)
+                _write_log(out_line.rstrip("\n"))
+                progressed = True
+                log_info(f"DEBUG: Got stdout line: {out_line.rstrip()[:50]}...")
+            if err_line:
+                collected_err.append(err_line)
+                _write_log(err_line.rstrip("\n"))
+                progressed = True
+                log_info(f"DEBUG: Got stderr line: {err_line.rstrip()[:50]}...")
+
+            poll_result = proc.poll()
+            if poll_result is not None:
+                log_info(f"DEBUG: Process finished with returncode: {poll_result}")
+                # Drain remainder
+                if proc.stdout is not None:
+                    remaining_out = proc.stdout.readlines()
+                    log_info(f"DEBUG: Draining {len(remaining_out)} remaining stdout lines")
+                    for line in remaining_out:
+                        collected_out.append(line)
+                        _write_log(line.rstrip("\n"))
+                if proc.stderr is not None:
+                    remaining_err = proc.stderr.readlines()
+                    log_info(f"DEBUG: Draining {len(remaining_err)} remaining stderr lines")
+                    for line in remaining_err:
+                        collected_err.append(line)
+                        _write_log(line.rstrip("\n"))
+                break
+
+            now = time.time()
+            elapsed = int(now - start)
+            
+            # Timeout check
+            if elapsed > max_wait_time:
+                log_info(f"ERROR: Process timed out after {max_wait_time}s, terminating")
+                try:
+                    proc.terminate()
+                    time.sleep(5)
+                    if proc.poll() is None:
+                        proc.kill()
+                except Exception:
+                    pass
+                break
+            
+            if now - last_heartbeat >= heartbeat_interval:
+                log_info(f"HEARTBEAT: Still running{f' {label}' if label else ''}... elapsed {elapsed}s (loop {loop_count})")
+                last_heartbeat = now
+
+            if not progressed:
+                time.sleep(0.1)
+    finally:
+        if log_handle is not None:
+            try:
+                log_handle.flush()
+                log_handle.close()
+            except Exception:
+                pass
+
+    rc = proc.returncode if proc.returncode is not None else -1
+    duration = int(time.time() - start)
+    log_info(f"Finished (rc={rc}){f' {label}' if label else ''} in {duration}s")
+    return rc, "".join(collected_out), "".join(collected_err)
 
 
 def validate_swe_bench_format(data: Dict[str, Any]) -> List[str]:
@@ -139,7 +281,7 @@ def load_hf_arrow_dataset(dataset_dir: Path) -> List[Dict[str, Any]]:
         print(f"Error iterating dataset rows: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Loaded {len(instances)} instances from HF Arrow dataset")
+    log_info(f"Loaded {len(instances)} instances from HF Arrow dataset")
     return instances
 
 
@@ -226,31 +368,31 @@ def prepare_repo_for_instance(instance: Dict[str, Any], workspace_root: Path, lo
             pass
 
     _log_write("checkout.txt", f"Cloning {origin} -> {tmp_dir}")
-    res = subprocess.run([
-        "git", "clone", "--filter=blob:none", "--no-checkout", origin, str(tmp_dir)
-    ], capture_output=True, text=True, encoding="utf-8")
-    _log_write("checkout.txt", res.stdout)
-    _log_write("checkout.txt", res.stderr)
-    if res.returncode != 0:
-        raise RuntimeError(f"git clone failed for {origin}: {res.stderr}")
+    rc, out, err = run_command_stream(
+        ["git", "clone", "--filter=blob:none", "--no-checkout", origin, str(tmp_dir)],
+        log_file=(logs_dir / "checkout.txt" if logs_dir else None),
+        label=f"git clone {repo_slug}"
+    )
+    if rc != 0:
+        raise RuntimeError(f"git clone failed for {origin}: {err}")
 
     _log_write("checkout.txt", f"Fetching commit {base_commit}")
-    res = subprocess.run([
-        "git", "-C", str(tmp_dir), "fetch", "origin", str(base_commit), "--depth", "1"
-    ], capture_output=True, text=True, encoding="utf-8")
-    _log_write("checkout.txt", res.stdout)
-    _log_write("checkout.txt", res.stderr)
-    if res.returncode != 0:
-        raise RuntimeError(f"git fetch failed for {origin} {base_commit}: {res.stderr}")
+    rc, out, err = run_command_stream(
+        ["git", "-C", str(tmp_dir), "fetch", "origin", str(base_commit), "--depth", "1"],
+        log_file=(logs_dir / "checkout.txt" if logs_dir else None),
+        label=f"git fetch {short}"
+    )
+    if rc != 0:
+        raise RuntimeError(f"git fetch failed for {origin} {base_commit}: {err}")
 
     _log_write("checkout.txt", f"Checking out {base_commit} (detached)")
-    res = subprocess.run([
-        "git", "-C", str(tmp_dir), "checkout", "--detach", str(base_commit)
-    ], capture_output=True, text=True, encoding="utf-8")
-    _log_write("checkout.txt", res.stdout)
-    _log_write("checkout.txt", res.stderr)
-    if res.returncode != 0:
-        raise RuntimeError(f"git checkout failed for {base_commit}: {res.stderr}")
+    rc, out, err = run_command_stream(
+        ["git", "-C", str(tmp_dir), "checkout", "--detach", str(base_commit)],
+        log_file=(logs_dir / "checkout.txt" if logs_dir else None),
+        label=f"git checkout {short}"
+    )
+    if rc != 0:
+        raise RuntimeError(f"git checkout failed for {base_commit}: {err}")
 
     # Move prepared repo into final location
     tmp_dir.rename(repo_dir)
@@ -286,13 +428,27 @@ def run_brokk_on_instance(
             "model_patch": ""
         }
     
-    # Build command
-    cmd = [
-        sys.executable, str(brokk_wrapper_path),
-        problem_statement,
-        "--instance_id", instance_id,
-        "--target_project", str(target_project)
-    ]
+    # Build command - use temp file for long problem statements to avoid command line issues
+    import tempfile
+    problem_file = None
+    if len(problem_statement) > 500 or '\n' in problem_statement:
+        # Write to temp file and use @file syntax
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write(problem_statement)
+            problem_file = f.name
+        cmd = [
+            sys.executable, str(brokk_wrapper_path),
+            f"@{problem_file}",
+            "--instance_id", instance_id,
+            "--target_project", str(target_project)
+        ]
+    else:
+        cmd = [
+            sys.executable, str(brokk_wrapper_path),
+            problem_statement,
+            "--instance_id", instance_id,
+            "--target_project", str(target_project)
+        ]
     
     if additional_args:
         cmd.extend(additional_args)
@@ -313,16 +469,20 @@ def run_brokk_on_instance(
         except Exception as e:
             print(f"Warning: Could not create log directory {inst_dir}: {e}", file=sys.stderr)
     
-    print(f"Processing instance {instance_id}...")
-    print(f"Problem: {problem_statement[:100]}...")
+    log_info(f"Processing instance {instance_id}...")
+    log_info(f"Problem (first 100): {problem_statement[:100]}...")
     
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+        rc, out, err = run_command_stream(
+            cmd,
+            log_file=(inst_dir / "wrapper_stream.txt" if log_root else None),
+            label=f"brokk_wrapper {instance_id}"
+        )
         
-        if result.returncode != 0:
+        if rc != 0:
             print(f"Error processing instance {instance_id}:", file=sys.stderr)
-            print(f"Stdout: {result.stdout}", file=sys.stderr)
-            print(f"Stderr: {result.stderr}", file=sys.stderr)
+            print(f"Stdout: {out}", file=sys.stderr)
+            print(f"Stderr: {err}", file=sys.stderr)
             return {
                 "instance_id": instance_id,
                 "model_name_or_path": "BrokkAgent",
@@ -333,8 +493,10 @@ def run_brokk_on_instance(
         with open(tmp_path, 'r', encoding='utf-8') as f:
             prediction = json.load(f)
         
-        # Clean up temp file
+        # Clean up temp files
         Path(tmp_path).unlink(missing_ok=True)
+        if problem_file:
+            Path(problem_file).unlink(missing_ok=True)
         
         # Validate the result
         errors = validate_swe_bench_format(prediction)
@@ -345,8 +507,10 @@ def run_brokk_on_instance(
         
     except Exception as e:
         print(f"Error running brokk wrapper for instance {instance_id}: {e}", file=sys.stderr)
-        # Clean up temp file
+        # Clean up temp files
         Path(tmp_path).unlink(missing_ok=True)
+        if problem_file:
+            Path(problem_file).unlink(missing_ok=True)
         return {
             "instance_id": instance_id,
             "model_name_or_path": "BrokkAgent",
@@ -487,10 +651,12 @@ def main():
             print(f"Error: Brokk wrapper not found: {brokk_wrapper_path}", file=sys.stderr)
             sys.exit(1)
 
+        start_time = time.time()
+        log_info("Loading HF Arrow dataset...")
         instances = load_hf_arrow_dataset(dataset_dir)
         if args.max_instances:
             instances = instances[:args.max_instances]
-            print(f"Processing first {len(instances)} instances")
+            log_info(f"Processing first {len(instances)} instances (max_instances)")
 
         predictions: List[Dict[str, Any]] = []
         additional_args: List[str] = []
@@ -513,8 +679,9 @@ def main():
         if workspace_root and not workspace_root.exists():
             workspace_root.mkdir(parents=True, exist_ok=True)
 
+        durations: List[float] = []
         for i, instance in enumerate(instances, 1):
-            print(f"\n--- Processing instance {i}/{len(instances)} ---")
+            log_info(f"--- Processing instance {i}/{len(instances)} ---")
             target_project: Path
             if single_target is not None:
                 target_project = single_target
@@ -522,7 +689,9 @@ def main():
             else:
                 inst_log_dir = log_root / str(instance.get("instance_id", i)) if log_root else None
                 try:
+                    step_start = time.time()
                     target_project = prepare_repo_for_instance(instance, workspace_root, inst_log_dir)
+                    log_info(f"Repo ready at {target_project} (prep {int(time.time()-step_start)}s)")
                 except Exception as e:
                     print(f"Error preparing repo for instance {instance.get('instance_id')}: {e}", file=sys.stderr)
                     predictions.append({
@@ -532,19 +701,26 @@ def main():
                     })
                     continue
 
+            inst_start = time.time()
             prediction = run_brokk_on_instance(
                 instance, brokk_wrapper_path, target_project, additional_args, log_root
             )
             predictions.append(prediction)
+            inst_dur = time.time() - inst_start
+            durations.append(inst_dur)
+            # Progress + ETA
+            elapsed = time.time() - start_time
+            avg = sum(durations) / len(durations)
+            remaining = (len(instances) - i) * avg
+            eta = datetime.now() + timedelta(seconds=int(remaining))
+            log_info(
+                f"Instance {i}/{len(instances)} done in {int(inst_dur)}s | Elapsed {int(elapsed)}s | ETA {eta.strftime('%H:%M:%S')}"
+            )
 
         output_path = Path(args.output)
         create_prediction_file(predictions, output_path)
-        print(f"\nCompleted processing {len(predictions)} instances")
-        
-        # Save predictions
-        output_path = Path(args.output)
-        create_prediction_file(predictions, output_path)
-        print(f"\nCompleted processing {len(predictions)} instances")
+        total = int(time.time() - start_time)
+        log_info(f"Completed processing {len(predictions)} instances in {total}s. Predictions: {output_path}")
     
     elif args.command == 'single':
         target_project = Path(args.target_project)

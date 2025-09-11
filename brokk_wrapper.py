@@ -7,6 +7,16 @@ import sys
 import tempfile
 from pathlib import Path
 import platform
+import time
+from datetime import datetime
+
+def _now_ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _log(line: str):
+    print(f"[{_now_ts()}] {line}")
+
 
 def run_command(command, extra_env=None, cwd=None, check=True):
     """Runs a command and returns its standard output."""
@@ -16,6 +26,8 @@ def run_command(command, extra_env=None, cwd=None, check=True):
         env.update(extra_env)
 
     try:
+        start = time.time()
+        _log(f"Running command: {' '.join(command)}")
         result = subprocess.run(
             command,
             check=check,
@@ -25,6 +37,8 @@ def run_command(command, extra_env=None, cwd=None, check=True):
             env=env,
             cwd=cwd
         )
+        duration = int(time.time() - start)
+        _log(f"Command finished (rc={result.returncode}) in {duration}s")
         if check and result.returncode != 0:
             raise subprocess.CalledProcessError(result.returncode, command, result.stdout, result.stderr)
         return result.stdout, result.stderr, result.returncode
@@ -51,17 +65,17 @@ def find_project_root():
 
 def ensure_brokk_built(project_root):
     """Ensure that the Brokk CLI JAR is built."""
-    print("Checking if Brokk CLI JAR needs to be built...")
+    _log("Checking if Brokk CLI JAR needs to be built...")
     
     # Check if JAR exists
     libs_dir = project_root / "app" / "build" / "libs"
     jar_files = list(libs_dir.glob("brokk*.jar")) if libs_dir.exists() else []
     
     if not jar_files:
-        print("Brokk JAR not found. Building...")
+        _log("Brokk JAR not found. Building...")
         build_brokk(project_root)
     else:
-        print(f"Found Brokk JAR: {jar_files[0]}")
+        _log(f"Found Brokk JAR: {jar_files[0]}")
     
     return find_brokk_jar(project_root)
 
@@ -75,14 +89,14 @@ def build_brokk(project_root):
         print(f"Error: {gradlew_cmd} not found in {project_root}", file=sys.stderr)
         sys.exit(1)
     
-    print("Building Brokk JAR with shadowJar task...")
+    _log("Building Brokk JAR with shadowJar task...")
     stdout, stderr, returncode = run_command([str(gradlew_path), "shadowJar"], cwd=project_root)
     
     if returncode != 0:
         print("Failed to build Brokk JAR", file=sys.stderr)
         sys.exit(1)
     
-    print("Brokk JAR built successfully")
+    _log("Brokk JAR built successfully")
 
 
 def find_brokk_jar(project_root):
@@ -118,10 +132,146 @@ def execute_brokk_cli(jar_path, project_path, instructions, additional_args=None
     if additional_args:
         command.extend(additional_args)
     
-    print(f"Executing: {' '.join(command[:8])} ... [--project {project_path} --code ...]")
-    stdout, stderr, returncode = run_command(command, check=False)
+    _log(f"Executing Brokk CLI: {' '.join(command[:8])} ... [--project {project_path} --code ...]")
+    _log(f"DEBUG: Full command: {' '.join(command)}")
     
-    return stdout, stderr, returncode
+    # Use streaming execution with heartbeats for long-running Brokk CLI
+    start = time.time()
+    last_heartbeat = start
+    heartbeat_interval = 30  # seconds
+    max_runtime = 600  # 10 minutes timeout
+    
+    _log(f"DEBUG: About to create Brokk CLI subprocess")
+    try:
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding='utf-8',
+            bufsize=1
+        )
+        _log(f"DEBUG: Brokk CLI subprocess created, PID: {proc.pid}")
+        
+        stdout_lines = []
+        stderr_lines = []
+        
+        _log(f"DEBUG: Entering Brokk CLI read loop")
+        loop_count = 0
+        while True:
+            loop_count += 1
+            if loop_count % 50 == 0:  # Every 50 iterations (~5 seconds)
+                _log(f"DEBUG: Brokk CLI loop iteration {loop_count}")
+            
+            # Check if process is still alive first
+            poll_result = proc.poll()
+            if poll_result is not None:
+                _log(f"DEBUG: Brokk CLI finished with returncode: {poll_result}")
+                # Drain remaining output
+                if proc.stdout:
+                    remaining_out = proc.stdout.readlines()
+                    _log(f"DEBUG: Draining {len(remaining_out)} remaining Brokk stdout lines")
+                    stdout_lines.extend(remaining_out)
+                if proc.stderr:
+                    remaining_err = proc.stderr.readlines()
+                    _log(f"DEBUG: Draining {len(remaining_err)} remaining Brokk stderr lines")
+                    stderr_lines.extend(remaining_err)
+                break
+            
+            # Try non-blocking read using select-like approach
+            import select
+            import sys
+            
+            # On Windows, select doesn't work with pipes, so we use a different approach
+            if sys.platform.startswith('win'):
+                # Use timeout-based approach for Windows
+                import threading
+                import queue
+                
+                def read_output(pipe, result_queue, stream_name):
+                    try:
+                        line = pipe.readline()
+                        if line:
+                            result_queue.put((stream_name, line))
+                    except:
+                        pass
+                
+                stdout_line = None
+                stderr_line = None
+                
+                if proc.stdout:
+                    stdout_queue = queue.Queue()
+                    stdout_thread = threading.Thread(target=read_output, args=(proc.stdout, stdout_queue, 'stdout'))
+                    stdout_thread.daemon = True
+                    stdout_thread.start()
+                    stdout_thread.join(timeout=0.1)  # 100ms timeout
+                    try:
+                        _, stdout_line = stdout_queue.get_nowait()
+                    except queue.Empty:
+                        stdout_line = None
+                
+                if proc.stderr:
+                    stderr_queue = queue.Queue()
+                    stderr_thread = threading.Thread(target=read_output, args=(proc.stderr, stderr_queue, 'stderr'))
+                    stderr_thread.daemon = True
+                    stderr_thread.start()
+                    stderr_thread.join(timeout=0.1)  # 100ms timeout
+                    try:
+                        _, stderr_line = stderr_queue.get_nowait()
+                    except queue.Empty:
+                        stderr_line = None
+            else:
+                # Unix-like systems can use select
+                ready, _, _ = select.select([proc.stdout, proc.stderr], [], [], 0.1)
+                stdout_line = proc.stdout.readline() if proc.stdout in ready else None
+                stderr_line = proc.stderr.readline() if proc.stderr in ready else None
+            
+            progressed = False
+            if stdout_line:
+                stdout_lines.append(stdout_line)
+                progressed = True
+                _log(f"DEBUG: Brokk stdout: {stdout_line.rstrip()[:50]}...")
+            if stderr_line:
+                stderr_lines.append(stderr_line)
+                progressed = True
+                _log(f"DEBUG: Brokk stderr: {stderr_line.rstrip()[:50]}...")
+                
+            # Heartbeat and timeout check
+            now = time.time()
+            elapsed = int(now - start)
+            
+            # Check for timeout
+            if elapsed > max_runtime:
+                _log(f"ERROR: Brokk CLI timed out after {max_runtime}s, terminating process")
+                try:
+                    proc.terminate()
+                    time.sleep(5)
+                    if proc.poll() is None:
+                        _log("DEBUG: Process didn't terminate, killing it")
+                        proc.kill()
+                except Exception as e:
+                    _log(f"DEBUG: Error terminating process: {e}")
+                break
+            
+            if now - last_heartbeat >= heartbeat_interval:
+                _log(f"HEARTBEAT: Brokk CLI still running... elapsed {elapsed}s (loop {loop_count})")
+                last_heartbeat = now
+                
+            if not progressed:
+                time.sleep(0.1)
+                
+        returncode = proc.returncode
+        stdout = ''.join(stdout_lines)
+        stderr = ''.join(stderr_lines)
+        
+        duration = int(time.time() - start)
+        _log(f"Brokk CLI finished (rc={returncode}) in {duration}s")
+        
+        return stdout, stderr, returncode
+        
+    except Exception as e:
+        _log(f"Error executing Brokk CLI: {e}")
+        return "", str(e), 1
 
 def main():
     """
@@ -196,7 +346,9 @@ def main():
         help="Optional directory to write logs (command, stdout, stderr, git diff)."
     )
 
+    _log("DEBUG: About to parse arguments")
     args = parser.parse_args()
+    _log(f"DEBUG: Arguments parsed successfully: {vars(args)}")
 
     # Determine project paths
     if args.brokk_project:
@@ -224,13 +376,13 @@ def main():
         print("Brokk CLI requires the target project to be a Git repository.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Brokk project root: {brokk_root}")
-    print(f"Target project: {target_project}")
+    _log(f"Brokk project root: {brokk_root}")
+    _log(f"Target project: {target_project}")
 
     # Ensure Brokk CLI is built
     try:
         jar_path = ensure_brokk_built(brokk_root)
-        print(f"Using Brokk JAR: {jar_path}")
+        _log(f"Using Brokk JAR: {jar_path}")
     except Exception as e:
         print(f"Error building Brokk CLI: {e}", file=sys.stderr)
         sys.exit(1)
@@ -241,10 +393,10 @@ def main():
         additional_args.extend(["--model", args.model])
 
     if args.dry_run:
-        print("DRY RUN - Would execute:")
-        print(f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} --code \"{args.instructions}\"")
+        _log("DRY RUN - Would execute:")
+        _log(f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} --code \"{args.instructions}\"")
         if additional_args:
-            print(f"Additional args: {' '.join(additional_args)}")
+            _log(f"Additional args: {' '.join(additional_args)}")
         return
 
     # If logging is enabled, ensure directory exists and record command later
@@ -258,16 +410,16 @@ def main():
             sys.exit(1)
 
     # Execute Brokk CLI
-    print("Running Brokk to apply changes based on instructions...")
+    _log("Running Brokk to apply changes based on instructions...")
     try:
         stdout, stderr, returncode = execute_brokk_cli(jar_path, target_project, args.instructions, additional_args)
         
         if args.verbose:
-            print("=== Brokk stdout ===")
+            _log("=== Brokk stdout ===")
             print(stdout)
-            print("=== Brokk stderr ===") 
+            _log("=== Brokk stderr ===") 
             print(stderr)
-            print("=== End Brokk output ===")
+            _log("=== End Brokk output ===")
 
         # Write logs if requested
         if log_dir_path:
@@ -292,13 +444,13 @@ def main():
                 print(stderr, file=sys.stderr)
             # Continue to capture diff even if Brokk had issues
         else:
-            print("Brokk finished successfully.")
+            _log("Brokk finished successfully.")
             
     except Exception as e:
         print(f"Error executing Brokk CLI: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print("Capturing git diff...")
+    _log("Capturing git diff...")
 
     # Capture the git diff of all uncommitted changes in the target project
     try:
@@ -348,7 +500,7 @@ def main():
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(output_str)
-            print(f"Output saved to {output_path}")
+            _log(f"Output saved to {output_path}")
         except Exception as e:
             print(f"Error writing to output file {output_path}: {e}", file=sys.stderr)
             sys.exit(1)
@@ -356,4 +508,7 @@ def main():
         print(output_str)
 
 if __name__ == "__main__":
+    print(f"[{_now_ts()}] DEBUG: brokk_wrapper.py starting up...")
+    print(f"[{_now_ts()}] DEBUG: sys.argv = {sys.argv}")
+    sys.stdout.flush()
     main()
