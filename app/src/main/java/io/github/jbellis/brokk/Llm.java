@@ -1044,6 +1044,10 @@ public class Llm {
                                         description = jbSchema.description();
                                         type = "boolean";
                                     }
+                                    case JsonObjectSchema joSchema -> {
+                                        description = joSchema.description();
+                                        type = "map";
+                                    }
                                     default -> throw new IllegalArgumentException("Unsupported schema type: " + schema);
                                 }
                                 assert description != null : "null description for " + entry;

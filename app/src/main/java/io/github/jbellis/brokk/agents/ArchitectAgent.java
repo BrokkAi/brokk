@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.agents;
 import static io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel.isReasoningMessage;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import com.google.gson.JsonSyntaxException;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -521,29 +520,8 @@ public class ArchitectAgent {
             @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
             @P("A map of argument names to values for the tool. Can be null or empty if the tool takes no arguments.")
                     @Nullable
-                    String arguments) {
-        Map<String, Object> args;
-        // fixme: Arguments should ideally be Map<String, Object>
-        if (arguments == null || arguments.isBlank()) {
-            args = Collections.emptyMap();
-        } else {
-            Map<?, ?> parsedArgs;
-            try {
-                parsedArgs = Json.fromJson(arguments, Map.class);
-            } catch (JsonSyntaxException e) {
-                var err = "Unable to deserialize 'arguments' parameter.";
-                logger.error(err, e);
-                return err + " " + e.getMessage();
-            }
-            try {
-                args = (Map<String, Object>) parsedArgs;
-            } catch (ClassCastException e) {
-                var err = "The argument 'arguments' is not of type Map<String, Object>.";
-                logger.error(err, e);
-                return err;
-            }
-        }
-
+                    Map<String, Object> arguments) {
+        Map<String, Object> args = Objects.requireNonNullElseGet(arguments, HashMap::new);
         var mcpToolOptional = options.selectedMcpTools().stream()
                 .filter(t -> t.toolName().equals(toolName))
                 .findFirst();
