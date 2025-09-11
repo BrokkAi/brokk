@@ -246,9 +246,47 @@ public class ProjectFilesPanel extends JPanel {
     }
 
     public void showFileInTree(@Nullable ProjectFile file) {
-        if (file != null) {
-            projectTree.selectAndExpandToFile(file);
+        if (file == null) {
+            return;
         }
+        SwingUtilities.invokeLater(() -> {
+            if (!isShowing() || !projectTree.isShowing()) {
+                logger.debug("ProjectFilesPanel not visible; attempting to reveal before selecting {}", file);
+                revealInAncestors();
+            }
+            projectTree.selectAndExpandToFile(file);
+            SwingUtilities.invokeLater(() -> projectTree.requestFocusInWindow());
+        });
+    }
+
+    /**
+     * Best-effort attempt to reveal this panel by interacting with common container types. - If inside a JTabbedPane,
+     * select this panel's tab. - If inside a JSplitPane, move the divider to make this panel visible.
+     */
+    private void revealInAncestors() {
+        for (Container p = getParent(); p != null; p = p.getParent()) {
+            if (p instanceof JTabbedPane tabs) {
+                int idx = tabs.indexOfComponent(this);
+                if (idx >= 0) {
+                    tabs.setSelectedIndex(idx);
+                }
+            }
+            if (p instanceof JSplitPane split) {
+                try {
+                    Component left = split.getLeftComponent();
+                    Component right = split.getRightComponent();
+                    if (left != null && SwingUtilities.isDescendingFrom(this, left)) {
+                        split.setDividerLocation(0.25);
+                    } else if (right != null && SwingUtilities.isDescendingFrom(this, right)) {
+                        split.setDividerLocation(0.75);
+                    }
+                } catch (Exception ex) {
+                    logger.debug("Failed to adjust JSplitPane divider to reveal ProjectFilesPanel", ex);
+                }
+            }
+        }
+        revalidate();
+        repaint();
     }
 
     /**

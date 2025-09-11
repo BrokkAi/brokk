@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
 import dev.langchain4j.data.message.AiMessage;
@@ -80,17 +81,14 @@ class CodeAgentTest {
         Environment.shellCommandRunnerFactory = originalShellCommandRunnerFactory;
     }
 
-    private CodeAgent.LoopContext createLoopContext(
-            String goal,
-            List<ChatMessage> taskMessages,
-            UserMessage nextRequest,
-            List<EditBlock.SearchReplaceBlock> pendingBlocks,
-            int blocksAppliedWithoutBuild) {
-        var conversationState = new CodeAgent.ConversationState(
-                new ArrayList<>(taskMessages), // Modifiable copy
-                nextRequest,
-                taskMessages.size());
-        var workspaceState = new CodeAgent.EditState(
+    private CodeAgent.ConversationState createConversationState(
+            List<ChatMessage> taskMessages, UserMessage nextRequest) {
+        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size());
+    }
+
+    private CodeAgent.EditState createEditState(
+            List<EditBlock.SearchReplaceBlock> pendingBlocks, int blocksAppliedWithoutBuild) {
+        return new CodeAgent.EditState(
                 new ArrayList<>(pendingBlocks), // Modifiable copy
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
@@ -100,33 +98,34 @@ class CodeAgentTest {
                 new HashSet<>(), // changedFiles
                 new HashMap<>() // originalFileContents
                 );
-        return new CodeAgent.LoopContext(conversationState, workspaceState, goal);
     }
 
-    private CodeAgent.LoopContext createBasicLoopContext(String goal) {
-        return createLoopContext(goal, List.of(), new UserMessage("test request"), List.of(), 0);
+    private CodeAgent.ConversationState createBasicConversationState() {
+        return createConversationState(List.of(), new UserMessage("test request"));
     }
 
     // P-1: parsePhase – prose-only response (not an error)
     @Test
     void testParsePhase_proseOnlyResponseIsNotError() {
-        var loopContext = createBasicLoopContext("test goal");
+        var cs = createBasicConversationState();
+        var es = createEditState(List.of(), 0);
         // This input contains no blocks and should be treated as a successful, empty parse.
         String proseOnlyText = "Okay, I will make the changes now.";
 
-        var result = codeAgent.parsePhase(loopContext, proseOnlyText, false, parser, null);
+        var result = codeAgent.parsePhase(cs, es, proseOnlyText, false, parser, null);
 
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
-        assertTrue(continueStep.loopContext().editState().pendingBlocks().isEmpty());
+        assertEquals(0, continueStep.es().consecutiveParseFailures());
+        assertTrue(continueStep.es().pendingBlocks().isEmpty());
     }
 
     // P-2: parsePhase – partial parse + error
     @Test
     void testParsePhase_partialParseWithError() {
-        var loopContext = createBasicLoopContext("test goal");
+        var cs = createBasicConversationState();
+        var es = createEditState(List.of(), 0);
         // A valid block followed by malformed text. The lenient parser should find
         // the first block and then stop without reporting an error.
         String llmText =
@@ -142,17 +141,14 @@ class CodeAgentTest {
                          This is some trailing text.
                          """;
 
-        var result = codeAgent.parsePhase(loopContext, llmText, false, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmText, false, parser, null);
 
         // The parser is lenient; it finds the valid block and ignores the rest.
         // This is not a parse error, so we continue.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
-        assertEquals(
-                1,
-                continueStep.loopContext().editState().pendingBlocks().size(),
-                "One block should be parsed and now pending.");
+        assertEquals(0, continueStep.es().consecutiveParseFailures());
+        assertEquals(1, continueStep.es().pendingBlocks().size(), "One block should be parsed and now pending.");
     }
 
     // P-3: parsePhase - pure parse error, should retry with reminder
@@ -176,26 +172,26 @@ class CodeAgentTest {
         taskMessages.add(originalRequest);
         taskMessages.add(badAiResponse);
 
-        var loopContext = createLoopContext("test goal", taskMessages, new UserMessage("placeholder"), List.of(), 0);
+        var cs = new CodeAgent.ConversationState(taskMessages, new UserMessage("placeholder"), taskMessages.size());
+        var es = createEditState(List.of(), 0);
 
         // Act
-        var result = codeAgent.parsePhase(loopContext, llmTextWithParseError, false, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, false, parser, null);
 
         // Assert
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        var newLoopContext = retryStep.loopContext();
+        var newCs = retryStep.cs();
 
-        assertEquals(1, newLoopContext.editState().consecutiveParseFailures());
+        assertEquals(1, retryStep.es().consecutiveParseFailures());
 
         // Check conversation history was modified
-        var finalTaskMessages = newLoopContext.conversationState().taskMessages();
+        var finalTaskMessages = newCs.taskMessages();
         assertEquals(1, finalTaskMessages.size());
         assertEquals("some earlier message", Messages.getText(finalTaskMessages.getFirst()));
 
         // Check the new 'nextRequest'
-        String nextRequestText =
-                Messages.getText(newLoopContext.conversationState().nextRequest());
+        String nextRequestText = Messages.getText(requireNonNull(newCs.nextRequest()));
         assertTrue(nextRequestText.contains("original user request"));
         assertTrue(nextRequestText.contains(
                 "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
@@ -204,22 +200,24 @@ class CodeAgentTest {
     // P-3a: parsePhase – isPartial flag handling (with zero blocks)
     @Test
     void testParsePhase_isPartial_zeroBlocks() {
-        var loopContext = createBasicLoopContext("test goal");
+        var cs = createBasicConversationState();
+        var es = createEditState(List.of(), 0);
         String llmTextNoBlocks = "Thinking...";
 
-        var result = codeAgent.parsePhase(loopContext, llmTextNoBlocks, true, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextNoBlocks, true, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
+        assertTrue(Messages.getText(requireNonNull(retryStep.cs().nextRequest()))
                 .contains("cut off before you provided any code blocks"));
-        assertTrue(retryStep.loopContext().editState().pendingBlocks().isEmpty());
+        assertTrue(retryStep.es().pendingBlocks().isEmpty());
     }
 
     // P-3b: parsePhase – isPartial flag handling (with >=1 block)
     @Test
     void testParsePhase_isPartial_withBlocks() {
-        var loopContext = createBasicLoopContext("test goal");
+        var cs = createBasicConversationState();
+        var es = createEditState(List.of(), 0);
         String llmTextWithBlock =
                 """
                                   <block>
@@ -232,13 +230,13 @@ class CodeAgentTest {
                                   </block>
                                   """;
 
-        var result = codeAgent.parsePhase(loopContext, llmTextWithBlock, true, parser, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextWithBlock, true, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
-                .contains("continue from there"));
-        assertEquals(1, retryStep.loopContext().editState().pendingBlocks().size());
+        assertTrue(
+                Messages.getText(requireNonNull(retryStep.cs().nextRequest())).contains("continue from there"));
+        assertEquals(1, retryStep.es().pendingBlocks().size());
     }
 
     // A-1: applyPhase – read-only conflict
@@ -248,9 +246,10 @@ class CodeAgentTest {
         contextManager.addReadonlyFile(readOnlyFile);
 
         var block = new EditBlock.SearchReplaceBlock(readOnlyFile.toString(), "search", "replace");
-        var loopContext = createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(block), 0);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(block), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(cs, es, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;
@@ -268,17 +267,16 @@ class CodeAgentTest {
 
         var nonMatchingBlock =
                 new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
-        var loopContext =
-                createLoopContext("test goal", List.of(), new UserMessage("req"), List.of(nonMatchingBlock), 0);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(nonMatchingBlock), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(cs, es, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertEquals(1, retryStep.loopContext().editState().consecutiveApplyFailures());
-        assertEquals(0, retryStep.loopContext().editState().blocksAppliedWithoutBuild());
-        String nextRequestText =
-                Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        assertEquals(1, retryStep.es().consecutiveApplyFailures());
+        assertEquals(0, retryStep.es().blocksAppliedWithoutBuild());
+        String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
         // check that the name of the file that failed to apply is mentioned in the retry prompt.
         assertTrue(nextRequestText.contains(file.getFileName()));
     }
@@ -298,26 +296,21 @@ class CodeAgentTest {
         var successBlock = new EditBlock.SearchReplaceBlock(file1.toString(), "hello world", "goodbye world");
         var failureBlock = new EditBlock.SearchReplaceBlock(file2.toString(), "nonexistent", "text");
 
-        var loopContext = createLoopContext(
-                "test goal", List.of(), new UserMessage("req"), List.of(successBlock, failureBlock), 0);
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(successBlock, failureBlock), 0);
+
+        var result = codeAgent.applyPhase(cs, es, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
 
         // On partial success, consecutive failures should reset, and applied count should increment.
         assertEquals(
-                0,
-                retryStep.loopContext().editState().consecutiveApplyFailures(),
-                "Consecutive failures should reset on partial success");
-        assertEquals(
-                1,
-                retryStep.loopContext().editState().blocksAppliedWithoutBuild(),
-                "One block should have been applied");
+                0, retryStep.es().consecutiveApplyFailures(), "Consecutive failures should reset on partial success");
+        assertEquals(1, retryStep.es().blocksAppliedWithoutBuild(), "One block should have been applied");
 
         // The retry message should reflect both the success and the failure.
-        String nextRequestText =
-                Messages.getText(retryStep.loopContext().conversationState().nextRequest());
+        String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
         // Weaker assertion: just check that the name of the file that failed to apply is mentioned.
         assertTrue(nextRequestText.contains(file2.getFileName()));
 
@@ -328,9 +321,9 @@ class CodeAgentTest {
     // V-1: verifyPhase – skip when no edits
     @Test
     void testVerifyPhase_skipWhenNoEdits() {
-        var loopContext = createLoopContext(
-                "test goal", List.of(new AiMessage("no edits")), new UserMessage("test request"), List.of(), 0);
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var cs = createConversationState(List.of(new AiMessage("no edits")), new UserMessage("test request"));
+        var es = createEditState(List.of(), 0);
+        var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var step = (CodeAgent.Step.Fatal) result;
@@ -341,9 +334,10 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_verificationCommandAbsent() {
         contextManager.getProject().setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No commands
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1); // 1 block applied
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1); // 1 block applied
 
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var step = (CodeAgent.Step.Fatal) result;
@@ -373,34 +367,33 @@ class CodeAgentTest {
             return "Successful output";
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1); // 1 block applied
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1); // 1 block applied
 
         // First run - build should fail
-        var resultFail = codeAgent.verifyPhase(loopContext, null);
+        var resultFail = codeAgent.verifyPhase(cs, es, null);
         assertInstanceOf(CodeAgent.Step.Retry.class, resultFail);
         var retryStep = (CodeAgent.Step.Retry) resultFail;
-        assertTrue(retryStep.loopContext().editState().lastBuildError().contains("Detailed build error output"));
-        assertEquals(0, retryStep.loopContext().editState().blocksAppliedWithoutBuild()); // Reset
-        assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest())
-                .contains("The build failed"));
+        assertTrue(retryStep.es().lastBuildError().contains("Detailed build error output"));
+        assertEquals(0, retryStep.es().blocksAppliedWithoutBuild()); // Reset
+        assertTrue(
+                Messages.getText(requireNonNull(retryStep.cs().nextRequest())).contains("The build failed"));
 
         // Second run - build should succeed
-        // We must manually create a new context that simulates new edits having been applied,
+        // We must manually create a new state that simulates new edits having been applied,
         // otherwise verifyPhase will short-circuit because blocksAppliedWithoutBuild is 0 from the Retry step.
-        var contextForSecondRun = new CodeAgent.LoopContext(
-                retryStep.loopContext().conversationState(),
-                new CodeAgent.EditState(
-                        List.of(), // pending blocks are empty
-                        retryStep.loopContext().editState().consecutiveParseFailures(),
-                        retryStep.loopContext().editState().consecutiveApplyFailures(),
-                        retryStep.loopContext().editState().consecutiveBuildFailures(),
-                        1, // Simulate one new fix was applied to pass the guard in verifyPhase
-                        retryStep.loopContext().editState().lastBuildError(),
-                        retryStep.loopContext().editState().changedFiles(),
-                        retryStep.loopContext().editState().originalFileContents()),
-                retryStep.loopContext().userGoal());
+        var cs2 = retryStep.cs();
+        var es2 = new CodeAgent.EditState(
+                List.of(), // pending blocks are empty
+                retryStep.es().consecutiveParseFailures(),
+                retryStep.es().consecutiveApplyFailures(),
+                retryStep.es().consecutiveBuildFailures(),
+                1, // Simulate one new fix was applied to pass the guard in verifyPhase
+                retryStep.es().lastBuildError(),
+                retryStep.es().changedFiles(),
+                retryStep.es().originalFileContents());
 
-        var resultSuccess = codeAgent.verifyPhase(contextForSecondRun, null);
+        var resultSuccess = codeAgent.verifyPhase(cs2, es2, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
         var step = (CodeAgent.Step.Fatal) resultSuccess;
         assertEquals(TaskResult.StopReason.SUCCESS, step.stopDetails().reason());
@@ -417,9 +410,10 @@ class CodeAgentTest {
             throw new InterruptedException("Simulated interruption during shell command");
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1);
 
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var result = codeAgent.verifyPhase(cs, es, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
         var fatalStep = (CodeAgent.Step.Fatal) result;
         assertEquals(TaskResult.StopReason.INTERRUPTED, fatalStep.stopDetails().reason());
@@ -494,15 +488,14 @@ class CodeAgentTest {
         contextManager.addEditableFile(file);
 
         var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(block), 0);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(block), 0);
 
-        var result = codeAgent.applyPhase(loopContext, parser, null);
+        var result = codeAgent.applyPhase(cs, es, parser, null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertTrue(
-                continueStep.loopContext().editState().changedFiles().contains(file),
-                "changedFiles should include the edited file");
+        assertTrue(continueStep.es().changedFiles().contains(file), "changedFiles should include the edited file");
     }
 
     // S-1: verifyPhase sanitizes Unix Java-style compiler output
@@ -520,17 +513,17 @@ class CodeAgentTest {
             throw new Environment.FailureException("Build failed", errorOutput);
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1);
+        var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retry = (CodeAgent.Step.Retry) result;
-        var sanitized = retry.loopContext().editState().lastBuildError();
+        var sanitized = retry.es().lastBuildError();
 
         assertFalse(sanitized.contains(rootFwd), "Sanitized output should not contain absolute root");
         assertTrue(sanitized.contains("src/Main.java:12"), "Sanitized output should contain relativized path");
-        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
-                .contains("src/Main.java:12"));
+        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("src/Main.java:12"));
     }
 
     // S-2: verifyPhase sanitizes Windows Java-style compiler output
@@ -549,17 +542,17 @@ class CodeAgentTest {
             throw new Environment.FailureException("Build failed", errorOutput);
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1);
+        var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retry = (CodeAgent.Step.Retry) result;
-        var sanitized = retry.loopContext().editState().lastBuildError();
+        var sanitized = retry.es().lastBuildError();
 
-        assertFalse(sanitized.contains(rootBwd), "Sanitized output should not contain absolute Windows root");
+        assertFalse(sanitized.contains(rootBwd), "Sanitized traceback should not contain absolute Windows root");
         assertTrue(sanitized.contains("src\\Main.java:12"), "Sanitized output should contain relativized Windows path");
-        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
-                .contains("src\\Main.java:12"));
+        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("src\\Main.java:12"));
     }
 
     // S-3: verifyPhase sanitizes Python-style traceback paths
@@ -583,17 +576,17 @@ class CodeAgentTest {
             throw new Environment.FailureException("Build failed", traceback);
         };
 
-        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(), 1);
-        var result = codeAgent.verifyPhase(loopContext, null);
+        var cs = createConversationState(List.of(), new UserMessage("req"));
+        var es = createEditState(List.of(), 1);
+        var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retry = (CodeAgent.Step.Retry) result;
-        var sanitized = retry.loopContext().editState().lastBuildError();
+        var sanitized = retry.es().lastBuildError();
 
         assertFalse(sanitized.contains(rootFwd), "Sanitized traceback should not contain absolute root");
         assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
-        assertTrue(Messages.getText(retry.loopContext().conversationState().nextRequest())
-                .contains("pkg/mod.py"));
+        assertTrue(Messages.getText(requireNonNull(retry.cs().nextRequest())).contains("pkg/mod.py"));
     }
 
     // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
@@ -605,14 +598,14 @@ class CodeAgentTest {
 
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
-        var lc1 = createLoopContext("goal", List.of(), new UserMessage("req1"), List.of(block1), 0);
-
-        var res1 = codeAgent.applyPhase(lc1, parser, null);
+        var es1 = new CodeAgent.EditState(
+                new ArrayList<>(List.of(block1)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, parser, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
-        var lc1b = ((CodeAgent.Step.Continue) res1).loopContext();
+        var es1b = ((CodeAgent.Step.Continue) res1).es();
 
         // Generate SRBs for turn 1; should be hello -> goodbye
-        var srb1 = lc1b.editState().toSearchReplaceBlocks();
+        var srb1 = es1b.toSearchReplaceBlocks();
         assertEquals(1, srb1.size());
         assertEquals("hello world", srb1.getFirst().beforeText().strip());
         assertEquals("goodbye world", srb1.getFirst().afterText().strip());
@@ -620,13 +613,13 @@ class CodeAgentTest {
         // Turn 2 baseline should be the current contents ("goodbye world")
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
-        var lc2 = createLoopContext("goal", List.of(), new UserMessage("req2"), List.of(block2), 0);
-
-        var res2 = codeAgent.applyPhase(lc2, parser, null);
+        var es2 = new CodeAgent.EditState(
+                new ArrayList<>(List.of(block2)), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, parser, null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
-        var lc2b = ((CodeAgent.Step.Continue) res2).loopContext();
+        var es2b = ((CodeAgent.Step.Continue) res2).es();
 
-        var srb2 = lc2b.editState().toSearchReplaceBlocks();
+        var srb2 = es2b.toSearchReplaceBlocks();
         assertEquals(1, srb2.size());
         assertEquals("goodbye world", srb2.getFirst().beforeText().strip());
         assertEquals("ciao world", srb2.getFirst().afterText().strip());
@@ -650,7 +643,7 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("ALPHA", "keep", "OMEGA")) + "\n";
         file.write(revised);
 
-        var ws = new CodeAgent.EditState(
+        var es = new CodeAgent.EditState(
                 List.of(), // pendingBlocks
                 0,
                 0,
@@ -660,7 +653,7 @@ class CodeAgentTest {
                 changedFiles,
                 originalMap);
 
-        var blocks = ws.toSearchReplaceBlocks();
+        var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
         assertTrue(blocks.size() >= 2, "Expected multiple fine-grained S/R blocks");
 
@@ -689,9 +682,9 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var ws = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
 
-        var blocks = ws.toSearchReplaceBlocks();
+        var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
         var before = blocks.getFirst().beforeText();
         // Ensure we didn't emit a bare "alpha" which would be ambiguous; context should be included
@@ -716,9 +709,9 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var ws = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
+        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap);
 
-        var blocks = ws.toSearchReplaceBlocks();
+        var blocks = es.toSearchReplaceBlocks();
 
         // Because uniqueness expansion will expand both to include 'middle' neighbor,
         // overlapping regions should merge into one block.

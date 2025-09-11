@@ -71,7 +71,7 @@ public class JavaAnalyzer extends JavaTreeSitterAnalyzer
     @Override
     public Map<String, List<CallSite>> getCallgraphFrom(String methodName, int depth) {
         if (jdtAnalyzer != null) {
-            return jdtAnalyzer.getCallgraphTo(methodName, depth);
+            return jdtAnalyzer.getCallgraphFrom(methodName, depth);
         } else {
             return Collections.emptyMap();
         }

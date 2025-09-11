@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
@@ -21,9 +21,9 @@ public class CommitDialog extends JDialog {
     private final JButton commitButton;
     private final JButton cancelButton;
     private final transient ContextManager contextManager;
-    private final transient GitWorkflowService workflowService;
+    private final transient GitWorkflow workflowService;
     private final transient List<ProjectFile> filesToCommit;
-    private final transient Consumer<GitWorkflowService.CommitResult> onCommitSuccessCallback;
+    private final transient Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback;
     private final transient Chrome chrome;
 
     private static final String PLACEHOLDER_INFERRING = "Inferring commit message...";
@@ -33,9 +33,9 @@ public class CommitDialog extends JDialog {
             Frame owner,
             Chrome chrome,
             ContextManager contextManager,
-            GitWorkflowService workflowService,
+            GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
-            Consumer<GitWorkflowService.CommitResult> onCommitSuccessCallback) {
+            Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         super(owner, "Commit Changes", true);
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -149,7 +149,7 @@ public class CommitDialog extends JDialog {
 
         contextManager.submitUserTask("Committing files via dialog", () -> {
             try {
-                GitWorkflowService.CommitResult result = workflowService.commit(filesToCommit, msg);
+                GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
                 SwingUtilities.invokeLater(() -> {
                     onCommitSuccessCallback.accept(result);
                     dispose();
