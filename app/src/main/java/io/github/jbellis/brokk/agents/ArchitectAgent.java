@@ -560,7 +560,7 @@ public class ArchitectAgent {
         var server = mcpToolOptional.get().server();
         try {
             var projectRoot = this.contextManager.getProject().getRoot();
-            var result = McpUtils.callTool(server, toolName, args, server.bearerToken(), projectRoot);
+            var result = McpUtils.callTool(server, toolName, args, projectRoot);
             var preamble = McpPrompts.mcpToolPreamble();
             var msg = preamble + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
             logger.info("MCP tool '{}' executed successfully via server '{}'", toolName, server.name());

@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.mcp;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.client.transport.ServerParameters;
+import io.modelcontextprotocol.client.transport.StdioClientTransport;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
@@ -33,8 +35,24 @@ public class McpUtils {
         return transportBuilder.build();
     }
 
+    private static McpClientTransport buildTransport(String cmd, List<String> arguments, Map<String, String> env) {
+        final var params =
+                ServerParameters.builder(cmd).args(arguments).env(env).build();
+
+        return new StdioClientTransport(params);
+    }
+
     private static McpSyncClient buildSyncClient(URL url, @Nullable String bearerToken) {
         final var transport = buildTransport(url, bearerToken);
+        return McpClient.sync(transport)
+                .loggingConsumer(logger::debug)
+                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
+                .requestTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    private static McpSyncClient buildSyncClient(String command, List<String> arguments, Map<String, String> env) {
+        final var transport = buildTransport(command, arguments, env);
         return McpClient.sync(transport)
                 .loggingConsumer(logger::debug)
                 .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
@@ -45,6 +63,24 @@ public class McpUtils {
     private static <T> T withMcpSyncClient(
             URL url, @Nullable String bearerToken, @Nullable Path projectRoot, Function<McpSyncClient, T> function) {
         final var client = buildSyncClient(url, bearerToken);
+        try {
+            client.initialize();
+            if (projectRoot != null) {
+                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."));
+            }
+            return function.apply(client);
+        } finally {
+            client.closeGracefully();
+        }
+    }
+
+    private static <T> T withMcpSyncClient(
+            String command,
+            List<String> arguments,
+            Map<String, String> env,
+            @Nullable Path projectRoot,
+            Function<McpSyncClient, T> function) {
+        final var client = buildSyncClient(command, arguments, env);
         try {
             client.initialize();
             if (projectRoot != null) {
@@ -75,23 +111,41 @@ public class McpUtils {
     }
 
     public static McpSchema.CallToolResult callTool(
-            McpServer server,
-            String toolName,
-            Map<String, Object> arguments,
-            @Nullable String bearerToken,
-            @Nullable Path projectRoot)
+            McpServer server, String toolName, Map<String, Object> arguments, @Nullable Path projectRoot)
             throws IOException {
-        final URL url = server.url();
-        try {
-            return withMcpSyncClient(
-                    url,
-                    bearerToken,
-                    projectRoot,
-                    client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
-        } catch (Exception e) {
-            logger.error("Failed to call tool '{}' from MCP server at {}: {}", toolName, url, e.getMessage());
+        if (server instanceof HttpMcpServer httpMcpServer) {
+            final URL url = httpMcpServer.url();
+            try {
+                return withMcpSyncClient(
+                        url,
+                        httpMcpServer.bearerToken(),
+                        projectRoot,
+                        client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
+            } catch (Exception e) {
+                logger.error("Failed to call tool '{}' from MCP server at {}: {}", toolName, url, e.getMessage());
+                throw new IOException(
+                        "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.", e);
+            }
+        } else if (server instanceof StdioMcpServer stdioMcpServer) {
+            try {
+                return withMcpSyncClient(
+                        stdioMcpServer.command(),
+                        stdioMcpServer.arguments(),
+                        stdioMcpServer.env(),
+                        projectRoot,
+                        client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
+            } catch (Exception e) {
+                logger.error(
+                        "Failed to call tool '{}' from MCP server on command '{} {}': {} ",
+                        toolName,
+                        stdioMcpServer.command(),
+                        String.join(" ", stdioMcpServer.arguments()),
+                        e.getMessage());
+                throw new IOException("Failed to fetch tools.", e);
+            }
+        } else {
             throw new IOException(
-                    "Failed to fetch tools. Ensure the server is a stateless, streamable HTTP MCP server.", e);
+                    "Unsupported MCP server type: " + server.getClass().getName());
         }
     }
 }

@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import io.github.jbellis.brokk.gui.components.McpToolTable;
 import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.gui.util.Icons;
+import io.github.jbellis.brokk.mcp.HttpMcpServer;
 import io.github.jbellis.brokk.mcp.McpConfig;
 import io.github.jbellis.brokk.mcp.McpServer;
 import io.github.jbellis.brokk.mcp.McpUtils;
@@ -26,6 +27,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -702,7 +704,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             public Component getListCellRendererComponent(
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof McpServer server) {
+                if (value instanceof HttpMcpServer server) {
                     setText(server.name() + " (" + server.url() + ")");
                 }
                 return this;
@@ -857,8 +859,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         AtomicReference<String> lastFetchedUrl =
                 new AtomicReference<>(existing != null ? existing.url().toString() : null);
-        final java.util.concurrent.atomic.AtomicLong lastFetchStartedAt =
-                new java.util.concurrent.atomic.AtomicLong(0L);
+        final AtomicLong lastFetchStartedAt = new AtomicLong(0L);
 
         Runnable fetcher = () -> {
             String rawUrl = urlField.getText().trim();
@@ -979,7 +980,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 }
                 boolean duplicate = false;
                 for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-                    McpServer s = mcpServersListModel.getElementAt(i);
+                    HttpMcpServer s = mcpServersListModel.getElementAt(i);
                     if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
                         continue;
                     }
@@ -1122,7 +1123,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 String effectiveName = name.isEmpty() ? rawUrl : name;
                 boolean duplicate = false;
                 for (int i = 0; i < mcpServersListModel.getSize(); i++) {
-                    McpServer s = mcpServersListModel.getElementAt(i);
+                    HttpMcpServer s = mcpServersListModel.getElementAt(i);
                     if (existing != null && s.name().equalsIgnoreCase(existing.name())) {
                         continue;
                     }
@@ -1139,7 +1140,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                McpServer newServer = createMcpServerFromInputs(name, rawUrl, useToken, tokenField, fetchedTools.value);
+                HttpMcpServer newServer =
+                        createMcpServerFromInputs(name, rawUrl, useToken, tokenField, fetchedTools.value);
 
                 if (newServer != null) {
                     onSave.accept(newServer);
@@ -1220,7 +1222,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
      * <p>This method also normalizes bearer token inputs if they start with "Bearer " and updates the provided
      * tokenField with the normalized value (so the user sees the normalized form).
      */
-    private @Nullable McpServer createMcpServerFromInputs(
+    private @Nullable HttpMcpServer createMcpServerFromInputs(
             String name, String rawUrl, boolean useToken, JPasswordField tokenField, @Nullable List<String> tools) {
 
         // Validate URL presence and format - inline validation will show error
@@ -1259,7 +1261,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         }
 
-        return new McpServer(name, url, tools, token);
+        return new HttpMcpServer(name, url, tools, token);
     }
 
     // --- Inner Classes for Quick Models Table (Copied from SettingsDialog) ---
