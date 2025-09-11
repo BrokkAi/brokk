@@ -11,6 +11,7 @@ import javax.swing.ListSelectionModel;
 import javax.swing.UIManager;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import org.jetbrains.annotations.Nullable;
 
 public class McpToolTable extends JTable {
 
@@ -54,7 +55,7 @@ public class McpToolTable extends JTable {
             final String name;
             final String description;
 
-            Row(String name, String description) {
+            Row(String name, @Nullable String description) {
                 this.name = name;
                 this.description = description == null ? "" : description;
             }
@@ -81,11 +82,6 @@ public class McpToolTable extends JTable {
         @Override
         public Class<?> getColumnClass(int columnIndex) {
             return String.class;
-        }
-
-        @Override
-        public boolean isCellEditable(int rowIndex, int columnIndex) {
-            return false;
         }
 
         @Override
@@ -127,7 +123,7 @@ public class McpToolTable extends JTable {
     private static class EllipsingCellRenderer extends DefaultTableCellRenderer {
         @Override
         public java.awt.Component getTableCellRendererComponent(
-                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label =
                     (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             String text = value == null ? "" : value.toString();
