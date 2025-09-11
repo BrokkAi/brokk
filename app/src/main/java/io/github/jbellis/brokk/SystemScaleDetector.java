@@ -15,6 +15,12 @@ public final class SystemScaleDetector {
         if (kde != null) {
             return normalizeUiScaleToAllowed(kde);
         }
+
+        var gnomeModern = tryDetectScaleViaGnomeDBus(provider);
+        if (gnomeModern != null) {
+            return normalizeUiScaleToAllowed(gnomeModern);
+        }
+
         var gnome = tryDetectScaleViaGsettings(provider);
         if (gnome != null) {
             return normalizeUiScaleToAllowed(gnome);
@@ -107,6 +113,39 @@ public final class SystemScaleDetector {
         } catch (NumberFormatException nfe) {
             // ignore, return null below
         }
+        return null;
+    }
+
+    public static @Nullable Double tryDetectScaleViaGnomeDBus(SystemScaleProvider provider) {
+        var lines = provider.runCommand("gdbus",
+                                        "call",
+                                        "--session",
+                                        "--dest",
+                                        "org.gnome.Mutter.DisplayConfig",
+                                        "--object-path",
+                                        "/org/gnome/Mutter/DisplayConfig",
+                                        "--method",
+                                        "org.gnome.Mutter.DisplayConfig.GetCurrentState");
+        if (lines == null || lines.isEmpty()) {
+            return null;
+        }
+        var output = String.join(" ", lines);
+
+        // This regex looks for a logical monitor tuple that is marked as primary.
+        // It captures the scale factor from that tuple.
+        // e.g., `... [(0, 0, 2.0, uint32 0, true, ...)] ...`
+        // The scale is the 3rd element in the tuple, and the primary flag is the 5th.
+        var pattern = Pattern.compile("\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*([\\d.]+)\\s*,[^,]+,\\s*true[,)]");
+        var matcher = pattern.matcher(output);
+
+        if (matcher.find()) {
+            try {
+                return Double.parseDouble(matcher.group(1));
+            } catch (NumberFormatException e) {
+                // ignore, will return null
+            }
+        }
+
         return null;
     }
 
