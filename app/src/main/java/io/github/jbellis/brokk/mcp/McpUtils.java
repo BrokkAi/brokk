@@ -7,6 +7,7 @@ import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -36,18 +37,19 @@ public class McpUtils {
         final var transport = buildTransport(url, bearerToken);
         return McpClient.sync(transport)
                 .loggingConsumer(logger::debug)
-                .capabilities(McpSchema.ClientCapabilities.builder()
-                        .elicitation()
-                        .sampling()
-                        .build())
+                .capabilities(McpSchema.ClientCapabilities.builder().roots(true).build())
                 .requestTimeout(Duration.ofSeconds(10))
                 .build();
     }
 
-    private static <T> T withMcpSyncClient(URL url, @Nullable String bearerToken, Function<McpSyncClient, T> function) {
+    private static <T> T withMcpSyncClient(
+            URL url, @Nullable String bearerToken, @Nullable Path projectRoot, Function<McpSyncClient, T> function) {
         final var client = buildSyncClient(url, bearerToken);
         try {
             client.initialize();
+            if (projectRoot != null) {
+                client.addRoot(new McpSchema.Root(projectRoot.toUri().toString(), "Project root path."));
+            }
             return function.apply(client);
         } finally {
             client.closeGracefully();
@@ -55,8 +57,13 @@ public class McpUtils {
     }
 
     public static List<McpSchema.Tool> fetchTools(URL url, @Nullable String bearerToken) throws IOException {
+        return fetchTools(url, bearerToken, null);
+    }
+
+    public static List<McpSchema.Tool> fetchTools(URL url, @Nullable String bearerToken, @Nullable Path projectRoot)
+            throws IOException {
         try {
-            return withMcpSyncClient(url, bearerToken, client -> {
+            return withMcpSyncClient(url, bearerToken, projectRoot, client -> {
                 McpSchema.ListToolsResult toolsResult = client.listTools();
                 return toolsResult.tools();
             });
@@ -68,12 +75,19 @@ public class McpUtils {
     }
 
     public static McpSchema.CallToolResult callTool(
-            McpServer server, String toolName, Map<String, Object> arguments, @Nullable String bearerToken)
+            McpServer server,
+            String toolName,
+            Map<String, Object> arguments,
+            @Nullable String bearerToken,
+            @Nullable Path projectRoot)
             throws IOException {
         final URL url = server.url();
         try {
             return withMcpSyncClient(
-                    url, bearerToken, client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
+                    url,
+                    bearerToken,
+                    projectRoot,
+                    client -> client.callTool(new McpSchema.CallToolRequest(toolName, arguments)));
         } catch (Exception e) {
             logger.error("Failed to call tool '{}' from MCP server at {}: {}", toolName, url, e.getMessage());
             throw new IOException(
