@@ -10,6 +10,9 @@ public final class SystemScaleDetector {
 
     private SystemScaleDetector() {}
 
+    public static final Pattern GNOME_DBUS_SCALE_PATTERN =
+            Pattern.compile("\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*([\\d.]+)\\s*,[^,]+,\\s*true[,)]");
+
     public static @Nullable Double detectLinuxUiScale(SystemScaleProvider provider) {
         var kde = tryDetectScaleViaKscreenDoctor(provider);
         if (kde != null) {
@@ -136,8 +139,7 @@ public final class SystemScaleDetector {
         // It captures the scale factor from that tuple.
         // e.g., `... [(0, 0, 2.0, uint32 0, true, ...)] ...`
         // The scale is the 3rd element in the tuple, and the primary flag is the 5th.
-        var pattern = Pattern.compile("\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*([\\d.]+)\\s*,[^,]+,\\s*true[,)]");
-        var matcher = pattern.matcher(output);
+        var matcher = GNOME_DBUS_SCALE_PATTERN.matcher(output);
 
         if (matcher.find()) {
             try {
