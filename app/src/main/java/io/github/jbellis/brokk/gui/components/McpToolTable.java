@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.mcp;
+package io.github.jbellis.brokk.gui.components;
 
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.FontMetrics;
