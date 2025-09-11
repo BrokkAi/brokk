@@ -57,6 +57,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     @Nullable
     private JComboBox<String> uiScaleCombo; // Hidden on macOS
 
+    private JSpinner terminalFontSizeSpinner = new JSpinner();
+
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
@@ -336,6 +338,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             uiScaleCombo = null;
         }
 
+        // Terminal font size
+        gbc.insets = new Insets(10, 5, 2, 5); // spacing
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        appearancePanel.add(new JLabel("Terminal Font Size:"), gbc);
+
+        var fontSizeModel = new SpinnerNumberModel(11.0, 8.0, 36.0, 0.5);
+        terminalFontSizeSpinner.setModel(fontSizeModel);
+        terminalFontSizeSpinner.setEditor(new JSpinner.NumberEditor(terminalFontSizeSpinner, "#0.0"));
+
+        var terminalFontSizePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        terminalFontSizePanel.add(terminalFontSizeSpinner);
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        appearancePanel.add(terminalFontSizePanel, gbc);
+
+        gbc.insets = new Insets(2, 5, 2, 5); // reset insets
+
         // filler
         gbc.gridy = row;
         gbc.weighty = 1.0;
@@ -506,6 +531,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         }
 
+        terminalFontSizeSpinner.setValue((double) MainProject.getTerminalFontSize());
+
         // Quick Models Tab
         quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
@@ -597,6 +624,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     logger.debug("Applied UI scale preference: {}", v);
                 }
             }
+        }
+
+        // Terminal font size
+        float newTerminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
+        if (newTerminalFontSize != MainProject.getTerminalFontSize()) {
+            MainProject.setTerminalFontSize(newTerminalFontSize);
+            chrome.updateTerminalFontSize();
+            logger.debug("Applied Terminal Font Size: {}", newTerminalFontSize);
         }
 
         // Quick Models Tab

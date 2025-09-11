@@ -17,6 +17,9 @@ javafx = "22"
 node = "7.1.0"
 nodejs = "22.14.0"
 npm = "10.9.2"
+jediterm = "3.54"
+jediterm-pty = "2.69"
+pty4j = "0.13.11"
 
 [libraries]
 # Logging
@@ -60,7 +63,13 @@ jtokkit = "com.knuddels:jtokkit:1.1.0"
 picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 apache-compress = "org.apache.commons:commons-compress:1.26.2"
 
-# JDKMon
+# Terminal
+jediterm-ui = { module = "org.jetbrains.jediterm:jediterm-ui", version.ref = "jediterm" }
+jediterm-core = { module = "org.jetbrains.jediterm:jediterm-core", version.ref = "jediterm" }
+jediterm-pty = { module = "org.jetbrains.jediterm:jediterm-pty", version.ref = "jediterm-pty" }
+pty4j = { module = "org.jetbrains.pty4j:pty4j", version.ref="pty4j" }
+
+# JDKMon 
 disco = "io.foojay.api:discoclient:21.0.1"
 jdktools = "eu.hansolo:jdktools:21.0.11"
 osdetector-plugin = "com.google.gradle:osdetector-gradle-plugin:1.7.3"
@@ -122,6 +131,7 @@ maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", 
 eclipse-lsp = ["eclipse-lsp4j", "eclipse-jsonrpc"]
 apache = ["apache-compress"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
+jediterm = ["jediterm-ui", "jediterm-core", "jediterm-pty", "pty4j"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "4.3.0" }

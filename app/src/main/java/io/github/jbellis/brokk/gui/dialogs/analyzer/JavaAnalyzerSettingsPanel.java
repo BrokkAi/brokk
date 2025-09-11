@@ -68,8 +68,10 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             maxMemoryMB =
                     Runtime.getRuntime().totalMemory() / (1024 * 1024) * 4; // Assume 4x current heap as reasonable max
         }
-        memorySpinner = new JSpinner(
-                new SpinnerNumberModel(DEFAULT_MEMORY_MB, MIN_MEMORY_MB, (int) Math.min(maxMemoryMB, 32768), 256));
+        int computedMax = (int) Math.min(maxMemoryMB, 32768);
+        int maxBound = Math.max(MIN_MEMORY_MB, computedMax);
+        int initial = Math.max(MIN_MEMORY_MB, Math.min(DEFAULT_MEMORY_MB, maxBound));
+        memorySpinner = new JSpinner(new SpinnerNumberModel(initial, MIN_MEMORY_MB, maxBound, 256));
         memorySpinner.setPreferredSize(new Dimension(80, memorySpinner.getPreferredSize().height));
 
         // Create a panel to hold the spinner and warning together
@@ -148,8 +150,13 @@ public final class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         jdkHomeField.setText(jdkHome);
 
         int memory = prefs.getInt(PREF_MEMORY_KEY_PREFIX, DEFAULT_MEMORY_MB);
-        savedMemoryMB = memory;
-        memorySpinner.setValue(memory);
+        // Clamp to model bounds
+        var model = (SpinnerNumberModel) memorySpinner.getModel();
+        int min = ((Number) model.getMinimum()).intValue();
+        int max = ((Number) model.getMaximum()).intValue();
+        int clamped = Math.max(min, Math.min(memory, max));
+        savedMemoryMB = clamped;
+        memorySpinner.setValue(clamped);
         memoryWarningLabel.setVisible(false);
     }
 

@@ -10,7 +10,6 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.gui.util.GitUiUtil;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
@@ -386,9 +385,7 @@ public interface ContextFragment {
                     content,
                     FragmentUtils.calculateContentHash(
                             FragmentType.GIT_FILE,
-                            String.format(
-                                    "%s @%s",
-                                    file.getFileName(), GitUiUtil.shortenCommitId(revision)), // description for hash
+                            String.format("%s @%s", file.getFileName(), revision),
                             content, // text content for hash
                             FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
                             GitFileFragment.class.getName() // original class name for hash
@@ -412,13 +409,9 @@ public interface ContextFragment {
             return new GitFileFragment(file, revision, content, existingId);
         }
 
-        private String shortRevision() {
-            return GitUiUtil.shortenCommitId(revision);
-        }
-
         @Override
         public String shortDescription() {
-            return "%s @%s".formatted(file().getFileName(), shortRevision());
+            return "%s @%s".formatted(file().getFileName(), id);
         }
 
         @Override
@@ -478,7 +471,7 @@ public interface ContextFragment {
 
         @Override
         public String toString() {
-            return "GitFileFragment('%s' @%s)".formatted(file, shortRevision());
+            return "GitFileFragment('%s' @%s)".formatted(file, id);
         }
     }
 
@@ -616,7 +609,13 @@ public interface ContextFragment {
         @Override
         public Image image() throws UncheckedIOException {
             try {
-                return javax.imageio.ImageIO.read(file.absPath().toFile());
+                Image result = javax.imageio.ImageIO.read(file.absPath().toFile());
+                if (result == null) {
+                    // ImageIO.read() returns null if no registered ImageReader can read the file
+                    // This can happen for unsupported formats, corrupted files, or non-image files
+                    throw new UncheckedIOException(new IOException("Unable to read image file: " + file.absPath()));
+                }
+                return result;
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -971,7 +970,8 @@ public interface ContextFragment {
         private final Image image;
 
         // Helper to get image bytes, might throw UncheckedIOException
-        private static byte[] imageToBytes(Image image) {
+        @Nullable
+        private static byte[] imageToBytes(@Nullable Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
                 return FrozenFragment.imageToBytes(image);
@@ -1025,6 +1025,7 @@ public interface ContextFragment {
             return image;
         }
 
+        @Nullable
         public byte[] imageBytes() {
             return imageToBytes(image);
         }

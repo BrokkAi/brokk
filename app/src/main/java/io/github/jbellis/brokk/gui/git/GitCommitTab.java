@@ -8,7 +8,7 @@ import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.Constants;
@@ -26,6 +26,7 @@ import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.revwalk.RevCommit;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -38,7 +39,7 @@ public class GitCommitTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitWorkflowService workflowService;
+    private final GitWorkflow workflowService;
 
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
@@ -57,7 +58,7 @@ public class GitCommitTab extends JPanel {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.workflowService = new GitWorkflowService(contextManager);
+        this.workflowService = new GitWorkflow(contextManager);
         buildCommitTabUI();
     }
 
@@ -224,7 +225,7 @@ public class GitCommitTab extends JPanel {
                     filesToCommit,
                     commitResult -> { // This is the onCommitSuccessCallback
                         chrome.systemOutput("Committed "
-                                + GitUiUtil.shortenCommitId(commitResult.commitId())
+                                + getRepo().shortHash(commitResult.commitId())
                                 + ": " + commitResult.firstLine());
                         updateCommitPanel(); // Refresh file list
                         chrome.updateLogTab();
@@ -239,12 +240,17 @@ public class GitCommitTab extends JPanel {
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
-            List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
+            var selectedFiles = getSelectedFilesFromTable();
+            int totalRows = uncommittedFilesTable.getRowCount();
+            int selectedCount = uncommittedFilesTable.getSelectedRowCount();
+            boolean allSelected = selectedCount > 0 && selectedCount == totalRows;
+            var filesToStash = allSelected ? List.<ProjectFile>of() : selectedFiles;
+
             // Stash without asking for a message, using a default one.
             String stashMessage = "Stash created by Brokk";
             contextManager.submitUserTask("Stashing changes", () -> {
                 try {
-                    performStash(selectedFiles, stashMessage);
+                    performStash(filesToStash, stashMessage);
                 } catch (GitAPIException ex) {
                     logger.error("Error stashing changes:", ex);
                     SwingUtilities.invokeLater(
@@ -373,18 +379,24 @@ public class GitCommitTab extends JPanel {
         assert SwingUtilities.isEventDispatchThread() : "updateCommitButtonText must be called on EDT";
 
         int selectedRowCount = uncommittedFilesTable.getSelectedRowCount();
+        int totalRowCount = uncommittedFilesTable.getRowCount();
+        boolean anySelected = selectedRowCount > 0;
+        boolean allSelected = anySelected && selectedRowCount == totalRowCount;
 
-        var commitFull = selectedRowCount > 0 ? "Commit Selected..." : "Commit All...";
-        var stashFull = selectedRowCount > 0 ? "Stash Selected" : "Stash All";
+        // Labels
+        var commitLabel = (anySelected && !allSelected) ? "Commit Selected..." : "Commit All...";
+        var stashLabel = (anySelected && !allSelected) ? "Stash Selected" : "Stash All";
 
         // Set plain single-line labels
-        commitButton.setText(commitFull);
-        stashButton.setText(stashFull);
+        commitButton.setText(commitLabel);
+        stashButton.setText(stashLabel);
 
         // Tooltips describe the action
-        commitButton.setToolTipText(selectedRowCount > 0 ? "Commit the selected files..." : "Commit all files...");
-        stashButton.setToolTipText(
-                selectedRowCount > 0 ? "Save selected changes to the stash" : "Save all changes to the stash");
+        var commitTooltip = (anySelected && !allSelected) ? "Commit the selected files..." : "Commit all files...";
+        var stashTooltip =
+                (anySelected && !allSelected) ? "Save selected changes to the stash" : "Save all changes to the stash";
+        commitButton.setToolTipText(commitTooltip);
+        stashButton.setToolTipText(stashTooltip);
 
         // Let the horizontal scroll handle overflow; no wrapping or panel-wide revalidation necessary
         buttonPanel.revalidate();
@@ -719,11 +731,19 @@ public class GitCommitTab extends JPanel {
         var frozen = contextManager.liveContext().freezeAndCleanup();
         contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
 
+        RevCommit stashCommit;
         if (selectedFiles.isEmpty()) {
-            getRepo().createStash(stashDescription);
+            stashCommit = getRepo().createStash(stashDescription);
         } else {
-            getRepo().createPartialStash(stashDescription, selectedFiles);
+            stashCommit = getRepo().createPartialStash(stashDescription, selectedFiles);
         }
+
+        if (stashCommit == null) {
+            SwingUtilities.invokeLater(() -> chrome.toolError("No changes to stash.", "Stash Failed"));
+            // The `undo` stack will have a no-op change. This is acceptable.
+            return;
+        }
+
         SwingUtilities.invokeLater(() -> {
             if (selectedFiles.isEmpty()) {
                 chrome.systemOutput("All changes stashed successfully: " + stashDescription);

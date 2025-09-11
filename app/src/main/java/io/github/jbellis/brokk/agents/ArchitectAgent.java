@@ -16,7 +16,7 @@ import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.GitWorkflowService;
+import io.github.jbellis.brokk.git.GitWorkflow;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
@@ -267,7 +267,7 @@ public class ArchitectAgent {
             }
 
             // --------------------------------------------------------------------
-            var gws = new GitWorkflowService(contextManager);
+            var gws = new GitWorkflow(contextManager);
             var result = gws.commit(List.of(), message == null ? "" : message.trim());
 
             var summary = "Committed %s - \"%s\"".formatted(result.commitId(), result.firstLine());
@@ -323,7 +323,7 @@ public class ArchitectAgent {
                 throw new IllegalStateException("No 'origin' remote configured for this repository.");
             }
 
-            var gws = new GitWorkflowService(contextManager);
+            var gws = new GitWorkflow(contextManager);
 
             // Auto-generate title/body if blank
             if (title.isBlank() || body.isBlank()) {

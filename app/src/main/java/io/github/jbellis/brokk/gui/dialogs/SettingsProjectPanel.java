@@ -808,7 +808,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.weightx = 1.0;
         buildPanel.add(someTestsCommandField, gbc);
         var testSomeInfo = new JLabel(
-                "<html>Use a placeholder like {{FILE_OR_CLASS_PATH}} for the part that will be replaced.</html>");
+                "<html>Mustache variables {{#files}}, {{#classes}}, or {{#fqclasses}} will be interpolated with filenames, class names, or fully-qualified class names, respectively</html>");
         testSomeInfo.setFont(testSomeInfo
                 .getFont()
                 .deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));

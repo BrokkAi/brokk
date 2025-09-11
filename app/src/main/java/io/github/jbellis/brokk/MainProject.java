@@ -1004,6 +1004,7 @@ public final class MainProject extends AbstractProject {
     //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
     private static final String UI_SCALE_KEY = "uiScale";
     private static final String MOP_ZOOM_KEY = "mopZoom";
+    private static final String TERMINAL_FONT_SIZE_KEY = "terminalFontSize";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1040,6 +1041,28 @@ public final class MainProject extends AbstractProject {
         double clamped = Math.max(0.5, Math.min(2.0, zoom));
         var props = loadGlobalProperties();
         props.setProperty(MOP_ZOOM_KEY, Double.toString(clamped));
+    }
+
+    public static float getTerminalFontSize() {
+        var props = loadGlobalProperties();
+        String valueStr = props.getProperty(TERMINAL_FONT_SIZE_KEY);
+        if (valueStr != null) {
+            try {
+                return Float.parseFloat(valueStr);
+            } catch (NumberFormatException e) {
+                // fall through and return default
+            }
+        }
+        return 11.0f;
+    }
+
+    public static void setTerminalFontSize(float size) {
+        var props = loadGlobalProperties();
+        if (size == 11.0f) {
+            props.remove(TERMINAL_FONT_SIZE_KEY);
+        } else {
+            props.setProperty(TERMINAL_FONT_SIZE_KEY, Float.toString(size));
+        }
         saveGlobalProperties(props);
     }
 

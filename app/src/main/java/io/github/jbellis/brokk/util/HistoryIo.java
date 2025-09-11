@@ -386,6 +386,10 @@ public final class HistoryIo {
                 for (var aif : pastedImageFragments) {
                     try {
                         byte[] imageBytes = aif.imageBytes();
+                        if (imageBytes == null) {
+                            logger.warn("Skipping image fragment {} because imageBytes is null", aif.id());
+                            continue;
+                        }
                         ZipEntry entry = new ZipEntry(IMAGES_DIR_PREFIX + aif.id() + ".png"); // Assumes PNG
                         entry.setMethod(ZipEntry.STORED);
                         entry.setSize(imageBytes.length);

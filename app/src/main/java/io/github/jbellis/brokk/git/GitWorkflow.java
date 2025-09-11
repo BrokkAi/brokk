@@ -20,8 +20,8 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
-public final class GitWorkflowService {
-    private static final Logger logger = LogManager.getLogger(GitWorkflowService.class);
+public final class GitWorkflow {
+    private static final Logger logger = LogManager.getLogger(GitWorkflow.class);
 
     public record CommitResult(String commitId, String firstLine) {}
 
@@ -34,7 +34,7 @@ public final class GitWorkflowService {
     private final ContextManager contextManager;
     private final GitRepo repo;
 
-    public GitWorkflowService(ContextManager contextManager) {
+    public GitWorkflow(ContextManager contextManager) {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager");
         this.repo = (GitRepo) Objects.requireNonNull(contextManager.getProject().getRepo(), "repo cannot be null");
     }
