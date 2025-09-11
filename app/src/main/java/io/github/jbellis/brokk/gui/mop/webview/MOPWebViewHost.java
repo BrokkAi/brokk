@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import io.github.jbellis.brokk.MainProject;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
@@ -55,7 +56,9 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
                 implements HostCommand {}
 
-        record SetTheme(boolean isDark, boolean isDevMode) implements HostCommand {}
+        record SetTheme(boolean isDark, boolean isDevMode, double zoom) implements HostCommand {}
+
+        record SetZoom(double zoom) implements HostCommand {}
 
         record ShowSpinner(String message) implements HostCommand {}
 
@@ -282,6 +285,8 @@ public final class MOPWebViewHost extends JPanel {
             // Initial theme — queue until bridge ready
             boolean isDevMode = Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
             setInitialTheme(darkTheme, isDevMode);
+
+
             SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
@@ -299,7 +304,9 @@ public final class MOPWebViewHost extends JPanel {
      */
     public void setInitialTheme(boolean isDark, boolean isDevMode) {
         darkTheme = isDark;
-        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode), bridge -> bridge.setTheme(isDark, isDevMode));
+        double zoom = MainProject.getMopZoom();
+        sendOrQueue(new HostCommand.SetTheme(isDark, isDevMode, zoom),
+                bridge -> bridge.setTheme(isDark, isDevMode, zoom));
         applyTheme(Theme.create(isDark));
     }
 
@@ -309,11 +316,12 @@ public final class MOPWebViewHost extends JPanel {
      */
     public void setRuntimeTheme(boolean isDark, boolean isDevMode) {
         darkTheme = isDark;
+        double zoom = MainProject.getMopZoom();
         var bridge = bridgeRef.get();
         if (bridge != null) {
-            bridge.setTheme(isDark, isDevMode);
+            bridge.setTheme(isDark, isDevMode, zoom);
         } else {
-            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode));
+            pendingCommands.add(new HostCommand.SetTheme(isDark, isDevMode, zoom));
         }
         applyTheme(Theme.create(isDark));
     }
@@ -450,6 +458,10 @@ public final class MOPWebViewHost extends JPanel {
         bridge.resetZoom();
     }
 
+    public void setZoom(double zoom) {
+        sendOrQueue(new HostCommand.SetZoom(zoom), bridge -> bridge.setZoom(zoom));
+    }
+
     public void onAnalyzerReadyResponse(String contextId) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -507,7 +519,8 @@ public final class MOPWebViewHost extends JPanel {
                 switch (command) {
                     case HostCommand.Append a ->
                         bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
-                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode());
+                    case HostCommand.SetTheme t -> bridge.setTheme(t.isDark(), t.isDevMode(), t.zoom());
+                    case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();

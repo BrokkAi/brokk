@@ -1003,6 +1003,7 @@ public final class MainProject extends AbstractProject {
     //  - "auto" (default): detect from environment (kscreen-doctor/gsettings on Linux)
     //  - numeric value (e.g., "1.25"), applied to sun.java2d.uiScale at startup, capped elsewhere to sane bounds
     private static final String UI_SCALE_KEY = "uiScale";
+    private static final String MOP_ZOOM_KEY = "mopZoom";
 
     public static String getUiScalePref() {
         var props = loadGlobalProperties();
@@ -1018,6 +1019,27 @@ public final class MainProject extends AbstractProject {
     public static void setUiScalePrefCustom(double scale) {
         var props = loadGlobalProperties();
         props.setProperty(UI_SCALE_KEY, Double.toString(scale));
+        saveGlobalProperties(props);
+    }
+
+    public static double getMopZoom() {
+        var props = loadGlobalProperties();
+        String s = props.getProperty(MOP_ZOOM_KEY, "1.0");
+        double z;
+        try {
+            z = Double.parseDouble(s);
+        } catch (NumberFormatException e) {
+            z = 1.0;
+        }
+        if (z < 0.5) z = 0.5;
+        if (z > 2.0) z = 2.0;
+        return z;
+    }
+
+    public static void setMopZoom(double zoom) {
+        double clamped = Math.max(0.5, Math.min(2.0, zoom));
+        var props = loadGlobalProperties();
+        props.setProperty(MOP_ZOOM_KEY, Double.toString(clamped));
         saveGlobalProperties(props);
     }
 
