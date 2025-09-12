@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.SwingUtil.ThemedIcon;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import io.github.jbellis.brokk.gui.components.McpToolTable;
@@ -32,9 +33,9 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.event.DocumentListener;
@@ -1441,7 +1442,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.BOTH;
         var envContainer = new JPanel(new BorderLayout(5, 5));
         envContainer.add(envScroll, BorderLayout.CENTER);
-        envContainer.add(envButtons, BorderLayout.SOUTH);
+
+        // Buttons row with right-aligned help icon
+        var envButtonsRow = new JPanel(new BorderLayout(5, 0));
+        envButtonsRow.add(envButtons, BorderLayout.WEST);
+
+        Icon helpIcon = Icons.HELP;
+        if (helpIcon instanceof ThemedIcon themedHelpIcon) {
+            helpIcon = themedHelpIcon.withSize(14);
+        }
+        var envHelpButton = new JButton(helpIcon);
+        envHelpButton.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        envHelpButton.setContentAreaFilled(false);
+        envHelpButton.setFocusPainted(false);
+        envHelpButton.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+        envHelpButton.setToolTipText(
+                "You can use environment variables as values, e.g., $HOME or ${HOME}. If a variable is not set, the literal text is used.");
+        envButtonsRow.add(envHelpButton, BorderLayout.EAST);
+
+        envContainer.add(envButtonsRow, BorderLayout.SOUTH);
         panel.add(envContainer, gbc);
 
         // Row 7: Fetch controls (moved below tools)
@@ -1741,7 +1760,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private static class EnvVarCellRenderer extends DefaultTableCellRenderer {
-        private static final Pattern ENV_VAR_PATTERN = Pattern.compile("^\\$(?:\\{([a-zA-Z_][a-zA-Z0-9_]*)}|([a-zA-Z_][a-zA-Z0-9_]*))");
+        private static final Pattern ENV_VAR_PATTERN =
+                Pattern.compile("^\\$(?:\\{([a-zA-Z_][a-zA-Z0-9_]*)}|([a-zA-Z_][a-zA-Z0-9_]*))");
         private static final Border SUCCESS_BORDER;
         private static final Border FAILURE_BORDER;
 
@@ -1783,7 +1803,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                             setToolTipText("Environment variable '" + varName + "' found.");
                             setBorder(SUCCESS_BORDER);
                         } else {
-                            setToolTipText("Environment variable '" + varName + "' not set in Brokk's environment. Using the literal text as-is.");
+                            setToolTipText("Environment variable '" + varName
+                                    + "' not set in Brokk's environment. Using the literal text as-is.");
                             setBorder(FAILURE_BORDER);
                         }
                     }
