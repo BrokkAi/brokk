@@ -230,6 +230,7 @@ public class PhpAnalyzerTest {
         assertTrue(sourceOpt.isPresent());
         String expectedSource =
                 """
+        /** Some doc */
         public function getValue(): int {
                 return $this->value;
             }"""; // Keep original indentation from test file

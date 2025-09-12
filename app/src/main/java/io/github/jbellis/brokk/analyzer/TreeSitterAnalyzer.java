@@ -677,7 +677,10 @@ public abstract class TreeSitterAnalyzer
         }
 
         // For classes, expect one primary definition range.
-        var range = ranges.getFirst();
+        var originalRange = ranges.getFirst();
+
+        // Expand range to include preceding comments
+        var expandedRange = expandRangeWithComments(cu.source(), originalRange);
 
         var srcOpt = cu.source().read();
         if (srcOpt.isEmpty()) {
@@ -685,7 +688,7 @@ public abstract class TreeSitterAnalyzer
         }
         String src = srcOpt.get();
 
-        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
+        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, expandedRange.startByte(), expandedRange.endByte());
 
         return Optional.of(extractedSource);
     }
@@ -714,13 +717,18 @@ public abstract class TreeSitterAnalyzer
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
+                        // Expand range to include preceding comments for each method overload
+                        Range expandedRange = expandRangeWithComments(cu.source(), range);
+
                         String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, range.startByte(), range.endByte());
+                                fileContent, expandedRange.startByte(), expandedRange.endByte());
                         if (!methodSource.isEmpty()) {
                             individualMethodSources.add(methodSource);
                         } else {
                             log.warn(
-                                    "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                                    "Could not extract valid method source for expanded range [{}, {}] (original [{}, {}]) for CU {} (fqName {}). Skipping this range.",
+                                    expandedRange.startByte(),
+                                    expandedRange.endByte(),
                                     range.startByte(),
                                     range.endByte(),
                                     cu,
@@ -2315,5 +2323,149 @@ public abstract class TreeSitterAnalyzer
                     merged.addAll(newRanges);
                     return List.copyOf(merged);
                 }));
+    }
+
+    /* ---------- comment detection for source expansion ---------- */
+
+    /**
+     * Checks if a Tree-Sitter node represents a comment.
+     * Supports common comment node types across languages.
+     */
+    protected boolean isCommentNode(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        String nodeType = node.getType();
+        return nodeType.equals("comment")
+            || nodeType.equals("line_comment")
+            || nodeType.equals("block_comment")
+            || nodeType.equals("doc_comment")
+            || nodeType.equals("documentation_comment");
+    }
+
+    /**
+     * Finds a Tree-Sitter node by its byte range within the given tree.
+     */
+    protected Optional<TSNode> findNodeByRange(TSTree tree, int startByte, int endByte) {
+        TSNode root = tree.getRootNode();
+        return findNodeByRangeRecursive(root, startByte, endByte);
+    }
+
+    private Optional<TSNode> findNodeByRangeRecursive(TSNode node, int targetStartByte, int targetEndByte) {
+        // Check if this node matches the target range
+        if (node.getStartByte() == targetStartByte && node.getEndByte() == targetEndByte) {
+            return Optional.of(node);
+        }
+
+        // Check children
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child != null && !child.isNull()) {
+                // Only recurse if the target range could be within this child
+                if (child.getStartByte() <= targetStartByte && child.getEndByte() >= targetEndByte) {
+                    Optional<TSNode> result = findNodeByRangeRecursive(child, targetStartByte, targetEndByte);
+                    if (result.isPresent()) {
+                        return result;
+                    }
+                }
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Finds all comment nodes that directly precede the given declaration node.
+     * Returns comments in source order (earliest first).
+     */
+    protected List<TSNode> findPrecedingComments(TSNode declarationNode) {
+        List<TSNode> comments = new ArrayList<>();
+        TSNode current = declarationNode.getPrevSibling();
+
+        while (current != null && !current.isNull()) {
+            if (isCommentNode(current)) {
+                comments.add(current);
+            } else if (!isWhitespaceOnlyNode(current)) {
+                // Stop at first non-comment, non-whitespace node
+                break;
+            }
+            current = current.getPrevSibling();
+        }
+
+        // Reverse to get source order (earliest first)
+        Collections.reverse(comments);
+        return comments;
+    }
+
+    /**
+     * Checks if a node contains only whitespace (spaces, tabs, newlines).
+     */
+    protected boolean isWhitespaceOnlyNode(TSNode node) {
+        if (node.isNull()) {
+            return false;
+        }
+        // Common whitespace node types in Tree-Sitter grammars
+        String nodeType = node.getType();
+        return nodeType.equals("whitespace")
+            || nodeType.equals("newline")
+            || nodeType.equals("\n")
+            || nodeType.equals(" ");
+    }
+
+    /**
+     * Expands a source range to include preceding comments.
+     * Re-parses the source file to get AST for comment detection.
+     */
+    protected Range expandRangeWithComments(ProjectFile file, Range originalRange) {
+        try {
+            // Re-parse the source file
+            String src = file.read();
+
+            TSParser parser = new TSParser();
+            if (!parser.setLanguage(getTSLanguage())) {
+                log.warn("Failed to set language for comment expansion in file {}", file);
+                return originalRange;
+            }
+
+            TSTree tree = parser.parseString(null, src);
+
+            // Find the declaration node by its range
+            Optional<TSNode> declarationNode = findNodeByRange(tree, originalRange.startByte(), originalRange.endByte());
+            if (declarationNode.isEmpty()) {
+                log.debug("Could not find declaration node for range [{}, {}] in file {}",
+                         originalRange.startByte(), originalRange.endByte(), file);
+                return originalRange;
+            }
+
+            // Find preceding comments
+            List<TSNode> precedingComments = findPrecedingComments(declarationNode.get());
+            if (precedingComments.isEmpty()) {
+                return originalRange;
+            }
+
+            // Calculate new start byte from earliest comment
+            int newStartByte = precedingComments.get(0).getStartByte();
+            int newStartLine = precedingComments.get(0).getStartPoint().getRow();
+
+            Range expandedRange = new Range(
+                newStartByte,
+                originalRange.endByte(),
+                newStartLine,
+                originalRange.endLine()
+            );
+
+            log.trace("Expanded range for file {} from [{}, {}] to [{}, {}] (added {} comment nodes)",
+                     file, originalRange.startByte(), originalRange.endByte(),
+                     expandedRange.startByte(), expandedRange.endByte(), precedingComments.size());
+
+            return expandedRange;
+
+        } catch (IOException e) {
+            log.warn("IO error during comment expansion for file {}: {}", file, e.getMessage());
+            return originalRange;
+        } catch (Exception e) {
+            log.warn("Error during comment expansion for file {}: {}", file, e.getMessage());
+            return originalRange;
+        }
     }
 }
