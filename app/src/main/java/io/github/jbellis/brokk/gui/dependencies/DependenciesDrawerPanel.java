@@ -33,20 +33,17 @@ public class DependenciesDrawerPanel extends JPanel {
     // Dependencies
     private final Chrome chrome;
     private final JSplitPane parentSplitPane;
-    private final JLabel dependenciesTitleLabel;
 
     /**
      * Creates a new terminal drawer panel.
      *
      * @param chrome main ui
      * @param parentSplitPane The split pane this drawer is part of
-     * @param dependenciesTitleLabel The title label to show/hide with drawer state
      */
-    public DependenciesDrawerPanel(Chrome chrome, JSplitPane parentSplitPane, JLabel dependenciesTitleLabel) {
+    public DependenciesDrawerPanel(Chrome chrome, JSplitPane parentSplitPane) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.parentSplitPane = parentSplitPane;
-        this.dependenciesTitleLabel = dependenciesTitleLabel;
         this.originalDividerSize = parentSplitPane.getDividerSize();
 
         setBorder(BorderFactory.createEmptyBorder());
@@ -141,9 +138,6 @@ public class DependenciesDrawerPanel extends JPanel {
             // Remove minimum size constraint from this drawer panel
             setMinimumSize(null);
 
-            // Show the dependencies title
-            dependenciesTitleLabel.setVisible(true);
-
             // Use saved location if reasonable, otherwise default to 67/33 split
             double loc = lastDividerLocation;
             if (loc <= 0.0 || loc >= 1.0 || Math.abs(loc - 0.5) < 1e-6) {
@@ -190,9 +184,6 @@ public class DependenciesDrawerPanel extends JPanel {
 
                     // Hide the divider
                     parentSplitPane.setDividerSize(0);
-
-                    // Hide the dependencies title
-                    dependenciesTitleLabel.setVisible(false);
 
                     // Force layout update
                     parentSplitPane.revalidate();

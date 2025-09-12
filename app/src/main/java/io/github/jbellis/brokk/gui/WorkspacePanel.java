@@ -52,6 +52,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
@@ -680,6 +681,13 @@ public class WorkspacePanel extends JPanel {
     /** Primary constructor allowing menu-mode selection */
     public WorkspacePanel(Chrome chrome, ContextManager contextManager, PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
+
+        setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Workspace",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)));
 
         this.chrome = chrome;
         this.contextManager = contextManager;
