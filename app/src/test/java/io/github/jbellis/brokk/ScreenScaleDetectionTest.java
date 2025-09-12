@@ -167,4 +167,35 @@ class ScreenScaleDetectionTest {
         assertEquals(1.0, SystemScaleDetector.normalizeUiScaleToAllowed(0.9), 1e-9);
         assertEquals(3.0, SystemScaleDetector.normalizeUiScaleToAllowed(3.0), 1e-9);
     }
+
+    @Test
+    void tryDetectScaleViaGnomeDBus_variousOutputs() {
+        // 1. Primary present with scale 2.0
+        var provider1 = new FakeProvider().commandResult(List.of("'('(1, 1, 2.0, uint32 0, true, ...)"));
+        var detected1 = SystemScaleDetector.tryDetectScaleViaGnomeDBus(provider1);
+        assertNotNull(detected1);
+        assertEquals(2.0, detected1, 1e-9);
+
+        // 2. Primary monitor is second with scale 1.5
+        var provider2 =
+                new FakeProvider().commandResult(List.of("(..., false, ...), (0, 0, 1.5, uint32 0, true, ...)"));
+        var detected2 = SystemScaleDetector.tryDetectScaleViaGnomeDBus(provider2);
+        assertNotNull(detected2);
+        assertEquals(1.5, detected2, 1e-9);
+
+        // 3. No primary monitor
+        var provider3 = new FakeProvider().commandResult(List.of("(..., false, ...)"));
+        var detected3 = SystemScaleDetector.tryDetectScaleViaGnomeDBus(provider3);
+        assertNull(detected3);
+
+        // 4. Malformed scale value
+        var provider4 = new FakeProvider().commandResult(List.of("(0, 0, 1..5, uint32 0, true, ...)"));
+        var detected4 = SystemScaleDetector.tryDetectScaleViaGnomeDBus(provider4);
+        assertNull(detected4);
+
+        // 5. Empty output
+        var provider5 = new FakeProvider().commandResult(List.of());
+        var detected5 = SystemScaleDetector.tryDetectScaleViaGnomeDBus(provider5);
+        assertNull(detected5);
+    }
 }

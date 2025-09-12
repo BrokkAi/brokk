@@ -25,6 +25,7 @@ import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
 import dev.langchain4j.model.chat.request.json.JsonNumberSchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonSchema;
+import dev.langchain4j.model.chat.request.json.JsonSchemaElement;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -1004,7 +1005,10 @@ public class Llm {
             List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
-                    var parametersInfo = tool.parameters().properties().entrySet().stream()
+                    var props = tool.parameters() == null
+                            ? Map.<String, JsonSchemaElement>of()
+                            : tool.parameters().properties();
+                    var parametersInfo = props.entrySet().stream()
                             .map(entry -> {
                                 var schema = entry.getValue();
                                 String description;
@@ -1061,7 +1065,9 @@ public class Llm {
                                         .formatted(
                                                 entry.getKey(),
                                                 type,
-                                                tool.parameters().required().contains(entry.getKey()),
+                                                requireNonNull(tool.parameters())
+                                                        .required()
+                                                        .contains(entry.getKey()),
                                                 description);
                             })
                             .collect(Collectors.joining("\n"));

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import io.github.jbellis.brokk.util.Json;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -368,5 +369,68 @@ public class FileSerializationTest {
         var sourceMap = (java.util.Map<String, Object>) jsonMap.get("source");
         assertTrue(sourceMap.containsKey("root"));
         assertTrue(sourceMap.containsKey("relPath"));
+    }
+
+    @Test
+    void testNewFilesDetectedAsTextByExtension() {
+        // Test the specific case that caused the original bug where new files in PRs
+        // (that exist in Git but not in working tree) were incorrectly classified as non-text
+        Path root = tempDir.resolve("project").toAbsolutePath().normalize();
+
+        // Test various text file extensions for non-existent files (new files in PRs)
+        String[] textFiles = {
+            "src/components/MyComponent.svelte",
+            "Test.java",
+            "script.js",
+            "component.tsx",
+            "style.css",
+            "README.md",
+            "config.json",
+            "app.py",
+            "main.rs",
+            "index.html"
+        };
+
+        for (String filename : textFiles) {
+            ProjectFile file = new ProjectFile(root, filename);
+            assertFalse(file.exists(), "File " + filename + " should not exist for this test");
+            assertTrue(file.isText(), filename + " should be detected as text when non-existent");
+        }
+
+        // Test image files should be detected as non-text
+        String[] imageFiles = {"photo.jpg", "icon.png", "image.gif", "document.pdf"};
+        for (String filename : imageFiles) {
+            ProjectFile file = new ProjectFile(root, filename);
+            assertFalse(file.exists(), "File " + filename + " should not exist for this test");
+            assertFalse(file.isText(), filename + " should be detected as non-text when non-existent");
+        }
+    }
+
+    @Test
+    void testExistingFilesDetectedByExtensionAndSize() throws IOException {
+        Path root = tempDir.resolve("project").toAbsolutePath().normalize();
+        Files.createDirectories(root);
+
+        // Test existing text file with recognized extension
+        Path textFile = root.resolve("test.txt");
+        Files.writeString(textFile, "Hello, world!");
+        ProjectFile file1 = new ProjectFile(root, "test.txt");
+        assertTrue(file1.exists(), "File should exist for this test");
+        assertTrue(file1.isText(), "Existing .txt file should be detected as text");
+
+        // Test existing small file without recognized text extension (should be text by size)
+        Path smallFile = root.resolve("small.data");
+        Files.writeString(smallFile, "small content");
+        ProjectFile file2 = new ProjectFile(root, "small.data");
+        assertTrue(file2.exists(), "File should exist for this test");
+        assertTrue(file2.isText(), "Small file should be detected as text regardless of extension");
+
+        // Test existing large file without recognized text extension (should be non-text)
+        Path largeFile = root.resolve("large.data");
+        byte[] largeContent = new byte[130 * 1024]; // 130KB
+        Files.write(largeFile, largeContent);
+        ProjectFile file3 = new ProjectFile(root, "large.data");
+        assertTrue(file3.exists(), "File should exist for this test");
+        assertFalse(file3.isText(), "Large file without text extension should be detected as non-text");
     }
 }

@@ -611,7 +611,7 @@ public abstract class CodePrompts {
                     readOnlyImageFragments.add(ImageContent.from(l4jImage));
                     // Add a placeholder in the text part for reference
                     readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
-                } catch (IOException e) {
+                } catch (IOException | UncheckedIOException e) {
                     logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
                     // Add a placeholder indicating the error, do not call removeBadFragment from here
                     readOnlyTextFragments.append(String.format(

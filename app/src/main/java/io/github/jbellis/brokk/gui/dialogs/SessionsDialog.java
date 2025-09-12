@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import static io.github.jbellis.brokk.SessionManager.SessionInfo;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
@@ -453,21 +454,26 @@ public class SessionsDialog extends JDialog {
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
-                var activeSessions = selectedSessions.stream()
-                        .filter(s -> SessionRegistry.isSessionActiveElsewhere(
-                                contextManager.getProject().getRoot(), s.id()))
-                        .toList();
+                var partitionedSessions = selectedSessions.stream()
+                        .collect(Collectors.partitioningBy(s -> SessionRegistry.isSessionActiveElsewhere(
+                                contextManager.getProject().getRoot(), s.id())));
+                // partitioning by boolean always returns mappings for both true and false keys
+                var activeSessions = castNonNull(partitionedSessions.get(true));
+                var deletableSessions = castNonNull(partitionedSessions.get(false));
 
                 if (!activeSessions.isEmpty()) {
                     var sessionNames =
                             activeSessions.stream().map(SessionInfo::name).collect(Collectors.joining(", "));
                     chrome.toolError(
                             "Cannot delete sessions active in other worktrees: " + sessionNames, "Sessions in use");
+                }
+
+                if (deletableSessions.isEmpty()) {
                     return;
                 }
 
                 var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
-                for (var s : selectedSessions) {
+                for (var s : deletableSessions) {
                     futures.add(contextManager.deleteSessionAsync(s.id()));
                 }
                 java.util.concurrent.CompletableFuture.allOf(

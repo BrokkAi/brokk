@@ -123,18 +123,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         } catch (org.eclipse.jgit.errors.MissingObjectException e) {
             logger.debug(
                     "Commit object for SHA {} (resolved to {}) is missing locally.",
-                    GitUiUtil.shortenCommitId(sha),
+                    repo.shortHash(sha),
                     objectId.name(),
                     e);
             return false; // Resolvable but data is missing
         } catch (IOException
                 | GitAPIException e) { // GitAPIException from repo.resolve, IOException from parseCommit (other than
             // MissingObjectException)
-            logger.warn(
-                    "Error checking local availability of commit {}: {}",
-                    GitUiUtil.shortenCommitId(sha),
-                    e.getMessage(),
-                    e);
+            logger.warn("Error checking local availability of commit {}: {}", repo.shortHash(sha), e.getMessage(), e);
             return false; // Error during check, assume not available
         }
     }
@@ -157,10 +153,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // If not available or missing, try to fetch
         logger.debug(
-                "SHA {} not fully available locally - fetching {} from {}",
-                GitUiUtil.shortenCommitId(sha),
-                refSpec,
-                remoteName);
+                "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
         try {
             repo.getGit()
                     .fetch()
@@ -169,12 +162,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     .call();
             // After fetch, verify again
             if (isCommitLocallyAvailable(repo, sha)) {
-                logger.debug("Successfully fetched and verified SHA {}", GitUiUtil.shortenCommitId(sha));
+                logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
                 return true;
             } else {
                 logger.warn(
                         "Failed to make SHA {} fully available locally even after fetching {} from {}",
-                        GitUiUtil.shortenCommitId(sha),
+                        repo.shortHash(sha),
                         refSpec,
                         remoteName);
                 return false;
@@ -183,7 +176,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             // Includes GitAPIException, IOException, etc.
             logger.warn(
                     "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
-                    GitUiUtil.shortenCommitId(sha),
+                    repo.shortHash(sha),
                     e.getMessage(),
                     e);
             return false;
@@ -1323,7 +1316,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             logger.warn(
                                     "PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.",
                                     prNumber,
-                                    GitUiUtil.shortenCommitId(headSha));
+                                    repo.shortHash(headSha));
                             // headLocallyAvailable remains the result of the first ensureShaIsLocal attempt
                         }
                     }
@@ -1364,11 +1357,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         fetchedFilesMap.put(prNumber, changedFiles);
                     } else {
                         String missingShasMsg = "";
-                        if (!headLocallyAvailable)
-                            missingShasMsg += "head (" + GitUiUtil.shortenCommitId(headSha) + ")";
+                        if (!headLocallyAvailable) missingShasMsg += "head (" + repo.shortHash(headSha) + ")";
                         if (!baseLocallyAvailable) {
                             if (!missingShasMsg.isEmpty()) missingShasMsg += " and ";
-                            missingShasMsg += "base (" + GitUiUtil.shortenCommitId(baseSha) + ")";
+                            missingShasMsg += "base (" + repo.shortHash(baseSha) + ")";
                         }
                         logger.warn(
                                 "Could not make {} SHA(s) for PR #{} fully available locally to list files.",
@@ -1479,8 +1471,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                     if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                         chrome.toolError(
-                                "Could not make PR head commit " + GitUiUtil.shortenCommitId(prHeadSha)
-                                        + " available locally.",
+                                "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                                 "Capture Diff Error");
                         return;
                     }
@@ -1607,8 +1598,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
-                            "Could not make PR head commit " + GitUiUtil.shortenCommitId(prHeadSha)
-                                    + " available locally.",
+                            "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Diff Error");
                     return null;
                 }
@@ -1618,7 +1608,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     // listFilesChangedBetweenBranches might still work if it's an ancestor.
                     logger.warn(
                             "PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.",
-                            GitUiUtil.shortenCommitId(prBaseSha),
+                            repo.shortHash(prBaseSha),
                             prBaseFetchRef);
                 }
 

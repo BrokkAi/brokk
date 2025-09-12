@@ -42,16 +42,6 @@ public final class GitUiUtil {
 
     private GitUiUtil() {}
 
-    /**
-     * Shortens a commit ID to 7 characters for display purposes.
-     *
-     * @param commitId The full commit ID, may be null
-     * @return The shortened commit ID, or the original if null or shorter than 7 characters
-     */
-    public static String shortenCommitId(String commitId) {
-        return commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
-    }
-
     /** Capture uncommitted diffs for the specified files, adding the result to the context. */
     public static void captureUncommittedDiff(
             ContextManager contextManager, Chrome chrome, List<ProjectFile> selectedFiles) {
@@ -101,7 +91,7 @@ public final class GitUiUtil {
                     chrome.systemOutput("No changes found for " + file.getFileName());
                     return;
                 }
-                var shortHash = shortenCommitId(commitId);
+                String shortHash = ((GitRepo) repo).shortHash(commitId);
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
@@ -121,7 +111,7 @@ public final class GitUiUtil {
             ProjectFile file) {
         var repo = cm.getProject().getRepo();
 
-        var shortCommitId = shortenCommitId(commitId);
+        String shortCommitId = ((GitRepo) repo).shortHash(commitId);
         var dialogTitle = "Diff: " + file.getFileName() + " (" + shortCommitId + ")";
         var parentCommitId = commitId + "^";
 
@@ -153,7 +143,8 @@ public final class GitUiUtil {
             try {
                 final String content = repo.getFileContent(commitId, file);
                 SwingUtilities.invokeLater(() -> {
-                    var fragment = new ContextFragment.GitFileFragment(file, commitId, content);
+                    var fragment =
+                            new ContextFragment.GitFileFragment(file, ((GitRepo) repo).shortHash(commitId), content);
                     chrome.openFragmentPreview(fragment);
                 });
             } catch (GitAPIException e) {
@@ -178,9 +169,11 @@ public final class GitUiUtil {
             Chrome chrome,
             ICommitInfo newestCommitInSelection,
             ICommitInfo oldestCommitInSelection) {
+        var repoForLabel = contextManager.getProject().getRepo();
         String taskDescription = String.format(
                 "Capturing diff from %s to %s",
-                shortenCommitId(oldestCommitInSelection.id()), shortenCommitId(newestCommitInSelection.id()));
+                ((GitRepo) repoForLabel).shortHash(oldestCommitInSelection.id()),
+                ((GitRepo) repoForLabel).shortHash(newestCommitInSelection.id()));
         contextManager.submitContextTask(taskDescription, () -> {
             try {
                 var repo = contextManager.getProject().getRepo();
@@ -204,8 +197,8 @@ public final class GitUiUtil {
 
                 var fileNamesSummary = formatFileList(changedFiles);
 
-                var newestShort = shortenCommitId(newestCommitId);
-                var oldestShort = shortenCommitId(oldestCommitId);
+                var newestShort = ((GitRepo) repo).shortHash(newestCommitId);
+                var oldestShort = ((GitRepo) repo).shortHash(oldestCommitId);
                 var hashTxt = newestCommitId.equals(oldestCommitId) ? newestShort : oldestShort + ".." + newestShort;
 
                 var description = "Diff of %s [%s]".formatted(fileNamesSummary, hashTxt);
@@ -278,8 +271,8 @@ public final class GitUiUtil {
                     chrome.systemOutput("No changes found for the selected files in the commit range");
                     return;
                 }
-                var firstShort = shortenCommitId(firstCommitId);
-                var lastShort = shortenCommitId(lastCommitId);
+                var firstShort = ((GitRepo) repo).shortHash(firstCommitId);
+                var lastShort = ((GitRepo) repo).shortHash(lastCommitId);
                 var shortHash =
                         firstCommitId.equals(lastCommitId) ? firstShort : "%s..%s".formatted(firstShort, lastShort);
 
@@ -316,12 +309,12 @@ public final class GitUiUtil {
                 // 2) Figure out the base commit ID and title components
                 String baseCommitId = commitId;
                 String baseCommitTitle = commitId;
-                String baseCommitShort = shortenCommitId(commitId);
+                String baseCommitShort = ((GitRepo) repo).shortHash(commitId);
 
                 if (useParent) {
                     baseCommitId = commitId + "^";
                     baseCommitTitle = commitId + "^";
-                    baseCommitShort = shortenCommitId(commitId) + "^";
+                    baseCommitShort = ((GitRepo) repo).shortHash(commitId) + "^";
                 }
 
                 // 3) Read old content from the base commit
@@ -470,7 +463,7 @@ public final class GitUiUtil {
             ContextManager cm, Chrome chrome, io.github.jbellis.brokk.git.ICommitInfo commitInfo) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
+        cm.submitUserTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
                 if (files.isEmpty()) {
@@ -490,9 +483,9 @@ public final class GitUiUtil {
                     rightSources.add(new BufferSource.StringSource(newContent, commitInfo.id(), file.toString()));
                 }
 
+                String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var title = "Commit Diff: %s (%s)"
-                        .formatted(
-                                commitInfo.message().lines().findFirst().orElse(""), shortenCommitId(commitInfo.id()));
+                        .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
 
                 SwingUtilities.invokeLater(() -> {
                     // Check if we already have a window showing this diff
@@ -521,7 +514,7 @@ public final class GitUiUtil {
             String targetFileName) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
+        cm.submitUserTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
                 if (files.isEmpty()) {
@@ -556,9 +549,9 @@ public final class GitUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
+                String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var title = "Commit Diff: %s (%s)"
-                        .formatted(
-                                commitInfo.message().lines().findFirst().orElse(""), shortenCommitId(commitInfo.id()));
+                        .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
                 SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -585,7 +578,7 @@ public final class GitUiUtil {
                 }
 
                 var repo = contextManager.getProject().getRepo();
-                var shortId = shortenCommitId(commitInfo.id());
+                var shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var leftSources = new ArrayList<BufferSource>();
                 var rightSources = new ArrayList<BufferSource>();
 
@@ -658,9 +651,8 @@ public final class GitUiUtil {
             return;
         }
 
-        var shortCommitId = shortenCommitId(commitId);
-
         var repo = (GitRepo) contextManager.getProject().getRepo();
+        var shortCommitId = repo.shortHash(commitId);
 
         contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
             try {
@@ -721,8 +713,8 @@ public final class GitUiUtil {
                     logger.warn(
                             "Could not determine merge base for PR #{} (head: {}, base: {}). Falling back to PR base SHA for diff.",
                             prNumber,
-                            shortenCommitId(prHeadSha),
-                            shortenCommitId(prBaseSha));
+                            repo.shortHash(prHeadSha),
+                            repo.shortHash(prBaseSha));
                     effectiveBaseSha = prBaseSha;
                 }
 
@@ -730,7 +722,7 @@ public final class GitUiUtil {
                 if (diff.isEmpty()) {
                     chrome.systemOutput(String.format(
                             "No differences found for PR #%d (head: %s, effective base: %s)",
-                            prNumber, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha)));
+                            prNumber, repo.shortHash(prHeadSha), repo.shortHash(effectiveBaseSha)));
                     return;
                 }
 
@@ -742,8 +734,8 @@ public final class GitUiUtil {
                         prNumber,
                         prTitle,
                         fileNamesSummary,
-                        shortenCommitId(prHeadSha),
-                        shortenCommitId(effectiveBaseSha));
+                        repo.shortHash(prHeadSha),
+                        repo.shortHash(effectiveBaseSha));
 
                 String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
                 if (!changedFiles.isEmpty()) {
@@ -833,14 +825,14 @@ public final class GitUiUtil {
 
                 if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
                     chrome.toolError(
-                            "Could not make PR head commit " + shortenCommitId(prHeadSha) + " available locally.",
+                            "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
                             "Diff Error");
                     return null;
                 }
                 if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
                     logger.warn(
                             "PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.",
-                            shortenCommitId(prBaseSha),
+                            repo.shortHash(prBaseSha),
                             prBaseFetchRef);
                 }
 
@@ -925,11 +917,11 @@ public final class GitUiUtil {
         } catch (MissingObjectException e) {
             logger.debug(
                     "Commit object for SHA {} (resolved to {}) is missing locally.",
-                    shortenCommitId(sha),
+                    repo.shortHash(sha),
                     objectId != null ? objectId.name() : "null");
             return false;
         } catch (Exception e) {
-            logger.debug("Cannot resolve or parse SHA {}: {}", shortenCommitId(sha), e.getMessage());
+            logger.debug("Cannot resolve or parse SHA {}: {}", repo.shortHash(sha), e.getMessage());
             return false;
         }
     }
@@ -942,7 +934,7 @@ public final class GitUiUtil {
 
         // If not available or missing, try to fetch
         logger.debug(
-                "SHA {} not fully available locally - fetching {} from {}", shortenCommitId(sha), refSpec, remoteName);
+                "SHA {} not fully available locally - fetching {} from {}", repo.shortHash(sha), refSpec, remoteName);
         try {
             repo.getGit()
                     .fetch()
@@ -951,12 +943,12 @@ public final class GitUiUtil {
                     .call();
             // After fetch, verify again
             if (isCommitLocallyAvailable(repo, sha)) {
-                logger.debug("Successfully fetched and verified SHA {}", shortenCommitId(sha));
+                logger.debug("Successfully fetched and verified SHA {}", repo.shortHash(sha));
                 return true;
             } else {
                 logger.warn(
                         "Failed to make SHA {} fully available locally even after fetching {} from {}",
-                        shortenCommitId(sha),
+                        repo.shortHash(sha),
                         refSpec,
                         remoteName);
                 return false;
@@ -965,7 +957,7 @@ public final class GitUiUtil {
             // Includes GitAPIException, IOException, etc.
             logger.warn(
                     "Error during fetch operation in ensureShaIsLocal for SHA {}: {}",
-                    shortenCommitId(sha),
+                    repo.shortHash(sha),
                     e.getMessage(),
                     e);
             return false;
@@ -1004,7 +996,7 @@ public final class GitUiUtil {
             }
         }
 
-        hash = shortenCommitId(hash); // canonical short hash
+        String shortHash = (repo != null) ? repo.shortHash(hash) : "";
 
         // If we still have no message, and a repo is available, try to look it up
         if ((msg == null || msg.isBlank()) && repo != null) {
@@ -1020,7 +1012,7 @@ public final class GitUiUtil {
 
         // Final formatting
         msg = (msg == null ? "" : truncateWithEllipsis(msg.split("\\R", 2)[0].trim(), 30));
-        return msg.isBlank() ? "[%s]".formatted(hash) : "'%s' [%s]".formatted(msg, hash);
+        return msg.isBlank() ? "[%s]".formatted(shortHash) : "'%s' [%s]".formatted(msg, shortHash);
     }
 
     /** Truncates s to maxLen characters, appending '...' if needed. */
