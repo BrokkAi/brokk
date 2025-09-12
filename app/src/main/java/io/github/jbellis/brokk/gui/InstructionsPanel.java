@@ -23,6 +23,7 @@ import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.components.ModelSelector;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.components.SwitchIcon;
@@ -98,7 +99,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JCheckBox modeSwitch;
     private final JCheckBox codeCheckBox;
     private final JCheckBox searchProjectCheckBox;
-    private final JButton planOptionsLink;
+    private final MaterialButton planOptionsLink;
     // Labels flanking the mode switch; bold the selected side
     private final JLabel codeModeLabel = new JLabel("Code");
     private final JLabel answerModeLabel = new JLabel("Answer");
@@ -233,36 +234,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 }));
 
-        planOptionsLink = new JButton("Plan Options");
-        // Visual and input configuration
-        KeyStroke planOptionsKs =
-                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
-        planOptionsLink.setToolTipText(
-                "Configure options for the Architect agent (Plan First) (" + formatKeyStroke(planOptionsKs) + ")");
-        planOptionsLink.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        planOptionsLink.setBorderPainted(false);
-        planOptionsLink.setFocusable(true);
+        planOptionsLink = new MaterialButton("Plan Options");
         planOptionsLink.setAlignmentY(Component.CENTER_ALIGNMENT);
-        planOptionsLink.putClientProperty("JButton.buttonType", "borderless");
 
-        // Action listener for click/activation
-        planOptionsLink.addActionListener(e -> {
+        // Action listener and shortcut for click/activation
+        Runnable openOptionsAction = () -> {
             ArchitectOptionsDialog.showDialogAndWait(chrome);
             javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-        });
+        };
+        planOptionsLink.addActionListener(e -> openOptionsAction.run());
 
-        // Register global platform shortcut (e.g., Ctrl+, or Cmd+,) to open Plan Options and restore focus
-        io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.registerGlobalShortcut(
-                chrome.getFrame().getRootPane(), planOptionsKs, "PlanOptions", () -> {
-                    ArchitectOptionsDialog.showDialogAndWait(chrome);
-                    javax.swing.SwingUtilities.invokeLater(() -> instructionsArea.requestFocusInWindow());
-                });
-
-        // Try to use a link-like color from UI, fall back to label foreground or blue
-        java.awt.Color linkColor = UIManager.getColor("Label.linkForeground");
-        if (linkColor == null) linkColor = UIManager.getColor("Label.foreground");
-        if (linkColor == null) linkColor = java.awt.Color.BLUE;
-        planOptionsLink.setForeground(linkColor);
+        KeyStroke planOptionsKs =
+                io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA);
+        planOptionsLink.setToolTipText("Configure options for the Architect agent (Plan First)");
+        planOptionsLink.setShortcut(planOptionsKs, chrome.getFrame().getRootPane(), "PlanOptions", openOptionsAction);
+        planOptionsLink.setAppendShortcutToTooltip(true);
 
         // Load persisted checkbox states (default to checked)
         var proj = chrome.getProject();
