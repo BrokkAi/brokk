@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.testutil.IAnalyzer;
+import io.github.jbellis.brokk.testutil.TestAnalyzer;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -27,7 +27,7 @@ public class CompletionsTest {
 
     @Test
     public void testUnqualifiedInput() {
-        var mock = new IAnalyzer(tempDir);
+        var mock = new TestAnalyzer(tempDir);
 
         // Input "do" -> we want it to match "a.b.Do"
         // Because "Do" simple name starts with 'D'
@@ -39,7 +39,7 @@ public class CompletionsTest {
 
     @Test
     public void testUnqualifiedRe() {
-        var mock = new IAnalyzer(tempDir);
+        var mock = new TestAnalyzer(tempDir);
         // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
         var completions = Completions.completeSymbols("re", mock);
         var values = toValues(completions);
@@ -48,7 +48,7 @@ public class CompletionsTest {
 
     @Test
     public void testNestedClassRe() {
-        var mock = new IAnalyzer(tempDir);
+        var mock = new TestAnalyzer(tempDir);
         var completions = Completions.completeSymbols("Re", mock);
         var values = toValues(completions);
 
@@ -59,7 +59,7 @@ public class CompletionsTest {
 
     @Test
     public void testCamelCaseCompletion() {
-        var mock = new IAnalyzer(tempDir) {
+        var mock = new TestAnalyzer(tempDir) {
             @Override
             public List<CodeUnit> autocompleteDefinitions(String query) {
                 // give all for the sake of testing camel case fuzzy matching
@@ -78,7 +78,7 @@ public class CompletionsTest {
 
     @Test
     public void testShortNameCompletions() {
-        var mock = new IAnalyzer(tempDir);
+        var mock = new TestAnalyzer(tempDir);
 
         var completions = Completions.completeSymbols("Do", mock);
         assertEquals(3, completions.size());
@@ -90,7 +90,7 @@ public class CompletionsTest {
 
     @Test
     public void testArchCompletion() {
-        var mock = new IAnalyzer(tempDir);
+        var mock = new TestAnalyzer(tempDir);
         var completions = Completions.completeSymbols("arch", mock);
         var values = toValues(completions);
         assertEquals(Set.of("a.b.Architect"), values);

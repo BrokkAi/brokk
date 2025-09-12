@@ -157,7 +157,8 @@ public class EditBlock {
                 var originalContent = changedFiles.get(file);
                 String commentary;
                 try {
-                    replaceMostSimilarChunk(originalContent, block.afterText, "");
+                    // IMPORTANT: use the updated overload that accepts context
+                    replaceMostSimilarChunk(contextManager, originalContent, block.afterText, "");
                     // if it didn't throw:
                     commentary =
                             """
@@ -173,9 +174,9 @@ public class EditBlock {
                 if (block.beforeText().lines().anyMatch(line -> line.startsWith("-") || line.startsWith("+"))) {
                     commentary +=
                             """
-                                  Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
-                                  Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
-                                  """
+                              Reminder: Brokk uses SEARCH/REPLACE blocks, not unified diff format.
+                              Ensure the `<<<<<<< SEARCH $filename` block matches the existing code exactly.
+                              """
                                     .stripIndent();
                 }
 
@@ -192,7 +193,7 @@ public class EditBlock {
                 var msg = "Error applying edit to " + file;
                 logger.error("{}: {}", msg, e.getMessage());
                 throw new IOException(msg);
-            } catch (GitAPIException e) {
+            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
                 var msg = "Non-fatal error: unable to update `%s` in Git".formatted(file);
                 logger.error("{}: {}", msg, e.getMessage());
                 io.systemOutput(msg);
@@ -207,7 +208,7 @@ public class EditBlock {
                 // clear the cache manually so BuildAgent's call to CM::getTestFiles sees the new files as part of the
                 // project.
                 contextManager.getRepo().invalidateCaches();
-            } catch (GitAPIException e) {
+            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
                 io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }
             contextManager.editFiles(newFiles);
@@ -293,9 +294,9 @@ public class EditBlock {
      */
     public static void replaceInFile(
             ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
-            throws IOException, NoMatchException, AmbiguousMatchException, GitAPIException {
+            throws IOException, NoMatchException, AmbiguousMatchException, org.eclipse.jgit.api.errors.GitAPIException {
         String original = file.exists() ? file.read() : "";
-        String updated = replaceMostSimilarChunk(original, beforeText, afterText);
+        String updated = replaceMostSimilarChunk(contextManager, original, beforeText, afterText);
 
         if (isDeletion(original, updated)) {
             logger.info("Detected deletion for file {}", file);
@@ -322,14 +323,20 @@ public class EditBlock {
     }
 
     /**
-     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content, or
-     * null if no match found. Throws AmbiguousMatchException if multiple matches are found.
+     * Attempts perfect/whitespace replacements, then tries "...", then fuzzy. Returns the post-replacement content.
+     * Also supports special *marker* search targets:
+     *   - BRK_CONFLICT_BEGIN<n>...BRK_CONFLICT_END<n>  (existing behavior)
+     *   - BRK_CLASS <fqcn>                             (new)
+     *   - BRK_FUNCTION <fqMethodName>                  (new; rejects overloads as ambiguous)
+     *
+     * For BRK_CLASS/BRK_FUNCTION, we fetch the exact source via SourceCodeProvider and then proceed as a normal
+     * line edit using that snippet as the search block.
      */
-    static String replaceMostSimilarChunk(String content, String target, String replace)
+    static String replaceMostSimilarChunk(IContextManager contextManager, String content, String target, String replace)
             throws AmbiguousMatchException, NoMatchException {
-        // Special-case: if the search block is a BRK_CONFLICT_BEGIN<n> ... BRK_CONFLICT_END<n> block (allow
-        // surrounding whitespace), then replace the entire conflict block (from the matching begin to end)
-        // in `content` with `replace`.
+        // -----------------------------
+        // 0) BRK_CONFLICT block special-case (existing behavior)
+        // -----------------------------
         var trimmedTarget = target.strip();
         var conflictPattern =
                 java.util.regex.Pattern.compile("(?s)^BRK_CONFLICT_BEGIN(\\d+)[\\s\\S]*BRK_CONFLICT_END\\1$");
@@ -339,8 +346,8 @@ public class EditBlock {
             // Find occurrences in the whole content. Include an optional trailing newline after the BRK_CONFLICT_END
             // so that replacing a block that is followed by a newline doesn't leave a duplicate blank line.
             var findPattern = java.util.regex.Pattern.compile("BRK_CONFLICT_BEGIN" + java.util.regex.Pattern.quote(num)
-                    + "[\\s\\S]*?BRK_CONFLICT_END" + java.util.regex.Pattern.quote(num)
-                    + "(?:\\r?\\n)?");
+                                                                      + "[\\s\\S]*?BRK_CONFLICT_END" + java.util.regex.Pattern.quote(num)
+                                                                      + "(?:\\r?\\n)?");
             var matcher = findPattern.matcher(content);
             int count = 0;
             while (matcher.find()) {
@@ -359,13 +366,74 @@ public class EditBlock {
             return replaced;
         }
 
-        // 1) prep for line-based matching
+        // -----------------------------
+        // 1) BRK_CLASS / BRK_FUNCTION special search syntax
+        // -----------------------------
+        var markerMatcher = java.util.regex.Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$").matcher(trimmedTarget);
+        if (markerMatcher.matches()) {
+            var kind = markerMatcher.group(1);
+            var fqName = markerMatcher.group(2).trim();
+
+            // This method is only invoked when analyzer supports SourceCodeProvider (per goal),
+            // but we still check and produce a helpful error if not.
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var scpOpt = analyzer.as(io.github.jbellis.brokk.analyzer.SourceCodeProvider.class);
+            if (scpOpt.isEmpty()) {
+                throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
+            }
+            var scp = scpOpt.get();
+
+            String snippet;
+            if ("CLASS".equals(kind)) {
+                var opt = scp.getClassSource(fqName);
+                if (opt.isEmpty()) {
+                    // Try a helpful hint: look for same short name in other packages
+                    var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
+                    var suggestions = analyzer.searchDefinitions(shortName).stream()
+                            .map(cu -> cu.fqName())
+                            .filter(n -> {
+                                int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
+                                return n.substring(idx + 1).equals(shortName);
+                            })
+                            .limit(3)
+                            .toList();
+                    var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+                    throw new NoMatchException("No class source found for '" + fqName + "'." + extra);
+                }
+                snippet = opt.get();
+            } else {
+                // BRK_FUNCTION
+                var sources = scp.getMethodSources(fqName);
+                if (sources.isEmpty()) {
+                    var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
+                    var suggestions = analyzer.searchDefinitions(methodKey).stream()
+                            .map(cu -> cu.fqName())
+                            .limit(3)
+                            .toList();
+                    var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";
+                    throw new NoMatchException("No method source found for '" + fqName + "'." + extra);
+                }
+                if (sources.size() > 1) {
+                    throw new AmbiguousMatchException(
+                            "Multiple overloads found for '" + fqName + "' (" + sources.size()
+                                    + "). Please provide a non-overloaded, unique name and re-run.");
+                }
+                snippet = sources.iterator().next();
+            }
+
+            // Turn this into a normal line edit by replacing the fetched snippet with `replace`
+            target = snippet;
+        }
+
+        // -----------------------------
+        // 2) Normal search/replace (existing behavior)
+        // -----------------------------
+        // 2a) prep for line-based matching
         ContentLines originalCL = prep(content);
         ContentLines targetCl = prep(target);
         ContentLines replaceCL = prep(replace);
 
-        // 2) perfect or whitespace approach
-        // Convert List<String> to String[] for perfectOrWhitespace and other methods
+        // 2b) perfect or whitespace approach
         String[] originalLinesArray = originalCL.lines().toArray(String[]::new);
         String[] targetLinesArray = targetCl.lines().toArray(String[]::new);
         String[] replaceLinesArray = replaceCL.lines().toArray(String[]::new);
@@ -374,7 +442,7 @@ public class EditBlock {
             return attempt;
         }
 
-        // 3) handle triple-dot expansions
+        // 2c) handle triple-dot expansions
         try {
             attempt = tryDotdotdots(content, target, replace);
             if (attempt != null) {
@@ -384,7 +452,7 @@ public class EditBlock {
             // ignore if it fails
         }
 
-        // 3a) If that failed, attempt dropping a spurious leading blank line from the "search" block:
+        // 2d) If that failed, attempt dropping a spurious leading blank line from the "search" block:
         if (targetCl.lines().size() > 2 && targetCl.lines().getFirst().trim().isEmpty()) {
             List<String> splicedTargetList =
                     targetCl.lines().subList(1, targetCl.lines().size());
@@ -394,7 +462,6 @@ public class EditBlock {
             String[] splicedTargetArray = splicedTargetList.toArray(String[]::new);
             String[] splicedReplaceArray = splicedReplaceList.toArray(String[]::new);
 
-            // Pass originalLinesArray which is String[]
             attempt = perfectOrWhitespace(originalLinesArray, splicedTargetArray, splicedReplaceArray);
             if (attempt != null) {
                 return attempt;

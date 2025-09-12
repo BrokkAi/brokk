@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.prompts.EditBlockParser;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
@@ -22,12 +23,15 @@ public final class TestContextManager implements IContextManager {
     private final Context liveContext;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this(new TestProject(projectRoot, Language.JAVA), consoleIO, new HashSet<>());
+        this(new TestProject(projectRoot, Language.JAVA), consoleIO, new HashSet<>(), new TestAnalyzer(projectRoot));
     }
 
-    public TestContextManager(TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles) {
+    public TestContextManager(TestProject project,
+                              IConsoleIO consoleIO,
+                              Set<ProjectFile> editableFiles,
+                              IAnalyzer analyzer) {
         this.project = project;
-        this.analyzer = new IAnalyzer(project.getRoot());
+        this.analyzer = analyzer;
         this.editableFiles = editableFiles;
 
         this.readonlyFiles = new HashSet<>();
@@ -40,7 +44,8 @@ public final class TestContextManager implements IContextManager {
     public TestContextManager(Path projectRoot, Set<String> editableFiles) {
         this(new TestProject(projectRoot, Language.JAVA),
              new TestConsoleIO(),
-             new HashSet<>(editableFiles.stream().map(s -> new ProjectFile(projectRoot, s)).toList()));
+             new HashSet<>(editableFiles.stream().map(s -> new ProjectFile(projectRoot, s)).toList()),
+             new TestAnalyzer(projectRoot));
     }
 
     @Override
@@ -74,12 +79,12 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public io.github.jbellis.brokk.analyzer.IAnalyzer getAnalyzerUninterrupted() {
+    public IAnalyzer getAnalyzerUninterrupted() {
         return analyzer;
     }
 
     @Override
-    public io.github.jbellis.brokk.analyzer.IAnalyzer getAnalyzer() {
+    public IAnalyzer getAnalyzer() {
         return analyzer;
     }
 

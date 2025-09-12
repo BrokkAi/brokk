@@ -2,7 +2,10 @@ package io.github.jbellis.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import io.github.jbellis.brokk.analyzer.JavaTreeSitterAnalyzer;
+import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.update.UpdateTestUtil;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
@@ -13,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -688,7 +692,7 @@ class EditBlockTest {
     // ----------------------------------------------------
     @Test
     void testReplaceBrkConflictBlock(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException {
         TestConsoleIO io = new TestConsoleIO();
         Path testFile = tempDir.resolve("conf.txt");
 
@@ -711,6 +715,132 @@ class EditBlockTest {
         String finalContent = Files.readString(testFile);
         assertEquals("start\nResolved line\nend\n", finalContent);
     }
+
+    @Test
+    void testBrkFunctionReplacement_UniqueMethod_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "A.java",
+                """
+                public class A {
+                  public int method1() { return 1; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Language.JAVA);
+        var analyzer = new JavaTreeSitterAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "A.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                A.java
+                <<<<<<< SEARCH
+                BRK_FUNCTION A.method1
+                =======
+                public int method1() { return 2; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getEditableFiles())
+                .blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        var content = Files.readString(rootDir.resolve("A.java"));
+        assertTrue(content.contains("return 2;"), "Method body should be updated");
+        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+    }
+
+    @Test
+    void testBrkFunctionReplacement_OverloadedMethod_Ambiguous() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "B.java",
+                """
+                public class B {
+                  public int foo(int x) { return x; }
+                  public String foo(String s) { return s; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Language.JAVA);
+        var analyzer = new JavaTreeSitterAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "B.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                B.java
+                <<<<<<< SEARCH
+                BRK_FUNCTION B.foo
+                =======
+                public int foo(int x) { return x + 1; }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getEditableFiles())
+                .blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        assertEquals(1, result.failedBlocks().size(), "One failed block expected");
+        assertEquals(
+                EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
+                result.failedBlocks().getFirst().reason(),
+                "Overloads must be rejected as ambiguous");
+    }
+
+    @Test
+    void testBrkClassReplacement_JavaAnalyzer() throws Exception {
+        var rootDir = UpdateTestUtil.newTempDir();
+        UpdateTestUtil.writeFile(
+                rootDir,
+                "C.java",
+                """
+                public class C {
+                  public int v() { return 10; }
+                }
+                """);
+
+        var project = UpdateTestUtil.newTestProject(rootDir, Language.JAVA);
+        var analyzer = new JavaTreeSitterAnalyzer(project);
+
+        var editable = Set.of(new ProjectFile(rootDir, "C.java"));
+        var ctx = new TestContextManager(project, new TestConsoleIO(), new HashSet<>(editable), analyzer);
+
+        String response =
+                """
+                ```
+                C.java
+                <<<<<<< SEARCH
+                BRK_CLASS C
+                =======
+                public class C {
+                  public int v() { return 42; }
+                }
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getEditableFiles())
+                .blocks();
+        var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
+
+        var content = Files.readString(rootDir.resolve("C.java"));
+        assertTrue(content.contains("return 42;"), "Class body should be replaced");
+        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+    }
+
 
     // ----------------------------------------------------
     // Helper methods
