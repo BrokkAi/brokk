@@ -14,8 +14,29 @@ public record StdioMcpServer(
          * used for network communication.
          */
         String name,
+
+        /**
+         * Executable to launch the MCP server over stdio.
+         *
+         * <p>This is the binary or script name as it would be invoked from a shell, e.g. "node", "python", or an
+         * absolute path to an executable.
+         */
         String command,
+
+        /**
+         * Command-line arguments passed to the {@code command}.
+         *
+         * <p>Arguments are provided in order and without shell parsing; quoting or escaping should be handled by the
+         * caller when constructing this list.
+         */
         List<String> args,
+
+        /**
+         * Environment variables to set for the server process.
+         *
+         * <p>Keys and values are applied on top of the current process environment. Use this to configure things like
+         * PATH or server-specific settings required by the MCP server.
+         */
         Map<String, String> env,
 
         /**
