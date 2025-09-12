@@ -122,31 +122,27 @@ public final class DependenciesPanel extends JPanel {
 
         contentPanel.add(scrollPane, BorderLayout.CENTER);
 
-        // --- Totals Panel (files and LoC side-by-side) ---
-        var totalsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
+        // --- Totals Panel (stacked) with Add/Remove on the right ---
+        var totalsPanel = new JPanel();
+        totalsPanel.setLayout(new BoxLayout(totalsPanel, BoxLayout.Y_AXIS));
         totalsPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, Constants.H_GAP));
         totalFilesLabel = new JLabel("Files in Code Intelligence: 0");
         totalLocLabel = new JLabel("LoC in Code Intelligence: 0");
-        // Give a small horizontal gap after the first label for readability
-        totalFilesLabel.setBorder(new EmptyBorder(0, 0, 0, Constants.H_GAP));
         totalsPanel.add(totalFilesLabel);
         totalsPanel.add(totalLocLabel);
 
-        // --- South Panel: Totals and Buttons ---
+        // --- South Panel: Totals (left) and Buttons (right) ---
         var southContainerPanel = new JPanel(new BorderLayout());
-        southContainerPanel.add(totalsPanel, BorderLayout.NORTH);
 
-        var buttonPanel = new JPanel(new BorderLayout());
-
-        // Add/Remove on the left
-        var addRemovePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // Add/Remove on the right
+        var addRemovePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, Constants.H_GAP, 0));
         var addButton = new MaterialButton("+");
         var removeButton = new MaterialButton("-");
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
-        buttonPanel.add(addRemovePanel, BorderLayout.WEST);
 
-        southContainerPanel.add(buttonPanel, BorderLayout.CENTER);
+        southContainerPanel.add(totalsPanel, BorderLayout.CENTER);
+        southContainerPanel.add(addRemovePanel, BorderLayout.EAST);
         contentPanel.add(southContainerPanel, BorderLayout.SOUTH);
 
         // Let the surrounding split pane control the overall height.
