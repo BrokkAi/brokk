@@ -33,8 +33,6 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -1760,8 +1758,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private static class EnvVarCellRenderer extends DefaultTableCellRenderer {
-        private static final Pattern ENV_VAR_PATTERN =
-                Pattern.compile("^\\$(?:\\{([a-zA-Z_][a-zA-Z0-9_]*)}|([a-zA-Z_][a-zA-Z0-9_]*))");
+        // Environment variable detection delegated to Environment.detectEnvVarReference
         private static final Border SUCCESS_BORDER;
         private static final Border FAILURE_BORDER;
 
@@ -1793,20 +1790,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
             if (value instanceof String val) {
                 String trimmedVal = val.trim();
-                if (trimmedVal.startsWith("$")) {
-                    Matcher matcher = ENV_VAR_PATTERN.matcher(trimmedVal);
-                    if (matcher.find()) {
-                        String varName = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
-                        String envValue = System.getenv(varName);
-
-                        if (envValue != null) {
-                            setToolTipText("Environment variable '" + varName + "' found.");
-                            setBorder(SUCCESS_BORDER);
-                        } else {
-                            setToolTipText("Environment variable '" + varName
-                                    + "' not set in Brokk's environment. Using the literal text as-is.");
-                            setBorder(FAILURE_BORDER);
-                        }
+                var ref = Environment.detectEnvVarReference(trimmedVal);
+                if (ref != null) {
+                    String varName = ref.name();
+                    if (ref.defined()) {
+                        setToolTipText("Environment variable '" + varName + "' found.");
+                        setBorder(SUCCESS_BORDER);
+                    } else {
+                        setToolTipText("Environment variable '" + varName
+                                + "' not set in Brokk's environment. Using the literal text as-is.");
+                        setBorder(FAILURE_BORDER);
                     }
                 }
             }

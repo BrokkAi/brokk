@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.mcp;
 
+import io.github.jbellis.brokk.util.Environment;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -37,8 +38,10 @@ public class McpUtils {
     }
 
     private static McpClientTransport buildTransport(String cmd, List<String> arguments, Map<String, String> env) {
+        // Expand leading env-var references in provided values (e.g., $HOME, ${HOME})
+        Map<String, String> resolvedEnv = Environment.expandEnvMap(env);
         final var params =
-                ServerParameters.builder(cmd).args(arguments).env(env).build();
+                ServerParameters.builder(cmd).args(arguments).env(resolvedEnv).build();
 
         return new StdioClientTransport(params);
     }
