@@ -379,7 +379,8 @@ public class CodeAgent {
                 cs.taskMessages().removeLast(); // bad AI response
                 var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
 
-                var reminder = "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
+                var reminder =
+                        "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!";
                 var newRequestText = Messages.getText(lastRequest) + "\n\n" + reminder;
                 messageForRetry = new UserMessage(newRequestText);
                 consoleLogForRetry = "Failed to parse LLM response; retrying with format reminder";

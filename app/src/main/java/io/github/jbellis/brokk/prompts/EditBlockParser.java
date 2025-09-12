@@ -188,7 +188,9 @@ public class EditBlockParser {
                 .toList();
         // if we found no edit blocks, but it looks like there are edit block fences, promote to an error
         var error = all.parseError();
-        if (editBlocks.isEmpty() && error == null && Stream.of("<<<<<", "=====", ">>>>>").anyMatch(content::contains)) {
+        if (editBlocks.isEmpty()
+                && error == null
+                && Stream.of("<<<<<", "=====", ">>>>>").anyMatch(content::contains)) {
             error = "It looks like you tried to include an edit block, but I couldn't parse it.";
         }
         return new EditBlock.ParseResult(editBlocks, error);

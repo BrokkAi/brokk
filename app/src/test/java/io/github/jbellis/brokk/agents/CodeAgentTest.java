@@ -157,7 +157,8 @@ class CodeAgentTest {
     @Test
     void testParsePhase_pureParseError_replacesLastRequest() {
         var originalRequest = new UserMessage("original user request");
-        String llmTextWithParseError = """
+        String llmTextWithParseError =
+                """
                 <block>
                 file.java
                 <<<<<<< SEARCH
@@ -191,9 +192,11 @@ class CodeAgentTest {
         assertEquals("some earlier message", Messages.getText(finalTaskMessages.getFirst()));
 
         // Check the new 'nextRequest'
-        String nextRequestText = Messages.getText(newLoopContext.conversationState().nextRequest());
+        String nextRequestText =
+                Messages.getText(newLoopContext.conversationState().nextRequest());
         assertTrue(nextRequestText.contains("original user request"));
-        assertTrue(nextRequestText.contains("Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
+        assertTrue(nextRequestText.contains(
+                "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
     }
 
     // P-3a: parsePhase – isPartial flag handling (with zero blocks)
