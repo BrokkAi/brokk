@@ -127,6 +127,7 @@ public final class DependenciesPanel extends JPanel {
         totalsPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, Constants.H_GAP));
         totalsLabel = new JLabel("Files/LoC in Code Intelligence: 0/0");
         totalsPanel.add(totalsLabel);
+        totalsPanel.add(Box.createVerticalStrut(35));
 
         // --- South Panel: Totals (left) and Buttons (right) ---
         var southContainerPanel = new JPanel(new BorderLayout());
