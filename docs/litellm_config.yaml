@@ -172,6 +172,25 @@ model_list:
       supports_function_calling: true
       tokens_per_minute: 8000000
 
+  - model_name: glm-4.5-air
+    litellm_params:
+      model: openrouter/z-ai/glm-4.5-air
+      api_key: "os.environ/OPENROUTER_API_KEY"
+    model_info:
+      free_tier_eligible: false
+      is_private: true
+      max_tokens: 131000
+      max_input_tokens: 131000
+      max_output_tokens: 32768
+      input_cost_per_token: 5e-06
+      output_cost_per_token: 2e-05
+      mode: chat
+      supports_tool_choice: true
+      uses_think_tags: true
+      supports_reasoning: true
+      supports_function_calling: true
+      tokens_per_minute: 8000000
+
   - model_name: claude-4-1-opus
     litellm_params:
       model: anthropic/claude-opus-4-1-20250805
