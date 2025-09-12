@@ -119,20 +119,19 @@ def execute_brokk_cli(jar_path, project_path, instructions, additional_args=None
     """Execute the Brokk CLI with the given instructions."""
     command = [
         "java",
-        "-ea",  # Enable assertions
-        "-XX:+UseParallelGC",  # Use parallel GC for better CLI performance
-        "-Xmx2G",  # Increase memory limit for complex tasks
-        "-Djava.awt.headless=true",  # Ensure headless mode
+        "-ea",
+        "-XX:+UseParallelGC",
+        "-Xmx2G",
+        "-Djava.awt.headless=true",
         "-cp", str(jar_path),
         "io.github.jbellis.brokk.cli.BrokkCli",
-        "--project", str(project_path),
-        "--code", instructions
+        "--project", str(project_path)
     ]
     
     if additional_args:
         command.extend(additional_args)
     
-    _log(f"Executing Brokk CLI: {' '.join(command[:8])} ... [--project {project_path} --code ...]")
+    _log(f"Executing Brokk CLI: {' '.join(command[:8])} ... [--project {project_path} ...]")
     _log(f"DEBUG: Full command: {' '.join(command)}")
     
     # Use streaming execution with heartbeats for long-running Brokk CLI
@@ -312,6 +311,12 @@ def main():
         help="The natural language instructions for the code change."
     )
     parser.add_argument(
+        "--mode",
+        choices=["architect", "code", "ask", "search"],
+        default="architect",
+        help="Which Brokk action to run (default: architect)."
+    )
+    parser.add_argument(
         "--instance_id",
         help="Optional instance ID for SWE-bench format output."
     )
@@ -330,6 +335,31 @@ def main():
     parser.add_argument(
         "--model",
         help="Override the model to use for the code task."
+    )
+    parser.add_argument(
+        "--deepscan",
+        action="store_true",
+        help="Enable Brokk Deep Scan to auto-suggest relevant context."
+    )
+    parser.add_argument(
+        "--no_deepscan",
+        action="store_true",
+        help="Disable Deep Scan even if enabled elsewhere."
+    )
+    parser.add_argument(
+        "--prime_context",
+        action="store_true",
+        help="Prime workspace with language-aware summaries and important config files."
+    )
+    parser.add_argument(
+        "--summary_globs",
+        nargs="*",
+        help="Optional globs to summarize into workspace (e.g., '**/*.py')."
+    )
+    parser.add_argument(
+        "--extra_read",
+        nargs="*",
+        help="Optional additional filenames to add as read-only context (resolved fuzzily)."
     )
     parser.add_argument(
         "--dry_run",
@@ -387,16 +417,116 @@ def main():
         print(f"Error building Brokk CLI: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Prepare additional arguments
-    additional_args = []
+    # Prepare Brokk CLI arguments
+    cli_args = []
     if args.model:
-        additional_args.extend(["--model", args.model])
+        cli_args.extend(["--model", args.model])
+
+    # Prepare prompt: if instructions starts with '@', read file content to avoid picocli @-expansion
+    prompt_text = args.instructions
+    try:
+        if isinstance(prompt_text, str) and len(prompt_text) > 1 and prompt_text[0] == '@':
+            at_path = Path(prompt_text[1:])
+            if at_path.exists():
+                prompt_text = at_path.read_text(encoding="utf-8")
+    except Exception:
+        # Fallback to original instructions if read fails
+        prompt_text = args.instructions
+
+    # Select action
+    action_flag: list[str]
+    if args.mode == "architect":
+        action_flag = ["--architect", prompt_text]
+    elif args.mode == "code":
+        action_flag = ["--code", prompt_text]
+    elif args.mode == "ask":
+        action_flag = ["--ask", prompt_text]
+    else:
+        action_flag = ["--search", prompt_text]
+
+    # Deep Scan toggle: default on for architect/search, off otherwise unless explicitly set
+    enable_deepscan = False
+    if args.no_deepscan:
+        enable_deepscan = False
+    elif args.deepscan:
+        enable_deepscan = True
+    elif args.mode in ("architect", "search"):
+        enable_deepscan = True
+    # Do not add --deepscan here to avoid duplicates; it will be appended once in final_args
+
+    # Context priming: add file summaries and key config files
+    def _detect_langs(root: Path) -> set[str]:
+        exts = set()
+        try:
+            for dirpath, _, filenames in os.walk(root):
+                # Skip hidden and .git dirs quickly
+                base = os.path.basename(dirpath)
+                if base.startswith('.') or base in {"node_modules", "build", "dist", "target", "out", "venv", ".venv", "__pycache__"}:
+                    continue
+                for fn in filenames:
+                    ext = os.path.splitext(fn)[1].lower()
+                    if ext:
+                        exts.add(ext)
+        except Exception:
+            pass
+        langs = set()
+        if ".py" in exts:
+            langs.add("python")
+        if ".java" in exts:
+            langs.add("java")
+        if any(e in exts for e in {".ts", ".tsx", ".js", ".jsx"}):
+            langs.add("tsjs")
+        if ".go" in exts:
+            langs.add("go")
+        if ".cs" in exts:
+            langs.add("csharp")
+        if any(e in exts for e in {".c", ".cpp", ".cc", ".h", ".hpp"}):
+            langs.add("c_cpp")
+        if ".rs" in exts:
+            langs.add("rust")
+        return langs
+
+    if args.prime_context:
+        # Summaries globs
+        summary_globs = list(args.summary_globs or [])
+        if not summary_globs:
+            langs = _detect_langs(target_project)
+            if "python" in langs:
+                summary_globs.append("**/*.py")
+            if "java" in langs:
+                summary_globs.append("**/*.java")
+            if "tsjs" in langs:
+                summary_globs.append("**/*.{ts,tsx,js,jsx}")
+            if "go" in langs:
+                summary_globs.append("**/*.go")
+            if "csharp" in langs:
+                summary_globs.append("**/*.cs")
+            if "c_cpp" in langs:
+                summary_globs.append("**/*.{c,cpp,cc,h,hpp}")
+            if "rust" in langs:
+                summary_globs.append("**/*.rs")
+
+        for g in summary_globs:
+            cli_args.extend(["--add-summary-file", g])
+
+        # Key config/docs as read-only context (fuzzy resolution by Brokk)
+        default_read = [
+            "README.md", "CONTRIBUTING.md", "pyproject.toml", "requirements.txt", "setup.py", "setup.cfg",
+            "tox.ini", "pytest.ini", "package.json", "tsconfig.json", "Makefile", "CMakeLists.txt",
+        ]
+        if args.extra_read:
+            default_read.extend(args.extra_read)
+        for name in default_read:
+            cli_args.extend(["--read", name])
 
     if args.dry_run:
         _log("DRY RUN - Would execute:")
-        _log(f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} --code \"{args.instructions}\"")
-        if additional_args:
-            _log(f"Additional args: {' '.join(additional_args)}")
+        _log(
+            f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} "
+            + ("--deepscan " if enable_deepscan else "")
+            + (" "+" ".join(shlex.quote(a) for a in cli_args) if cli_args else "")
+            + (" "+" ".join(shlex.quote(a) for a in action_flag) if action_flag else "")
+        )
         return
 
     # If logging is enabled, ensure directory exists and record command later
@@ -412,7 +542,14 @@ def main():
     # Execute Brokk CLI
     _log("Running Brokk to apply changes based on instructions...")
     try:
-        stdout, stderr, returncode = execute_brokk_cli(jar_path, target_project, args.instructions, additional_args)
+        # Compose final CLI command pieces for execution
+        final_args = []
+        if enable_deepscan:
+            final_args.append("--deepscan")
+        final_args.extend(cli_args)
+        final_args.extend(action_flag)
+
+        stdout, stderr, returncode = execute_brokk_cli(jar_path, target_project, "", final_args)
         
         if args.verbose:
             _log("=== Brokk stdout ===")
@@ -429,9 +566,11 @@ def main():
                 with open(log_dir_path / "brokk_stderr.txt", "w", encoding="utf-8") as f:
                     f.write(stderr or "")
                 # Reconstruct and save the effective command (approximate)
-                cmd_preview = f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} --code \"{args.instructions}\""
-                if additional_args:
-                    cmd_preview += " " + " ".join(additional_args)
+                cmd_preview = (
+                    f"java -cp {jar_path} io.github.jbellis.brokk.cli.BrokkCli --project {target_project} "
+                    + ("--deepscan " if enable_deepscan else "")
+                    + (" "+" ".join(final_args) if final_args else "")
+                )
                 with open(log_dir_path / "command.txt", "w", encoding="utf-8") as f:
                     f.write(cmd_preview + "\n")
             except Exception as e:
@@ -452,10 +591,21 @@ def main():
 
     _log("Capturing git diff...")
 
+    # Include untracked files in diff by marking them as intent-to-add
+    try:
+        untracked_out, _, _ = run_command(["git", "ls-files", "--others", "--exclude-standard"], cwd=target_project, check=False)
+        untracked = [line.strip() for line in untracked_out.splitlines() if line.strip()]
+        if untracked:
+            _log(f"Staging {len(untracked)} untracked files as intent-to-add for diff visibility")
+            for path in untracked:
+                run_command(["git", "add", "-N", path], cwd=target_project, check=False)
+    except Exception as e:
+        _log(f"DEBUG: Skipping untracked staging due to error: {e}")
+
     # Capture the git diff of all uncommitted changes in the target project
     try:
         diff_stdout, diff_stderr, diff_returncode = run_command(
-            ["git", "diff", "HEAD"], 
+            ["git", "diff", "-M", "HEAD"], 
             cwd=target_project, 
             check=False
         )

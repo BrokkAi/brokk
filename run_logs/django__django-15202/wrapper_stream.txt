@@ -110,3 +110,314 @@ One-shot Brokk workspace and task runner.
                               the default branch's HEAD.
 
 Warning: No changes detected by 'git diff HEAD'. Brokk might not have made any changes.
+[2025-09-11 18:44:12] DEBUG: brokk_wrapper.py starting up...
+Warning: Brokk CLI exited with non-zero status: 2
+[2025-09-11 18:44:12] DEBUG: sys.argv = ['brokk_wrapper.py', '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmp5y1vpypa.txt', '--instance_id', 'django__django-15202', '--target_project', 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', '--output_file', 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpwnezty3q.json', '--log_dir', 'run_logs\\django__django-15202']
+Brokk stderr:
+[2025-09-11 18:44:12] DEBUG: About to parse arguments
+Starting Brokk CLI...
+[2025-09-11 18:44:12] DEBUG: Arguments parsed successfully: {'instructions': '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmp5y1vpypa.txt', 'instance_id': 'django__django-15202', 'output_file': 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpwnezty3q.json', 'target_project': 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', 'brokk_project': None, 'model': None, 'dry_run': False, 'verbose': False, 'log_dir': 'run_logs\\django__django-15202'}
+Usage: brokk-cli [-hV] [--deepscan] [--architect=<architectPrompt>]
+[2025-09-11 18:44:12] Brokk project root: C:\Users\tenant\IdeaProjects\brokk\brokk
+                 [--ask=<askPrompt>] [--code=<codePrompt>]
+[2025-09-11 18:44:12] Target project: C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013
+                 [--codemodel=<codeModelName>] [--model=<modelName>]
+[2025-09-11 18:44:12] Checking if Brokk CLI JAR needs to be built...
+                 --project=<projectPath> [--search=<searchPrompt>]
+[2025-09-11 18:44:12] Found Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+                 [--worktree=<worktreePath>]
+[2025-09-11 18:44:12] Using Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+                 [--add-callees=<String=Integer>]...
+[2025-09-11 18:44:12] Running Brokk to apply changes based on instructions...
+                 [--add-callers=<String=Integer>]...
+[2025-09-11 18:44:12] Executing Brokk CLI: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli ... [--project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 --code ...]
+                 [--add-class=<addClasses>]...
+[2025-09-11 18:44:12] DEBUG: Full command: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli --project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 --code @C:\Users\tenant\AppData\Local\Temp\tmp5y1vpypa.txt
+                 [--add-method-source=<addMethodSources>]...
+[2025-09-11 18:44:12] DEBUG: About to create Brokk CLI subprocess
+                 [--add-summary-class=<addSummaryClasses>]...
+[2025-09-11 18:44:12] DEBUG: Brokk CLI subprocess created, PID: 11680
+                 [--add-summary-file=<addSummaryFiles>]...
+[2025-09-11 18:44:12] DEBUG: Entering Brokk CLI read loop
+                 [--add-url=<addUrls>]... [--add-usage=<addUsages>]...
+[2025-09-11 18:44:13] DEBUG: Brokk stderr: Starting Brokk CLI......
+                 [--edit=<editFiles>]... [--read=<readFiles>]...
+[2025-09-11 18:44:13] DEBUG: Brokk stderr: Usage: brokk-cli [-hV] [--deepscan] [--architect=<...
+One-shot Brokk workspace and task runner.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--ask=<askPrompt>] [--code=<code...
+      --add-callees=<String=Integer>
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--codemodel=<codeModelName>] [--...
+                            Add callees of a FQ method. Format: <FQN>=<depth>.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  --project=<projectPath> [--search...
+                              Can be repeated.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--worktree=<worktreePath>]...
+      --add-callers=<String=Integer>
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-callees=<String=Integer>]....
+                            Add callers of a FQ method. Format: <FQN>=<depth>.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-callers=<String=Integer>]....
+                              Can be repeated.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-class=<addClasses>]......
+      --add-class=<addClasses>
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-method-source=<addMethodSo...
+                            Add the file containing the given FQCN to the
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-summary-class=<addSummaryC...
+                              workspace for editing. Can be repeated.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-summary-file=<addSummaryFi...
+      --add-method-source=<addMethodSources>
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--add-url=<addUrls>]... [--add-u...
+                            Add the source of a FQ method as a fragment. Can be
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                  [--edit=<editFiles>]... [--read=<...
+                              repeated.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr: One-shot Brokk workspace and task runner....
+      --add-summary-class=<addSummaryClasses>
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:       --add-callees=<String=Integer>...
+                            Add a class summary/skeleton as a dynamic fragment.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                             Add callees of a FQ me...
+                              Can be repeated.
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                               Can be repeated....
+      --add-summary-file=<addSummaryFiles>
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:       --add-callers=<String=Integer>...
+                            Add summaries for all classes in a file/glob as a
+[2025-09-11 18:44:13] DEBUG: Brokk stderr:                             Add callers of a FQ me...
+                              dynamic fragment. Can be repeated.
+[2025-09-11 18:44:13] DEBUG: Brokk CLI finished with returncode: 2
+      --add-url=<addUrls>   Add content from a URL as a read-only fragment. Can
+[2025-09-11 18:44:13] DEBUG: Draining 0 remaining Brokk stdout lines
+                              be repeated.
+[2025-09-11 18:44:13] DEBUG: Draining 40 remaining Brokk stderr lines
+      --add-usage=<addUsages>
+[2025-09-11 18:44:13] Brokk CLI finished (rc=2) in 0s
+                            Add usages of a FQ symbol as a dynamic fragment.
+[2025-09-11 18:44:13] Capturing git diff...
+                              Can be repeated.
+[2025-09-11 18:44:13] Running command: git diff HEAD
+      --architect=<architectPrompt>
+[2025-09-11 18:44:13] Command finished (rc=0) in 0s
+                            Run Architect agent with the given prompt.
+[2025-09-11 18:44:13] Output saved to C:\Users\tenant\AppData\Local\Temp\tmpwnezty3q.json
+      --ask=<askPrompt>     Run Ask command with the given prompt.
+      --code=<codePrompt>   Run Code agent with the given prompt.
+      --codemodel=<codeModelName>
+                            Override the code model to use.
+      --deepscan            Perform a Deep Scan to suggest additional relevant
+                              context.
+      --edit=<editFiles>    Add a file to the workspace for editing. Can be
+                              repeated.
+  -h, --help                Show this help message and exit.
+      --model=<modelName>   Override the task model to use.
+      --project=<projectPath>
+                            Path to the project root.
+      --read=<readFiles>    Add a file to the workspace as read-only. Can be
+                              repeated.
+      --search=<searchPrompt>
+                            Run Search agent with the given prompt.
+  -V, --version             Print version information and exit.
+      --worktree=<worktreePath>
+                            Create a detached worktree at the given path, from
+                              the default branch's HEAD.
+
+Warning: No changes detected by 'git diff HEAD'. Brokk might not have made any changes.
+[2025-09-12 08:40:25] DEBUG: brokk_wrapper.py starting up...
+Warning: Brokk CLI exited with non-zero status: 2
+[2025-09-12 08:40:25] DEBUG: sys.argv = ['brokk_wrapper.py', '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmp8lniaopn.txt', '--instance_id', 'django__django-15202', '--target_project', 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', '--output_file', 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpr73ot0bv.json', '--log_dir', 'run_logs\\django__django-15202']
+Brokk stderr:
+[2025-09-12 08:40:25] DEBUG: About to parse arguments
+Starting Brokk CLI...
+[2025-09-12 08:40:25] DEBUG: Arguments parsed successfully: {'instructions': '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmp8lniaopn.txt', 'instance_id': 'django__django-15202', 'output_file': 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpr73ot0bv.json', 'target_project': 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', 'brokk_project': None, 'model': None, 'dry_run': False, 'verbose': False, 'log_dir': 'run_logs\\django__django-15202'}
+Unmatched arguments from index 4: 'throws', 'ValueError', 'instead', 'of', 'ValidationError', 'on', 'clean', 'Description', 'forms.URLField(', ').clean(', '////]@N.AN', ')', 'results', 'in:', 'ValueError:', 'Invalid', 'IPv6', 'URL', 'Traceback', '(most', 'recent', 'call', 'last):', 'File', 'basic_fuzzer.py', ',', 'line', '22,', 'in', 'TestOneInput', 'File', 'fuzzers.py', ',', 'line', '350,', 'in', 'test_forms_URLField', 'File', 'django/forms/fields.py', ',', 'line', '151,', 'in', 'clean', 'File', 'django/forms/fields.py', ',', 'line', '136,', 'in', 'run_validators', 'File', 'django/core/validators.py', ',', 'line', '130,', 'in', '__call__', 'File', 'urllib/parse.py', ',', 'line', '440,', 'in', 'urlsplit'
+[2025-09-12 08:40:25] Brokk project root: C:\Users\tenant\IdeaProjects\brokk\brokk
+Usage: brokk-cli [-hV] [--deepscan] [--architect=<architectPrompt>]
+[2025-09-12 08:40:25] Target project: C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013
+                 [--ask=<askPrompt>] [--code=<codePrompt>]
+[2025-09-12 08:40:25] Checking if Brokk CLI JAR needs to be built...
+                 [--codemodel=<codeModelName>] [--model=<modelName>]
+[2025-09-12 08:40:25] Found Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+                 --project=<projectPath> [--search=<searchPrompt>]
+[2025-09-12 08:40:25] Using Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+                 [--worktree=<worktreePath>]
+[2025-09-12 08:40:25] Running Brokk to apply changes based on instructions...
+                 [--add-callees=<String=Integer>]...
+[2025-09-12 08:40:25] Executing Brokk CLI: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli ... [--project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 --code ...]
+                 [--add-callers=<String=Integer>]...
+[2025-09-12 08:40:25] DEBUG: Full command: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli --project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 --code @C:\Users\tenant\AppData\Local\Temp\tmp8lniaopn.txt
+                 [--add-class=<addClasses>]...
+[2025-09-12 08:40:25] DEBUG: About to create Brokk CLI subprocess
+                 [--add-method-source=<addMethodSources>]...
+[2025-09-12 08:40:25] DEBUG: Brokk CLI subprocess created, PID: 8636
+                 [--add-summary-class=<addSummaryClasses>]...
+[2025-09-12 08:40:25] DEBUG: Entering Brokk CLI read loop
+                 [--add-summary-file=<addSummaryFiles>]...
+[2025-09-12 08:40:26] DEBUG: Brokk stderr: Starting Brokk CLI......
+                 [--add-url=<addUrls>]... [--add-usage=<addUsages>]...
+[2025-09-12 08:40:26] DEBUG: Brokk stderr: Unmatched arguments from index 4: 'throws', 'Value...
+                 [--edit=<editFiles>]... [--read=<readFiles>]...
+[2025-09-12 08:40:26] DEBUG: Brokk stderr: Usage: brokk-cli [-hV] [--deepscan] [--architect=<...
+One-shot Brokk workspace and task runner.
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--ask=<askPrompt>] [--code=<code...
+      --add-callees=<String=Integer>
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--codemodel=<codeModelName>] [--...
+                            Add callees of a FQ method. Format: <FQN>=<depth>.
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  --project=<projectPath> [--search...
+                              Can be repeated.
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--worktree=<worktreePath>]...
+      --add-callers=<String=Integer>
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-callees=<String=Integer>]....
+                            Add callers of a FQ method. Format: <FQN>=<depth>.
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-callers=<String=Integer>]....
+                              Can be repeated.
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-class=<addClasses>]......
+      --add-class=<addClasses>
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-method-source=<addMethodSo...
+                            Add the file containing the given FQCN to the
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-summary-class=<addSummaryC...
+                              workspace for editing. Can be repeated.
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-summary-file=<addSummaryFi...
+      --add-method-source=<addMethodSources>
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--add-url=<addUrls>]... [--add-u...
+                            Add the source of a FQ method as a fragment. Can be
+[2025-09-12 08:40:26] DEBUG: Brokk stderr:                  [--edit=<editFiles>]... [--read=<...
+                              repeated.
+[2025-09-12 08:40:26] DEBUG: Brokk CLI finished with returncode: 2
+      --add-summary-class=<addSummaryClasses>
+[2025-09-12 08:40:26] DEBUG: Draining 0 remaining Brokk stdout lines
+                            Add a class summary/skeleton as a dynamic fragment.
+[2025-09-12 08:40:26] DEBUG: Draining 46 remaining Brokk stderr lines
+                              Can be repeated.
+[2025-09-12 08:40:26] Brokk CLI finished (rc=2) in 0s
+      --add-summary-file=<addSummaryFiles>
+[2025-09-12 08:40:26] Capturing git diff...
+                            Add summaries for all classes in a file/glob as a
+[2025-09-12 08:40:26] Running command: git diff HEAD
+                              dynamic fragment. Can be repeated.
+[2025-09-12 08:40:26] Command finished (rc=0) in 0s
+      --add-url=<addUrls>   Add content from a URL as a read-only fragment. Can
+[2025-09-12 08:40:26] Output saved to C:\Users\tenant\AppData\Local\Temp\tmpr73ot0bv.json
+                              be repeated.
+      --add-usage=<addUsages>
+                            Add usages of a FQ symbol as a dynamic fragment.
+                              Can be repeated.
+      --architect=<architectPrompt>
+                            Run Architect agent with the given prompt.
+      --ask=<askPrompt>     Run Ask command with the given prompt.
+      --code=<codePrompt>   Run Code agent with the given prompt.
+      --codemodel=<codeModelName>
+                            Override the code model to use.
+      --deepscan            Perform a Deep Scan to suggest additional relevant
+                              context.
+      --edit=<editFiles>    Add a file to the workspace for editing. Can be
+                              repeated.
+  -h, --help                Show this help message and exit.
+      --model=<modelName>   Override the task model to use.
+      --project=<projectPath>
+                            Path to the project root.
+      --read=<readFiles>    Add a file to the workspace as read-only. Can be
+                              repeated.
+      --search=<searchPrompt>
+                            Run Search agent with the given prompt.
+  -V, --version             Print version information and exit.
+      --worktree=<worktreePath>
+                            Create a detached worktree at the given path, from
+                              the default branch's HEAD.
+
+Warning: No changes detected by 'git diff HEAD'. Brokk might not have made any changes.
+[2025-09-12 09:18:17] DEBUG: brokk_wrapper.py starting up...
+Warning: Brokk CLI exited with non-zero status: 2
+[2025-09-12 09:18:17] DEBUG: sys.argv = ['brokk_wrapper.py', '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpps1b88oz.txt', '--instance_id', 'django__django-15202', '--target_project', 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', '--output_file', 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmp6fqpljav.json', '--log_dir', 'run_logs\\django__django-15202']
+Brokk stderr:
+[2025-09-12 09:18:17] DEBUG: About to parse arguments
+Starting Brokk CLI...
+[2025-09-12 09:18:17] DEBUG: Arguments parsed successfully: {'instructions': '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpps1b88oz.txt', 'mode': 'architect', 'instance_id': 'django__django-15202', 'output_file': 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmp6fqpljav.json', 'target_project': 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', 'brokk_project': None, 'model': None, 'deepscan': False, 'no_deepscan': False, 'prime_context': False, 'summary_globs': None, 'extra_read': None, 'dry_run': False, 'verbose': False, 'log_dir': 'run_logs\\django__django-15202'}
+Usage: brokk-cli [-hV] [--deepscan] [--architect=<architectPrompt>]
+[2025-09-12 09:18:17] Brokk project root: C:\Users\tenant\IdeaProjects\brokk\brokk
+                 [--ask=<askPrompt>] [--code=<codePrompt>]
+[2025-09-12 09:18:17] Target project: C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013
+                 [--codemodel=<codeModelName>] [--model=<modelName>]
+[2025-09-12 09:18:17] Checking if Brokk CLI JAR needs to be built...
+                 --project=<projectPath> [--search=<searchPrompt>]
+[2025-09-12 09:18:17] Found Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+                 [--worktree=<worktreePath>]
+[2025-09-12 09:18:17] Using Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+                 [--add-callees=<String=Integer>]...
+[2025-09-12 09:18:17] Running Brokk to apply changes based on instructions...
+                 [--add-callers=<String=Integer>]...
+[2025-09-12 09:18:17] Executing Brokk CLI: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli ... [--project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 ...]
+                 [--add-class=<addClasses>]...
+[2025-09-12 09:18:17] DEBUG: Full command: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli --project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 --deepscan --deepscan --architect @C:\Users\tenant\AppData\Local\Temp\tmpps1b88oz.txt
+                 [--add-method-source=<addMethodSources>]...
+[2025-09-12 09:18:17] DEBUG: About to create Brokk CLI subprocess
+                 [--add-summary-class=<addSummaryClasses>]...
+[2025-09-12 09:18:17] DEBUG: Brokk CLI subprocess created, PID: 52848
+                 [--add-summary-file=<addSummaryFiles>]...
+[2025-09-12 09:18:17] DEBUG: Entering Brokk CLI read loop
+                 [--add-url=<addUrls>]... [--add-usage=<addUsages>]...
+[2025-09-12 09:18:17] DEBUG: Brokk stderr: Starting Brokk CLI......
+                 [--edit=<editFiles>]... [--read=<readFiles>]...
+[2025-09-12 09:18:17] DEBUG: Brokk stderr: Usage: brokk-cli [-hV] [--deepscan] [--architect=<...
+One-shot Brokk workspace and task runner.
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--ask=<askPrompt>] [--code=<code...
+      --add-callees=<String=Integer>
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--codemodel=<codeModelName>] [--...
+                            Add callees of a FQ method. Format: <FQN>=<depth>.
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  --project=<projectPath> [--search...
+                              Can be repeated.
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--worktree=<worktreePath>]...
+      --add-callers=<String=Integer>
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--add-callees=<String=Integer>]....
+                            Add callers of a FQ method. Format: <FQN>=<depth>.
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--add-callers=<String=Integer>]....
+                              Can be repeated.
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--add-class=<addClasses>]......
+      --add-class=<addClasses>
+[2025-09-12 09:18:17] DEBUG: Brokk stderr:                  [--add-method-source=<addMethodSo...
+                            Add the file containing the given FQCN to the
+[2025-09-12 09:18:17] DEBUG: Brokk CLI finished with returncode: 2
+                              workspace for editing. Can be repeated.
+[2025-09-12 09:18:17] DEBUG: Draining 0 remaining Brokk stdout lines
+      --add-method-source=<addMethodSources>
+[2025-09-12 09:18:17] DEBUG: Draining 50 remaining Brokk stderr lines
+                            Add the source of a FQ method as a fragment. Can be
+[2025-09-12 09:18:17] Brokk CLI finished (rc=2) in 0s
+                              repeated.
+[2025-09-12 09:18:17] Capturing git diff...
+      --add-summary-class=<addSummaryClasses>
+[2025-09-12 09:18:17] Running command: git ls-files --others --exclude-standard
+                            Add a class summary/skeleton as a dynamic fragment.
+[2025-09-12 09:18:18] Command finished (rc=0) in 0s
+                              Can be repeated.
+[2025-09-12 09:18:18] Staging 1 untracked files as intent-to-add for diff visibility
+      --add-summary-file=<addSummaryFiles>
+[2025-09-12 09:18:18] Running command: git add -N .brokk/project.properties
+                            Add summaries for all classes in a file/glob as a
+[2025-09-12 09:18:18] Command finished (rc=0) in 0s
+                              dynamic fragment. Can be repeated.
+[2025-09-12 09:18:18] Running command: git diff -M HEAD
+      --add-url=<addUrls>   Add content from a URL as a read-only fragment. Can
+[2025-09-12 09:18:18] Command finished (rc=0) in 0s
+                              be repeated.
+[2025-09-12 09:18:18] Output saved to C:\Users\tenant\AppData\Local\Temp\tmp6fqpljav.json
+      --add-usage=<addUsages>
+                            Add usages of a FQ symbol as a dynamic fragment.
+                              Can be repeated.
+      --architect=<architectPrompt>
+                            Run Architect agent with the given prompt.
+      --ask=<askPrompt>     Run Ask command with the given prompt.
+      --code=<codePrompt>   Run Code agent with the given prompt.
+      --codemodel=<codeModelName>
+                            Override the code model to use.
+      --deepscan            Perform a Deep Scan to suggest additional relevant
+                              context.
+      --edit=<editFiles>    Add a file to the workspace for editing. Can be
+                              repeated.
+  -h, --help                Show this help message and exit.
+      --model=<modelName>   Override the task model to use.
+      --project=<projectPath>
+                            Path to the project root.
+      --read=<readFiles>    Add a file to the workspace as read-only. Can be
+                              repeated.
+      --search=<searchPrompt>
+                            Run Search agent with the given prompt.
+  -V, --version             Print version information and exit.
+      --worktree=<worktreePath>
+                            Create a detached worktree at the given path, from
+                              the default branch's HEAD.
+
