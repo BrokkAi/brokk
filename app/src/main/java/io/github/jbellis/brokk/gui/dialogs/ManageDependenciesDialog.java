@@ -29,7 +29,9 @@ public class ManageDependenciesDialog extends JDialog {
             switch (order.charAt(i)) {
                 case 'O' -> buttons.add(okButton);
                 case 'C' -> buttons.add(cancelButton);
-                default -> { /* ignore */ }
+                default -> {
+                    /* ignore */
+                }
             }
         }
         if (okButton.getParent() == null) buttons.add(okButton);

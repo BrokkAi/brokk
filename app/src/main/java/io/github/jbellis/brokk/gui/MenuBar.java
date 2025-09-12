@@ -280,7 +280,6 @@ public class MenuBar {
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
 
-
         var scanProjectItem = new JMenuItem("Scan Project");
         scanProjectItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             // Delegate to InstructionsPanel's scan flow which handles model selection, validation,

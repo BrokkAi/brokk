@@ -14,9 +14,9 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesDrawerPanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
-import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.git.*;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
@@ -26,7 +26,6 @@ import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import io.github.jbellis.brokk.gui.terminal.TerminalDrawerPanel;
 import io.github.jbellis.brokk.gui.util.BadgedIcon;
 import io.github.jbellis.brokk.gui.util.Icons;
-import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.issues.IssueProviderType;
 import io.github.jbellis.brokk.util.CloneOperationTracker;
 import io.github.jbellis.brokk.util.Environment;
@@ -158,19 +157,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private JSplitPane bottomSplitPane;
 
     // Workspace | Dependencies (right drawer)
-  @SuppressWarnings("NullAway.Init") // Initialized in constructor
-  private JSplitPane workspaceDependenciesSplit;
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JSplitPane workspaceDependenciesSplit;
 
-  @SuppressWarnings("NullAway.Init") // Initialized in constructor
-  private DependenciesPanel dependenciesPanel;
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JPanel workspaceTopContainer;
 
-  @SuppressWarnings("NullAway.Init") // Initialized in constructor
-  private JPanel workspaceTopContainer;
-
-  private int originalDepsDividerSize;
-  private int lastDependenciesDrawerWidth = 320;
-
-  private JLabel workspaceTitleLabel;
+    private JLabel workspaceTitleLabel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -210,7 +203,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final InstructionsPanel instructionsPanel;
 
     // Right-hand drawer (tools) - split and content
-    private InstructionsDrawerSplit instructionsDrawerSplit;
+    private DrawerSplitPanel instructionsDrawerSplit;
     private TerminalDrawerPanel terminalDrawer;
 
     /** Default constructor sets up the UI. */
@@ -404,14 +397,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
 
-        // Create a right-hand Dependencies drawer beside the Workspace (managed directly here)
-        dependenciesPanel = new DependenciesPanel(this);
-
+        // Create a right-hand Dependencies drawer beside the Workspace
         workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
         workspaceDependenciesSplit.setResizeWeight(1.0); // Give priority to workspace on resize
         workspaceDependenciesSplit.setLeftComponent(workspacePanel);
-        workspaceDependenciesSplit.setRightComponent(dependenciesPanel);
-        originalDepsDividerSize = workspaceDependenciesSplit.getDividerSize();
+        workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);
 
         workspaceTopContainer = new JPanel(new BorderLayout());
         workspaceTitleLabel = new JLabel("Workspace");
@@ -419,36 +410,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         workspaceTopContainer.add(workspaceTitleLabel, BorderLayout.NORTH);
         workspaceTopContainer.add(workspaceDependenciesSplit, BorderLayout.CENTER);
 
-        // Toggle button on the right, outside the workspace split (to feel 'outside the box')
-        MaterialButton depsToggle = new MaterialButton();
-        depsToggle.setIcon(Icons.MANAGE_DEPENDENCIES);
-        depsToggle.setToolTipText("Toggle Manage Dependencies");
-        depsToggle.setFocusable(false);
-        depsToggle.setOpaque(false);
-        depsToggle.addActionListener(e -> toggleDependenciesDrawer());
-        JPanel depsButtonWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
-        depsButtonWrapper.setOpaque(false);
-        depsButtonWrapper.add(depsToggle);
-        workspaceTopContainer.add(depsButtonWrapper, BorderLayout.EAST);
-
-        // Hide the drawer by default
-        dependenciesPanel.setVisible(false);
-        workspaceDependenciesSplit.setDividerSize(0);
-
-        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
-        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
-
         // Create terminal drawer panel
-        instructionsDrawerSplit = new InstructionsDrawerSplit();
+        instructionsDrawerSplit = new DrawerSplitPanel();
         terminalDrawer = new TerminalDrawerPanel(this, instructionsDrawerSplit);
 
         // Attach instructions (left) and drawer (right)
-        instructionsDrawerSplit.setInstructionsComponent(instructionsPanel);
+        instructionsDrawerSplit.setParentComponent(instructionsPanel);
         instructionsDrawerSplit.setDrawerComponent(terminalDrawer);
 
         // Attach the combined instructions+drawer split as the bottom component
+        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
         workspaceInstructionsSplit.setBottomComponent(instructionsDrawerSplit);
+        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
         // Keep reference so existing persistence logic still works
         topSplitPane = workspaceInstructionsSplit;
@@ -2277,38 +2250,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void updateTerminalFontSize() {
         SwingUtilities.invokeLater(() -> {
             terminalDrawer.updateTerminalFontSize();
-        });
-    }
-
-    /** Toggle the right-hand Dependencies drawer beside the Workspace. */
-    public void toggleDependenciesDrawer() {
-        SwingUtilities.invokeLater(() -> {
-            boolean isHidden = workspaceDependenciesSplit.getDividerSize() == 0;
-            if (isHidden) {
-                dependenciesPanel.setVisible(true);
-                workspaceDependenciesSplit.setDividerSize(originalDepsDividerSize);
-
-                int totalWidth = workspaceTopContainer.getWidth();
-                int dividerLocation;
-                
-                // Check if this is the first toggle (initial value is 320)
-                if (lastDependenciesDrawerWidth == 320) {
-                    // 50/50 split on first toggle
-                    dividerLocation = totalWidth / 2;
-                } else {
-                    // Use remembered width for subsequent toggles
-                    dividerLocation = Math.max(
-                            100,
-                            totalWidth - lastDependenciesDrawerWidth - workspaceDependenciesSplit.getDividerSize());
-                }
-                workspaceDependenciesSplit.setDividerLocation(dividerLocation);
-            } else {
-                lastDependenciesDrawerWidth = dependenciesPanel.getWidth();
-                dependenciesPanel.setVisible(false);
-                workspaceDependenciesSplit.setDividerSize(0);
-            }
-            workspaceTopContainer.revalidate();
-            workspaceTopContainer.repaint();
         });
     }
 }

@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;
+import io.github.jbellis.brokk.gui.components.MaterialButton;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.util.Decompiler;
 import java.awt.BorderLayout;
@@ -29,13 +30,14 @@ import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableRowSorter;
 
 /**
- * Reusable panel for viewing and managing project dependencies.
- * This is a refactoring of the ManageDependenciesDialog content into a JPanel.
+ * Reusable panel for viewing and managing project dependencies. This is a refactoring of the ManageDependenciesDialog
+ * content into a JPanel.
  */
 public final class DependenciesPanel extends JPanel {
 
     public static interface DependencyLifecycleListener {
         void dependencyImportStarted(String name);
+
         void dependencyImportFinished(String name);
     }
 
@@ -131,8 +133,8 @@ public final class DependenciesPanel extends JPanel {
 
         // Add/Remove on the left
         var addRemovePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        var addButton = new JButton("+");
-        var removeButton = new JButton("-");
+        var addButton = new MaterialButton("+");
+        var removeButton = new MaterialButton("-");
         addRemovePanel.add(addButton);
         addRemovePanel.add(removeButton);
         buttonPanel.add(addRemovePanel, BorderLayout.WEST);

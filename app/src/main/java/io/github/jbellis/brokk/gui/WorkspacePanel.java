@@ -52,7 +52,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
@@ -666,7 +665,6 @@ public class WorkspacePanel extends JPanel {
 
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
-    
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
@@ -686,8 +684,6 @@ public class WorkspacePanel extends JPanel {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
-
-        
 
         buildContextPanel();
 
@@ -1143,7 +1139,6 @@ public class WorkspacePanel extends JPanel {
         JPanel buttonWrapper = new JPanel(new GridBagLayout());
         buttonWrapper.setOpaque(false);
         buttonWrapper.add(addButton);
-
 
         summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
 
