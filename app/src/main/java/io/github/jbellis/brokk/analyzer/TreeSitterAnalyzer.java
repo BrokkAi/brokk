@@ -681,11 +681,8 @@ public abstract class TreeSitterAnalyzer
             throw new SymbolNotFoundException("Source range not found for class: " + fqName);
         }
 
-        // For classes, expect one primary definition range.
-        var originalRange = ranges.getFirst();
-
-        // Expand range to include preceding comments
-        var expandedRange = expandRangeWithComments(cu.source(), originalRange);
+        // For classes, expect one primary definition range (already expanded with comments)
+        var range = ranges.getFirst();
 
         var srcOpt = cu.source().read();
         if (srcOpt.isEmpty()) {
@@ -693,8 +690,7 @@ public abstract class TreeSitterAnalyzer
         }
         String src = srcOpt.get();
 
-        var extractedSource =
-                ASTTraversalUtils.safeSubstringFromByteOffsets(src, expandedRange.startByte(), expandedRange.endByte());
+        var extractedSource = ASTTraversalUtils.safeSubstringFromByteOffsets(src, range.startByte(), range.endByte());
 
         return Optional.of(extractedSource);
     }
@@ -723,18 +719,14 @@ public abstract class TreeSitterAnalyzer
 
                     List<String> individualMethodSources = new ArrayList<>();
                     for (Range range : rangesForOverloads) {
-                        // Expand range to include preceding comments for each method overload
-                        Range expandedRange = expandRangeWithComments(cu.source(), range);
-
+                        // Range is already expanded with comments during parsing
                         String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
-                                fileContent, expandedRange.startByte(), expandedRange.endByte());
+                                fileContent, range.startByte(), range.endByte());
                         if (!methodSource.isEmpty()) {
                             individualMethodSources.add(methodSource);
                         } else {
                             log.warn(
-                                    "Could not extract valid method source for expanded range [{}, {}] (original [{}, {}]) for CU {} (fqName {}). Skipping this range.",
-                                    expandedRange.startByte(),
-                                    expandedRange.endByte(),
+                                    "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
                                     range.startByte(),
                                     range.endByte(),
                                     cu,
@@ -755,30 +747,10 @@ public abstract class TreeSitterAnalyzer
 
     @Override
     public Optional<String> getSourceForCodeUnit(CodeUnit codeUnit) {
-        var ranges = sourceRanges.get(codeUnit);
-        if (ranges == null || ranges.isEmpty()) {
-            return Optional.empty();
-        }
-
-        String fileContent;
-        try {
-            fileContent = codeUnit.source().read();
-        } catch (IOException e) {
-            return Optional.empty();
-        }
-
         if (codeUnit.isFunction()) {
-            // For functions, we may have multiple overloads - find the right one by parameter matching
-            // For now, just take the first range (this matches the current getMethodSource behavior)
-            var range = ranges.getFirst();
-            return Optional.of(
-                    ASTTraversalUtils.safeSubstringFromByteOffsets(fileContent, range.startByte(), range.endByte()));
+            return getMethodSource(codeUnit.fqName());
         } else if (codeUnit.isClass()) {
-            // For classes, expect one primary definition range and expand with comments
-            var originalRange = ranges.getFirst();
-            var expandedRange = expandRangeWithComments(codeUnit.source(), originalRange);
-            return Optional.of(ASTTraversalUtils.safeSubstringFromByteOffsets(
-                    fileContent, expandedRange.startByte(), expandedRange.endByte()));
+            return getClassSource(codeUnit.fqName());
         } else {
             return Optional.empty(); // Fields and other types not supported by default
         }
@@ -1273,12 +1245,17 @@ public abstract class TreeSitterAnalyzer
                     sigsForCu.add(signature);
                 }
             }
-            var currentRange = new Range(
+            var originalRange = new Range(
                     node.getStartByte(),
                     node.getEndByte(),
                     node.getStartPoint().getRow(),
                     node.getEndPoint().getRow());
-            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(currentRange);
+
+            // Pre-expand range to include preceding comments for classes and functions
+            var finalRange =
+                    (cu.isClass() || cu.isFunction()) ? expandRangeWithComments(file, originalRange) : originalRange;
+
+            localSourceRanges.computeIfAbsent(cu, k -> new ArrayList<>()).add(finalRange);
             localCuByFqName.put(cu.fqName(), cu); // Add/overwrite current CU by its FQ name
             localChildren.putIfAbsent(cu, new ArrayList<>()); // Ensure every CU can be a parent
 
@@ -1327,13 +1304,15 @@ public abstract class TreeSitterAnalyzer
                 // Add a general range for the module CU (e.g. entire file or first import to last)
                 // For simplicity, can use the range of the root node or skip detailed range for module CU.
                 // Here, we'll use the root node's range as a placeholder.
+                var moduleRange = new Range(
+                        rootNode.getStartByte(),
+                        rootNode.getEndByte(),
+                        rootNode.getStartPoint().getRow(),
+                        rootNode.getEndPoint().getRow());
+                // Module CUs typically don't need comment expansion as they represent the whole file
                 localSourceRanges
                         .computeIfAbsent(moduleCU, k -> new ArrayList<>())
-                        .add(new Range(
-                                rootNode.getStartByte(),
-                                rootNode.getEndByte(),
-                                rootNode.getStartPoint().getRow(),
-                                rootNode.getEndPoint().getRow()));
+                        .add(moduleRange);
                 log.trace("Created MODULE CU for {} with {} import statements.", file, localImportStatements.size());
             } else {
                 log.warn(
