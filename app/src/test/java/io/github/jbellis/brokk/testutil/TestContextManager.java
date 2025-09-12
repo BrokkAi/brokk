@@ -13,25 +13,34 @@ import java.util.Set;
 
 public final class TestContextManager implements IContextManager {
     private final TestProject project;
-    private final MockAnalyzer mockAnalyzer;
+    private final IAnalyzer analyzer;
     private final InMemoryRepo inMemoryRepo;
-    private final Set<ProjectFile> editableFiles = new HashSet<>();
-    private final Set<ProjectFile> readonlyFiles = new HashSet<>();
+    private final Set<ProjectFile> editableFiles;
+    private final Set<ProjectFile> readonlyFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
     private final Context liveContext;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this(new TestProject(projectRoot, Language.JAVA), consoleIO);
+        this(new TestProject(projectRoot, Language.JAVA), consoleIO, new HashSet<>());
     }
 
-    public TestContextManager(TestProject project, IConsoleIO consoleIO) {
+    public TestContextManager(TestProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles) {
         this.project = project;
-        this.mockAnalyzer = new MockAnalyzer(project.getRoot());
+        this.analyzer = new IAnalyzer(project.getRoot());
+        this.editableFiles = editableFiles;
+
+        this.readonlyFiles = new HashSet<>();
         this.inMemoryRepo = new InMemoryRepo();
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.liveContext = new Context(this, "Test context");
+    }
+
+    public TestContextManager(Path projectRoot, Set<String> editableFiles) {
+        this(new TestProject(projectRoot, Language.JAVA),
+             new TestConsoleIO(),
+             new HashSet<>(editableFiles.stream().map(s -> new ProjectFile(projectRoot, s)).toList()));
     }
 
     @Override
@@ -64,18 +73,14 @@ public final class TestContextManager implements IContextManager {
         this.editableFiles.remove(file); // Cannot be both
     }
 
-    public MockAnalyzer getMockAnalyzer() {
-        return mockAnalyzer;
+    @Override
+    public io.github.jbellis.brokk.analyzer.IAnalyzer getAnalyzerUninterrupted() {
+        return analyzer;
     }
 
     @Override
-    public IAnalyzer getAnalyzerUninterrupted() {
-        return mockAnalyzer;
-    }
-
-    @Override
-    public IAnalyzer getAnalyzer() {
-        return mockAnalyzer;
+    public io.github.jbellis.brokk.analyzer.IAnalyzer getAnalyzer() {
+        return analyzer;
     }
 
     @Override
