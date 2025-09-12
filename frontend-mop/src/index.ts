@@ -5,6 +5,7 @@ import {bubblesStore, onBrokkEvent} from './stores/bubblesStore';
 import {onHistoryEvent} from './stores/historyStore';
 import {spinnerStore} from './stores/spinnerStore';
 import {themeStore} from './stores/themeStore';
+import { threadStore } from './stores/threadStore';
 import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
@@ -178,7 +179,7 @@ async function initSearchController(): Promise<void> {
 
 function setupSearchRehighlight(): void {
     let pending = false;
-    bubblesStore.subscribe(() => {
+    const trigger = () => {
         if (!searchCtrl || !searchCtrl.getState().query) return;
         if (pending) return;
         pending = true;
@@ -189,5 +190,7 @@ function setupSearchRehighlight(): void {
                 searchCtrl?.onContentChanged();
             });
         });
-    });
+    };
+    bubblesStore.subscribe(trigger);
+    threadStore.subscribe(trigger);
 }
