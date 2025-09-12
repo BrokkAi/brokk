@@ -7,16 +7,14 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Standardized pipeline for processing build output before sending to LLM agents.
- * Two-step process: sanitization (path cleanup) then preprocessing (error extraction).
- * For LLM context optimization only - use raw output for success/failure decisions.
+ * Standardized pipeline for processing build output before sending to LLM agents. Two-step process: sanitization (path
+ * cleanup) then preprocessing (error extraction). For LLM context optimization only - use raw output for
+ * success/failure decisions.
  */
 public class BuildOutputPipeline {
     private static final Logger logger = LogManager.getLogger(BuildOutputPipeline.class);
 
-    /**
-     * Lightweight path sanitization without LLM processing.
-     */
+    /** Lightweight path sanitization without LLM processing. */
     public static String sanitizeOnly(@Nullable String rawBuildOutput, IContextManager contextManager) {
         if (rawBuildOutput == null) {
             return "";
@@ -30,9 +28,7 @@ public class BuildOutputPipeline {
         }
     }
 
-    /**
-     * Full pipeline: sanitization + LLM-based error extraction for verbose output.
-     */
+    /** Full pipeline: sanitization + LLM-based error extraction for verbose output. */
     public static String processForLlm(@Nullable String rawBuildOutput, IContextManager contextManager) {
         if (rawBuildOutput == null) {
             return "";
@@ -61,8 +57,8 @@ public class BuildOutputPipeline {
     }
 
     /**
-     * Converts absolute paths to relative paths for LLM consumption.
-     * Handles Windows/Unix paths and prevents accidental partial matches.
+     * Converts absolute paths to relative paths for LLM consumption. Handles Windows/Unix paths and prevents accidental
+     * partial matches.
      */
     private static String sanitizeBuildOutput(String text, IContextManager contextManager) {
         var root = contextManager.getProject().getRoot().toAbsolutePath().normalize();

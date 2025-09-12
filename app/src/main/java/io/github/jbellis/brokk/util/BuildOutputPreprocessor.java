@@ -5,7 +5,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Service;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -42,8 +41,8 @@ public class BuildOutputPreprocessor {
      * Timeout in seconds for LLM calls during build output preprocessing. This ensures the non-critical preprocessing
      * optimization fails fast and doesn't block for the full model timeout duration (2-15 minutes).
      *
-     * <p>Applied via {@link #applyCustomTimeout(Supplier, long)} to wrap the LLM request with a 30-second timeout.
-     * If this timeout is exceeded, preprocessing is aborted and the original build output is returned.
+     * <p>Applied via {@link #applyCustomTimeout(Supplier, long)} to wrap the LLM request with a 30-second timeout. If
+     * this timeout is exceeded, preprocessing is aborted and the original build output is returned.
      */
     public static final long PREPROCESSING_TIMEOUT_SECONDS = 30L;
 
@@ -95,20 +94,20 @@ public class BuildOutputPreprocessor {
     }
 
     /**
-     * Applies a custom timeout to an LLM operation to ensure build output preprocessing fails fast.
-     * This ensures preprocessing doesn't block for the full model timeout duration (2-15 minutes).
+     * Applies a custom timeout to an LLM operation to ensure build output preprocessing fails fast. This ensures
+     * preprocessing doesn't block for the full model timeout duration (2-15 minutes).
      *
      * @param operation The LLM operation to execute with timeout
      * @param timeoutSeconds Timeout in seconds
      * @return LLM result, or error result if timeout occurs
      */
-    private static Llm.StreamingResult applyCustomTimeout(
-            Supplier<Llm.StreamingResult> operation, long timeoutSeconds) throws InterruptedException {
+    private static Llm.StreamingResult applyCustomTimeout(Supplier<Llm.StreamingResult> operation, long timeoutSeconds)
+            throws InterruptedException {
 
         try {
             return CompletableFuture.supplyAsync(operation)
-                .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
-                .get();
+                    .orTimeout(timeoutSeconds, TimeUnit.SECONDS)
+                    .get();
         } catch (ExecutionException e) {
             return handleExecutionException(e, timeoutSeconds);
         }
@@ -127,14 +126,14 @@ public class BuildOutputPreprocessor {
             return handleTimeout(timeoutSeconds);
         }
 
-        return new Llm.StreamingResult(null,
-            new RuntimeException("Build output preprocessing failed", cause));
+        return new Llm.StreamingResult(null, new RuntimeException("Build output preprocessing failed", cause));
     }
 
     private static Llm.StreamingResult handleTimeout(long timeoutSeconds) {
         logger.warn("Build output preprocessing timed out after {} seconds", timeoutSeconds);
-        return new Llm.StreamingResult(null,
-            new RuntimeException("Build output preprocessing timed out after " + timeoutSeconds + " seconds"));
+        return new Llm.StreamingResult(
+                null,
+                new RuntimeException("Build output preprocessing timed out after " + timeoutSeconds + " seconds"));
     }
 
     /**
@@ -197,21 +196,24 @@ public class BuildOutputPreprocessor {
         var messages = List.of(createSystemMessage(), createExtractionRequest(buildOutput, buildContext));
 
         var result = applyCustomTimeout(
-            () -> {
-                try {
-                    return llm.sendRequest(messages, false);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException(e);
-                }
-            },
-            PREPROCESSING_TIMEOUT_SECONDS);
+                () -> {
+                    try {
+                        return llm.sendRequest(messages, false);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                },
+                PREPROCESSING_TIMEOUT_SECONDS);
 
         return handlePreprocessingResult(result, buildContext, buildOutput, contextManager);
     }
 
-    private static String handlePreprocessingResult(Llm.StreamingResult result, BuildContext buildContext,
-            String originalOutput, IContextManager contextManager) {
+    private static String handlePreprocessingResult(
+            Llm.StreamingResult result,
+            BuildContext buildContext,
+            String originalOutput,
+            IContextManager contextManager) {
         if (result.error() != null) {
             logPreprocessingError(result.error(), contextManager);
             return originalOutput;
@@ -241,9 +243,10 @@ public class BuildOutputPreprocessor {
             return;
         }
 
-        boolean isCustomTimeout = error.getMessage() != null &&
-            error.getMessage().contains("Build output preprocessing timed out");
-        boolean isModelTimeout = error.getMessage() != null && error.getMessage().contains("timed out");
+        boolean isCustomTimeout =
+                error.getMessage() != null && error.getMessage().contains("Build output preprocessing timed out");
+        boolean isModelTimeout =
+                error.getMessage() != null && error.getMessage().contains("timed out");
 
         if (isCustomTimeout) {
             logger.warn(

@@ -66,30 +66,4 @@ class BuildOutputPreprocessorSimpleTest {
         String result = BuildOutputPreprocessor.preprocessBuildOutput(overThresholdOutput, null);
         assertEquals(overThresholdOutput, result);
     }
-
-    @Test
-    void testPreprocessBuildOutput_documentsCodeAgentFalseSuccessFix() {
-        // This test documents the fix for the CodeAgent false success bug
-        // where success/failure was incorrectly determined based on preprocessed output
-
-        String longBuildFailure = IntStream.range(0, BuildOutputPreprocessor.THRESHOLD_LINES + 50)
-                .mapToObj(i -> "BUILD FAILED: Verbose build log line " + i)
-                .reduce("", (acc, line) -> acc + line + "\n");
-
-        // Even if preprocessing were to return empty (which it shouldn't with null context manager),
-        // CodeAgent now correctly bases success/failure decisions on the RAW build result
-        String result = BuildOutputPreprocessor.preprocessBuildOutput(longBuildFailure, null);
-
-        // With null context manager, preprocessing returns original content
-        assertEquals(longBuildFailure, result);
-
-        // The key insight: CodeAgent verifyPhase() now separates:
-        // - rawBuildError: for success/failure determination
-        // - processedBuildError: for LLM context optimization only
-        // This prevents false success when preprocessing returns empty results
-
-        // Example: if rawBuildError contains "BUILD FAILED" but processedBuildError is empty,
-        // CodeAgent correctly reports failure based on rawBuildError, not processedBuildError
-        assertTrue(result.contains("BUILD FAILED"), "Original build failure should be preserved");
-    }
 }
