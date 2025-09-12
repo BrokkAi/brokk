@@ -965,11 +965,11 @@ public abstract class CodePrompts {
         }
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
             searchContents +=
-                    "\n  - a single line consisting of the begin and end conflict markers: `BRK_CONFLICT_BEGIN$n..BRK_CONFLICT_END$n` where $n is the conflict number.";
+                    "\n  - a single line consisting of the begin and end conflict markers: `BRK_CONFLICT_BEGIN$n..BRK_CONFLICT_END$n` where $n is the conflict number. Always prefer to line edits when you are fixing conflicts.";
         }
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
             searchContents +=
-                    "\n  - a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name: `BRK_[CLASS|FUNCTION] $fqname`. (If used with an overloaded function name, this will remove ALL the overloads and put the REPLACE block contents at the position of the first occurrence.) This applies to any named class-like (struct, record, interface, etc) or function-like (method, static method) entity, but NOT anonymous ones";
+                    "\n  - a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name: `BRK_[CLASS|FUNCTION] $fqname`. For functions, this ONLY supports unique, non-overloaded names; when overloads are present you will have to spell it out line by line instead. This applies to any named class-like (struct, record, interface, etc) or function-like (method, static method) entity, but NOT anonymous ones. Prefer over line edits when you would replace over half of a class or method.";
         }
 
         return """
