@@ -6,13 +6,23 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.github.jbellis.brokk.testutil.TestConsoleIO;
+import io.github.jbellis.brokk.testutil.TestContextManager;
 import org.junit.jupiter.api.Test;
+
+import java.nio.file.Path;
 
 /**
  * Tests the individual static methods of {@link EditBlock} to pinpoint where behavior diverges from expectations in
  * multi-line replacements with leading blank lines and indentation.
  */
 class EditBlockInternalsTest {
+    /** for replaceMostSimilarChunk that don't need a real analyzer */
+    String replaceMostSimilarChunk(String content, String target, String replace) throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
+        var tcm = new TestContextManager(Path.of("."), new TestConsoleIO());
+        return EditBlock.replaceMostSimilarChunk(tcm, content, target, replace);
+    }
+
     @Test
     void testCountLeadingBlankLines() {
         // 1. No blank lines at start
@@ -93,7 +103,7 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceMostSimilarChunk() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceMostSimilarChunk() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String whole =
                 """
                 line1
@@ -103,7 +113,7 @@ class EditBlockInternalsTest {
         String part = "\n  line2\n";
         String replace = "\n  replaced_line2\n";
 
-        String result = EditBlock.replaceMostSimilarChunk(whole, part, replace);
+        String result = replaceMostSimilarChunk(whole, part, replace);
 
         // We'll see if an extra blank line got inserted.
         // We'll check the final lines carefully.
@@ -117,7 +127,7 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testDoReplaceWithBlankLineAndIndent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testDoReplaceWithBlankLineAndIndent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         // "doReplace" is a higher-level method that calls stripQuotedWrapping + replaceMostSimilarChunk, etc.
         String original =
                 """
@@ -128,7 +138,7 @@ class EditBlockInternalsTest {
         String before = "\n  line2\n";
         String after = "\n  replaced_line2\n";
 
-        String result = EditBlock.replaceMostSimilarChunk(original, before, after);
+        String result = replaceMostSimilarChunk(original, before, after);
 
         String expected =
                 """
@@ -140,18 +150,18 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceSimpleExact() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceSimpleExact() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = "This is a sample text.\nAnother line\nYet another line.\n";
         String search = "Another line\n";
         String replace = "Changed line\n";
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         String expected = "This is a sample text.\nChanged line\nYet another line.\n";
         assertEquals(expected, updated);
     }
 
     @Test
-    void testReplaceIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -175,18 +185,18 @@ class EditBlockInternalsTest {
                 """
                         .stripIndent();
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         assertEquals(expected, updated);
     }
 
     @Test
-    void testDeletionIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testDeletionIgnoringWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = """
                 One
                   Two
                 """.stripIndent();
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, "Two\n", "");
+        String updated = replaceMostSimilarChunk(original, "Two\n", "");
         assertEquals("One\n", updated);
     }
 
@@ -204,7 +214,7 @@ class EditBlockInternalsTest {
 
         assertThrows(
                 EditBlock.AmbiguousMatchException.class,
-                () -> EditBlock.replaceMostSimilarChunk(original, search, replace));
+                () -> replaceMostSimilarChunk(original, search, replace));
     }
 
     @Test
@@ -220,11 +230,11 @@ class EditBlockInternalsTest {
         String replace = "new_line\n";
 
         assertThrows(
-                EditBlock.NoMatchException.class, () -> EditBlock.replaceMostSimilarChunk(original, search, replace));
+                EditBlock.NoMatchException.class, () -> replaceMostSimilarChunk(original, search, replace));
     }
 
     @Test
-    void testEmptySearchReplacesContent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testEmptySearchReplacesContent() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         // If beforeText is empty, replace the entire content
         String original = "one\ntwo\n";
         String search = "";
@@ -232,14 +242,14 @@ class EditBlockInternalsTest {
         // Expected behavior: original content is replaced entirely
         String expected = "new content\n";
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         assertEquals(expected, updated);
     }
 
     /** LLM likes to start blocks without the leading whitespace sometimes */
     @Test
     void testReplacePartWithMissingLeadingWhitespace()
-            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -259,7 +269,7 @@ class EditBlockInternalsTest {
                     NEW_line3
                 """.stripIndent();
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
 
         String expected =
                 """
@@ -279,7 +289,7 @@ class EditBlockInternalsTest {
      */
     @Test
     void testReplaceIgnoringWhitespaceIncludingBlankLine()
-            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -297,7 +307,7 @@ class EditBlockInternalsTest {
                   replaced_line2
                 """;
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
 
         // The beforeText block basically tries to match line2 ignoring some whitespace and skipping a blank line
         // We expect line2 -> replaced_line2, with same leading indentation as original (4 spaces).
@@ -313,7 +323,7 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceIgnoringTrailingWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceIgnoringTrailingWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -329,7 +339,7 @@ class EditBlockInternalsTest {
                   replaced_line2
                 """;
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         String expected =
                 """
                 line1
@@ -341,7 +351,7 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testReplaceIgnoringInternalWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testReplaceIgnoringInternalWhitespace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original =
                 """
                 line1
@@ -357,7 +367,7 @@ class EditBlockInternalsTest {
                   replaced_line2
                 """;
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         String expected =
                 """
                 line1
@@ -374,7 +384,7 @@ class EditBlockInternalsTest {
      */
     @Test
     void testApplyFuzzySearchReplaceIfReplaceAlreadyPresent()
-            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = """
                 line1
                 line2
@@ -386,18 +396,18 @@ class EditBlockInternalsTest {
         String search = "line2\n";
         String replace = "line2\n";
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         // We expect no change
         assertEquals(original, updated);
     }
 
     @Test
-    void testEmptySearchOnEmptyFile() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    void testEmptySearchOnEmptyFile() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         String original = "";
         String search = ""; // empty
         String replace = "initial content\n";
 
-        String updated = EditBlock.replaceMostSimilarChunk(original, search, replace);
+        String updated = replaceMostSimilarChunk(original, search, replace);
         assertEquals("initial content\n", updated);
     }
 
@@ -413,7 +423,7 @@ class EditBlockInternalsTest {
 
         assertThrows(
                 EditBlock.AmbiguousMatchException.class,
-                () -> EditBlock.replaceMostSimilarChunk(original, "line1\n", "replaced\n"));
+                () -> replaceMostSimilarChunk(original, "line1\n", "replaced\n"));
     }
 
     @Test

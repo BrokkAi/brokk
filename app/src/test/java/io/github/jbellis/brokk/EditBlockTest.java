@@ -22,6 +22,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import io.github.jbellis.brokk.testutil.TestContextManager;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -186,7 +187,7 @@ class EditBlockTest {
 
     @Test
     void testApplyEditsCreatesNewFile(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         Files.writeString(existingFile, "Original text\n");
@@ -232,7 +233,7 @@ class EditBlockTest {
 
     @Test
     void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir)
-            throws IOException {
+            throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
         Path existingFile = tempDir.resolve("fileA.txt");
@@ -259,7 +260,7 @@ class EditBlockTest {
     }
 
     @Test
-    void testApplyEditsFailsForInvalidFilename(@TempDir Path tempDir) throws IOException {
+    void testApplyEditsFailsForInvalidFilename(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
         String invalidFilename = "invalid\0filename.txt";
@@ -349,7 +350,7 @@ class EditBlockTest {
 
     @Test
     void testNoMatchFailure(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         Files.writeString(existingFile, "AAA\nBBB\nCCC\n");
@@ -387,7 +388,7 @@ class EditBlockTest {
 
     @Test
     void testEditResultContainsOriginalContents(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         String originalContent = "Original text\n";
@@ -422,7 +423,7 @@ class EditBlockTest {
 
     @Test
     void testApplyEditsEmptySearchReplacesFile(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path testFile = tempDir.resolve("replaceTest.txt");
         String originalContent = "Initial content.\n";
@@ -511,7 +512,7 @@ class EditBlockTest {
 
     @Test
     void testNoMatchFailureWithExistingReplacementText(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileA.txt");
         String initialContent = "AAA\nBBB\nCCC\n";
@@ -559,7 +560,7 @@ class EditBlockTest {
 
     @Test
     void testNoMatchFailureWithDiffLikeSearchText(@TempDir Path tempDir)
-            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+            throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path existingFile = tempDir.resolve("fileB.txt");
         String initialContent = "Line 1\nLine 2\nLine 3\n";
@@ -692,7 +693,7 @@ class EditBlockTest {
     // ----------------------------------------------------
     @Test
     void testReplaceBrkConflictBlock(@TempDir Path tempDir)
-            throws IOException {
+            throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         Path testFile = tempDir.resolve("conf.txt");
 
