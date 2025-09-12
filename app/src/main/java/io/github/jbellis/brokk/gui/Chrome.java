@@ -2289,9 +2289,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 workspaceDependenciesSplit.setDividerSize(originalDepsDividerSize);
 
                 int totalWidth = workspaceTopContainer.getWidth();
-                int dividerLocation = Math.max(
-                        100,
-                        totalWidth - lastDependenciesDrawerWidth - workspaceDependenciesSplit.getDividerSize());
+                int dividerLocation;
+                
+                // Check if this is the first toggle (initial value is 320)
+                if (lastDependenciesDrawerWidth == 320) {
+                    // 50/50 split on first toggle
+                    dividerLocation = totalWidth / 2;
+                } else {
+                    // Use remembered width for subsequent toggles
+                    dividerLocation = Math.max(
+                            100,
+                            totalWidth - lastDependenciesDrawerWidth - workspaceDependenciesSplit.getDividerSize());
+                }
                 workspaceDependenciesSplit.setDividerLocation(dividerLocation);
             } else {
                 lastDependenciesDrawerWidth = dependenciesPanel.getWidth();
