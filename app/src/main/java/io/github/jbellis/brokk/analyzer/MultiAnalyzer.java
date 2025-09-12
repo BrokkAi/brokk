@@ -87,8 +87,14 @@ public class MultiAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
-        return findFirst(analyzer -> analyzer.as(SourceCodeProvider.class).flatMap(scp -> scp.getMethodSource(fqName)));
+    public Set<String> getMethodSources(String fqName) {
+        return delegates.values().stream()
+                .flatMap(analyzer ->
+                                 analyzer.as(SourceCodeProvider.class)
+                                         .map(scp -> scp.getMethodSources(fqName).stream())
+                                         .orElse(Stream.empty()))
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     @Override

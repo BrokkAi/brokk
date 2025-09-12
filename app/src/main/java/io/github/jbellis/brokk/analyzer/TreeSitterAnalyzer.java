@@ -665,54 +665,40 @@ public abstract class TreeSitterAnalyzer
     }
 
     @Override
-    public Optional<String> getMethodSource(String fqName) {
-        return getDefinition(fqName) // Finds the single CodeUnit representing this FQN (due to CodeUnit equality for
-                // overloads)
+    public Set<String> getMethodSources(String fqName) {
+        return getDefinition(fqName)
                 .filter(CodeUnit::isFunction)
-                .flatMap(cu -> {
-                    List<Range> rangesForOverloads = sourceRanges.get(cu);
+                .map(cu -> {
+                    var rangesForOverloads = sourceRanges.get(cu);
                     if (rangesForOverloads == null || rangesForOverloads.isEmpty()) {
-                        log.warn(
-                                "No source ranges found for CU {} (fqName {}) although definition was found.",
-                                cu,
-                                fqName);
-                        return Optional.empty();
+                        log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, fqName);
+                        return Collections.<String>emptySet();
                     }
 
-                    String fileContent;
+                    final String fileContent;
                     try {
                         fileContent = cu.source().read();
                     } catch (IOException e) {
                         log.warn("Could not read source for CU {} (fqName {}): {}", cu, fqName, e.getMessage());
-                        return Optional.empty();
+                        return Collections.<String>emptySet();
                     }
 
-                    List<String> individualMethodSources = new ArrayList<>();
+                    var methodSources = new LinkedHashSet<String>();
                     for (Range range : rangesForOverloads) {
                         // Range is already expanded with comments during parsing
-                        String methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
+                        var methodSource = ASTTraversalUtils.safeSubstringFromByteOffsets(
                                 fileContent, range.startByte(), range.endByte());
                         if (!methodSource.isEmpty()) {
-                            individualMethodSources.add(methodSource);
+                            methodSources.add(methodSource);
                         } else {
                             log.warn(
                                     "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
-                                    range.startByte(),
-                                    range.endByte(),
-                                    cu,
-                                    fqName);
+                                    range.startByte(), range.endByte(), cu, fqName);
                         }
                     }
-
-                    if (individualMethodSources.isEmpty()) {
-                        log.warn(
-                                "After processing ranges, no valid method sources found for CU {} (fqName {}).",
-                                cu,
-                                fqName);
-                        return Optional.empty();
-                    }
-                    return Optional.of(String.join("\n\n", individualMethodSources));
-                });
+                    return methodSources;
+                })
+                .orElse(Collections.emptySet());
     }
 
     @Override

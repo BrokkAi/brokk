@@ -1,15 +1,25 @@
 package io.github.jbellis.brokk.analyzer;
 
 import java.util.Optional;
+import java.util.Set;
 
 /** Implemented by analyzers that can readily provide source code snippets. */
 public interface SourceCodeProvider extends CapabilityProvider {
+
+    Set<String> getMethodSources(String fqName);
 
     /**
      * Gets the source code for a given method name. If multiple methods match (e.g. overloads), their source code
      * snippets are concatenated (separated by newlines). If none match, returns None.
      */
-    Optional<String> getMethodSource(String fqName);
+    default Optional<String> getMethodSource(String fqName) {
+        var sources = getMethodSources(fqName);
+        if (sources.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(String.join("\n\n", sources));
+    }
 
     /**
      * Gets the source code for the entire given class. If the class is partial or has multiple definitions, this

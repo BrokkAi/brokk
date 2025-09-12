@@ -7,12 +7,16 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -185,5 +189,45 @@ public interface IContextManager {
                 this,
                 allowPartialResponses,
                 getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
+    }
+
+    default Set<CodePrompts.InstructionsFlags> instructionsFlags() {
+        return instructionsFlags(getProject(), getEditableFiles());
+    }
+
+    static Set<CodePrompts.InstructionsFlags> instructionsFlags(IProject project, Set<ProjectFile> editableFiles) {
+        var flags = new HashSet<CodePrompts.InstructionsFlags>();
+        var languages = project.getAnalyzerLanguages();
+
+        // we'll inefficiently read the files every time this method is called but at least we won't do it twice
+        var contents = editableFiles.stream().collect(Collectors.toMap(f -> f, f -> {
+            try {
+                return f.read();
+            } catch (IOException e) {
+                // If we can't read a file for any reason, treat it as empty content.
+                return "";
+            }
+        }));
+
+        // set InstructionsFlags.SYNTAX_AWARE if all editable files' extensions are supported by one of `languages`
+        var allSupported = !contents.isEmpty()
+                && contents.keySet().stream().allMatch(f -> {
+                    var ext = f.extension();
+                    return !ext.isEmpty()
+                            && languages.stream()
+                                    .anyMatch(lang -> lang.getExtensions().contains(ext));
+                });
+        if (allSupported) {
+            flags.add(CodePrompts.InstructionsFlags.SYNTAX_AWARE);
+        }
+
+        // set MERGE_AGENT_MARKERS if any editable file contains both BRK_CONFLICT_BEGIN and BRK_CONFLICT_END
+        var hasMergeMarkers = contents.values().stream()
+                .anyMatch(s -> s.contains("BRK_CONFLICT_BEGIN") && s.contains("BRK_CONFLICT_END"));
+        if (hasMergeMarkers) {
+            flags.add(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS);
+        }
+
+        return flags;
     }
 }

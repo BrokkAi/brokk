@@ -503,21 +503,24 @@ public interface LspAnalyzer
     }
 
     @Override
-    default @NotNull Optional<String> getMethodSource(@NotNull String fqName) {
-        return LspAnalyzerHelper.determineMethodName(fqName, this::resolveMethodName)
-                .map(qualifiedMethodInfo -> LspAnalyzerHelper.findMethodSymbol(
-                                qualifiedMethodInfo.containerFullName(),
-                                qualifiedMethodInfo.methodName(),
-                                getWorkspace(),
-                                getServer(),
-                                this::resolveMethodName)
-                        .thenApply(maybeSymbol -> maybeSymbol.stream()
-                                .map(LspAnalyzerHelper::getSourceForSymbolDefinition)
-                                .flatMap(Optional::stream)
-                                .distinct()
-                                .collect(Collectors.joining("\n\n")))
-                        .join())
-                .filter(x -> !x.isBlank());
+    default Set<String> getMethodSources(@NotNull String fqName) {
+        return LspAnalyzerHelper
+                .determineMethodName(fqName, this::resolveMethodName)
+                .map(qualifiedMethodInfo ->
+                             LspAnalyzerHelper
+                                     .findMethodSymbol(
+                                             qualifiedMethodInfo.containerFullName(),
+                                             qualifiedMethodInfo.methodName(),
+                                             getWorkspace(),
+                                             getServer(),
+                                             this::resolveMethodName)
+                                     .thenApply(symbols -> symbols.stream()
+                                             .map(LspAnalyzerHelper::getSourceForSymbolDefinition)
+                                             .flatMap(Optional::stream)
+                                             .filter(s -> !s.isBlank())
+                                             .collect(Collectors.toCollection(java.util.LinkedHashSet::new)))
+                                     .join())
+                .orElseGet(LinkedHashSet::new);
     }
 
     @Override

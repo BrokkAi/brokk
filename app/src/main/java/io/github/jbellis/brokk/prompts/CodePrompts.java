@@ -140,11 +140,9 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectCodeMessages(
             IContextManager cm,
             StreamingChatModel model,
-            EditBlockParser parser,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            Set<ProjectFile> changedFiles,
-            Set<InstructionsFlags> flags)
+            Set<ProjectFile> changedFiles)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
@@ -156,7 +154,7 @@ public abstract class CodePrompts {
         } else {
             messages.addAll(getWorkspaceContentsMessages(getWorkspaceReadOnlyMessages(ctx), List.of()));
         }
-        messages.addAll(exampleMessages(flags));
+        messages.addAll(exampleMessages(cm.instructionsFlags()));
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(taskMessages);
         if (!changedFiles.isEmpty()) {
@@ -168,13 +166,11 @@ public abstract class CodePrompts {
     }
 
     public final List<ChatMessage> getSingleFileCodeMessages(
-            String styleGuide,
-            EditBlockParser parser,
+            IProject project,
             List<ChatMessage> readOnlyMessages,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            ProjectFile file,
-            Set<InstructionsFlags> flags) {
+            ProjectFile file) {
         var messages = new ArrayList<ChatMessage>();
 
         var systemPrompt =
@@ -187,7 +183,7 @@ public abstract class CodePrompts {
           </style_guide>
           """
                         .stripIndent()
-                        .formatted(systemIntro(""), styleGuide)
+                        .formatted(systemIntro(""), project.getStyleGuide())
                         .trim();
         messages.add(new SystemMessage(systemPrompt));
 
@@ -213,7 +209,7 @@ public abstract class CodePrompts {
             throw new UncheckedIOException(e);
         }
 
-        messages.addAll(exampleMessages(flags));
+        messages.addAll(exampleMessages(IContextManager.instructionsFlags(project, Set.of(file))));
         messages.addAll(taskMessages);
         messages.add(request);
 
@@ -240,7 +236,7 @@ public abstract class CodePrompts {
 
         messages.addAll(readOnlyMessages);
 
-        String fileContent = null;
+        String fileContent;
         try {
             fileContent =
                     """
@@ -327,8 +323,7 @@ public abstract class CodePrompts {
                 .formatted(reminder);
     }
 
-    public UserMessage codeRequest(
-            String input, String reminder, EditBlockParser parser, Set<InstructionsFlags> flags) {
+    public UserMessage codeRequest(IContextManager cm, String input, String reminder) {
         var instructions =
                 """
         <instructions>
@@ -359,7 +354,7 @@ public abstract class CodePrompts {
                                 GraphicsEnvironment.isHeadless()
                                         ? "decide what the most logical interpretation is"
                                         : "ask questions");
-        return new UserMessage(instructions + instructions(input, flags, reminder));
+        return new UserMessage(instructions + instructions(input, cm.instructionsFlags(), reminder));
     }
 
     public UserMessage askRequest(String input) {
@@ -392,8 +387,7 @@ public abstract class CodePrompts {
     }
 
     /** Generates a message based on parse/apply errors from failed edit blocks */
-    public static String getApplyFailureMessage(
-            List<EditBlock.FailedBlock> failedBlocks, EditBlockParser parser, int succeededCount, IContextManager cm) {
+    public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount) {
         if (failedBlocks.isEmpty()) {
             return "";
         }
@@ -489,102 +483,6 @@ public abstract class CodePrompts {
                """
                 .formatted(instructions, fileDetails, successNote)
                 .stripIndent();
-    }
-
-    /**
-     * Collects messages for a full-file replacement request, typically used as a fallback when standard SEARCH/REPLACE
-     * fails repeatedly. Includes system intro, history, workspace, target file content, and the goal. Asks for the
-     * *entire* new file content back.
-     *
-     * @param cm ContextManager to access history, workspace, style guide.
-     * @param targetFile The file whose content needs full replacement.
-     * @param goal The user's original goal or reason for the replacement (e.g., build error).
-     * @param taskMessages
-     * @return List of ChatMessages ready for the LLM.
-     */
-    public List<ChatMessage> collectFullFileReplacementMessages(
-            IContextManager cm,
-            ProjectFile targetFile,
-            List<EditBlock.FailedBlock> failures,
-            String goal,
-            List<ChatMessage> taskMessages) {
-        var messages = new ArrayList<ChatMessage>();
-
-        // 1. System Intro + Style Guide
-        messages.add(systemMessage(cm, LAZY_REMINDER));
-        // 2. No examples provided for full-file replacement
-
-        // 3. History Messages (provides conversational context)
-        messages.addAll(getHistoryMessages(cm.liveContext()));
-
-        // 4. Workspace
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
-
-        // 5. task-messages-so-far
-        messages.addAll(taskMessages);
-
-        // 5. Target File Content + Goal + Failed Blocks
-        String currentContent;
-        try {
-            currentContent = targetFile.read();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read target file for full replacement prompt: " + targetFile, e);
-        }
-
-        var failedBlocksText = failures.stream()
-                .map(f -> {
-                    var commentaryText = f.commentary().isBlank()
-                            ? ""
-                            : """
-                            <commentary>
-                            %s
-                            </commentary>
-                            """
-                                    .formatted(f.commentary());
-                    return """
-                            <failed_block reason="%s">
-                            <block>
-                            %s
-                            </block>
-                            %s
-                            </failed_block>
-                            """
-                            .formatted(f.reason(), f.block().toString(), commentaryText);
-                })
-                .collect(Collectors.joining("\n"));
-
-        var userMessage =
-                """
-            You are now performing a full-file replacement because previous edits failed.
-
-            Remember that this was the original goal:
-            <goal>
-            %s
-            </goal>
-
-            Here is the current content of the file:
-            <file source="%s">
-            %s
-            </file>
-
-            Here are the specific edit blocks that failed to apply:
-            <failed_blocks>
-            %s
-            </failed_blocks>
-
-            Review the conversation history, workspace contents, the current source code, and the failed edit blocks.
-            Figure out what changes we are trying to make to implement the goal,
-            then provide the *complete and updated* new content for the entire file,
-            fenced with triple backticks. Omit language identifiers or other markdown options.
-            Think about your answer before starting to edit.
-            You MUST include the backtick fences, even if the correct content is an empty file.
-            DO NOT modify the file except for the changes pertaining to the goal!
-            DO NOT use the SEARCH/REPLACE format you see earlier -- that didn't work!
-            """
-                        .formatted(goal, targetFile, currentContent, failedBlocksText);
-        messages.add(new UserMessage(userMessage));
-
-        return messages;
     }
 
     /**
@@ -831,6 +729,7 @@ public abstract class CodePrompts {
     }
 
     public enum InstructionsFlags {
+        SYNTAX_AWARE,
         MERGE_AGENT_MARKERS
     }
 
@@ -842,101 +741,151 @@ public abstract class CodePrompts {
                         new UserMessage("Change get_factorial() to use math.factorial"),
                         new AiMessage(
                                 """
-            To make this change we need to modify `mathweb/flask/app.py` to:
+                To make this change we need to modify `mathweb/flask/app.py` to:
 
-            1. Import the math package.
-            2. Remove the existing factorial() function.
-            3. Update get_factorial() to call math.factorial instead.
+                1. Import the math package.
+                2. Remove the existing factorial() function.
+                3. Update get_factorial() to call math.factorial instead.
 
-            Here are the *SEARCH/REPLACE* blocks:
+                Here are the *SEARCH/REPLACE* blocks:
 
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-            from flask import Flask
-            =======
-            import math
-            from flask import Flask
-            >>>>>>> REPLACE
-            ```
+                ```
+                mathweb/flask/app.py
+                <<<<<<< SEARCH
+                from flask import Flask
+                =======
+                import math
+                from flask import Flask
+                >>>>>>> REPLACE
+                ```
 
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-            def factorial(n):
-                "compute factorial"
+                ```
+                mathweb/flask/app.py
+                <<<<<<< SEARCH
+                def factorial(n):
+                    "compute factorial"
 
-                if n == 0:
-                    return 1
-                else:
-                    return n * factorial(n-1)
-            =======
-            >>>>>>> REPLACE
-            ```
+                    if n == 0:
+                        return 1
+                    else:
+                        return n * factorial(n-1)
+                =======
+                >>>>>>> REPLACE
+                ```
 
-            ```
-            mathweb/flask/app.py
-            <<<<<<< SEARCH
-                return str(factorial(n))
-            =======
-                return str(math.factorial(n))
-            >>>>>>> REPLACE
-            ```
-            """)));
+                ```
+                mathweb/flask/app.py
+                <<<<<<< SEARCH
+                    return str(factorial(n))
+                =======
+                    return str(math.factorial(n))
+                >>>>>>> REPLACE
+                ```
+                """)));
+
+        if (flags.isEmpty()) {
+            examples.addAll(
+                    List.of(
+                            new UserMessage("Refactor hello() into its own file."),
+                            new AiMessage(
+                                    """
+                        To make this change we need to modify `main.py` and make a new file `hello.py`:
+
+                        1. Make a new hello.py file with hello() in it.
+                        2. Remove hello() from main.py and replace it with an import.
+
+                        Here are the *SEARCH/REPLACE* blocks:
+
+                        ```
+                        hello.py
+                        <<<<<<< SEARCH
+                        =======
+                        def hello():
+                            "print a greeting"
+
+                            print("hello")
+                        >>>>>>> REPLACE
+                        ```
+
+                        ```
+                        main.py
+                        <<<<<<< SEARCH
+                        def hello():
+                            "print a greeting"
+
+                            print("hello")
+                        =======
+                        from hello import hello
+                        >>>>>>> REPLACE
+                        ```
+                        """)));
+        }
+
+        // Syntax-aware example: conflict-range marker (BRK_CONFLICT_BEGIN..BRK_CONFLICT_END)
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            examples.addAll(
+                    List.of(
+                            new UserMessage("Give Widgets a serial number"),
+                            new AiMessage(
+                                    """
+                                    Certainly:
+                                    
+                                    ```
+                                    src/main/java/com/acme/Widget.java
+                                    <<<<<<< SEARCH
+                                    BRK_CLASS com.acme.Widget
+                                    =======
+                                    public class Widget {
+                                        private final String serial;
+                                    
+                                    public Widget(String serial) {
+                                        this.serial = serial;
+                                    }
+                                    
+                                        public String greet(String name) {
+                                            return "Hi, " + name;
+                                        }
+                                    }
+                                    >>>>>>> REPLACE
+                                    ```
+                                    """),
+                            new UserMessage("Update the greet method to include its serial number"),
+                            new AiMessage(
+                                    """
+                                    Here is the *SEARCH/REPLACE* block:
+
+                                    ```
+                                    src/main/java/com/acme/Widget.java
+                                    <<<<<<< SEARCH
+                                    BRK_FUNCTION com.acme.Widget.greet
+                                    =======
+                                    public String greet(String name) {
+                                       return "Hi, " + name + ", my serial number is " + serial;
+                                    }
+                                    >>>>>>> REPLACE
+                                    ```
+                                    """)));
+        }
+
+        // Merge-agent marker examples: BRK_FUNCTION and BRK_CLASS
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
             examples.addAll(
                     List.of(
                             new UserMessage("Resolve the conflict in src/main/java/com/acme/Widget.java."),
                             new AiMessage(
                                     """
-                Here is the *SEARCH/REPLACE* block to resolve the Widget conflict:
+                    Here is the *SEARCH/REPLACE* block to resolve the Widget conflict using a syntax-aware conflict range:
 
-                ```
-                src/main/java/com/acme/Widget.java
-                <<<<<<< SEARCH
-                BRK_CONFLICT_BEGIN7..BRK_CONFLICT_END7
-                =======
-                public class Widget {
-                    public String greet(String name) {
-                        return "Hello, " + name + "!";
+                    ```
+                    src/main/java/com/acme/Widget.java
+                    <<<<<<< SEARCH
+                    BRK_CONFLICT_BEGIN7..BRK_CONFLICT_END7
+                    =======
+                    public class Widget {
+                        public String greet(String name) {
+                            return "Hello, " + name + "!";
+                        }
                     }
-                }
-                >>>>>>> REPLACE
-                ```
-                """)));
-        } else {
-            examples.addAll(
-                    List.of(
-                            new UserMessage("Refactor hello() into its own file."),
-                            new AiMessage(
-                                    """
-                    To make this change we need to modify `main.py` and make a new file `hello.py`:
-
-                    1. Make a new hello.py file with hello() in it.
-                    2. Remove hello() from main.py and replace it with an import.
-
-                    Here are the *SEARCH/REPLACE* blocks:
-
-                    ```
-                    hello.py
-                    <<<<<<< SEARCH
-                    =======
-                    def hello():
-                        "print a greeting"
-
-                        print("hello")
-                    >>>>>>> REPLACE
-                    ```
-
-                    ```
-                    main.py
-                    <<<<<<< SEARCH
-                    def hello():
-                        "print a greeting"
-
-                        print("hello")
-                    =======
-                    from hello import hello
                     >>>>>>> REPLACE
                     ```
                     """)));
@@ -1003,12 +952,25 @@ public abstract class CodePrompts {
     }
 
     static String diffFormatInstructions(Set<InstructionsFlags> flags) {
-        var mergeText = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)
-                ? """
-                           \nSPECIAL CASE: You can match an entire conflict block with a single line consisting of its begin and end markers:
-                           `BRK_CONFLICT_BEGIN$n..BRK_CONFLICT_END$n` where $n is the conflict number.
-                """
-                : "";
+        String searchContents;
+        if (flags.isEmpty()) {
+            searchContents = "4. A contiguous chunk of lines to search for in the existing source code.";
+        } else {
+            searchContents = "4. A contiguous chunk of lines to search for in the existing source code, ";
+            if (flags.size() == 1) {
+                searchContents += " OR ";
+            } else {
+                searchContents += " OR one of the following:";
+            }
+        }
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            searchContents +=
+                    "\n  - a single line consisting of the begin and end conflict markers: `BRK_CONFLICT_BEGIN$n..BRK_CONFLICT_END$n` where $n is the conflict number.";
+        }
+        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
+            searchContents +=
+                    "\n  - a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name: `BRK_[CLASS|FUNCTION] $fqname`. (If used with an overloaded function name, this will remove ALL the overloads and put the REPLACE block contents at the position of the first occurrence.) This applies to any named class-like (struct, record, interface, etc) or function-like (method, static method) entity, but NOT anonymous ones";
+        }
 
         return """
         # *SEARCH/REPLACE block* Rules:
@@ -1025,7 +987,7 @@ public abstract class CodePrompts {
 
         Use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
         """
-                .formatted(mergeText)
+                .formatted(searchContents)
                 .stripIndent();
     }
 }

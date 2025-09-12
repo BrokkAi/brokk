@@ -98,17 +98,15 @@ public class CodeAgent {
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
         io.systemOutput(msg);
-        TaskResult.StopDetails stopDetails = null;
+        TaskResult.StopDetails stopDetails;
 
         var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
-        var instructionsFlags = getInstructionsFlags();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
+                contextManager,
                 userInput.trim(),
-                CodePrompts.instance.codeReminder(contextManager.getService(), model),
-                parser,
-                instructionsFlags);
+                CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         // FSM state
         var cs = new ConversationState(taskMessages, nextRequest, 0);
@@ -128,11 +126,9 @@ public class CodeAgent {
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         contextManager,
                         model,
-                        parser,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles(),
-                        Set.of());
+                        es.changedFiles());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
                 if (metrics != null) {
@@ -246,35 +242,6 @@ public class CodeAgent {
                 stopDetails);
     }
 
-    private @NotNull Set<CodePrompts.InstructionsFlags> getInstructionsFlags() {
-        var hasMergeMarkers = contextManager
-                        .liveContext()
-                        .editableFiles()
-                        .flatMap(cf -> cf.files().stream())
-                        .anyMatch(f -> {
-                            try {
-                                return f.read().contains("BRK_CONFLICT_BEGIN");
-                            } catch (IOException e) {
-                                return false;
-                            }
-                        })
-                && contextManager
-                        .liveContext()
-                        .editableFiles()
-                        .flatMap(cf -> cf.files().stream())
-                        .anyMatch(f -> {
-                            try {
-                                return f.read().contains("BRK_CONFLICT_END");
-                            } catch (IOException e) {
-                                return false;
-                            }
-                        });
-        var instructionsFlags = hasMergeMarkers
-                ? EnumSet.of(CodePrompts.InstructionsFlags.MERGE_AGENT_MARKERS)
-                : Set.<CodePrompts.InstructionsFlags>of();
-        return instructionsFlags;
-    }
-
     /**
      * Runs a “single-file edit” session in which the LLM is asked to modify exactly {@code file}. The method drives the
      * same request / parse / apply FSM that {@link #runTask(String, boolean)} uses, but it stops after all
@@ -305,7 +272,7 @@ public class CodeAgent {
         }
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model), parser, flags);
+                contextManager, instructions, CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, 0);
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, 0, "", new HashSet<>(), new HashMap<>());
@@ -319,13 +286,11 @@ public class CodeAgent {
         while (true) {
             // ----- 1-a.  Construct messages for this turn --------------------
             List<ChatMessage> llmMessages = CodePrompts.instance.getSingleFileCodeMessages(
-                    contextManager.getProject().getStyleGuide(),
-                    parser,
+                    contextManager.getProject(),
                     readOnlyMessages,
                     conversationState.taskMessages(),
                     requireNonNull(conversationState.nextRequest(), "nextRequest must be set before sending to LLM"),
-                    file,
-                    flags);
+                    file);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
@@ -825,8 +790,7 @@ public class CodeAgent {
                     if (metrics != null) {
                         metrics.applyRetries++;
                     }
-                    String retryPromptText =
-                            CodePrompts.getApplyFailureMessage(failedBlocks, parser, succeededCount, contextManager);
+                    String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
                     csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.turnStartIndex());
                     esForStep = es.afterApply(
