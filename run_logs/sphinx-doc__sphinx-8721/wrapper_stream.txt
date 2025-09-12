@@ -411,3 +411,92 @@ One-shot Brokk workspace and task runner.
                               the default branch's HEAD.
 
 Warning: No changes detected by 'git diff HEAD'. Brokk might not have made any changes.
+[2025-09-12 10:53:10] DEBUG: brokk_wrapper.py starting up...
+[2025-09-12 10:53:10] DEBUG: sys.argv = ['brokk_wrapper.py', '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpomvz5we9.txt', '--instance_id', 'sphinx-doc__sphinx-8721', '--target_project', 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\sphinx-doc\\sphinx\\82ef497a8c88', '--output_file', 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpe_6j_ib6.json', '--log_dir', 'run_logs\\sphinx-doc__sphinx-8721']
+Warning: Brokk CLI exited with non-zero status: 1
+Brokk stderr:
+Starting Brokk CLI...
+
+[2025-09-12 10:53:10] DEBUG: About to parse arguments
+[2025-09-12 10:53:10] DEBUG: Arguments parsed successfully: {'instructions': '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpomvz5we9.txt', 'mode': 'architect', 'instance_id': 'sphinx-doc__sphinx-8721', 'output_file': 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpe_6j_ib6.json', 'target_project': 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\sphinx-doc\\sphinx\\82ef497a8c88', 'brokk_project': None, 'model': None, 'deepscan': False, 'no_deepscan': False, 'prime_context': False, 'summary_globs': None, 'extra_read': None, 'dry_run': False, 'verbose': False, 'log_dir': 'run_logs\\sphinx-doc__sphinx-8721'}
+[2025-09-12 10:53:10] Brokk project root: C:\Users\tenant\IdeaProjects\brokk\brokk
+[2025-09-12 10:53:10] Target project: C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\sphinx-doc\sphinx\82ef497a8c88
+[2025-09-12 10:53:10] Checking if Brokk CLI JAR needs to be built...
+[2025-09-12 10:53:10] Found Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+[2025-09-12 10:53:10] Using Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+[2025-09-12 10:53:10] DEBUG: Reading prompt from file: C:\Users\tenant\AppData\Local\Temp\tmpomvz5we9.txt
+[2025-09-12 10:53:10] DEBUG: Read 562 characters from file
+[2025-09-12 10:53:10] Running Brokk to apply changes based on instructions...
+[2025-09-12 10:53:10] Executing Brokk CLI: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli ... [--project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\sphinx-doc\sphinx\82ef497a8c88 ...]
+[2025-09-12 10:53:10] DEBUG: Full command: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli --project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\sphinx-doc\sphinx\82ef497a8c88 --deepscan --architect viewcode creates pages for epub even if `viewcode_enable_epub=False` on `make html epub`
+**Describe the bug**
+
+viewcode creates pages for epub even if `viewcode_enable_epub=False` on `make html epub`
+
+
+
+**To Reproduce**
+
+```
+
+$ make html epub
+
+```
+
+
+
+**Expected behavior**
+
+module pages should not be created for epub by default.
+
+
+
+**Your project**
+
+No
+
+
+
+**Screenshots**
+
+No
+
+
+
+**Environment info**
+
+- OS: Mac
+
+- Python version: 3.9.1
+
+- Sphinx version: HEAD of 3.x
+
+- Sphinx extensions:  sphinx.ext.viewcode
+
+- Extra tools: No
+
+
+
+**Additional context**
+
+No
+
+
+
+[2025-09-12 10:53:10] DEBUG: Prompt text length: 0 characters
+[2025-09-12 10:53:10] DEBUG: Prompt preview: ...
+[2025-09-12 10:53:10] DEBUG: About to create Brokk CLI subprocess
+[2025-09-12 10:53:10] DEBUG: Brokk CLI subprocess created, PID: 36956
+[2025-09-12 10:53:10] DEBUG: Using communicate with 600s timeout
+[2025-09-12 11:03:10] ERROR: Brokk CLI timed out after 600s, terminating process
+[2025-09-12 11:03:10] DEBUG: Process killed, final returncode: 1
+[2025-09-12 11:03:10] Brokk CLI finished (rc=1) in 600s
+[2025-09-12 11:03:10] Capturing git diff...
+[2025-09-12 11:03:10] Running command: git ls-files --others --exclude-standard
+[2025-09-12 11:03:10] Command finished (rc=0) in 0s
+[2025-09-12 11:03:10] Staging 1 untracked files as intent-to-add for diff visibility
+[2025-09-12 11:03:10] Running command: git add -N .brokk/project.properties
+[2025-09-12 11:03:11] Command finished (rc=0) in 0s
+[2025-09-12 11:03:11] Running command: git diff -M HEAD
+[2025-09-12 11:03:11] Command finished (rc=0) in 0s
+[2025-09-12 11:03:11] Output saved to C:\Users\tenant\AppData\Local\Temp\tmpe_6j_ib6.json

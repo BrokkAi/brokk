@@ -133,6 +133,8 @@ def execute_brokk_cli(jar_path, project_path, instructions, additional_args=None
     
     _log(f"Executing Brokk CLI: {' '.join(command[:8])} ... [--project {project_path} ...]")
     _log(f"DEBUG: Full command: {' '.join(command)}")
+    _log(f"DEBUG: Prompt text length: {len(instructions)} characters")
+    _log(f"DEBUG: Prompt preview: {instructions[:200]}...")
     
     # Use streaming execution with heartbeats for long-running Brokk CLI
     start = time.time()
@@ -151,117 +153,20 @@ def execute_brokk_cli(jar_path, project_path, instructions, additional_args=None
             bufsize=1
         )
         _log(f"DEBUG: Brokk CLI subprocess created, PID: {proc.pid}")
-        
-        stdout_lines = []
-        stderr_lines = []
-        
-        _log(f"DEBUG: Entering Brokk CLI read loop")
-        loop_count = 0
-        while True:
-            loop_count += 1
-            if loop_count % 50 == 0:  # Every 50 iterations (~5 seconds)
-                _log(f"DEBUG: Brokk CLI loop iteration {loop_count}")
-            
-            # Check if process is still alive first
-            poll_result = proc.poll()
-            if poll_result is not None:
-                _log(f"DEBUG: Brokk CLI finished with returncode: {poll_result}")
-                # Drain remaining output
-                if proc.stdout:
-                    remaining_out = proc.stdout.readlines()
-                    _log(f"DEBUG: Draining {len(remaining_out)} remaining Brokk stdout lines")
-                    stdout_lines.extend(remaining_out)
-                if proc.stderr:
-                    remaining_err = proc.stderr.readlines()
-                    _log(f"DEBUG: Draining {len(remaining_err)} remaining Brokk stderr lines")
-                    stderr_lines.extend(remaining_err)
-                break
-            
-            # Try non-blocking read using select-like approach
-            import select
-            import sys
-            
-            # On Windows, select doesn't work with pipes, so we use a different approach
-            if sys.platform.startswith('win'):
-                # Use timeout-based approach for Windows
-                import threading
-                import queue
-                
-                def read_output(pipe, result_queue, stream_name):
-                    try:
-                        line = pipe.readline()
-                        if line:
-                            result_queue.put((stream_name, line))
-                    except:
-                        pass
-                
-                stdout_line = None
-                stderr_line = None
-                
-                if proc.stdout:
-                    stdout_queue = queue.Queue()
-                    stdout_thread = threading.Thread(target=read_output, args=(proc.stdout, stdout_queue, 'stdout'))
-                    stdout_thread.daemon = True
-                    stdout_thread.start()
-                    stdout_thread.join(timeout=0.1)  # 100ms timeout
-                    try:
-                        _, stdout_line = stdout_queue.get_nowait()
-                    except queue.Empty:
-                        stdout_line = None
-                
-                if proc.stderr:
-                    stderr_queue = queue.Queue()
-                    stderr_thread = threading.Thread(target=read_output, args=(proc.stderr, stderr_queue, 'stderr'))
-                    stderr_thread.daemon = True
-                    stderr_thread.start()
-                    stderr_thread.join(timeout=0.1)  # 100ms timeout
-                    try:
-                        _, stderr_line = stderr_queue.get_nowait()
-                    except queue.Empty:
-                        stderr_line = None
-            else:
-                # Unix-like systems can use select
-                ready, _, _ = select.select([proc.stdout, proc.stderr], [], [], 0.1)
-                stdout_line = proc.stdout.readline() if proc.stdout in ready else None
-                stderr_line = proc.stderr.readline() if proc.stderr in ready else None
-            
-            progressed = False
-            if stdout_line:
-                stdout_lines.append(stdout_line)
-                progressed = True
-                _log(f"DEBUG: Brokk stdout: {stdout_line.rstrip()[:50]}...")
-            if stderr_line:
-                stderr_lines.append(stderr_line)
-                progressed = True
-                _log(f"DEBUG: Brokk stderr: {stderr_line.rstrip()[:50]}...")
-                
-            # Heartbeat and timeout check
-            now = time.time()
-            elapsed = int(now - start)
-            
-            # Check for timeout
-            if elapsed > max_runtime:
-                _log(f"ERROR: Brokk CLI timed out after {max_runtime}s, terminating process")
-                try:
-                    proc.terminate()
-                    time.sleep(5)
-                    if proc.poll() is None:
-                        _log("DEBUG: Process didn't terminate, killing it")
-                        proc.kill()
-                except Exception as e:
-                    _log(f"DEBUG: Error terminating process: {e}")
-                break
-            
-            if now - last_heartbeat >= heartbeat_interval:
-                _log(f"HEARTBEAT: Brokk CLI still running... elapsed {elapsed}s (loop {loop_count})")
-                last_heartbeat = now
-                
-            if not progressed:
-                time.sleep(0.1)
-                
-        returncode = proc.returncode
-        stdout = ''.join(stdout_lines)
-        stderr = ''.join(stderr_lines)
+
+        # Use communicate with timeout to avoid hanging
+        _log(f"DEBUG: Using communicate with {max_runtime}s timeout")
+        try:
+            stdout, stderr = proc.communicate(timeout=max_runtime)
+            returncode = proc.returncode
+            _log(f"DEBUG: Brokk CLI finished with returncode: {returncode}")
+            _log(f"DEBUG: stdout length: {len(stdout)}, stderr length: {len(stderr)}")
+        except subprocess.TimeoutExpired:
+            _log(f"ERROR: Brokk CLI timed out after {max_runtime}s, terminating process")
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            returncode = proc.returncode
+            _log(f"DEBUG: Process killed, final returncode: {returncode}")
         
         duration = int(time.time() - start)
         _log(f"Brokk CLI finished (rc={returncode}) in {duration}s")
@@ -428,8 +333,15 @@ def main():
         if isinstance(prompt_text, str) and len(prompt_text) > 1 and prompt_text[0] == '@':
             at_path = Path(prompt_text[1:])
             if at_path.exists():
+                _log(f"DEBUG: Reading prompt from file: {at_path}")
                 prompt_text = at_path.read_text(encoding="utf-8")
-    except Exception:
+                _log(f"DEBUG: Read {len(prompt_text)} characters from file")
+            else:
+                _log(f"DEBUG: @file path does not exist: {at_path}")
+        else:
+            _log(f"DEBUG: Using prompt text directly (length: {len(prompt_text)})")
+    except Exception as e:
+        _log(f"DEBUG: Error reading @file, using original: {e}")
         # Fallback to original instructions if read fails
         prompt_text = args.instructions
 

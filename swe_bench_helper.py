@@ -79,6 +79,34 @@ def run_command_stream(
     log_info(f"DEBUG: Entering stream loop")
     loop_count = 0
     max_wait_time = 600  # 10 minutes timeout
+    
+    # Use threads to read stdout/stderr to avoid blocking
+    import threading
+    import queue
+    
+    stdout_queue = queue.Queue()
+    stderr_queue = queue.Queue()
+    
+    def read_stream(stream, q):
+        try:
+            for line in iter(stream.readline, ''):
+                if line:
+                    q.put(line)
+        except:
+            pass
+        finally:
+            q.put(None)  # Signal EOF
+    
+    stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, stdout_queue))
+    stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, stderr_queue))
+    stdout_thread.daemon = True
+    stderr_thread.daemon = True
+    stdout_thread.start()
+    stderr_thread.start()
+    
+    stdout_eof = False
+    stderr_eof = False
+    
     try:
         while True:
             loop_count += 1
@@ -87,10 +115,21 @@ def run_command_stream(
             
             out_line = None
             err_line = None
-            if proc.stdout is not None:
-                out_line = proc.stdout.readline()
-            if proc.stderr is not None:
-                err_line = proc.stderr.readline()
+            
+            # Non-blocking read from queues
+            try:
+                out_line = stdout_queue.get_nowait()
+                if out_line is None:
+                    stdout_eof = True
+            except queue.Empty:
+                pass
+                
+            try:
+                err_line = stderr_queue.get_nowait()
+                if err_line is None:
+                    stderr_eof = True
+            except queue.Empty:
+                pass
 
             progressed = False
             if out_line:
@@ -105,21 +144,29 @@ def run_command_stream(
                 log_info(f"DEBUG: Got stderr line: {err_line.rstrip()[:50]}...")
 
             poll_result = proc.poll()
-            if poll_result is not None:
+            if poll_result is not None and stdout_eof and stderr_eof:
                 log_info(f"DEBUG: Process finished with returncode: {poll_result}")
-                # Drain remainder
-                if proc.stdout is not None:
-                    remaining_out = proc.stdout.readlines()
-                    log_info(f"DEBUG: Draining {len(remaining_out)} remaining stdout lines")
-                    for line in remaining_out:
-                        collected_out.append(line)
-                        _write_log(line.rstrip("\n"))
-                if proc.stderr is not None:
-                    remaining_err = proc.stderr.readlines()
-                    log_info(f"DEBUG: Draining {len(remaining_err)} remaining stderr lines")
-                    for line in remaining_err:
-                        collected_err.append(line)
-                        _write_log(line.rstrip("\n"))
+                # Drain remainder from queues
+                remaining = 0
+                try:
+                    while True:
+                        line = stdout_queue.get_nowait()
+                        if line:
+                            collected_out.append(line)
+                            _write_log(line.rstrip("\n"))
+                            remaining += 1
+                except queue.Empty:
+                    pass
+                try:
+                    while True:
+                        line = stderr_queue.get_nowait()
+                        if line:
+                            collected_err.append(line)
+                            _write_log(line.rstrip("\n"))
+                            remaining += 1
+                except queue.Empty:
+                    pass
+                log_info(f"DEBUG: Drained {remaining} remaining lines")
                 break
 
             now = time.time()

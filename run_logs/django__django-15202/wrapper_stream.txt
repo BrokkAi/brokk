@@ -421,3 +421,46 @@ One-shot Brokk workspace and task runner.
                             Create a detached worktree at the given path, from
                               the default branch's HEAD.
 
+[2025-09-12 09:43:47] DEBUG: brokk_wrapper.py starting up...
+Warning: Brokk CLI exited with non-zero status: 1
+[2025-09-12 10:33:03] DEBUG: brokk_wrapper.py starting up...
+[2025-09-12 10:33:03] DEBUG: sys.argv = ['brokk_wrapper.py', '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpj5dniyf2.txt', '--instance_id', 'django__django-15202', '--target_project', 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', '--output_file', 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpv6qhgg7c.json', '--log_dir', 'run_logs\\django__django-15202']
+Warning: Brokk CLI exited with non-zero status: 1
+Brokk stderr:
+Starting Brokk CLI...
+
+[2025-09-12 10:33:03] DEBUG: About to parse arguments
+[2025-09-12 10:33:03] DEBUG: Arguments parsed successfully: {'instructions': '@C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpj5dniyf2.txt', 'mode': 'architect', 'instance_id': 'django__django-15202', 'output_file': 'C:\\Users\\tenant\\AppData\\Local\\Temp\\tmpv6qhgg7c.json', 'target_project': 'C:\\Users\\tenant\\IdeaProjects\\brokk\\brokk\\workspace\\django\\django\\4fd3044ca013', 'brokk_project': None, 'model': None, 'deepscan': False, 'no_deepscan': False, 'prime_context': False, 'summary_globs': None, 'extra_read': None, 'dry_run': False, 'verbose': False, 'log_dir': 'run_logs\\django__django-15202'}
+[2025-09-12 10:33:03] Brokk project root: C:\Users\tenant\IdeaProjects\brokk\brokk
+[2025-09-12 10:33:03] Target project: C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013
+[2025-09-12 10:33:03] Checking if Brokk CLI JAR needs to be built...
+[2025-09-12 10:33:03] Found Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+[2025-09-12 10:33:03] Using Brokk JAR: C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar
+[2025-09-12 10:33:03] Running Brokk to apply changes based on instructions...
+[2025-09-12 10:33:03] Executing Brokk CLI: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli ... [--project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 ...]
+[2025-09-12 10:33:03] DEBUG: Full command: java -ea -XX:+UseParallelGC -Xmx2G -Djava.awt.headless=true -cp C:\Users\tenant\IdeaProjects\brokk\brokk\app\build\libs\brokk-0.14.0-beta2-5-gb40e8a7c-SNAPSHOT.jar io.github.jbellis.brokk.cli.BrokkCli --project C:\Users\tenant\IdeaProjects\brokk\brokk\workspace\django\django\4fd3044ca013 --deepscan --architect URLField throws ValueError instead of ValidationError on clean
+Description
+	
+forms.URLField( ).clean('////]@N.AN')
+results in:
+	ValueError: Invalid IPv6 URL
+	Traceback (most recent call last):
+	 File "basic_fuzzer.py", line 22, in TestOneInput
+	 File "fuzzers.py", line 350, in test_forms_URLField
+	 File "django/forms/fields.py", line 151, in clean
+	 File "django/forms/fields.py", line 136, in run_validators
+	 File "django/core/validators.py", line 130, in __call__
+	 File "urllib/parse.py", line 440, in urlsplit
+
+[2025-09-12 10:33:03] DEBUG: About to create Brokk CLI subprocess
+[2025-09-12 10:33:03] DEBUG: Brokk CLI subprocess created, PID: 27208
+[2025-09-12 10:33:03] DEBUG: Using communicate with 600s timeout
+[2025-09-12 10:43:03] ERROR: Brokk CLI timed out after 600s, terminating process
+[2025-09-12 10:43:03] DEBUG: Process killed, final returncode: 1
+[2025-09-12 10:43:03] Brokk CLI finished (rc=1) in 600s
+[2025-09-12 10:43:03] Capturing git diff...
+[2025-09-12 10:43:03] Running command: git ls-files --others --exclude-standard
+[2025-09-12 10:43:04] Command finished (rc=0) in 0s
+[2025-09-12 10:43:04] Running command: git diff -M HEAD
+[2025-09-12 10:43:04] Command finished (rc=0) in 0s
+[2025-09-12 10:43:04] Output saved to C:\Users\tenant\AppData\Local\Temp\tmpv6qhgg7c.json
