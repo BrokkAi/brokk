@@ -7,6 +7,7 @@
   import CacheStatsDebug from './dev/components/CacheStatsDebug.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
+  import { zoomStore } from './stores/zoomStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -55,6 +56,8 @@
     left: 0.5em;
     overflow-y: auto;
     overflow-x: hidden;
+    font-size: calc(14px * var(--zoom-level, 1));
+    transition: font-size 0.2s ease;
   }
 </style>
 
@@ -64,6 +67,7 @@
 <div
   class="chat-container"
   id="chat-container"
+  style="--zoom-level: {$zoomStore}"
 >
   {#each $bubblesStore as bubble (bubble.seq)}
     {#if bubble.type === 'AI' && bubble.reasoning}

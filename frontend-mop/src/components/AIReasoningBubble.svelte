@@ -77,7 +77,7 @@
     display: flex;
     align-items: center;
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.95em;
   }
 
   .reasoning-header {

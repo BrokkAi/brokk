@@ -152,7 +152,7 @@
     align-items: center;
     gap: 0.35em;
     padding: 0.3em 0.6em;
-    font-size: 0.8rem;
+    font-size: 0.8em;
     font-weight: 600;
     background: var(--border-color-hex);
   }

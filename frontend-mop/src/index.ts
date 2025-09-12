@@ -9,6 +9,8 @@ import {createSearchController, type SearchController} from './search/search';
 import {reparseAll} from './stores/bubblesStore';
 import {log, createLogger} from './lib/logging';
 import {onSymbolResolutionResponse, clearSymbolCache} from './stores/symbolCacheStore';
+import {zoomIn, zoomOut, resetZoom, zoomStore, getZoomPercentage, setZoom} from './stores/zoomStore';
+import './components/ZoomWidget.ts';
 
 const mainLog = createLogger('main');
 
@@ -21,6 +23,7 @@ const buffer = setupBrokkInterface();
 replayBufferedItems(buffer);
 void initSearchController();
 setupSearchRehighlight();
+setupZoomDisplayObserver();
 
 // Function definitions below
 function checkWorkerSupport(): void {
@@ -65,6 +68,20 @@ function setupBrokkInterface(): any[] {
         refreshSymbolLookup: refreshSymbolLookup,
         onSymbolLookupResponse: onSymbolResolutionResponse,
 
+        // Zoom API
+        zoomIn: () => {
+            zoomIn();
+        },
+        zoomOut: () => {
+            zoomOut();
+        },
+        resetZoom: () => {
+            resetZoom();
+        },
+        setZoom: (value: number) => {
+            setZoom(value);
+        },
+
     };
 
     // Signal to Java that the bridge is ready
@@ -93,13 +110,18 @@ function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
 }
 
-function setAppTheme(dark: boolean, isDevMode?: boolean): void {
-    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode);
+function setAppTheme(dark: boolean, isDevMode?: boolean, zoom?: number): void {
+    console.info('setTheme executed: dark=' + dark + ', isDevMode=' + isDevMode + ', zoom=' + zoom);
     themeStore.set(dark);
     const html = document.querySelector('html')!;
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);
     html.classList.remove(removeTheme);
+
+    // Set zoom if provided
+    if (zoom !== undefined) {
+        setZoom(zoom);
+    }
 
     // Determine production mode: use Java's isDevMode if provided, otherwise fall back to frontend detection
     mainLog.info(`set theme dark: ${dark} dev mode: ${isDevMode}`);
@@ -184,5 +206,25 @@ function setupSearchRehighlight(): void {
                 searchCtrl?.onContentChanged();
             });
         });
+    });
+}
+
+function setupZoomDisplayObserver(): void {
+    const render = (zoom: number) => {
+        const el = document.getElementById('zoom-display');
+        if (el) {
+            el.textContent = getZoomPercentage(zoom);
+        }
+    };
+
+    // Initial render and ongoing updates
+    render(get(zoomStore));
+    zoomStore.subscribe((zoom) => {
+        render(zoom);
+        try {
+            (window as any).javaBridge?.onZoomChanged?.(zoom);
+        } catch (e) {
+            // ignore when bridge not ready or in dev
+        }
     });
 }
