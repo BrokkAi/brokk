@@ -666,7 +666,7 @@ public class WorkspacePanel extends JPanel {
 
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
-    private TitledBorder workspaceTitledBorder;
+    
 
     @Nullable
     private JMenuItem dropAllMenuItem = null;
@@ -678,8 +678,6 @@ public class WorkspacePanel extends JPanel {
     private static final String READ_ONLY_TIP = "Select latest activity to enable";
     private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
     private static final String DROP_ALL_ACTION_CMD = "workspace.dropAll";
-    private static final String WORKSPACE_TITLE = "Workspace";
-    private static final String WORKSPACE_TITLE_NOT_LIVE = "Workspace (read-only)";
 
     /** Primary constructor allowing menu-mode selection */
     public WorkspacePanel(Chrome chrome, ContextManager contextManager, PopupMenuMode popupMenuMode) {
@@ -689,13 +687,7 @@ public class WorkspacePanel extends JPanel {
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
 
-        workspaceTitledBorder = BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                WORKSPACE_TITLE,
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12));
-        setBorder(workspaceTitledBorder);
+        
 
         buildContextPanel();
 
@@ -1152,15 +1144,6 @@ public class WorkspacePanel extends JPanel {
         buttonWrapper.setOpaque(false);
         buttonWrapper.add(addButton);
 
-        // Dependencies drawer toggle button
-        MaterialButton depsButton = new MaterialButton();
-        depsButton.setIcon(Icons.ADJUST);
-        depsButton.setToolTipText("Manage Dependencies");
-        depsButton.setFocusable(false);
-        depsButton.setOpaque(false);
-        depsButton.addActionListener(e2 -> chrome.toggleDependenciesDrawer());
-        buttonWrapper.add(Box.createHorizontalStrut(6));
-        buttonWrapper.add(depsButton);
 
         summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
 
@@ -2237,10 +2220,8 @@ public class WorkspacePanel extends JPanel {
             // Show/hide overlay based on editable state and update title
             if (editable) {
                 workspaceOverlay.hideOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE);
             } else {
                 workspaceOverlay.showOverlay();
-                workspaceTitledBorder.setTitle(WORKSPACE_TITLE_NOT_LIVE);
             }
 
             // Repaint to show title change
