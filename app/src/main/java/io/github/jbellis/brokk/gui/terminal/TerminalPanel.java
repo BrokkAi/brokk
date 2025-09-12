@@ -191,7 +191,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
 
         // Capture button: capture selected text or entire terminal buffer into workspace
         var captureButton = new MaterialButton();
-        captureButton.setIcon(Icons.CONTENT_COPY);
+        captureButton.setIcon(Icons.CONTENT_CAPTURE);
         captureButton.setPreferredSize(new Dimension(60, 24));
         captureButton.setMargin(new Insets(0, 0, 0, 0));
         captureButton.setToolTipText(
