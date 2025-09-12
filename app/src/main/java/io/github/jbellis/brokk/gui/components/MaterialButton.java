@@ -1,9 +1,12 @@
 package io.github.jbellis.brokk.gui.components;
 
+import com.formdev.flatlaf.extras.FlatSVGIcon;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.event.KeyEvent;
+import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.KeyStroke;
@@ -20,6 +23,7 @@ public class MaterialButton extends JButton {
     private @Nullable KeyStroke keyStroke;
     private @Nullable String originalTooltipText;
     private boolean appendShortcutToTooltip = false;
+    private @Nullable Icon originalIcon;
 
     public MaterialButton() {
         this(null);
@@ -100,6 +104,59 @@ public class MaterialButton extends JButton {
         } else {
             super.setToolTipText(originalTooltipText);
         }
+    }
+
+    @Override
+    public void setIcon(@Nullable Icon icon) {
+        this.originalIcon = icon;
+        updateIconForEnabledState();
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        updateIconForEnabledState();
+        updateCursorForEnabledState();
+    }
+
+    private void updateIconForEnabledState() {
+        if (originalIcon == null) {
+            super.setIcon(null);
+            return;
+        }
+
+        if (isEnabled()) {
+            super.setIcon(originalIcon);
+        } else {
+            Icon disabledIcon = createDisabledVersion(originalIcon);
+            super.setIcon(disabledIcon);
+        }
+    }
+
+    private void updateCursorForEnabledState() {
+        if (isEnabled()) {
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        } else {
+            setCursor(Cursor.getDefaultCursor());
+        }
+    }
+
+    private Icon createDisabledVersion(Icon icon) {
+        // Handle ThemedIcon wrapper from SwingUtil
+        if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
+            Icon delegate = themedIcon.delegate();
+            if (delegate instanceof FlatSVGIcon svgIcon) {
+                return svgIcon.getDisabledIcon();
+            }
+        }
+
+        // Handle direct FlatSVGIcon
+        if (icon instanceof FlatSVGIcon svgIcon) {
+            return svgIcon.getDisabledIcon();
+        }
+
+        // Fallback for non-FlatSVG icons - return as-is
+        return icon;
     }
 
     private static String formatKeyStroke(KeyStroke ks) {
