@@ -390,8 +390,28 @@ public class ContextMenuBuilder {
 
         context.contextManager().submitContextTask("Open preview for " + symbol.fqName(), () -> {
             SwingUtilities.invokeLater(() -> {
-                // Use Chrome's centralized preview system
-                context.chrome().previewFile(symbol.source());
+                // Try to get the symbol's source range to position the preview
+                var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
+                var startLine = -1; // Default: no positioning
+
+                if (analyzer != null) {
+                    try {
+                        // Get the starting line for positioning (includes comments if pre-expanded)
+                        startLine = analyzer.as(io.github.jbellis.brokk.analyzer.TreeSitterAnalyzer.class)
+                                .map(tsa -> tsa.getStartLineForCodeUnit(symbol))
+                                .orElse(-1);
+
+                        if (startLine >= 0) {
+                            logger.debug("Positioning preview at line {} for symbol {}", startLine, symbol.fqName());
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Could not get start line for symbol {}: {}", symbol.fqName(), e.getMessage());
+                        // Fall back to default positioning
+                    }
+                }
+
+                // Use Chrome's positioned preview system
+                context.chrome().previewFile(symbol.source(), startLine);
             });
         });
     }

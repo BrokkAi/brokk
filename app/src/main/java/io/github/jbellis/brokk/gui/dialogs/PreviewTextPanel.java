@@ -269,6 +269,27 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         guiTheme.applyCurrentThemeToComponent(textArea);
     }
 
+    /**
+     * Sets the caret position in the text area to the specified character offset.
+     *
+     * @param position The character offset position to set the caret to
+     */
+    public void setCaretPosition(int position) {
+        if (position >= 0 && position <= textArea.getDocument().getLength()) {
+            textArea.setCaretPosition(position);
+            textArea.getCaret().setVisible(true);
+            // Scroll to make the caret visible
+            try {
+                var rect = textArea.modelToView2D(position);
+                if (rect != null) {
+                    textArea.scrollRectToVisible(rect.getBounds());
+                }
+            } catch (Exception e) {
+                // If scrolling fails, just set the position without scrolling
+            }
+        }
+    }
+
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
     public class PreviewTextArea extends RSyntaxTextArea {
         public PreviewTextArea(String content, @Nullable String syntaxStyle, boolean isEditable) {

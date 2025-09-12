@@ -1248,6 +1248,58 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
+     * Centralized method to open a preview for a specific ProjectFile at a specified line position.
+     *
+     * @param pf The ProjectFile to preview.
+     * @param startLine The line number (0-based) to position the caret at, or -1 to use default positioning.
+     */
+    public void previewFile(ProjectFile pf, int startLine) {
+        assert SwingUtilities.isEventDispatchThread() : "Preview must be initiated on EDT";
+
+        try {
+            // 1. Read file content
+            var content = pf.read();
+
+            // 2. Deduce syntax style
+            var syntax = pf.getSyntaxStyle();
+
+            // 3. Build the PTP with custom positioning
+            var panel =
+                    new PreviewTextPanel(contextManager, pf, content, syntax, themeManager, null); // Pass null fragment
+
+            // 4. Position the caret at the specified line if provided
+            if (startLine >= 0) {
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        // Convert line number to character offset
+                        var lines = content.split("\\r?\\n", -1); // -1 to include trailing empty lines
+                        if (startLine < lines.length) {
+                            var charOffset = 0;
+                            for (var i = 0; i < startLine; i++) {
+                                charOffset += lines[i].length() + 1; // +1 for line separator
+                            }
+                            panel.setCaretPosition(charOffset);
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Failed to position caret at line {}: {}", startLine, e.getMessage());
+                        // Fall back to default positioning (beginning of file)
+                    }
+                });
+            }
+
+            // 5. Show in frame using toString for the title
+            showPreviewFrame(contextManager, "Preview: " + pf, panel);
+
+        } catch (IOException ex) {
+            toolError("Error reading file for preview: " + ex.getMessage());
+            logger.error("Error reading file {} for preview", pf.absPath(), ex);
+        } catch (Exception ex) {
+            toolError("Error opening file preview: " + ex.getMessage());
+            logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
+        }
+    }
+
+    /**
      * Opens an in-place preview of a context fragment.
      *
      * <ul>
