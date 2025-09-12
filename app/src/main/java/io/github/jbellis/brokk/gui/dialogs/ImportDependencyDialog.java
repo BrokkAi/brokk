@@ -27,6 +27,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import org.jetbrains.annotations.Nullable;
 
 public class ImportDependencyDialog {
@@ -38,7 +39,7 @@ public class ImportDependencyDialog {
         GIT
     }
 
-    public static void show(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
+    public static void show(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
         new DialogHelper(chrome, listener).buildAndShow();
     }
@@ -61,7 +62,7 @@ public class ImportDependencyDialog {
         private JRadioButton gitRadioButton;
 
         @Nullable
-        private final ManageDependenciesDialog.DependencyLifecycleListener listener;
+        private final DependenciesPanel.DependencyLifecycleListener listener;
 
         private JPanel contentPanel = new JPanel(new BorderLayout());
         private JButton importButton = new JButton("Import");
@@ -92,7 +93,7 @@ public class ImportDependencyDialog {
         @Nullable
         private GitRepo.RemoteInfo remoteInfo;
 
-        DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
+        DialogHelper(Chrome chrome, @Nullable DependenciesPanel.DependencyLifecycleListener listener) {
             this.chrome = chrome;
             this.dependenciesRoot = chrome.getProject()
                     .getRoot()

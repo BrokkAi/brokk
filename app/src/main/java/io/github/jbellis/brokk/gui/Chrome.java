@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
+import io.github.jbellis.brokk.gui.dependencies.DependenciesPanel;
 import io.github.jbellis.brokk.gui.git.*;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
@@ -154,6 +155,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final HistoryOutputPanel historyOutputPanel;
     /** Horizontal split between left tab stack and right output stack */
     private JSplitPane bottomSplitPane;
+
+    // Workspace | Dependencies (right drawer)
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private JSplitPane workspaceDependenciesSplit;
+
+    @SuppressWarnings("NullAway.Init") // Initialized in constructor
+    private DependenciesPanel dependenciesPanel;
+
+    private int originalDepsDividerSize;
+    private int lastDependenciesDrawerWidth = 320;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -386,7 +397,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // 1) Nested split for Workspace (top) / Instructions (bottom)
         JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        workspaceInstructionsSplit.setTopComponent(workspacePanel);
+
+        // Create a right-hand Dependencies drawer beside the Workspace
+        workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        dependenciesPanel = new DependenciesPanel(this);
+        workspaceDependenciesSplit.setLeftComponent(workspacePanel);
+        workspaceDependenciesSplit.setRightComponent(dependenciesPanel);
+        workspaceDependenciesSplit.setResizeWeight(1.0); // workspace gets priority
+        originalDepsDividerSize = workspaceDependenciesSplit.getDividerSize();
+        // Hide dependencies drawer initially
+        dependenciesPanel.setVisible(false);
+        workspaceDependenciesSplit.setDividerSize(0);
+        workspaceDependenciesSplit.setDividerLocation(1.0);
+
+        workspaceInstructionsSplit.setTopComponent(workspaceDependenciesSplit);
         workspaceInstructionsSplit.setBottomComponent(instructionsPanel);
         workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
 
@@ -2227,6 +2251,36 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void updateTerminalFontSize() {
         SwingUtilities.invokeLater(() -> {
             terminalDrawer.updateTerminalFontSize();
+        });
+    }
+
+    /** Toggle the right-hand Dependencies drawer beside the Workspace. */
+    public void toggleDependenciesDrawer() {
+        SwingUtilities.invokeLater(() -> {
+            // Hidden if divider size is 0
+            boolean hidden = workspaceDependenciesSplit.getDividerSize() == 0;
+
+            if (hidden) {
+                // Show drawer
+                dependenciesPanel.setVisible(true);
+                workspaceDependenciesSplit.setDividerSize(originalDepsDividerSize);
+
+                int total = workspaceDependenciesSplit.getWidth();
+                if (total <= 0) total = frame.getWidth();
+                int desiredWidth = Math.max(280, lastDependenciesDrawerWidth);
+                int dividerLocation =
+                        Math.max(100, total - desiredWidth - workspaceDependenciesSplit.getDividerSize());
+                workspaceDependenciesSplit.setDividerLocation(dividerLocation);
+            } else {
+                // Hide drawer (remember current width)
+                lastDependenciesDrawerWidth = workspaceDependenciesSplit.getRightComponent().getWidth();
+                workspaceDependenciesSplit.setDividerLocation(workspaceDependenciesSplit.getWidth());
+                workspaceDependenciesSplit.setDividerSize(0);
+                dependenciesPanel.setVisible(false);
+            }
+
+            workspaceDependenciesSplit.revalidate();
+            workspaceDependenciesSplit.repaint();
         });
     }
 }

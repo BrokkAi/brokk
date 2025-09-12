@@ -1151,6 +1151,17 @@ public class WorkspacePanel extends JPanel {
         JPanel buttonWrapper = new JPanel(new GridBagLayout());
         buttonWrapper.setOpaque(false);
         buttonWrapper.add(addButton);
+
+        // Dependencies drawer toggle button
+        MaterialButton depsButton = new MaterialButton();
+        depsButton.setIcon(Icons.ADJUST);
+        depsButton.setToolTipText("Manage Dependencies");
+        depsButton.setFocusable(false);
+        depsButton.setOpaque(false);
+        depsButton.addActionListener(e2 -> chrome.toggleDependenciesDrawer());
+        buttonWrapper.add(Box.createHorizontalStrut(6));
+        buttonWrapper.add(depsButton);
+
         summaryWithAdd.add(buttonWrapper, BorderLayout.EAST);
 
         contextSummaryPanel.add(summaryWithAdd, BorderLayout.NORTH);
