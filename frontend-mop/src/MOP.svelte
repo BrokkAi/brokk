@@ -5,7 +5,6 @@
   import MessageBubble from './components/MessageBubble.svelte';
   import AIReasoningBubble from './components/AIReasoningBubble.svelte';
   import CacheStatsDebug from './dev/components/CacheStatsDebug.svelte';
-  import WrapStatusDisplay from './dev/components/WrapStatusDisplay.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
 
@@ -61,7 +60,6 @@
 
 <!-- Debug panels -->
 <CacheStatsDebug />
-<WrapStatusDisplay />
 
 <div
   class="chat-container"
