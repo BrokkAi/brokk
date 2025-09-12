@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dependencies;
 import static java.util.Objects.requireNonNull;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.gui.BorderUtils;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.Constants;
 import io.github.jbellis.brokk.gui.components.MaterialButton;
@@ -71,9 +72,9 @@ public final class DependenciesPanel extends JPanel {
         this.chrome = chrome;
         this.initialFiles = chrome.getProject().getAllFiles();
 
-        var headerLabel = new JLabel("Manage Dependencies", SwingConstants.CENTER);
-        headerLabel.setBorder(new EmptyBorder(Constants.V_GAP, Constants.H_GAP, Constants.V_GAP, Constants.H_GAP));
-        add(headerLabel, BorderLayout.NORTH);
+        // var headerLabel = new JLabel("Manage Dependencies", SwingConstants.CENTER);
+        // headerLabel.setBorder(new EmptyBorder(Constants.V_GLUE, Constants.H_GAP, Constants.V_GLUE, Constants.H_GAP));
+        // add(headerLabel, BorderLayout.NORTH);
 
         var contentPanel = new JPanel(new BorderLayout());
 
@@ -112,17 +113,27 @@ public final class DependenciesPanel extends JPanel {
         table.getTableHeader().setReorderingAllowed(false);
 
         var scrollPane = new JScrollPane(table);
-        scrollPane.setBorder(new EmptyBorder(Constants.V_GAP, Constants.H_GAP, Constants.V_GAP, Constants.H_GAP));
+// Ensure no viewport border/inset so the table content can touch the scroll pane border
+scrollPane.setViewportBorder(null);
+// Use the shared focus-aware border so the dependencies table matches the workspace table.
+BorderUtils.addFocusBorder(scrollPane, table);
+
+        // Make the table fill the viewport vertically and remove internal spacing so its edges are flush.
+        table.setFillsViewportHeight(true);
+        table.setShowGrid(false);
+        table.setIntercellSpacing(new Dimension(0, 0));
+        table.setBorder(null);
+
+
         contentPanel.add(scrollPane, BorderLayout.CENTER);
 
-        // --- Totals Panel ---
-        var totalsPanel = new JPanel();
-        totalsPanel.setLayout(new BoxLayout(totalsPanel, BoxLayout.PAGE_AXIS));
+        // --- Totals Panel (files and LoC side-by-side) ---
+        var totalsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
         totalsPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, Constants.H_GAP));
         totalFilesLabel = new JLabel("Files in Code Intelligence: 0");
         totalLocLabel = new JLabel("LoC in Code Intelligence: 0");
-        totalFilesLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        totalLocLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // Give a small horizontal gap after the first label for readability
+        totalFilesLabel.setBorder(new EmptyBorder(0, 0, 0, Constants.H_GAP));
         totalsPanel.add(totalFilesLabel);
         totalsPanel.add(totalLocLabel);
 
@@ -143,7 +154,9 @@ public final class DependenciesPanel extends JPanel {
         southContainerPanel.add(buttonPanel, BorderLayout.CENTER);
         contentPanel.add(southContainerPanel, BorderLayout.SOUTH);
 
-        contentPanel.setPreferredSize(new Dimension(600, 400));
+        // Let the surrounding split pane control the overall height.
+        // Make the scroll pane prefer the same size used by the workspace table so behavior matches.
+        scrollPane.setPreferredSize(new Dimension(600, 150));
         add(contentPanel, BorderLayout.CENTER);
 
         // --- Action Listeners ---

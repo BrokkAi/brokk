@@ -7,10 +7,12 @@ import java.awt.Component;
 import java.awt.Dimension;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSplitPane;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
+import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -190,6 +192,12 @@ public class DependenciesDrawerPanel extends JPanel {
     private void createPanel() {
         var dependenciesPanel = new DependenciesPanel(chrome);
         activeDependenciesPanel = dependenciesPanel;
+        
+        // Add title label at the same level as workspace title
+        JLabel titleLabel = new JLabel("Dependencies");
+        titleLabel.setBorder(new EmptyBorder(2, 5, 2, 5)); // Match workspace title border
+        
+        drawerContentPanel.add(titleLabel, BorderLayout.NORTH);
         drawerContentPanel.add(dependenciesPanel, BorderLayout.CENTER);
         drawerContentPanel.revalidate();
         drawerContentPanel.repaint();
