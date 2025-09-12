@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import static io.github.jbellis.brokk.prompts.EditBlockUtils.DEFAULT_FENCE;
 
 import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -105,7 +106,7 @@ public class EditBlock {
      * blocks corresponding to new files.
      */
     public static EditResult apply(IContextManager contextManager, IConsoleIO io, Collection<SearchReplaceBlock> blocks)
-            throws IOException {
+            throws IOException, InterruptedException {
         // Track which blocks succeed or fail during application
         List<FailedBlock> failed = new ArrayList<>();
         Map<SearchReplaceBlock, ProjectFile> succeeded = new HashMap<>();
@@ -166,7 +167,7 @@ public class EditBlock {
                                  this block, omit it from your reply.
                                  """
                                     .stripIndent();
-                } catch (NoMatchException | AmbiguousMatchException e2) {
+                } catch (NoMatchException | AmbiguousMatchException | InterruptedException e2) {
                     commentary = "";
                 }
 
@@ -294,7 +295,7 @@ public class EditBlock {
      */
     public static void replaceInFile(
             ProjectFile file, String beforeText, String afterText, IContextManager contextManager)
-            throws IOException, NoMatchException, AmbiguousMatchException, org.eclipse.jgit.api.errors.GitAPIException {
+            throws IOException, NoMatchException, AmbiguousMatchException, org.eclipse.jgit.api.errors.GitAPIException, InterruptedException {
         String original = file.exists() ? file.read() : "";
         String updated = replaceMostSimilarChunk(contextManager, original, beforeText, afterText);
 
@@ -333,7 +334,7 @@ public class EditBlock {
      * line edit using that snippet as the search block.
      */
     static String replaceMostSimilarChunk(IContextManager contextManager, String content, String target, String replace)
-            throws AmbiguousMatchException, NoMatchException {
+            throws AmbiguousMatchException, NoMatchException, InterruptedException {
         // -----------------------------
         // 0) BRK_CONFLICT block special-case (existing behavior)
         // -----------------------------
@@ -362,8 +363,7 @@ public class EditBlock {
             }
             // Replace the single occurrence
             var replaceMatcher = findPattern.matcher(content);
-            var replaced = replaceMatcher.replaceFirst(java.util.regex.Matcher.quoteReplacement(replace));
-            return replaced;
+            return replaceMatcher.replaceFirst(Matcher.quoteReplacement(replace));
         }
 
         // -----------------------------
@@ -376,7 +376,7 @@ public class EditBlock {
 
             // This method is only invoked when analyzer supports SourceCodeProvider (per goal),
             // but we still check and produce a helpful error if not.
-            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var analyzer = contextManager.getAnalyzer();
             var scpOpt = analyzer.as(io.github.jbellis.brokk.analyzer.SourceCodeProvider.class);
             if (scpOpt.isEmpty()) {
                 throw new NoMatchException("Analyzer does not support SourceCodeProvider; cannot use BRK_" + kind);
@@ -390,7 +390,7 @@ public class EditBlock {
                     // Try a helpful hint: look for same short name in other packages
                     var shortName = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                     var suggestions = analyzer.searchDefinitions(shortName).stream()
-                            .map(cu -> cu.fqName())
+                            .map(CodeUnit::fqName)
                             .filter(n -> {
                                 int idx = Math.max(n.lastIndexOf('.'), n.lastIndexOf('$'));
                                 return n.substring(idx + 1).equals(shortName);
@@ -407,7 +407,7 @@ public class EditBlock {
                 if (sources.isEmpty()) {
                     var methodKey = fqName.contains(".") ? fqName.substring(fqName.lastIndexOf('.') + 1) : fqName;
                     var suggestions = analyzer.searchDefinitions(methodKey).stream()
-                            .map(cu -> cu.fqName())
+                            .map(CodeUnit::fqName)
                             .limit(3)
                             .toList();
                     var extra = suggestions.isEmpty() ? "" : " Did you mean " + String.join(", ", suggestions) + "?";

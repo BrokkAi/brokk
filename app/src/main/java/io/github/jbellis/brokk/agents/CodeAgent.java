@@ -35,7 +35,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -174,7 +173,7 @@ public class CodeAgent {
             es = parseOutcome.es();
 
             // APPLY PHASE applies blocks
-            var applyOutcome = applyPhase(cs, es, parser, metrics);
+            var applyOutcome = applyPhase(cs, es, metrics);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
                 break;
@@ -327,7 +326,7 @@ public class CodeAgent {
             editState = step.es();
 
             // ----- 1-e.  APPLY PHASE -----------------------------------------
-            step = applyPhase(conversationState, editState, parser, null);
+            step = applyPhase(conversationState, editState, null);
             if (step instanceof Step.Retry retry2) {
                 conversationState = retry2.cs();
                 editState = retry2.es();
@@ -740,7 +739,7 @@ public class CodeAgent {
         }
     }
 
-    Step applyPhase(ConversationState cs, EditState es, EditBlockParser parser, @Nullable Metrics metrics) {
+    Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         if (es.pendingBlocks().isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
             return new Step.Continue(cs, es);
