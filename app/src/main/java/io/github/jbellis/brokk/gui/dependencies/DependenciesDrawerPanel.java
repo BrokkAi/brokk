@@ -27,7 +27,7 @@ public class DependenciesDrawerPanel extends JPanel {
     private @Nullable DependenciesPanel activeDependenciesPanel;
 
     // Drawer state management
-    private double lastDividerLocation = 0.5;
+    private double lastDividerLocation = -1.0;
     private int originalDividerSize;
 
     // Dependencies
@@ -146,7 +146,7 @@ public class DependenciesDrawerPanel extends JPanel {
 
             // Use saved location if reasonable, otherwise default to 67/33 split
             double loc = lastDividerLocation;
-            if (loc <= 0.0 || loc >= 1.0) {
+            if (loc <= 0.0 || loc >= 1.0 || Math.abs(loc - 0.5) < 1e-6) {
                 loc = 0.67;
             }
 
