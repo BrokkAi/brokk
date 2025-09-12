@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.terminal;
 
 import com.jediterm.pty.PtyProcessTtyConnector;
+import com.jediterm.terminal.CursorShape;
 import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
@@ -278,6 +279,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Trigger repaint to apply the changes
         var w = widget;
         if (w != null) {
+            // needed to force the color update
+            w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
         }
     }
