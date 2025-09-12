@@ -47,8 +47,7 @@ public final class DependenciesPanel extends JPanel {
     private final DefaultTableModel tableModel;
     private final JTable table;
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
-    private final JLabel totalFilesLabel;
-    private final JLabel totalLocLabel;
+    private final JLabel totalsLabel;
     private final Set<ProjectFile> initialFiles;
     private boolean isUpdatingTotals = false;
 
@@ -126,10 +125,8 @@ public final class DependenciesPanel extends JPanel {
         var totalsPanel = new JPanel();
         totalsPanel.setLayout(new BoxLayout(totalsPanel, BoxLayout.Y_AXIS));
         totalsPanel.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, Constants.H_GAP));
-        totalFilesLabel = new JLabel("Files in Code Intelligence: 0");
-        totalLocLabel = new JLabel("LoC in Code Intelligence: 0");
-        totalsPanel.add(totalFilesLabel);
-        totalsPanel.add(totalLocLabel);
+        totalsLabel = new JLabel("Files/LoC in Code Intelligence: 0/0");
+        totalsPanel.add(totalsLabel);
 
         // --- South Panel: Totals (left) and Buttons (right) ---
         var southContainerPanel = new JPanel(new BorderLayout());
@@ -271,8 +268,7 @@ public final class DependenciesPanel extends JPanel {
                 totalLoc += (Long) tableModel.getValueAt(i, 3);
             }
 
-            totalFilesLabel.setText(String.format("Files in Code Intelligence: %,d", totalFiles));
-            totalLocLabel.setText(String.format("LoC in Code Intelligence: %,d", totalLoc));
+            totalsLabel.setText(String.format("Files/LoC in Code Intelligence: %,d/%,d", totalFiles, totalLoc));
         } finally {
             isUpdatingTotals = false;
         }
