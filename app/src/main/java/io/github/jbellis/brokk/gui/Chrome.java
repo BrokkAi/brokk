@@ -163,7 +163,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel workspaceTopContainer;
 
-
     // Panels:
     private final WorkspacePanel workspacePanel;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
@@ -398,8 +397,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Create a right-hand Dependencies drawer beside the Workspace
         workspaceDependenciesSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        DependenciesDrawerPanel dependenciesDrawerPanel =
-                new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
+        DependenciesDrawerPanel dependenciesDrawerPanel = new DependenciesDrawerPanel(this, workspaceDependenciesSplit);
         workspaceDependenciesSplit.setResizeWeight(1.0); // Give priority to workspace on resize
         workspaceDependenciesSplit.setLeftComponent(workspacePanel);
         workspaceDependenciesSplit.setRightComponent(dependenciesDrawerPanel);

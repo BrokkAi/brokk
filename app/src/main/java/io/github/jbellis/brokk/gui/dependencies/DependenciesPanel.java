@@ -77,7 +77,7 @@ public final class DependenciesPanel extends JPanel {
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)));
-        
+
         this.chrome = chrome;
         this.initialFiles = chrome.getProject().getAllFiles();
 
